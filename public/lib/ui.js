@@ -107,6 +107,6 @@ export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(
 
 export function revealLabel(platform) {
   if (platform === 'darwin') return 'Mostrar no Finder'
-  if (platform === 'win32') return 'Mostrar no Explorador'
+  if (platform === 'win32') return 'Mostrar no Explorer'
   return 'Mostrar na pasta'
 }

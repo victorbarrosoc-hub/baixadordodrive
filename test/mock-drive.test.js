@@ -1000,9 +1000,23 @@ test('virtualBytes, virtualMd5 e writeVirtualFile batem com o mock', async t => 
   assert.notEqual(v2.headRevisionId, file.headRevisionId)
   assert.equal(await mock.contentMd5(file.id), md5(Buffer.from('nova versão')))
 
+  // arquivo virtual gigante: metadados na hora (md5 provisório) e Range em deslocamentos > 4 GiB
+  const hugeSize = 200 * 1024 ** 3
+  const huge = mock.addFile('gigante.mov', 'root', { size: hugeSize, seed: 77 })
+  let t0 = performance.now()
+  const hugeMeta = await requestJSON(`${api}/files/${huge.id}?fields=size,md5Checksum`, { headers: auth })
+  assert.ok(performance.now() - t0 < 2000)
+  assert.equal(hugeMeta.size, String(hugeSize))
+  assert.match(hugeMeta.md5Checksum, /^[0-9a-f]{32}$/)
+  assert.equal(mock.getItem(huge.id).md5, hugeMeta.md5Checksum)
+  const at = 150 * 1024 ** 3 + 12345
+  const far = await get(`${api}/files/${huge.id}?alt=media`, { headers: { ...auth, range: `bytes=${at}-${at + MiB - 1}` }, expect: [206] })
+  assert.equal(far.headers['content-range'], `bytes ${at}-${at + MiB - 1}/${hugeSize}`)
+  assert.ok(far.buf.equals(virtualBytes(77, at, at + MiB)))
+
   // latência configurável
   mock.setOptions({ latencyMs: 150 })
-  const t0 = performance.now()
+  t0 = performance.now()
   await requestJSON(`${api}/files/${file.id}?fields=id`, { headers: auth })
   assert.ok(performance.now() - t0 >= 120)
 })

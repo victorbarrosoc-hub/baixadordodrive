@@ -28,6 +28,8 @@ let state = {
   batches: [],
   stats: EMPTY_STATS,
   compare: {}, // jobId -> { status, progress, error }
+  epoch: 0, // conta as cargas completas (hello / /api/state); quem observa transições recomeça a contagem
+  oauthWait: null, // desktop: esperando o login terminar no navegador do sistema
 }
 
 const listeners = new Set()
@@ -83,6 +85,7 @@ function applyFull(data) {
   setState({
     status: 'ready',
     loadError: null,
+    epoch: state.epoch + 1,
     app: data.app || state.app,
     setup: data.setup || state.setup,
     accounts,
@@ -128,6 +131,10 @@ export function setSetup(setup) {
 
 export function setAccounts(accounts) {
   setState({ accounts, activeAccountId: pickActiveAccount(accounts, state.activeAccountId) })
+}
+
+export function setOAuthWait(value) {
+  setState({ oauthWait: value })
 }
 
 export function setActiveAccount(id) {

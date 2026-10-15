@@ -3,7 +3,7 @@
 // A ideia é ser fiel ao Google (docs/GOOGLE-NOTES.md), inclusive nas partes chatas, porque os motores são
 // validados contra ele:
 //  - OAuth loopback com PKCE S256, código de uso único, client_secret exigido, refresh sem refresh_token novo.
-//  - Drive: formato de erro do Google, `fields` (resposta parcial; sem `fields` vem só kind/id/name/mimeType;
+//  - Drive: formato de erro do Google, `fields` (resposta parcial; sem `fields` vem só kind/id/name/mimeType/resourceKey;
 //    about EXIGE fields), paginação, `q` com and/or/not/parênteses, itens de drives compartilhados escondidos sem
 //    supportsAllDrives/includeItemsFromAllDrives, resourceKey, lixeira incluída por padrão na listagem.
 //  - Download com Range (206/416) e falhas: conexão que cai, conexão que trava, 5xx/429/403, Content-Range errado,
@@ -52,6 +52,9 @@ const DEFAULT_OPTIONS = {
   authDeny: false,
   omitRefreshToken: false,
   nameQueryCaseSensitive: false,
+  // Arquivos virtuais maiores que isso informam um md5Checksum "de mentirinha" (determinístico) para a listagem
+  // não esperar minutos calculando o MD5 de 200 GB. contentMd5() continua calculando o verdadeiro.
+  virtualMd5Limit: 4 * 1024 ** 3,
 }
 
 const DEFAULT_USER = {
@@ -472,7 +475,14 @@ class Pacer {
       this.sent = 0
     }
     this.sent += n
-    const wait = this.start + (this.sent * 1000) / bps - performance.now()
+    const now = performance.now()
+    let due = this.start + (this.sent * 1000) / bps
+    // Depois de uma pausa (backpressure), não deixa "tirar o atraso" com rajada maior que 250 ms de banda.
+    if (due < now - 250) {
+      this.start += now - 250 - due
+      due = now - 250
+    }
+    const wait = due - now
     if (wait > 1) await delay(wait, this.signal)
   }
 }
@@ -1089,7 +1099,7 @@ class MockDrive {
       driveId: item.driveId,
       trashed: item.trashed,
       size: c ? c.size : null,
-      md5: c ? (item.md5Override !== undefined ? item.md5Override : c.md5 ?? null) : null,
+      md5: this._reportedMd5Sync(item),
       seed: c?.kind === 'virtual' ? c.seed : null,
       modifiedTime: item.modifiedTime,
       createdTime: item.createdTime,
@@ -1099,6 +1109,15 @@ class MockDrive {
       isFolder: item.mimeType === FOLDER_MIME,
       shortcutDetails: item.shortcutDetails ? { ...item.shortcutDetails } : null,
     }
+  }
+
+  /** md5Checksum que o Drive informa, se já dá para saber sem calcular nada. */
+  _reportedMd5Sync(item) {
+    const c = item.content
+    if (!c) return null
+    if (item.md5Override !== undefined) return item.md5Override
+    if (c.kind === 'virtual' && c.size > this.options.virtualMd5Limit) return md5Hex(`sobedesce-mock-virtual:${c.s}:${c.size}`)
+    return c.md5 ?? null
   }
 
   _makeContent({ size, seed, content }) {
@@ -1343,7 +1362,8 @@ class MockDrive {
         j.fileExtension = ext
       }
       if (!mask || maskWants(mask, 'md5Checksum')) {
-        const md5 = item.md5Override !== undefined ? item.md5Override : await this._md5(c)
+        const known = this._reportedMd5Sync(item)
+        const md5 = known ?? (item.md5Override === undefined ? await this._md5(c) : null)
         if (md5) j.md5Checksum = md5
       }
       j.headRevisionId = item.headRevisionId
@@ -2400,12 +2420,18 @@ class MockDrive {
     let fh = null
     const flush = async () => {
       if (!pendingLen || writeError) return
-      const buf = pending.length === 1 ? pending[0] : Buffer.concat(pending, pendingLen)
-      pending.length = 0
+      const bufs = pending.splice(0)
+      const total = pendingLen
       pendingLen = 0
       try {
-        await fh.write(buf, 0, buf.length, writePos)
-        writePos += buf.length
+        // writev pode gravar menos que o pedido: completa o resto antes de seguir.
+        let { bytesWritten } = await fh.writev(bufs, writePos)
+        while (bytesWritten < total) {
+          const rest = Buffer.concat(bufs, total).subarray(bytesWritten)
+          const r = await fh.write(rest, 0, rest.length, writePos + bytesWritten)
+          bytesWritten += r.bytesWritten
+        }
+        writePos += total
       } catch (err) {
         writeError = err
       }

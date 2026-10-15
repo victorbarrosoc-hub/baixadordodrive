@@ -1,7 +1,8 @@
 // Ações compartilhadas entre telas (transferências, envio, revelar no Finder).
 import { api, attempt } from './api.js'
 import { toast } from './toasts.js'
-import { confirmDialog, pickLocal, pickDriveFolder } from './modals.js'
+import { confirmDialog, pickDriveFolder } from './modals.js'
+import { pickUploadPaths, revealPath } from './desktop.js'
 import { getState } from './store.js'
 import { bytes, plural } from './format.js'
 
@@ -40,9 +41,9 @@ export async function cancelBatch(batch, n) {
   return null
 }
 
+/** Mostra no Finder/Explorer: pela ponte nativa no desktop, pelo motor no navegador. */
 export function reveal(path) {
-  if (!path) return null
-  return attempt(api.post('/api/reveal', { path }))
+  return revealPath(path)
 }
 
 export function driveFileUrl(fileId) {
@@ -74,10 +75,10 @@ export async function uploadPaths({ accountId, paths, destFolderId, driveId }) {
 }
 
 /** Fluxo completo: escolher no computador → escolher pasta do Drive → enviar. */
-export async function uploadFlow({ destFolderId, driveId, destName } = {}) {
+export async function uploadFlow({ destFolderId, driveId, destName, anchor } = {}) {
   const { activeAccountId } = getState()
   if (!activeAccountId) return null
-  const paths = await pickLocal({ mode: 'files', title: destName ? `Enviar para “${destName}”` : 'O que você quer enviar?' })
+  const paths = await pickUploadPaths({ title: destName ? `Enviar para “${destName}”` : 'O que você quer enviar?', anchor })
   if (!paths?.length) return null
   let dest = destFolderId ? { id: destFolderId, driveId } : null
   if (!dest) {
