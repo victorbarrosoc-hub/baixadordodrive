@@ -448,3 +448,17 @@ filtros), **Drive** (navegar Meu Drive e drives compartilhados, selecionar e bai
 atual), **Comparar** (pasta local × pasta do Drive, árvore com o que falta por pasta, botão
 "Subir o que falta"), **Ajustes**, e **Primeiros passos** (configurar credenciais Google + conectar conta).
 Seletor de pastas/arquivos locais próprio (modal) usando `/api/local/*`.
+
+### O que a interface espera do servidor (decidido ao construir a UI)
+
+- `/api/local/list?hidden=1` liga arquivos ocultos (ausente = desligado).
+- `path` em `/api/drive/:acc/list` é o breadcrumb da raiz até a pasta atual, incluindo a atual. Drive compartilhado
+  é navegado com `folderId` = id do drive. Upload na raiz manda `destFolderId: 'root'` (+ `driveId` quando for drive compartilhado).
+- Eventos SSE podem vir como array puro ou embrulhados (`{ transfers: [...] }`); `batches` substitui a lista inteira,
+  `transfers` mescla por id. Evento opcional `setup` (`{ configured, clientIdHint }`) também é tratado.
+- Status de comparação: `running` → `done` | `error` | `canceled`. A UI também consulta `GET /api/compare/:jobId` a cada 2,5 s.
+- `PublicTransfer.priority` (opcional; maior = primeiro) ordena a fila na UI, depois `createdAt`.
+- Item pausado com `error.kind === 'reauth'` mostra "Conectar de novo" (→ `/api/auth/start`).
+- Limites de banda na UI são MB/s decimais (× 1e6); pedaço de upload em MiB (0 = contínuo).
+- Servir de `public/`: `/favicon.svg`, `/lib/*`, `/components/*`, `/app.js`, `/styles.css`. Sem scripts inline (CSP estrita funciona).
+- Depois do OAuth, o callback leva para `/` (a UI recarrega `/api/state`).
