@@ -154,6 +154,11 @@ function Empty() {
 
 export function MainScreen() {
   const user = useAccount()
+  // Com o login restaurado da aba, o GIS ainda não carregou: carrega já, para o toque na pílula
+  // "continuar conectado" poder abrir o popup na hora (sem await dentro do toque).
+  useEffect(() => {
+    if (!DEV) auth.prepare(getState().clientId).catch(() => {})
+  }, [])
   const { dest, needsTap, awake } = useApp((s) => ({ dest: s.dest, needsTap: s.auth.needsTap, awake: s.awake }))
   useEngine()
   const items = engine.items

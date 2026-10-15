@@ -2212,6 +2212,7 @@ code {
     transition: transform 0.3s var(--spring), opacity 0.2s var(--ease);
     box-shadow: var(--shadow-lg);
     width: min(560px, calc(100% - 48px));
+    overflow: hidden;
   }
   .sheet-tall {
     height: min(720px, calc(100% - 48px));
