@@ -103,10 +103,4 @@ export function useNow(ms = 30_000) {
   return now
 }
 
-export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
-
-export function revealLabel(platform) {
-  if (platform === 'darwin') return 'Mostrar no Finder'
-  if (platform === 'win32') return 'Mostrar no Explorer'
-  return 'Mostrar na pasta'
-}
+// (rótulo de "Mostrar no Finder/Explorer" fica em lib/desktop.js, junto com a ponte nativa)

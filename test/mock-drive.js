@@ -55,6 +55,17 @@ const DEFAULT_OPTIONS = {
   // Arquivos virtuais maiores que isso informam um md5Checksum "de mentirinha" (determinístico) para a listagem
   // não esperar minutos calculando o MD5 de 200 GB. contentMd5() continua calculando o verdadeiro.
   virtualMd5Limit: 4 * 1024 ** 3,
+  // true = fala com navegadores (app do celular em teste): responde preflight OPTIONS e põe os headers de CORS
+  // em toda resposta, expondo os que o upload retomável precisa ler (Location, Range…). Desligado por padrão.
+  cors: false,
+}
+
+// Headers de CORS do modo `cors`. "Authorization" vai explícito porque o curinga "*" não cobre esse header.
+const CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'Authorization, *',
+  'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+  'access-control-expose-headers': 'Location, Range, Content-Range, X-Upload-Content-Length',
 }
 
 const DEFAULT_USER = {
@@ -1423,6 +1434,15 @@ class MockDrive {
   _onRequest(req, res) {
     req.on('error', noop)
     res.on('error', noop)
+    if (this.options.cors) {
+      // setHeader + writeHead: os headers daqui se juntam aos de cada resposta (writeHead/_send/_stream).
+      for (const [name, value] of Object.entries(CORS_HEADERS)) res.setHeader(name, value)
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, { 'access-control-max-age': '600', 'content-length': 0 })
+        res.end()
+        return
+      }
+    }
     const p = this._dispatch(req, res).catch(err => {
       if (process.env.MOCK_DRIVE_DEBUG) console.error('[mock-drive]', err)
       this._send(res, 500, gError(500, 'internalError', 'Internal Error'))

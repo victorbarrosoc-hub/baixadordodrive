@@ -122,6 +122,7 @@ export class MetadataLimiter {
     this.maxRate = Math.max(0.1, ratePerSec)
     this.cooldownMs = cooldownMs
     this.recoverMs = Math.max(1, recoverMs) // tempo para ir de quase zero ao máximo
+    this.minRate = Math.max(0.5, this.maxRate / 10) // nem o pior recuo deixa a navegação parada
     this.limitF = this.maxConcurrent
     this.limit = this.maxConcurrent
     this.rate = this.maxRate
@@ -202,17 +203,23 @@ export class MetadataLimiter {
     this.#pump()
   }
 
-  /** O Google pediu calma (403/429 de limite). Vários erros da mesma rajada contam como um corte só. */
+  /** O Google pediu calma (403/429 de limite). Erros dentro do mesmo resfriamento contam como um corte só. */
   penalize() {
     this.#tick()
     const now = Date.now()
-    if (now - this.lastCut < 1000) return
+    if (now - this.lastCut < this.cooldownMs) return
     this.lastCut = now
     this.cuts++
-    this.rate = Math.max(0.5, this.rate / 2)
+    this.rate = Math.max(this.minRate, this.rate / 2)
     this.limitF = Math.max(1, this.limitF / 2)
     this.limit = Math.max(1, Math.floor(this.limitF))
     this.tokens = Math.min(this.tokens, 0)
+  }
+
+  /** Estado atual (para testes e diagnóstico). */
+  stats() {
+    this.#tick()
+    return { active: this.active, waiting: this.waiters.length, limit: this.limit, rate: this.rate, cuts: this.cuts }
   }
 }
 
