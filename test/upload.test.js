@@ -3,6 +3,7 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
+import { truncateSync } from 'node:fs'
 import path from 'node:path'
 import { setupDrive, makeTmpDir, randomFile, waitFor } from './helpers.js'
 import { UploadTask, chunkLength, committedFromRange, mimeFor, MAX_UPLOAD_SIZE } from '../src/engine/upload.js'
@@ -575,4 +576,141 @@ test('12. limite de banda de 8 MB/s respeitado (±30%)', async t => {
   const measured = size / elapsed
   assert.ok(measured >= rate * 0.7 && measured <= rate * 1.3, `velocidade ${(measured / 1e6).toFixed(2)} MB/s fora de 8 ±30%`)
   assert.ok(sampled > rate * 0.5 && sampled < rate * 1.6, `speed() no meio: ${(sampled / 1e6).toFixed(2)} MB/s`)
+})
+
+test('13. MD5 diferente → falha com verify mismatch; tentar de novo troca o conteúdo do MESMO arquivo', async t => {
+  const env = await setup(t)
+  const file = await localFile(env, 'K012.mov', 2 * MiB + 3, 91)
+  const record = makeRecord(env, file)
+  // Calculadora "mentirosa": simula o arquivo ter chegado diferente.
+  const liar = { hash: async () => '0'.repeat(32) }
+  const ctx = makeCtx(env)
+  ctx.hasher = liar
+  const err = await new UploadTask(record, ctx).run(new AbortController().signal).then(() => null, e => e)
+  assert.equal(err?.kind, 'fatal')
+  assert.equal(err.reason, 'checksumMismatch')
+  assert.equal(record.verify.state, 'mismatch')
+  assert.equal(record.verify.expected, '0'.repeat(32))
+  assert.equal(record.verify.actual, file.md5)
+  assert.equal(record.session, null)
+  const badId = record.target.replaceFileId
+  assert.ok(badId, 'próxima tentativa substitui o arquivo que ficou no Drive')
+  assert.ok(env.mock.getItem(badId), 'o arquivo ficou no Drive')
+
+  await new UploadTask(record, makeCtx(env)).run(new AbortController().signal)
+  await assertUploaded(env, record, file)
+  assert.equal(record.target.fileId, badId, 'mesmo arquivo, nova versão')
+  assert.equal(record.verify.state, 'ok')
+  assert.equal(env.mock.listAll().filter(it => it.name === 'K012.mov').length, 1, 'sem duplicata')
+})
+
+test('14. pausa durante a conferência → retomada pergunta ao Google (já terminou) e confere', async t => {
+  const env = await setup(t)
+  const file = await localFile(env, 'L013.mov', 3 * MiB, 92)
+  const record = makeRecord(env, file)
+  let saved = null
+  const ac = new AbortController()
+  // Calculadora que só termina quando cancelada: a pausa chega durante 'verifying'.
+  const slow = {
+    hash: (_p, { signal }) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(Object.assign(new Error('parou'), { name: 'AbortError' })), { once: true })
+      }),
+  }
+  const ctx = makeCtx(env, { onPersist: () => (saved = JSON.stringify(record)) })
+  ctx.hasher = slow
+  const p = new UploadTask(record, ctx).run(ac.signal)
+  await waitFor(() => record.status === 'verifying', { timeoutMs: 10_000 })
+  ac.abort()
+  await assert.rejects(p, err => isAbortError(err))
+  const json = JSON.parse(saved)
+  assert.ok(json.session, 'sessão (já completa) fica guardada')
+  assert.equal(env.mock.listAll().filter(it => it.name === 'L013.mov').length, 1)
+
+  env.mock.resetStats()
+  const record2 = JSON.parse(saved)
+  await new UploadTask(record2, makeCtx(env)).run(new AbortController().signal)
+  await assertUploaded(env, record2, file)
+  const stats = env.mock.stats()
+  assert.equal(stats.statusQueries, 1)
+  assert.equal(stats.uploadPuts, 0, 'nada reenviado')
+  assert.equal(stats.uploadSessionsCreated, 0)
+  assert.equal(record2.verify.state, 'ok')
+  assert.equal(env.mock.listAll().filter(it => it.name === 'L013.mov').length, 1, 'sem duplicata')
+})
+
+test('15. arquivo encolheu durante o envio → fatal; a próxima tentativa recomeça com o arquivo novo', async t => {
+  const env = await setup(t, { perConnectionBps: 8 * MiB })
+  const size = 16 * MiB
+  const file = await localFile(env, 'M014.mov', size, 93)
+  const record = makeRecord(env, file)
+  let cut = false
+  const ctx = makeCtx(env, {
+    onBytes: () => {
+      if (!cut && ctx.sent >= 2 * MiB) {
+        cut = true
+        // Síncrono: acontece antes da próxima leitura do stream.
+        truncateSync(file.path, 4 * MiB)
+      }
+    },
+  })
+  const err = await new UploadTask(record, ctx).run(new AbortController().signal).then(() => null, e => e)
+  assert.equal(err?.kind, 'fatal')
+  assert.equal(err.reason, 'localChanged')
+  assert.match(err.message, /mudou enquanto era enviado/)
+  assert.equal(env.mock.listAll().filter(it => it.name === 'M014.mov').length, 0, 'nada pela metade no Drive')
+
+  env.mock.setOptions({ perConnectionBps: 0 })
+  const md5 = await randomFile(file.path, 4 * MiB, 93)
+  await new UploadTask(record, makeCtx(env)).run(new AbortController().signal)
+  await assertUploaded(env, record, { ...file, size: 4 * MiB, md5 })
+  assert.equal(record.size, 4 * MiB)
+})
+
+test('16. pasta de destino apagada (id velho) → procura/cria de novo; alvo do replace apagado → sobe como novo', async t => {
+  const env = await setup(t)
+  const base = env.mock.addFolder('Base')
+  const old = env.mock.addFolder('Destino', base.id)
+  env.mock.deleteItem(old.id)
+  const file = await localFile(env, 'N015.mov', 1 * MiB, 94)
+  const record = makeRecord(env, file, { rootId: base.id, relDir: 'Destino', parentId: old.id })
+  await new UploadTask(record, makeCtx(env)).run(new AbortController().signal)
+  await assertUploaded(env, record, file)
+  assert.notEqual(record.target.parentId, old.id)
+  assert.equal(env.mock.getItem(record.target.parentId).name, 'Destino')
+
+  // Raiz do destino apagada: não tem como recriar → notfound em português.
+  const gone = env.mock.addFolder('Some')
+  env.mock.deleteItem(gone.id)
+  const recGone = makeRecord(env, file, { rootId: gone.id, name: 'outro.mov' })
+  const err = await new UploadTask(recGone, makeCtx(env)).run(new AbortController().signal).then(() => null, e => e)
+  assert.equal(err?.kind, 'notfound')
+  assert.equal(err.message, 'A pasta de destino não existe mais no Drive.')
+
+  // replace cujo alvo sumiu antes de abrir a sessão.
+  const target = env.mock.addFile('P016.mov', base.id, { size: 10, seed: 5 })
+  const file2 = await localFile(env, 'P016.mov', 512 * KiB, 95)
+  const rec2 = makeRecord(env, file2, { rootId: base.id })
+  rec2.target.replaceFileId = target.id
+  env.mock.deleteItem(target.id)
+  await new UploadTask(rec2, makeCtx(env)).run(new AbortController().signal)
+  await assertUploaded(env, rec2, file2)
+  assert.notEqual(rec2.target.fileId, target.id)
+  assert.match(rec2.note, /não existe mais/)
+})
+
+test('17. pausa antes de começar e run() em dobro', async t => {
+  const env = await setup(t)
+  const file = await localFile(env, 'Q017.mov', 256 * KiB, 96)
+  const record = makeRecord(env, file)
+  const ac = new AbortController()
+  ac.abort()
+  env.mock.resetStats()
+  await assert.rejects(new UploadTask(record, makeCtx(env)).run(ac.signal), err => isAbortError(err))
+  assert.deepEqual(env.mock.stats().requests, {}, 'nenhuma requisição')
+  const task = new UploadTask(record, makeCtx(env))
+  const p = task.run(new AbortController().signal)
+  await assert.rejects(task.run(new AbortController().signal), /já está em andamento/)
+  await p
+  await assertUploaded(env, record, file)
 })

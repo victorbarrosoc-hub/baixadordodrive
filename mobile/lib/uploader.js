@@ -89,9 +89,15 @@ function parseJson(text) {
   }
 }
 
-function safeHeader(xhr, name) {
+/**
+ * Lê um header da resposta só se o CORS deixar. getAllResponseHeaders() lista apenas os expostos, então um header
+ * escondido vira null sem o "Refused to get unsafe header" que getResponseHeader() escreve no console.
+ */
+function exposedHeader(xhr, name) {
   try {
-    return xhr.getResponseHeader(name)
+    const all = xhr.getAllResponseHeaders() || ''
+    const m = new RegExp(`^${name}:[ \\t]*(.*)$`, 'im').exec(all)
+    return m ? m[1].trim() : null
   } catch {
     return null
   }
@@ -765,7 +771,7 @@ class Engine {
           it.inflight = Math.min(e.loaded, end - start)
         }
       }
-      xhr.onload = () => finish(() => resolve({ status: xhr.status, range: safeHeader(xhr, 'Range'), text: xhr.responseText }))
+      xhr.onload = () => finish(() => resolve({ status: xhr.status, range: exposedHeader(xhr, 'Range'), text: xhr.responseText }))
       xhr.onerror = () => finish(() => reject(new DriveError(0, 'network', 'A conexão caiu.')))
       xhr.onabort = () => finish(() => reject(new DriveError(0, 'aborted', 'Interrompido.')))
       xhr.ontimeout = () => finish(() => reject(new DriveError(0, 'timeout', 'A conexão travou.')))

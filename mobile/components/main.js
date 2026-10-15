@@ -10,6 +10,7 @@ import { Icon, Wordmark } from './icons.js'
 import { Button, cx, useEngine } from './ui.js'
 import { QueueRow, SequenceBar } from './queue.js'
 import { InstallHint } from './install-hint.js'
+import { isIOS } from '../lib/platform.js'
 
 export function Avatar({ user, size = 32 }) {
   const [broken, setBroken] = useState(false)
@@ -51,9 +52,10 @@ function useAccount() {
   return user
 }
 
-function Header({ user, sum, items }) {
+function Header({ user, sum, items, needsTap }) {
   const active = sum.pending + sum.paused > 0
   const allPaused = sum.pending === 0 && sum.paused > 0
+  const label = allPaused ? 'Pausado' : sum.speed > 0 ? speed(sum.speed) : needsTap ? 'Esperando você' : 'Preparando…'
   return html`<header class=${cx('topbar', active && 'is-active')}>
     <div class="topbar-row">
       <${Wordmark} size=${24} />
@@ -63,15 +65,15 @@ function Header({ user, sum, items }) {
     </div>
     ${active
       ? html`<div class="meter" aria-label="Progresso total">
-          <div class="meter-row">
-            <p class="meter-text">
-              <span class="meter-speed"><${Icon} name="arrow-up" size=${14} strokeWidth=${2.2} />${allPaused ? 'Pausado' : speed(sum.speed)}</span>
-              <span class="meter-dot" aria-hidden="true">·</span>
-              <span>${sum.finished} de ${sum.total}</span>
-              <span class="meter-dot" aria-hidden="true">·</span>
-              <span>${bytes(sum.remaining)} restantes</span>
-            </p>
-            <span class="tc meter-tc" aria-label="tempo restante">${allPaused ? '--:--:--' : timecode(sum.eta)}</span>
+          <div class="meter-main">
+            <div class="meter-left">
+              <p class="meter-speed">
+                <${Icon} name="arrow-up" size=${15} strokeWidth=${2.2} />
+                <span>${label}</span>
+              </p>
+              <p class="meter-sub">${sum.finished} de ${sum.total} · ${bytes(sum.remaining)} restantes</p>
+            </div>
+            <span class="tc meter-tc" aria-label="tempo restante">${allPaused || !sum.speed ? '--:--:--' : timecode(sum.eta)}</span>
             <button
               type="button"
               class="icon-btn meter-btn"
@@ -126,7 +128,9 @@ function Picker({ dest, account }) {
         <span>Vídeos, fotos, qualquer tamanho</span>
       </span>
     </label>
-    <p class="tip"><${Icon} name="info" size=${15} /> <span>Para vídeos no tamanho original, escolha pelo app <b>Arquivos</b>; pela Fototeca o iPhone às vezes converte.</span></p>
+    ${isIOS
+      ? html`<p class="tip"><${Icon} name="info" size=${15} /> <span>Para vídeos no tamanho original, escolha pelo app <b>Arquivos</b>; pela Fototeca o iPhone às vezes converte.</span></p>`
+      : null}
   </div>`
 }
 
@@ -135,7 +139,7 @@ function AwakeNote({ awake }) {
     <span class="awake-dot" aria-hidden="true"></span>
     <div>
       <b>Mantenha esta tela aberta enquanto sobe</b>
-      <span>${awake ? 'A tela vai ficar acesa sozinha.' : 'Se o celular bloquear, o envio pausa e continua quando você voltar.'}</span>
+      <span>${awake ? 'A tela fica acesa sozinha até terminar.' : 'Se bloquear, o envio pausa e continua quando você voltar.'}</span>
     </div>
   </div>`
 }
@@ -158,7 +162,7 @@ export function MainScreen() {
   const running = sum.running > 0
 
   return html`<div class=${cx('screen', 'main', needsTap && 'has-tap-pill')}>
-    <${Header} user=${user} sum=${sum} items=${items} />
+    <${Header} user=${user} sum=${sum} items=${items} needsTap=${needsTap} />
     <main class="main-body">
       <${Destination} dest=${dest} />
       <${Picker} dest=${dest} account=${user?.emailAddress} />
@@ -179,8 +183,8 @@ export function MainScreen() {
         ? html`<div class="notice notice-soft">
             <${Icon} name="refresh" size=${20} />
             <div>
-              <b>${sum.waitingFile === 1 ? '1 envio esperando o arquivo' : `${sum.waitingFile} envios esperando os arquivos`}</b>
-              <p>Escolha os mesmos arquivos de novo que eles continuam de onde pararam.</p>
+              <b>${sum.waitingFile === 1 ? 'Um envio ficou pela metade' : `${sum.waitingFile} envios ficaram pela metade`}</b>
+              <p>Escolha ${sum.waitingFile === 1 ? 'o mesmo arquivo' : 'os mesmos arquivos'} de novo: continua de onde parou.</p>
             </div>
           </div>`
         : null}

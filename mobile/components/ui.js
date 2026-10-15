@@ -35,10 +35,6 @@ export function Pill({ tone = 'neutral', icon, children, class: klass }) {
   </span>`
 }
 
-export function Spinner({ size = 16 }) {
-  return html`<span class="spinner" style=${`width:${size}px;height:${size}px`} aria-hidden="true"></span>`
-}
-
 export function Segmented({ label, value, options, onChange, format = (v) => v }) {
   return html`<div class="segmented" role="radiogroup" aria-label=${label}>
     ${options.map(

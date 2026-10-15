@@ -380,22 +380,26 @@ test('servidor ignora o Range (200 com tudo): vira conexão única, inclusive ao
 })
 
 test('Doc do Google é exportado (com 5xx no caminho); resourceKey vai no header', async t => {
-  const e = await env(t, { mock: { failures: { error5xxProb: 0.5 } } })
+  const e = await env(t)
   const doc = e.mock.addGoogleDoc('Roteiro', 'root', 'document', { size: 5000 })
   const rec = await recordFor(e, doc.id, { exportAs: GOOGLE_EXPORTS['application/vnd.google-apps.document'] })
   assert.equal(rec.size, null)
   const job = makeTask(e, rec)
-  await job.task.run()
+  e.mock.setOptions({ failures: { error5xxProb: 1 } })
+  const p = job.task.run()
+  await waitFor(() => e.mock.stats().faults.error5xx >= 1)
+  e.mock.setOptions({ failures: {} })
+  await p
+  assert.ok(job.task.counters.failures >= 1, 'passou por um 5xx e tentou de novo')
   assert.equal(path.basename(rec.dest.path), 'Roteiro.docx')
   assert.equal((await fs.stat(rec.dest.path)).size, 5000)
   assert.equal(rec.size, 5000)
   assert.equal(rec.bytesDone, 5000)
   assert.equal(rec.verify.state, 'skipped')
   await assert.rejects(fs.access(rec.dest.tempPath))
-  assert.ok(e.mock.stats().requests['files.export'] >= 1)
+  assert.ok(e.mock.stats().requests['files.export'] >= 2)
   assert.equal(e.mock.stats().requests['files.media'] ?? 0, 0)
 
-  e.mock.setOptions({ failures: {} })
   const old = e.mock.addFile('antigo.mov', 'root', { size: 3 * MiB, seed: 92, resourceKey: true })
   const rec2 = await recordFor(e, old.id)
   assert.ok(rec2.source.resourceKey)
@@ -516,4 +520,268 @@ test('limitador de banda a 8 MB/s segura a vazão (±30%)', async t => {
   const bps = size / secs
   assert.ok(bps >= rate * 0.7 && bps <= rate * 1.3, `vazão: ${(bps / 1e6).toFixed(2)} MB/s`)
   assert.equal(await md5File(rec.dest.path), await e.mock.contentMd5(file.id))
+})
+
+test('Content-Range de outro trecho nunca é gravado: descarta e pede de novo', async t => {
+  const e = await env(t, { settings: { connectionsPerDownload: 4, minSegmentSize: 2 * MiB } })
+  const size = 8 * MiB
+  const file = e.mock.addFile('trecho.mov', 'root', { size, seed: 141 })
+  const rec = await recordFor(e, file.id)
+  e.mock.setOptions({ failures: { wrongRangeProb: 1 } })
+  const job = makeTask(e, rec, { retryBaseMs: 50 })
+  const p = job.task.run()
+  await waitFor(() => e.mock.stats().faults.wrongRange >= 4)
+  e.mock.setOptions({ failures: {} })
+  await p
+  assert.ok(job.task.counters.rangeMismatches >= 4, `trechos errados detectados: ${job.task.counters.rangeMismatches}`)
+  await assertDone(e, rec, file.id)
+  assert.equal(rec.verify.state, 'ok')
+})
+
+test('muitas falhas seguidas: desiste com erro "retry" claro e mantém o progresso', async t => {
+  const e = await env(t, { settings: { connectionsPerDownload: 2, minSegmentSize: 1 * MiB } })
+  const file = e.mock.addFile('instavel.mov', 'root', { size: 2 * MiB, seed: 151 })
+  const rec = await recordFor(e, file.id)
+  e.mock.setOptions({ failures: { wrongRangeProb: 1 } }) // só afeta mídia: a revalidação (files.get) passa
+  await assert.rejects(makeTask(e, rec, { retryBaseMs: 1, maxFailures: 3 }).task.run(), err => {
+    const info = classifyError(err)
+    assert.equal(info.kind, 'retry')
+    assert.match(info.message, /falhou muitas vezes seguidas/)
+    return true
+  })
+  assert.ok(rec.attempts >= 3, `attempts: ${rec.attempts}`)
+  assert.equal(rec.segments.length, 2, 'registro continua com os segmentos para retomar')
+  await assert.rejects(fs.access(rec.dest.path))
+})
+
+test('pausa durante a conferência do MD5: retoma só conferindo, sem baixar de novo', async t => {
+  const e = await env(t, { settings: { connectionsPerDownload: 4 } })
+  const size = 64 * MiB
+  const file = e.mock.addFile('conferir.mov', 'root', { size, seed: 161 })
+  const rec = await recordFor(e, file.id)
+  const job = makeTask(e, rec)
+  const ac = new AbortController()
+  job.task.on('status', s => {
+    if (s === 'verifying') ac.abort()
+  })
+  await assert.rejects(job.task.run(ac.signal), err => isAbortError(err))
+  assert.equal(rec.verify.state, 'pending')
+  assert.equal(rec.bytesDone, size)
+  const saved = JSON.parse(JSON.stringify(job.snapshots.at(-1)))
+  await waitMediaIdle(e)
+  e.mock.resetStats()
+  const job2 = makeTask(e, saved)
+  await job2.task.run()
+  assert.equal(e.mock.stats().requests['files.media'] ?? 0, 0, 'nenhum byte baixado de novo')
+  assert.equal(saved.verify.state, 'ok')
+  await assertDone(e, saved, file.id)
+})
+
+test('queda logo depois do rename final: reconhece o arquivo pronto (MD5) e não baixa nem duplica', async t => {
+  const e = await env(t, { settings: { connectionsPerDownload: 2 } })
+  const size = 6 * MiB
+  const file = e.mock.addFile('pronto.mov', 'root', { size, seed: 171 })
+  const rec = await recordFor(e, file.id)
+  const job = makeTask(e, rec)
+  await job.task.run()
+  // Registro como estava antes do rename (tudo baixado, conferência em andamento) — o rename já aconteceu.
+  const before = JSON.parse(JSON.stringify(job.snapshots.find(s => s.verify?.state === 'running')))
+  assert.ok(before.segments.every(s => s.pos === s.end + 1))
+  e.mock.resetStats()
+  const job2 = makeTask(e, before)
+  await job2.task.run()
+  assert.equal(e.mock.stats().requests['files.media'] ?? 0, 0)
+  assert.deepEqual(await fs.readdir(e.destDir), ['pronto.mov'], 'sem cópia "(2)"')
+  assert.equal(before.verify.state, 'ok')
+})
+
+test('ajuste ao vivo: reduzir conexões no meio do download devolve os pedaços e termina certo', async t => {
+  const e = await env(t, { mock: { perConnectionBps: 4 * MiB }, settings: { connectionsPerDownload: 4, minSegmentSize: 4 * MiB } })
+  const size = 16 * MiB
+  const file = e.mock.addFile('ajuste.mov', 'root', { size, seed: 181 })
+  const rec = await recordFor(e, file.id)
+  const job = makeTask(e, rec)
+  const p = job.task.run()
+  await waitFor(() => liveDone(job.task) >= size * 0.25, { timeoutMs: 30_000 })
+  await e.settings.update({ connectionsPerDownload: 1 })
+  await waitFor(() => job.task.liveSegments().filter(s => s.active).length <= 1, { timeoutMs: 10_000, message: 'conexões não caíram para 1' })
+  e.mock.setOptions({ perConnectionBps: 16 * MiB })
+  await p
+  await assertDone(e, rec, file.id)
+})
+
+// ─────────── servidor de Range controlado pelo teste (velocidade por requisição, troca de versão) ───────────
+
+/**
+ * Servidor HTTP mínimo que responde Range com conteúdo determinístico. `bpsFor(n)` dá a velocidade da n-ésima
+ * requisição de mídia (1, 2, 3…). `state.version` troca o conteúdo (tamanho/semente) na hora.
+ */
+async function rangeServer({ versions, bpsFor = () => 0 }) {
+  const http = await import('node:http')
+  const { virtualBytes } = await import('./mock-drive.js')
+  const state = { version: 0, requests: 0 }
+  const server = http.createServer(async (req, res) => {
+    const n = ++state.requests
+    const { size, seed } = versions[state.version]
+    const m = /bytes=(\d+)-(\d+)/.exec(req.headers.range || '')
+    const start = m ? Number(m[1]) : 0
+    const end = m ? Math.min(Number(m[2]), size - 1) : size - 1
+    if (start > end) {
+      res.writeHead(416, { 'content-range': `bytes */${size}` })
+      return res.end()
+    }
+    res.writeHead(m ? 206 : 200, { 'content-length': end - start + 1, ...(m ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}) })
+    const bps = bpsFor(n)
+    const chunk = bps ? Math.max(4096, Math.floor(bps / 20)) : MiB
+    let pos = start
+    const t0 = Date.now()
+    while (pos <= end && !res.destroyed) {
+      const k = Math.min(chunk, end + 1 - pos)
+      const ok = res.write(virtualBytes(seed, pos, pos + k))
+      pos += k
+      if (!ok) {
+        await new Promise(resolve => {
+          const done = () => {
+            res.off('drain', done)
+            res.off('close', done)
+            resolve()
+          }
+          res.once('drain', done)
+          res.once('close', done)
+        })
+      }
+      if (bps) {
+        const due = t0 + ((pos - start) * 1000) / bps
+        const wait = due - Date.now()
+        if (wait > 1) await new Promise(resolve => setTimeout(resolve, wait))
+      }
+    }
+    res.end()
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const url = `http://127.0.0.1:${server.address().port}/media`
+  const close = () =>
+    new Promise(resolve => {
+      server.closeAllConnections()
+      server.close(() => resolve())
+    })
+  return { url, state, close }
+}
+
+/** DriveClient de mentira apontando para o rangeServer (metadados vêm de `versions[state.version]`). */
+function fakeDrive(srv, versions) {
+  const item = () => {
+    const v = versions[srv.state.version]
+    return { id: 'f1', name: 'x.mov', mimeType: 'video/quicktime', size: v.size, md5: v.md5, modifiedTime: '2026-01-01T00:00:00.000Z', headRevisionId: `rev${srv.state.version}`, resourceKey: null, canDownload: true, isFolder: false, isShortcut: false, isGoogleDoc: false }
+  }
+  return {
+    getItem: async () => item(),
+    mediaUrl: () => srv.url,
+    authHeader: async () => ({ authorization: 'Bearer teste' }),
+    item,
+  }
+}
+
+async function md5Virtual(seed, size) {
+  const { virtualBytes } = await import('./mock-drive.js')
+  const h = crypto.createHash('md5')
+  for (let p = 0; p < size; p += 4 * MiB) h.update(virtualBytes(seed, p, Math.min(size, p + 4 * MiB)))
+  return h.digest('hex')
+}
+
+async function localEnv(t, settings) {
+  const home = await fs.mkdtemp(path.join((await import('node:os')).tmpdir(), 'sobedesce-dl-'))
+  const hasher = new Hasher({ cacheFile: path.join(home, 'hash-cache.json'), workers: 1 })
+  t.after(async () => {
+    await hasher.close()
+    await fs.rm(home, { recursive: true, force: true })
+  })
+  const s = new Settings(path.join(home, 'settings.json'))
+  await s.update(settings)
+  return { home, hasher, settings: s, limiter: new BandwidthLimiter(0), destDir: path.join(home, 'Baixados') }
+}
+
+function localRecord(e, drive, name = 'x.mov') {
+  const it = drive.item()
+  const dest = path.join(e.destDir, name)
+  return {
+    id: 't_local', type: 'download', status: 'running', name, relPath: name, size: it.size, bytesDone: 0, attempts: 0,
+    error: null, verify: null, note: null, createdAt: Date.now(), updatedAt: Date.now(),
+    source: { fileId: it.id, mimeType: it.mimeType, md5: it.md5, modifiedTime: it.modifiedTime, headRevisionId: it.headRevisionId, resourceKey: null },
+    dest: { path: dest, tempPath: dest + PART_SUFFIX },
+    segments: [],
+  }
+}
+
+test('conexão lenta (< 25% da mediana) é reaberta do ponto onde parou, sem contar como falha', async t => {
+  const size = 24 * MiB
+  const versions = [{ size, seed: 191, md5: await md5Virtual(191, size) }]
+  // 1ª requisição: 128 KiB/s (estrangulada); as outras: 2 MiB/s.
+  const srv = await rangeServer({ versions, bpsFor: n => (n === 1 ? 128 * 1024 : 2 * MiB) })
+  t.after(srv.close)
+  const e = await localEnv(t, { connectionsPerDownload: 3, minSegmentSize: 8 * MiB, stallTimeoutMs: 60_000 })
+  const drive = fakeDrive(srv, versions)
+  const rec = localRecord(e, drive)
+  const ctx = { drive, settings: e.settings, limiter: e.limiter, hasher: e.hasher, persist() {}, onBytes() {}, log() {} }
+  const task = new DownloadTask(rec, ctx, { slowAfterMs: 1000, slowForMs: 1000, slowCooldownMs: 1000, retryBaseMs: 20 })
+  await task.run()
+  assert.ok(task.counters.slowRestarts >= 1, `reaberturas: ${task.counters.slowRestarts}`)
+  assert.equal(task.counters.failures, 0, 'reabrir conexão lenta não conta como falha')
+  assert.equal(task.counters.stalls, 0)
+  assert.equal(await md5File(rec.dest.path), versions[0].md5)
+  assert.equal(rec.verify.state, 'ok')
+})
+
+test('arquivo muda no Drive DURANTE o download (Content-Range com outro total): recomeça e baixa a versão nova', async t => {
+  const versions = [
+    { size: 16 * MiB, seed: 201, md5: await md5Virtual(201, 16 * MiB) },
+    { size: 12 * MiB, seed: 202, md5: await md5Virtual(202, 12 * MiB) },
+  ]
+  const srv = await rangeServer({ versions, bpsFor: () => 4 * MiB })
+  t.after(srv.close)
+  // 2 pedaços iniciais de 8 MiB e 3 conexões: os pedaços menores terminam e roubam do maior DEPOIS da troca de versão.
+  const e = await localEnv(t, { connectionsPerDownload: 3, minSegmentSize: 8 * MiB })
+  const drive = fakeDrive(srv, versions)
+  const rec = localRecord(e, drive)
+  const task = new DownloadTask(rec, { drive, settings: e.settings, limiter: e.limiter, hasher: e.hasher, persist() {}, onBytes() {}, log() {} }, { retryBaseMs: 20, stealMinBytes: 1 * MiB })
+  const resets = []
+  task.on('reset', r => resets.push(r.reason))
+  const p = task.run()
+  await waitFor(() => task.liveBytes() >= 2 * MiB, { timeoutMs: 20_000 })
+  srv.state.version = 1
+  await p
+  assert.ok(resets.includes('remoteChanged'), `recomeços: ${resets}`)
+  assert.equal(rec.size, 12 * MiB)
+  assert.equal(rec.source.md5, versions[1].md5)
+  assert.equal(await md5File(rec.dest.path), versions[1].md5)
+})
+
+test('tempestade de pausas: pausa e retoma várias vezes seguidas, sempre com tarefa nova', async t => {
+  const e = await env(t, { mock: { perConnectionBps: 8 * MiB }, settings: { connectionsPerDownload: 4, minSegmentSize: 4 * MiB } })
+  const size = 32 * MiB
+  const file = e.mock.addFile('pausas.mov', 'root', { size, seed: 211 })
+  let rec = await recordFor(e, file.id)
+  let pauses = 0
+  for (let round = 0; round < 40; round++) {
+    const job = makeTask(e, rec, { stealMinBytes: 1 * MiB })
+    const ac = new AbortController()
+    const p = job.task.run(ac.signal)
+    const outcome = await Promise.race([
+      p.then(() => 'done', err => err),
+      new Promise(resolve => setTimeout(() => resolve('pause'), 120 + ((round * 37) % 200))),
+    ])
+    if (outcome === 'done') break
+    if (outcome !== 'pause') throw outcome
+    ac.abort()
+    const err = await p.then(() => null, x => x)
+    if (err === null) break // terminou junto com a pausa: vale como concluído
+    assert.ok(isAbortError(err), `pausa rejeita com AbortError (veio ${err?.message})`)
+    pauses++
+    const saved = job.snapshots.at(-1)
+    await assertClaimsOnDisk(e, saved, file.id)
+    rec = JSON.parse(JSON.stringify(saved))
+  }
+  assert.ok(pauses >= 3, `pausas: ${pauses}`)
+  await assertDone(e, rec, file.id)
+  assert.equal(rec.verify.state, 'ok')
 })

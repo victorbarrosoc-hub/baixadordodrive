@@ -75,9 +75,9 @@ export function SetupScreen() {
             <b>Em Origens JavaScript autorizadas, adicione</b>
             <div class="origin">
               <code class="origin-url">${origin}</code>
-              <button type="button" class=${cx('origin-copy', copied && 'is-done')} onClick=${copy} aria-label="Copiar endereço">
+              <button type="button" class=${cx('origin-copy', copied && 'is-done')} onClick=${copy}>
                 <${Icon} name=${copied ? 'check' : 'copy'} size=${16} strokeWidth=${copied ? 2.2 : 1.6} />
-                <span>${copied ? 'Copiado' : 'Copiar'}</span>
+                <span>${copied ? 'Copiado' : 'Copiar endereço'}</span>
               </button>
             </div>
             <span class="sub">Sem barra no fim. “URIs de redirecionamento” pode ficar vazio.</span>
@@ -96,14 +96,14 @@ export function SetupScreen() {
         <label class="field">
           <span class="field-label">ID do cliente</span>
           <input
-            class=${cx('input', 'mono', error && 'is-error')}
+            class=${cx('input', error && 'is-error')}
             type="text"
             inputmode="url"
             autocomplete="off"
             autocapitalize="off"
             autocorrect="off"
             spellcheck="false"
-            placeholder="1234567890-abc….apps.googleusercontent.com"
+            placeholder="Termina em .apps.googleusercontent.com"
             value=${value}
             aria-invalid=${error ? 'true' : 'false'}
             aria-describedby="client-help"

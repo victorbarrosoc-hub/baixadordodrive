@@ -1,9 +1,9 @@
 // Escolher a pasta de destino: Recentes (um toque), Meu Drive e drives compartilhados; só pastas; nova pasta.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { createFolder, listFolders, listSharedDrives } from '../lib/drive.js'
-import { MY_DRIVE, closeSheet, folderTrail, getRecents, pushRecent, setState, toast, useApp } from '../lib/state.js'
+import { closeSheet, folderTrail, getRecents, pushRecent, setState, toast, useApp } from '../lib/state.js'
 import { Icon } from './icons.js'
-import { Button, SheetHead, Spinner, cx } from './ui.js'
+import { Button, SheetHead, cx } from './ui.js'
 
 const cache = new Map() // id → pastas (vale enquanto a página está aberta)
 
@@ -186,7 +186,12 @@ export function FolderSheet() {
   const [nav, setNav] = useState(() => (dest && dest.path?.length ? { path: dest.path, driveId: dest.driveId } : { path: [], driveId: null }))
   const [creating, setCreating] = useState(false)
   const bodyRef = useRef(null)
+  const crumbsRef = useRef(null)
   const atHome = nav.path.length === 0
+  useEffect(() => {
+    const el = crumbsRef.current
+    if (el) el.scrollLeft = el.scrollWidth
+  }, [nav])
   const here = atHome ? null : toFolder(nav.path, nav.driveId)
 
   const go = (path, driveId) => {
@@ -204,12 +209,10 @@ export function FolderSheet() {
       title="Destino"
       left=${html`<button type="button" class="link-btn" onClick=${closeSheet}>Cancelar</button>`}
       right=${!atHome
-        ? html`<button type="button" class="icon-btn" onClick=${() => setCreating(true)} aria-label="Nova pasta" disabled=${creating}>
-            <${Icon} name="folder-plus" size=${21} />
-          </button>`
+        ? html`<button type="button" class="link-btn" onClick=${() => setCreating(true)} disabled=${creating}>Nova pasta</button>`
         : null}
     />
-    <nav class="crumbs" aria-label="Caminho">
+    <nav class="crumbs" aria-label="Caminho" ref=${crumbsRef}>
       <button type="button" class=${cx('crumb', atHome && 'is-here')} onClick=${() => go([], null)} aria-current=${atHome ? 'location' : undefined}>
         <${Icon} name="home" size=${15} /> Início
       </button>
@@ -246,4 +249,3 @@ export function FolderSheet() {
 FolderSheet.label = 'Escolher a pasta de destino'
 FolderSheet.tall = true
 
-export { MY_DRIVE }

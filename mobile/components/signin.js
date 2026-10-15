@@ -3,7 +3,7 @@
 import { html, useEffect, useState } from '../vendor/preact-htm.js'
 import * as auth from '../lib/auth.js'
 import { setState, useApp } from '../lib/state.js'
-import { Icon, Mark } from './icons.js'
+import { Icon } from './icons.js'
 import { Button, cx } from './ui.js'
 import { InstallHint } from './install-hint.js'
 
@@ -69,9 +69,4 @@ export function SignInScreen() {
     </footer>
     <${InstallHint} />
   </div>`
-}
-
-// Marca grande do topo (barras desencontradas, como no ícone). Exportada para a tela de abertura.
-export function HeroMark() {
-  return html`<${Mark} size=${56} />`
 }

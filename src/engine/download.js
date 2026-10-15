@@ -22,6 +22,7 @@ const WRITE_CHUNK = MiB // agrupa o que chega da rede em gravações de até 1 M
 const MAX_CONNECTIONS = 32
 const EMPTY_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
 const MAX_REMOTE_RESTARTS = 3
+const MIN_STEAL = 256 * 1024
 
 /** Ajustes finos (os testes encurtam alguns). Os valores padrão são os do contrato. */
 export const DOWNLOAD_DEFAULTS = Object.freeze({
@@ -99,6 +100,18 @@ function cutError() {
   return err
 }
 
+/** Desistência depois de muitas falhas seguidas: a mensagem original diria "tentando de novo", o que não é mais verdade. */
+function exhaustedError(err) {
+  const info = classifyError(err)
+  const e = new SobeDesceError('retry', 'A conexão com o Google falhou muitas vezes seguidas. Tente de novo daqui a pouco.', {
+    reason: info.reason || 'tooManyFailures',
+    status: info.status,
+    retryAfterMs: info.retryAfterMs,
+  })
+  e.cause = err
+  return e
+}
+
 function rangeMismatchError() {
   return new SobeDesceError('retry', 'O Google mandou um trecho diferente do pedido. Tentando de novo…', { reason: 'rangeMismatch' })
 }
@@ -149,6 +162,19 @@ async function exists(file) {
   } catch (err) {
     if (err.code === 'ENOENT') return false
     throw err
+  }
+}
+
+/** No Windows, antivírus/indexador seguram o arquivo recém-fechado por um instante: o rename falha e passa sozinho. */
+async function renameWithRetry(from, to) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fs.rename(from, to)
+    } catch (err) {
+      const transient = err.code === 'EBUSY' || (process.platform === 'win32' && (err.code === 'EPERM' || err.code === 'EACCES'))
+      if (!transient || attempt >= 5) throw err
+      await sleep(100 * 2 ** attempt)
+    }
   }
 }
 
@@ -281,6 +307,7 @@ export class DownloadTask extends EventEmitter {
       rec.dest.tempPath ||= rec.dest.path + PART_SUFFIX
       if (rec.source.export) return await this.#runExport(signal)
       if (rec.size === 0) return await this.#runEmpty(signal)
+      if (await this.#alreadyPlaced(signal)) return
       for (let round = 0; ; round++) {
         const result = await this.#runSegmented(signal)
         if (result === 'empty') return await this.#runEmpty(signal)
@@ -340,7 +367,9 @@ export class DownloadTask extends EventEmitter {
 
     let fh
     if (segs) {
-      await this.#checkSpace(path.dirname(temp), size - doneOf(segs))
+      // Arquivo esparso ocupa só o que já foi gravado; em disco sem esparsos (exFAT) já ocupa tudo.
+      const allocated = Number(stat.blocks) > 0 ? Number(stat.blocks) * 512 : 0
+      await this.#checkSpace(path.dirname(temp), size - Math.max(doneOf(segs), allocated))
       fh = await openFile(temp, 'r+')
       if (stat.size > size) {
         try {
@@ -468,11 +497,16 @@ export class DownloadTask extends EventEmitter {
     this.segs = [liveSeg({ start: 0, end: this.record.size - 1, pos: Math.min(prefix, this.record.size) })]
   }
 
+  /** Nunca rouba pedaços minúsculos (cada metade precisa valer uma requisição nova). */
+  #stealMin() {
+    return Math.max(MIN_STEAL, Number(this.opts.stealMinBytes) || 0)
+  }
+
   #hasWork() {
     for (const s of this.segs) {
       if (s.pos > s.end) continue
       if (!s.active) return true
-      if (!this.single && s.end - Math.max(s.pos, s.claimed) + 1 > this.opts.stealMinBytes) return true
+      if (!this.single && s.end - Math.max(s.pos, s.claimed) + 1 > this.#stealMin()) return true
     }
     return false
   }
@@ -515,7 +549,7 @@ export class DownloadTask extends EventEmitter {
         bestFrom = from
       }
     }
-    if (!best || bestRem <= this.opts.stealMinBytes) return null
+    if (!best || bestRem <= this.#stealMin()) return null
     const mid = bestFrom + Math.ceil(bestRem / 2)
     const seg = liveSeg({ start: mid, end: best.end, pos: mid })
     best.end = mid - 1 // o dono para sozinho ao passar do novo fim (conferido a cada pedaço recebido)
@@ -593,7 +627,7 @@ export class DownloadTask extends EventEmitter {
     this.record.attempts = Math.max(this.record.attempts || 0, w.fails)
     if (info.kind === 'auth') this.badAuth = conn.auth
     if (w.fails > this.opts.maxFailures) {
-      this.#fail(err)
+      this.#fail(exhaustedError(err))
       return false
     }
     this.log('download: tentando de novo', this.record.name, `(${w.fails})`, err?.message)
@@ -809,7 +843,9 @@ export class DownloadTask extends EventEmitter {
           c.ac.abort(stalledError())
         }
       }
-      if (st.restartSlowConnections) this.#checkSlow(conns, now)
+      // Com limite de banda ligado, a lentidão é nossa (o limitador reparte as fichas): reabrir não adianta.
+      const limited = this.ctx.limiter && !this.ctx.limiter.unlimited
+      if (st.restartSlowConnections && !limited) this.#checkSlow(conns, now)
       if (this.fh && this.segs && !this.ckBusy && now - this.lastCheckpoint >= this.opts.checkpointMs) {
         this.#checkpoint().catch(err => this.#fail(diskError(err)))
       }
@@ -931,6 +967,34 @@ export class DownloadTask extends EventEmitter {
     else this.#persist()
   }
 
+  /**
+   * Queda logo depois do rename final (antes de o registro "concluído" ir para o disco): o registro diz que está
+   * tudo baixado, o temporário sumiu e o arquivo final existe. Se o MD5 dele confere, já terminou — sem baixar de novo
+   * nem criar uma cópia "(2)".
+   */
+  async #alreadyPlaced(signal) {
+    const rec = this.record
+    const segs = loadSegments(rec.segments, rec.size)
+    const expected = rec.source.md5 ? String(rec.source.md5).toLowerCase() : null
+    if (!segs || !segs.every(s => s.pos > s.end) || !expected || !this.ctx.hasher) return false
+    if (await statOrNull(rec.dest.tempPath)) return false
+    const st = await statOrNull(rec.dest.path)
+    if (!st?.isFile() || st.size !== rec.size) return false
+    let actual
+    try {
+      actual = String(await this.ctx.hasher.hash(rec.dest.path, { signal })).toLowerCase()
+    } catch (err) {
+      if (isAbortError(err)) throw err
+      return false
+    }
+    if (actual !== expected) return false
+    rec.verify = { state: 'ok', expected, actual }
+    rec.bytesDone = rec.size
+    rec.updatedAt = Date.now()
+    this.#persist()
+    return true
+  }
+
   /** Recomeça do zero: registro sem progresso e temporário apagado. */
   async #discard(reason) {
     const rec = this.record
@@ -1005,6 +1069,12 @@ export class DownloadTask extends EventEmitter {
           await this.#discard('tempMissing')
           throw new SobeDesceError('retry', 'O arquivo temporário sumiu antes da conferência. Vou baixar de novo.', { reason: 'tempMissing' })
         }
+        if (!err?.code) {
+          // Ex.: o worker do MD5 caiu. O arquivo continua inteiro: tentar de novo só refaz a conferência.
+          const e = new SobeDesceError('retry', 'Não consegui conferir o MD5 do arquivo baixado. Vou tentar de novo.', { reason: 'verifyFailed' })
+          e.cause = err
+          throw e
+        }
         throw diskError(err)
       }
       actual = String(actual).toLowerCase()
@@ -1034,7 +1104,7 @@ export class DownloadTask extends EventEmitter {
         const names = await fs.readdir(dir)
         target = path.join(dir, uniqueName(path.basename(target), new Set(names)))
       }
-      await fs.rename(rec.dest.tempPath, target)
+      await renameWithRetry(rec.dest.tempPath, target)
     } catch (err) {
       throw diskError(err)
     }
@@ -1113,7 +1183,7 @@ export class DownloadTask extends EventEmitter {
         let info = classifyError(err)
         if (info.kind === 'abort') info = { kind: 'retry', retryAfterMs: null }
         if (info.kind !== 'retry' && info.kind !== 'auth') throw friendly(err)
-        if (++fails > this.opts.maxFailures) throw err
+        if (++fails > this.opts.maxFailures) throw exhaustedError(err)
         this.counters.failures++
         if (info.kind === 'auth') {
           this.badAuth = conn.auth

@@ -184,7 +184,7 @@ export class UploadTask extends EventEmitter {
     } catch (err) {
       this.#persist()
       if (sig.aborted) throw abortError(sig)
-      if (isAbortError(err)) throw finalError('retry', 'A conexão caiu. Reconectando…', { reason: 'network' }, err)
+      if (isAbortError(err)) throw finalError('retry', 'O envio foi interrompido. Tente de novo.', { reason: 'interrupted' }, err)
       throw err
     } finally {
       sig.removeEventListener('abort', stopHash)
@@ -208,6 +208,7 @@ export class UploadTask extends EventEmitter {
     this.initLimitHits = 0
     this.parentRetried = false
     this.authStreak = 0
+    this.probe = false // próximo PUT de dados pequeno (depois de um PUT de dados que falhou sem avanço)
 
     // 1. Arquivo local: sumiu → fatal; grande demais → fatal antes de qualquer requisição; mudou → recomeça.
     const st = await this.#statLocal()
@@ -287,7 +288,10 @@ export class UploadTask extends EventEmitter {
         // 6. Envio do ponto confirmado em diante.
         const res = await this.#sendData(signal)
         if (res.done) return await this.#finish(res.json, signal)
-        if (!this.#commit(res.offset)) await this.#failure({ kind: 'retry', reason: 'noProgress', message: MSG.badResponse }, signal)
+        if (!this.#commit(res.offset)) {
+          this.probe = true
+          await this.#failure({ kind: 'retry', reason: 'noProgress', message: MSG.badResponse }, signal)
+        }
       } catch (err) {
         if (signal.aborted) throw abortError(signal)
         await this.#onError(err, signal)
@@ -306,6 +310,7 @@ export class UploadTask extends EventEmitter {
     const http = err instanceof HttpError
     const phase = this.phase
     if (info.kind !== 'auth') this.authStreak = 0
+    if (phase === 'data') this.probe = true
 
     // 400 num PUT de dados: o offset pode ter ficado para trás (o Google recusa) → consulta e continua.
     if (http && phase === 'data' && err.status === 400) info = { ...info, kind: 'retry' }
@@ -493,7 +498,7 @@ export class UploadTask extends EventEmitter {
     await this.#ensureUnchanged()
     const start = r.session.offset
     let chunk = chunkLength(this.#settings().uploadChunkSize)
-    if ((r.attempts || 0) > 0) chunk = chunk > 0 ? Math.min(chunk, PROBE_SIZE) : PROBE_SIZE
+    if (this.probe) chunk = chunk > 0 ? Math.min(chunk, PROBE_SIZE) : PROBE_SIZE
     const end = (chunk > 0 ? Math.min(this.size, start + chunk) : this.size) - 1
     const headers = {
       ...(await this.#authHeader(signal)),
@@ -704,6 +709,7 @@ export class UploadTask extends EventEmitter {
       r.attempts = 0
       this.userLimitHits = 0
       this.authStreak = 0
+      this.probe = false
     }
     this.#persist()
     return progressed
@@ -743,7 +749,7 @@ export class UploadTask extends EventEmitter {
     const r = this.record
     this.hashP = this.ctx.hasher.hash(r.local.path, { signal: this.hashAc.signal })
     this.hashP.catch(() => {}) // quem espera trata; aqui só evita rejeição sem dono
-    if (!r.verify || r.verify.state !== 'mismatch') r.verify = { state: 'pending', expected: null, actual: null }
+    r.verify = { state: 'pending', expected: null, actual: null }
   }
 
   async #localMd5(signal) {

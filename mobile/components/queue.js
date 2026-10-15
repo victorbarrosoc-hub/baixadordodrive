@@ -21,6 +21,17 @@ export const STATUS = {
   failed: { label: 'Com problema', tone: 'error' },
 }
 
+/** Nome com reticências no MEIO: o fim (extensão) sempre aparece. "A001_C003_08…_RAW.mov" */
+export function FileName({ name, class: klass = 'row-name' }) {
+  const dot = name.lastIndexOf('.')
+  const tail = Math.min(name.length, dot > 0 && name.length - dot <= 8 ? name.length - dot + 4 : 7)
+  if (name.length <= 16) return html`<span class=${cx(klass, 'fname')} title=${name}><span class="fname-head">${name}</span></span>`
+  // Espaço bem no corte viraria nada (fim/início de item flex): vira espaço que não quebra.
+  const head = name.slice(0, -tail).replace(/ $/, '\u00a0')
+  const end = name.slice(-tail).replace(/^ /, '\u00a0')
+  return html`<span class=${cx(klass, 'fname')} title=${name}><span class="fname-head">${head}</span><span class="fname-tail">${end}</span></span>`
+}
+
 export function driveLink(fileId) {
   return `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`
 }
@@ -68,25 +79,33 @@ export function SequenceBar({ items }) {
   </div>`
 }
 
+/** "33,6 de 200 MB" (mesma unidade) ou "812 KB de 2,1 GB". */
+function partOf(done, total) {
+  const a = bytes(done, { fixed: true })
+  const b = bytes(total)
+  const ua = a.split(' ')[1]
+  const ub = b.split(' ')[1]
+  return ua === ub ? `${a.split(' ')[0]} de ${b}` : `${a} de ${b}`
+}
+
 function Meta({ it, waitingTap }) {
   const done = it.offset + it.inflight
   switch (it.status) {
     case 'running': {
       const eta = it.speed > 0 ? (it.size - done) / it.speed : null
       if (it.note) return html`<span class="row-note">${it.note}</span>`
-      return html`<span class="row-nums">${bytes(done, { fixed: true })} de ${bytes(it.size)}</span>
-        <span class="row-dot" aria-hidden="true">·</span>
-        <span class="row-nums">${speed(it.speed)}</span>
+      return html`<span class="row-left row-nums">${partOf(done, it.size)} · ${speed(it.speed)}</span>
         <span class="tc row-tc" aria-label=${`faltam ${timecode(eta)}`}>${timecode(eta)}</span>`
     }
     case 'preparing':
-      return html`<span class="row-note">${waitingTap ? 'Esperando você continuar conectado' : it.note || 'Preparando…'}</span>`
+      return html`<span class="row-nums">${bytes(it.size)}</span><span class="row-dot" aria-hidden="true">·</span>
+        <span class="row-note">${waitingTap ? 'esperando você continuar conectado' : (it.note || 'um instante…').toLowerCase()}</span>`
     case 'queued':
       return html`<span class="row-nums">${bytes(it.size)}</span><span class="row-dot" aria-hidden="true">·</span><span class="row-note">aguardando a vez</span>`
     case 'paused':
-      return html`<span class="row-nums">${bytes(done)} de ${bytes(it.size)}</span><span class="row-dot" aria-hidden="true">·</span><span class="row-note">${percent(progressOf(it))}</span>`
+      return html`<span class="row-nums">${partOf(done, it.size)}</span><span class="row-dot" aria-hidden="true">·</span><span class="row-note">${percent(progressOf(it))}</span>`
     case 'needsFile':
-      return html`<span class="row-note">Escolha o arquivo de novo para continuar · ${percent(progressOf(it))}</span>`
+      return html`<span class="row-note is-wrap">${percent(progressOf(it))} enviado · escolha o arquivo de novo para continuar</span>`
     case 'done':
       return html`<span class="row-nums">${bytes(it.size)}</span>
         ${it.fileId
@@ -109,10 +128,10 @@ export function QueueRow({ it, waitingTap }) {
   const st = STATUS[it.status] || STATUS.queued
   return html`<li class=${cx('row', `is-${it.status}`)}>
     <button type="button" class="row-hit" onClick=${() => openSheet('item', { id: it.id })} aria-label=${`${it.name}, ${st.label}. Mais opções`}>
-      <span class=${cx('row-tile', `kind-${kind}`)} aria-hidden="true"><${Icon} name=${KIND_ICON[kind]} size=${20} /></span>
+      <span class=${cx('row-tile', `tone-${it.status}`)} aria-hidden="true"><${Icon} name=${KIND_ICON[kind]} size=${20} /></span>
       <span class="row-main">
         <span class="row-top">
-          <span class="row-name">${it.name}</span>
+          <${FileName} name=${it.name} />
           <${Pill} tone=${st.tone}>${st.label}</${Pill}>
         </span>
         <${Timeline} it=${it} />
@@ -144,7 +163,7 @@ export function ItemSheet({ id }) {
   const kind = fileKind(it.name, it.type)
   return html`<div class="sheet-body item-sheet">
     <div class="item-head" data-drag>
-      <span class=${cx('row-tile', 'row-tile-lg', `kind-${kind}`)} aria-hidden="true"><${Icon} name=${KIND_ICON[kind]} size=${24} /></span>
+      <span class=${cx('row-tile', 'row-tile-lg', `tone-${it.status}`)} aria-hidden="true"><${Icon} name=${KIND_ICON[kind]} size=${24} /></span>
       <div class="item-titles">
         <h2 class="item-name">${it.name}</h2>
         <p class="sub">${bytes(it.size)} · ${folderTrail(it.folder)}</p>
@@ -175,7 +194,7 @@ export function ItemSheet({ id }) {
         ? html`<li><button type="button" class="menu-item" onClick=${act(() => engine.sendAnyway(it))}><${Icon} name="copy" /><span>Enviar mesmo assim (outra cópia)</span></button></li>`
         : null}
       <li>
-        <button type="button" class="menu-item is-danger" onClick=${act(() => engine.remove(it))}>
+        <button type="button" class=${cx('menu-item', !(it.status === 'done' || it.status === 'skipped') && 'is-danger')} onClick=${act(() => engine.remove(it))}>
           <${Icon} name=${it.status === 'done' || it.status === 'skipped' ? 'x' : 'trash'} />
           <span>${it.status === 'done' || it.status === 'skipped' ? 'Tirar da lista' : it.status === 'needsFile' ? 'Descartar este envio' : 'Cancelar este envio'}</span>
         </button>
