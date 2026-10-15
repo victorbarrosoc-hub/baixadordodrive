@@ -11,6 +11,9 @@
 //                         /Volumes/Externo SSD) com arquivos esparsos (não ocupam espaço) e mostra
 //                         esse diretório como se fosse a raiz "/" do computador (bom para screenshots)
 //   STUB_PLATFORM=darwin  plataforma informada à interface (darwin | win32 | linux)
+//   STUB_DESKTOP=1        simula o app de desktop: injeta uma ponte falsa `window.sobedesce` (seletores nativos
+//                         devolvem caminhos da pasta de demonstração, notify/setProgress/reveal só registram no
+//                         console, openExternal da tela de login conclui o OAuth sozinho depois de 2,5 s)
 //
 // Implementa todas as rotas de docs/ARCHITECTURE.md com dados inventados, transferências que
 // andam sozinhas (downloads segmentados com "roubo" de segmentos), SSE (transfers 4×/s, stats 2×/s)
@@ -33,6 +36,7 @@ const FRESH = process.env.STUB_SETUP === '0'
 const MANY = process.env.STUB_MANY === '1'
 const DEMO_DIR = process.env.STUB_DEMO_DIR ? path.resolve(process.env.STUB_DEMO_DIR) : ''
 const PLATFORM = process.env.STUB_PLATFORM || 'darwin'
+const DESKTOP = process.env.STUB_DESKTOP === '1'
 
 const KB = 1e3
 const MB = 1e6
@@ -559,8 +563,20 @@ function tick() {
   if (s.bandwidthLimitDown > 0) totalDown = Math.min(totalDown, s.bandwidthLimitDown * between(0.96, 1))
   if (s.bandwidthLimitUp > 0) totalUp = Math.min(totalUp, s.bandwidthLimitUp * between(0.96, 1))
 
+  // o tema bloqueado pelo dono volta a falhar logo depois de "Tentar de novo" (para testar avisos de problema)
+  for (const tr of runDown) {
+    if (tr.source?.fileId === 'f_tema' && t - (tr._runningSince ??= t) > 1500) {
+      tr.status = 'failed'
+      tr._speed = 0
+      tr._runningSince = null
+      tr.attempts = 11
+      tr.error = { message: 'O dono bloqueou cópias/downloads deste arquivo.', reason: 'cannotCopyFile', kind: 'fatal', at: t }
+      dirty.add(tr.id)
+    }
+  }
+
   // downloads: divide a banda entre os arquivos e, dentro de cada um, entre os segmentos ativos
-  runDown.forEach((tr, i) => {
+  runDown.filter((tr) => tr.status === 'running').forEach((tr, i) => {
     const weight = 1 + 0.35 * Math.sin(sec / 4 + i)
     const sumW = runDown.reduce((acc, _x, j) => acc + 1 + 0.35 * Math.sin(sec / 4 + j), 0)
     const fileSpeed = (totalDown * weight) / sumW
@@ -1011,22 +1027,75 @@ async function readBody(req) {
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.ico': 'image/x-icon' }
 
+/** Ponte falsa do Electron (só com STUB_DESKTOP=1). Ajustes para testes via window.__stub*. */
+function fakeBridgeScript() {
+  const home = JSON.stringify(HOME)
+  const sep = DEMO_DIR ? '/' : path.sep
+  return `// Ponte falsa do app de desktop (servidor de simulação). O Electron de verdade expõe isto pelo preload.
+(function () {
+  var HOME = ${home}, SEP = ${JSON.stringify(sep)}
+  var join = function () { return Array.prototype.slice.call(arguments).join(SEP).replace(/\\/+/g, '/') }
+  var project = join(HOME, 'Movies', 'Documentário Mar Aberto')
+  var log = function () { console.info.apply(console, ['[desktop falso]'].concat([].slice.call(arguments))) }
+  window.__stubNotes = []; window.__stubProgress = []; window.__stubExternal = []; window.__stubRevealed = []
+  window.sobedesce = {
+    desktop: true,
+    platform: ${JSON.stringify(PLATFORM)},
+    pickFolder: function (o) {
+      log('pickFolder', o && o.title, o && o.defaultPath)
+      if (window.__stubPickerThrows) return Promise.reject(new Error('diálogo indisponível'))
+      return new Promise(function (r) { setTimeout(function () { r(window.__stubPickFolder !== undefined ? window.__stubPickFolder : project) }, 120) })
+    },
+    pickPaths: function (o) {
+      log('pickPaths', o && o.title, o && o.kind)
+      if (window.__stubPickerThrows) return Promise.reject(new Error('diálogo indisponível'))
+      var list = window.__stubPickPaths || (o && o.kind === 'files' ? [join(project, 'Projeto.prproj'), join(project, 'Roteiro_v4.pdf')] : [join(project, 'Entrega'), join(project, 'Projeto.prproj')])
+      return new Promise(function (r) { setTimeout(function () { r(list) }, 120) })
+    },
+    pathForFile: function (file) {
+      var root = window.__stubDropRoot || project
+      return file && (file.__path || join(root, file.name))
+    },
+    setProgress: function (fraction, active) { window.__stubProgress.push({ t: Date.now(), fraction: fraction, active: active }) },
+    notify: function (title, body) { log('notify', title, '—', body); window.__stubNotes.push({ title: title, body: body }) },
+    openExternal: function (url) {
+      log('openExternal', url); window.__stubExternal.push(url)
+      // simula a pessoa terminando o login no navegador do sistema
+      if (/\/api\/auth\/start/.test(url)) setTimeout(function () { fetch(url).catch(function () {}) }, window.__stubOAuthDelay || 2500)
+      return Promise.resolve()
+    },
+    reveal: function (p) { log('reveal', p); window.__stubRevealed.push(p) },
+  }
+})()
+`
+}
+
 async function serveStatic(req, res, pathname) {
   let file
+  if (DESKTOP && pathname === '/__stub/desktop.js') {
+    res.writeHead(200, { 'content-type': TYPES['.js'], 'cache-control': 'no-store' })
+    return res.end(fakeBridgeScript())
+  }
   if (pathname === '/vendor/preact-htm.js') file = VENDOR
   else {
     const rel = decodeURIComponent(pathname === '/' ? '/index.html' : pathname)
     file = path.join(PUBLIC, path.normalize(rel))
     if (!file.startsWith(PUBLIC)) return sendJSON(res, 403, { ok: false, error: 'Proibido.' })
   }
+  const withBridge = (buf) => {
+    // desktop falso: a ponte precisa existir antes de qualquer script da página (como o preload)
+    if (!DESKTOP) return buf
+    return Buffer.from(buf.toString('utf8').replace('<script src="/lib/boot.js"></script>', '<script src="/__stub/desktop.js"></script>\n    <script src="/lib/boot.js"></script>'))
+  }
   try {
-    const data = await fsp.readFile(file)
+    let data = await fsp.readFile(file)
+    if (file.endsWith('index.html')) data = withBridge(data)
     res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' })
     res.end(data)
   } catch {
     // rotas da interface (hash) caem no index
     if (!path.extname(pathname)) {
-      const data = await fsp.readFile(path.join(PUBLIC, 'index.html'))
+      const data = withBridge(await fsp.readFile(path.join(PUBLIC, 'index.html')))
       res.writeHead(200, { 'content-type': TYPES['.html'] })
       return res.end(data)
     }
@@ -1040,6 +1109,9 @@ const CALLBACK_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="ut
 <style>body{font:15px -apple-system,BlinkMacSystemFont,"Inter",sans-serif;display:grid;place-items:center;height:100vh;margin:0;background:#FBFBFD;color:#1D1D1F}
 @media (prefers-color-scheme:dark){body{background:#0B0B0C;color:#F5F5F7}}h1{font-size:22px;letter-spacing:-.02em;margin:0 0 6px}p{margin:0;color:#6E6E73}</style></head>
 <body><div><h1>Conta conectada</h1><p>Voltando para o SOBEDESCE…</p></div></body></html>`
+
+// No desktop o login acontece no navegador do sistema: a página só avisa para voltar ao app.
+const CALLBACK_DESKTOP_HTML = CALLBACK_HTML.replace('<meta http-equiv="refresh" content="1;url=/#/transferencias">\n', '').replace('Voltando para o SOBEDESCE…', 'Pode voltar para o SOBEDESCE.')
 
 async function route(req, res, url) {
   const { pathname, searchParams: q } = url
@@ -1069,7 +1141,7 @@ async function route(req, res, url) {
     state.accounts.push(acc)
     broadcast('accounts', state.accounts)
     res.writeHead(200, { 'content-type': TYPES['.html'] })
-    return res.end(CALLBACK_HTML)
+    return res.end(DESKTOP ? CALLBACK_DESKTOP_HTML : CALLBACK_HTML)
   }
 
   if (method === 'GET' && pathname === '/api/events') {

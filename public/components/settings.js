@@ -5,7 +5,8 @@ import { api, attempt, enc } from '../lib/api.js'
 import { relTime, tildify, plural } from '../lib/format.js'
 import { cx } from '../lib/ui.js'
 import { navigate } from '../lib/router.js'
-import { confirmDialog, pickLocal } from '../lib/modals.js'
+import { confirmDialog } from '../lib/modals.js'
+import { pickFolderPath } from '../lib/desktop.js'
 import { toast } from '../lib/toasts.js'
 import { Icon } from './icons.js'
 import { Avatar, Button, LinkButton, Pill, Segmented, Select, Slider, Stepper, Switch } from './common.js'
@@ -114,7 +115,7 @@ export function SettingsScreen() {
   }
 
   const chooseDownloadDir = async () => {
-    const p = await pickLocal({ mode: 'folder', title: 'Pasta padrão dos downloads', initialPath: draft.downloadDir })
+    const p = await pickFolderPath({ title: 'Pasta padrão dos downloads', defaultPath: draft.downloadDir })
     if (p) set('downloadDir', p, { now: true })
   }
 

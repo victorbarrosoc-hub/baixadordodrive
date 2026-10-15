@@ -6,7 +6,9 @@ import { api, attempt, enc } from '../lib/api.js'
 import { bytes, count, plural, relTime, tildify, baseName, dirOf } from '../lib/format.js'
 import { cx, usePersistentState, useNow } from '../lib/ui.js'
 import { announceBatch } from '../lib/actions.js'
-import { pickDriveFolder, pickLocal, confirmDialog } from '../lib/modals.js'
+import { pickDriveFolder, confirmDialog } from '../lib/modals.js'
+import { bridge, droppedIsFolder, pathsFromDrop, pickFolderPath } from '../lib/desktop.js'
+import { toast } from '../lib/toasts.js'
 import { Icon } from './icons.js'
 import { Button, Checkbox, EmptyState, FileIcon, Pill, Segmented, Spinner } from './common.js'
 import { useLocalRoots } from './local-picker.js'
@@ -45,8 +47,44 @@ const inDir = (relDir, dir) => dir === '' || relDir === dir || relDir.startsWith
 
 // ───── fontes ─────
 
-function SourceCard({ side, title, icon, value, sub, onPick, emptyText }) {
-  return html`<div class=${cx('src-card card', !value && 'is-empty')}>
+function SourceCard({ side, title, icon, value, sub, onPick, emptyText, onDropFolder }) {
+  const [over, setOver] = useState(false)
+  const depth = useRef(0)
+  const accepts = (e) => onDropFolder && bridge && Array.from(e.dataTransfer?.types || []).includes('Files')
+  // desktop: soltar uma pasta do Finder/Explorer no cartão escolhe a pasta
+  const dropProps = onDropFolder && bridge
+    ? {
+        onDragEnter: (e) => {
+          if (!accepts(e)) return
+          depth.current++
+          setOver(true)
+        },
+        onDragOver: (e) => {
+          if (!accepts(e)) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        },
+        onDragLeave: (e) => {
+          if (!accepts(e)) return
+          depth.current = Math.max(0, depth.current - 1)
+          if (!depth.current) setOver(false)
+        },
+        onDrop: (e) => {
+          if (!accepts(e)) return
+          e.preventDefault()
+          depth.current = 0
+          setOver(false)
+          if (droppedIsFolder(e.dataTransfer) === false) {
+            toast('info', 'Solte uma pasta (não um arquivo) para comparar.')
+            return
+          }
+          const [p] = pathsFromDrop(e.dataTransfer)
+          if (p) onDropFolder(p)
+        },
+      }
+    : {}
+  return html`<div class=${cx('src-card card', !value && 'is-empty', over && 'is-drop')} ...${dropProps}>
+    ${over ? html`<div class="src-drop" aria-hidden="true"><${Icon} name="folder" size=${18} /> Solte a pasta aqui</div>` : null}
     <div class="src-head">
       <span class=${cx('src-icon', `src-${side}`)}><${Icon} name=${icon} size=${18} /></span>
       <span class="eyebrow">${title}</span>
@@ -451,7 +489,7 @@ export function CompareScreen() {
   }
 
   const chooseLocal = async () => {
-    const p = await pickLocal({ mode: 'folder', title: 'Qual pasta do computador?', confirmLabel: undefined, initialPath: local || undefined, subtitle: 'Escolha a pasta “mãe” do projeto — subpastas entram junto.' })
+    const p = await pickFolderPath({ title: 'Qual pasta do computador?', defaultPath: local || undefined, subtitle: 'Escolha a pasta “mãe” do projeto — subpastas entram junto.' })
     if (p) setLocal(p)
   }
   const chooseRemote = async () => {
@@ -476,7 +514,8 @@ export function CompareScreen() {
           value=${local ? baseName(local) : null}
           sub=${local ? tildify(local, roots?.home) : ''}
           onPick=${chooseLocal}
-          emptyText="Escolha a pasta do projeto no seu disco"
+          onDropFolder=${setLocal}
+          emptyText=${bridge ? 'Escolha ou arraste para cá a pasta do projeto' : 'Escolha a pasta do projeto no seu disco'}
         />
         <span class="src-vs" aria-hidden="true"><${Icon} name="compare" size=${18} /></span>
         <${SourceCard}

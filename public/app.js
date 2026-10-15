@@ -1,6 +1,7 @@
 // SOBEDESCE — interface. Preact + htm sem build.
 import { html, render, useEffect } from '/vendor/preact-htm.js'
 import { start, useStore } from './lib/store.js'
+import { startDesktopIntegration } from './lib/desktop.js'
 import { navigate, useRoute } from './lib/router.js'
 import { Wordmark } from './components/icons.js'
 import { Button, Spinner } from './components/common.js'
@@ -12,6 +13,7 @@ import { SettingsScreen } from './components/settings.js'
 import { SetupScreen } from './components/setup.js'
 import { ModalHost } from './components/modal.js'
 import { Toasts } from './components/toasts.js'
+import { OAuthWaitDialog } from './components/oauth-wait.js'
 
 const TITLES = { transferencias: 'Transferências', drive: 'Drive', comparar: 'Comparar', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
 
@@ -54,6 +56,7 @@ function App() {
   const loadError = useStore((s) => s.loadError)
   const setup = useStore((s) => s.setup)
   const accounts = useStore((s) => s.accounts)
+  const oauthWait = useStore((s) => s.oauthWait)
   const route = useRoute()
   const needsSetup = status === 'ready' && (!setup.configured || accounts.length === 0)
   const inSetup = needsSetup || route.name === 'inicio'
@@ -69,14 +72,17 @@ function App() {
     document.title = `${TITLES[inSetup ? 'inicio' : route.name] || 'Transferências'} — SOBEDESCE`
   }, [route.name, inSetup])
 
-  if (status !== 'ready') return html`<${Splash} error=${status === 'error' ? loadError : null} /><${Toasts} />`
+  if (status !== 'ready') return html`<div class="titlebar" aria-hidden="true"></div><${Splash} error=${status === 'error' ? loadError : null} /><${Toasts} />`
 
   return html`
+    <div class="titlebar" aria-hidden="true"></div>
     ${inSetup ? html`<${SetupScreen} route=${route} />` : html`<${Shell} route=${route} />`}
     <${ModalHost} />
+    ${oauthWait && !inSetup ? html`<${OAuthWaitDialog} />` : null}
     <${Toasts} />
   `
 }
 
 render(html`<${App} />`, document.getElementById('app'))
+startDesktopIntegration()
 start()

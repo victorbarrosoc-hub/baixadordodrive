@@ -113,7 +113,48 @@ function PromptDialog({ title, label, placeholder, initial = '', confirmLabel = 
   </${Modal}>`
 }
 
-const TYPES = { local: LocalPicker, drive: DrivePicker, confirm: ConfirmDialog, prompt: PromptDialog }
+/** Menu pequeno ancorado num botão (ex.: "Arquivos… / Pasta…" no Windows). Devolve o value escolhido. */
+function ChoiceMenu({ title, options, anchorRect, foot, onClose }) {
+  const ref = useRef(null)
+  useLayoutEffect(() => {
+    ref.current?.querySelector('.menu-item')?.focus({ preventScroll: true })
+  }, [])
+  const W = 288
+  let style
+  if (anchorRect) {
+    const left = Math.max(12, Math.min(window.innerWidth - W - 12, anchorRect.right - W))
+    const below = anchorRect.bottom + 6
+    style = below + 200 > window.innerHeight ? `left:${left}px;bottom:${window.innerHeight - anchorRect.top + 6}px` : `left:${left}px;top:${below}px`
+  } else style = `left:calc(50% - ${W / 2}px);top:30%`
+  const onKey = (e) => {
+    const items = [...ref.current.querySelectorAll('.menu-item')]
+    const i = items.indexOf(document.activeElement)
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      onClose(null)
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus()
+    } else if (e.key === 'Tab') {
+      e.preventDefault()
+      items[(i + (e.shiftKey ? items.length - 1 : 1)) % items.length]?.focus()
+    }
+  }
+  return html`<div class="popover-backdrop" onMouseDown=${(e) => e.target === e.currentTarget && onClose(null)}>
+    <div class="menu choice-menu" role="menu" aria-label=${title} style=${`${style};width:${W}px`} ref=${ref} onKeyDown=${onKey}>
+      ${title ? html`<div class="menu-label">${title}</div>` : null}
+      ${options.map(
+        (o) => html`<button type="button" role="menuitem" class="menu-item choice-item" onClick=${() => onClose(o.value)}>
+          <span class="choice-icon"><${Icon} name=${o.icon || 'doc'} size=${16} /></span>
+          <span class="choice-text"><b>${o.label}</b>${o.hint ? html`<span>${o.hint}</span>` : null}</span>
+        </button>`,
+      )}
+      ${foot ? html`<div class="menu-sep"></div><div class="menu-foot">${foot}</div>` : null}
+    </div>
+  </div>`
+}
+
+const TYPES = { local: LocalPicker, drive: DrivePicker, confirm: ConfirmDialog, prompt: PromptDialog, choice: ChoiceMenu }
 
 export function ModalHost() {
   const stack = useModalStack()

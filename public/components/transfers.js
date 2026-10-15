@@ -4,8 +4,10 @@ import { html, useMemo, useState, useCallback } from '/vendor/preact-htm.js'
 import { useStore } from '../lib/store.js'
 import { api, attempt } from '../lib/api.js'
 import { bytes, clock, count, dirOf, percent, plural, relTime, speed, timecode, fullDate } from '../lib/format.js'
-import { cx, memo, usePersistentState, revealLabel } from '../lib/ui.js'
-import { batchAction, cancelBatch, cancelTransfer, driveFileUrl, reveal, transferAction, uploadFlow } from '../lib/actions.js'
+import { cx, memo, usePersistentState, storage } from '../lib/ui.js'
+import { batchAction, cancelBatch, cancelTransfer, driveFileUrl, reveal, transferAction, uploadFlow, uploadPaths } from '../lib/actions.js'
+import { bridge, revealLabel } from '../lib/desktop.js'
+import { FileDrop } from './drop.js'
 import { confirmDialog } from '../lib/modals.js'
 import { Icon } from './icons.js'
 import { Button, EmptyState, FileIcon, IconButton, LinkButton, Pill, Segmented } from './common.js'
@@ -228,7 +230,9 @@ function BatchGroup({ group, rows, expanded, onToggle, limit, onMore, platform }
 export function TransfersScreen() {
   const transfers = useStore((s) => s.transfers)
   const batches = useStore((s) => s.batches)
-  const platform = useStore((s) => s.app?.platform)
+  const appPlatform = useStore((s) => s.app?.platform)
+  const platform = bridge?.platform || appPlatform
+  const accountId = useStore((s) => s.activeAccountId)
   const [filter, setFilter] = usePersistentState('transfers.filter', 'all')
   const [toggled, setToggled] = useState({}) // batchId -> boolean (escolha do usuário)
   const [limits, setLimits] = useState({}) // batchId -> linhas visíveis
@@ -297,27 +301,38 @@ export function TransfersScreen() {
     attempt(api.post('/api/transfers/clear', {}))
   }
 
+  // soltar arquivos aqui envia para a última pasta aberta no Drive (ou Meu Drive)
+  const last = storage.get('drive.last', null)
+  const dropDest = last && last.accountId === accountId ? last : { id: 'root', name: 'Meu Drive', driveId: null }
+  const drop = html`<${FileDrop}
+    label=${dropDest.name}
+    enabled=${!!accountId}
+    onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: dropDest.id, driveId: dropDest.driveId })}
+  />`
+
   if (!data.all.length) {
     return html`<div class="page">
+      ${drop}
       <header class="page-head"><h1>Transferências</h1></header>
       <${EmptyState}
         art=${html`<${QuietArt} />`}
         title="Tudo em dia por aqui"
         actions=${html`
           <${LinkButton} variant="primary" icon="cloud" href="#/drive">Abrir o Drive</${LinkButton}>
-          <${Button} icon="upload" onClick=${() => uploadFlow()}>Enviar uma pasta</${Button}>
+          <${Button} icon="upload" onClick=${(e) => uploadFlow({ anchor: e.currentTarget })}>Enviar uma pasta</${Button}>
         `}
       >
-        Nada transferindo agora. Escolha arquivos no Drive ou envie uma pasta.
+        Nada transferindo agora. Escolha arquivos no Drive ou envie uma pasta${bridge ? ' — ou arraste para cá' : ''}.
       </${EmptyState}>
     </div>`
   }
 
   return html`<div class="page">
+    ${drop}
     <header class="page-head">
       <h1>Transferências</h1>
       <div class="page-head-actions">
-        <${Button} icon="upload" onClick=${() => uploadFlow()}>Enviar</${Button}>
+        <${Button} icon="upload" onClick=${(e) => uploadFlow({ anchor: e.currentTarget })}>Enviar</${Button}>
       </div>
     </header>
     <${MeterHero} doneCount=${data.doneCount} totalCount=${data.totalCount} canPause=${data.canPause} canResume=${data.canResume} />

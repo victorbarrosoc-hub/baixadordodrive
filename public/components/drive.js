@@ -5,9 +5,11 @@ import { useStore } from '../lib/store.js'
 import { navigate } from '../lib/router.js'
 import { api, attempt } from '../lib/api.js'
 import { bytes, plural, shortPath } from '../lib/format.js'
-import { cx, useDebounced } from '../lib/ui.js'
+import { cx, storage, useDebounced } from '../lib/ui.js'
 import { announceBatch, driveFolderUrl, uploadPaths } from '../lib/actions.js'
-import { pickLocal, promptDialog } from '../lib/modals.js'
+import { promptDialog } from '../lib/modals.js'
+import { pickFolderPath, pickUploadPaths } from '../lib/desktop.js'
+import { FileDrop } from './drop.js'
 import { toast } from '../lib/toasts.js'
 import { Icon } from './icons.js'
 import { Button, IconButton, Spinner } from './common.js'
@@ -111,6 +113,10 @@ export function DriveScreen({ route }) {
   const sourceId = folder?.driveId || (data?.path?.[0]?.id && drives.some((d) => d.id === data.path[0].id) ? data.path[0].id : 'root')
 
   useEffect(() => setSelected(new Set()), [folderId, q, accountId])
+  // lembra a pasta aberta: soltar arquivos na tela Transferências envia para cá
+  useEffect(() => {
+    if (folder && accountId) storage.set('drive.last', { accountId, id: folder.id, name: folderLabel(folder, drives), driveId: folder.driveId || null })
+  }, [folder?.id, accountId, drives.length])
   useEffect(() => {
     api.get('/api/local/roots').then((r) => setHome(r.home || '')).catch(() => {})
   }, [])
@@ -137,14 +143,14 @@ export function DriveScreen({ route }) {
     }
   }
 
-  const uploadHere = async () => {
-    const paths = await pickLocal({ mode: 'files', title: `Enviar para “${folderLabel(folder, drives)}”` })
+  const uploadHere = async (e) => {
+    const paths = await pickUploadPaths({ title: `Enviar para “${folderLabel(folder, drives)}”`, anchor: e?.currentTarget })
     if (!paths?.length) return
     await uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null })
   }
 
   const chooseDest = async () => {
-    const p = await pickLocal({ mode: 'folder', title: 'Onde salvar os downloads?', initialPath: dest })
+    const p = await pickFolderPath({ title: 'Onde salvar os downloads?', defaultPath: dest })
     if (p) setDestDir(p)
   }
 
@@ -164,6 +170,11 @@ export function DriveScreen({ route }) {
   }
 
   return html`<div class=${cx('page page-drive', selected.size && 'has-selbar')} onKeyDown=${onKeyDownPage}>
+    <${FileDrop}
+      label=${folderLabel(folder, drives)}
+      enabled=${!!folder && !!accountId}
+      onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null })}
+    />
     <header class="page-head">
       <h1>Drive</h1>
       <div class="page-head-actions"><${Quota} accountId=${accountId} /></div>

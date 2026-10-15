@@ -8,6 +8,7 @@ import { SETUP_STEPS } from '../lib/setup-steps.js'
 import { toast } from '../lib/toasts.js'
 import { Icon, Wordmark } from './icons.js'
 import { Button } from './common.js'
+import { OAuthWaiting } from './oauth-wait.js'
 
 function Steps({ current, done, onPick }) {
   return html`<ol class="steps" aria-label="Etapas">
@@ -149,13 +150,16 @@ function StepPaste({ step, onDone, onBack, backLabel }) {
 }
 
 function StepConnect({ step, hint, onChangeKey }) {
+  const waiting = useStore((s) => s.oauthWait)
   return html`<div class="setup-step">
     <div class="connect">
-      <a class="btn btn-primary btn-xl" href="/api/auth/start">
-        <${Icon} name="user" size=${18} />
-        <span>${step.button}</span>
-      </a>
-      ${hint ? html`<span class="sub">Chave <span class="mono-path">${hint}</span> · <button type="button" class="link" onClick=${onChangeKey}>trocar</button></span>` : null}
+      ${waiting
+        ? html`<${OAuthWaiting} />`
+        : html`<a class="btn btn-primary btn-xl" href="/api/auth/start">
+              <${Icon} name="user" size=${18} />
+              <span>${step.button}</span>
+            </a>
+            ${hint ? html`<span class="sub">Chave <span class="mono-path">${hint}</span> · <button type="button" class="link" onClick=${onChangeKey}>trocar</button></span>` : null}`}
     </div>
     <aside class="callout">
       <span class="callout-icon"><${Icon} name="info" size=${16} /></span>

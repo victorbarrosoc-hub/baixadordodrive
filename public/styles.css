@@ -3883,3 +3883,272 @@ button.tree-twisty:hover {
   filter: saturate(0.3);
   transition: opacity 0.3s, filter 0.3s;
 }
+
+/* ───────────── soltar arquivos (desktop) ───────────── */
+.drop-veil {
+  position: fixed;
+  inset: 0 0 0 var(--sidebar-w);
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+  animation: fade 0.16s var(--ease);
+  pointer-events: none;
+}
+.drop-target {
+  width: min(560px, 100%);
+  aspect-ratio: 16 / 9;
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 32px;
+  border-radius: 24px;
+  border: 2px dashed color-mix(in srgb, var(--up) 55%, transparent);
+  background: color-mix(in srgb, var(--up) 6%, var(--surface));
+  box-shadow: var(--shadow-lg);
+  animation: pop 0.2s var(--ease);
+}
+.drop-target b {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drop-target .sub {
+  font-size: 13.5px;
+}
+.drop-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin-bottom: 8px;
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+  color: var(--up-text);
+  animation: drop-bob 1.6s var(--ease) infinite;
+}
+@keyframes drop-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+.drop-hint {
+  position: fixed;
+  left: calc(var(--sidebar-w) + (100vw - var(--sidebar-w)) / 2);
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+  border: 1px solid var(--hairline-2);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: rise 0.2s var(--ease);
+}
+.drop-hint .icon {
+  color: var(--down-text);
+}
+.src-card {
+  position: relative;
+}
+.src-card.is-drop {
+  border-color: var(--up);
+  border-style: dashed;
+  background: color-mix(in srgb, var(--up) 6%, var(--surface));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--up) 12%, transparent);
+}
+.src-drop {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ───────────── menu de escolha ancorado ───────────── */
+.popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+}
+.choice-menu {
+  position: fixed;
+  bottom: auto;
+}
+.choice-item {
+  height: auto;
+  padding: 8px;
+  align-items: flex-start;
+  gap: 12px;
+}
+.choice-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--fill-2);
+  color: var(--text);
+  flex: none;
+}
+.choice-item .choice-icon .icon {
+  color: var(--text);
+}
+.choice-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  min-width: 0;
+  padding-top: 1px;
+}
+.choice-text b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.choice-text span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.menu-foot {
+  padding: 6px 8px 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+/* ───────────── login no navegador (desktop) ───────────── */
+.oauth-wait {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 24px;
+  border-radius: 16px;
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+}
+.oauth-wait-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+}
+.oauth-wait-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.oauth-wait-text b {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.oauth-wait-text .sub {
+  font-size: 13px;
+}
+.oauth-arrow {
+  color: var(--down-text);
+  animation: pulse 1.4s ease-in-out infinite;
+  margin-right: 2px;
+}
+.oauth-wait-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.oauth-dialog .modal-icon {
+  background: color-mix(in srgb, var(--down) 12%, transparent);
+  color: var(--down-text);
+}
+.oauth-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 4px;
+}
+.oauth-dialog-body .dialog-text {
+  font-size: 13px;
+}
+
+/* ───────────── app de desktop: barra de título do macOS ───────────── */
+.titlebar {
+  display: none;
+}
+.is-desktop.platform-darwin .titlebar {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 95;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.is-desktop.platform-darwin .sidebar {
+  padding-top: 44px;
+}
+.is-desktop.platform-darwin .sidebar-brand {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.is-desktop.platform-darwin .setup {
+  padding-top: 56px;
+}
+.is-desktop button,
+.is-desktop a,
+.is-desktop input,
+.is-desktop select,
+.is-desktop label,
+.is-desktop .modal,
+.is-desktop .menu,
+.is-desktop .selbar,
+.is-desktop .toast {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+/* no app, textos de interface não são selecionáveis como numa página (exceto campos e caminhos) */
+.is-desktop .sidebar,
+.is-desktop .seg,
+.is-desktop .btn,
+.is-desktop .batch-head {
+  user-select: none;
+  -webkit-user-select: none;
+}
