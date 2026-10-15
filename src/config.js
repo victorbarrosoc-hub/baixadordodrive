@@ -6,15 +6,15 @@ import fs from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { JsonFile } from './util/store.js'
 
-export const APP_NAME = 'Vazão'
-export const APP_ID = 'vazao'
+export const APP_NAME = 'SOBEDESCE'
+export const APP_ID = 'sobedesce'
 export const APP_VERSION = '0.1.0'
 
 const MiB = 1024 * 1024
 
-/** Pasta de dados do app (tokens, fila, cache de hash). VAZAO_HOME sobrescreve (usado nos testes). */
+/** Pasta de dados do app (tokens, fila, cache de hash). SOBEDESCE_HOME sobrescreve (usado nos testes). */
 export function dataDir() {
-  const dir = process.env.VAZAO_HOME || path.join(os.homedir(), '.vazao')
+  const dir = process.env.SOBEDESCE_HOME || path.join(os.homedir(), '.sobedesce')
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   return dir
 }
@@ -33,17 +33,17 @@ export function dataPaths(root = dataDir()) {
 }
 
 /**
- * Endpoints do Google. Variáveis VAZAO_* permitem apontar para o servidor falso dos testes/demo.
+ * Endpoints do Google. Variáveis SOBEDESCE_* permitem apontar para o servidor falso dos testes/demo.
  * Leia sempre via endpoints() (não guarde em constante de módulo) para os testes poderem trocar o env.
  */
 export function endpoints() {
   const e = process.env
   return {
-    driveApi: e.VAZAO_DRIVE_API || 'https://www.googleapis.com/drive/v3',
-    driveUpload: e.VAZAO_DRIVE_UPLOAD || 'https://www.googleapis.com/upload/drive/v3',
-    oauthAuth: e.VAZAO_OAUTH_AUTH || 'https://accounts.google.com/o/oauth2/v2/auth',
-    oauthToken: e.VAZAO_OAUTH_TOKEN || 'https://oauth2.googleapis.com/token',
-    oauthRevoke: e.VAZAO_OAUTH_REVOKE || 'https://oauth2.googleapis.com/revoke',
+    driveApi: e.SOBEDESCE_DRIVE_API || 'https://www.googleapis.com/drive/v3',
+    driveUpload: e.SOBEDESCE_DRIVE_UPLOAD || 'https://www.googleapis.com/upload/drive/v3',
+    oauthAuth: e.SOBEDESCE_OAUTH_AUTH || 'https://accounts.google.com/o/oauth2/v2/auth',
+    oauthToken: e.SOBEDESCE_OAUTH_TOKEN || 'https://oauth2.googleapis.com/token',
+    oauthRevoke: e.SOBEDESCE_OAUTH_REVOKE || 'https://oauth2.googleapis.com/revoke',
   }
 }
 

@@ -1,7 +1,7 @@
 {
-  "name": "vazao",
+  "name": "sobedesce",
   "version": "0.1.0",
-  "description": "Vazão — transferências rápidas e retomáveis para o Google Drive, feitas para arquivos gigantes de audiovisual.",
+  "description": "SOBEDESCE — transferências rápidas e retomáveis para o Google Drive, feitas para arquivos gigantes de audiovisual.",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -9,7 +9,7 @@
     "node": ">=20.18"
   },
   "bin": {
-    "vazao": "src/index.js"
+    "sobedesce": "src/index.js"
   },
   "scripts": {
     "start": "node src/index.js",

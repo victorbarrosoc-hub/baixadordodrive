@@ -1,6 +1,6 @@
 node_modules/
-.vazao-dev/
-*.vazao-part
+.sobedesce-dev/
+*.sobedesce-part
 .DS_Store
 coverage/
 test/.tmp/

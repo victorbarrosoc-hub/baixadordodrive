@@ -1,6 +1,6 @@
 // Nomes e caminhos: o Drive aceita quase qualquer nome; o disco local, não.
 
-export const PART_SUFFIX = '.vazao-part'
+export const PART_SUFFIX = '.sobedesce-part'
 
 export function toNFC(s) {
   return String(s ?? '').normalize('NFC')

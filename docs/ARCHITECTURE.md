@@ -1,11 +1,11 @@
-# Vazão — Arquitetura e contratos
+# SOBEDESCE — Arquitetura e contratos
 
 > Documento de referência para quem mexe no código. Os contratos abaixo são a fonte da verdade:
 > cada módulo implementa exatamente a interface descrita aqui.
 
 ## Visão geral
 
-Vazão é um app local: um **motor em Node.js** (roda na máquina do usuário, com acesso ao disco e
+SOBEDESCE é um app local: um **motor em Node.js** (roda na máquina do usuário, com acesso ao disco e
 várias conexões TCP) + uma **interface web** servida em `http://127.0.0.1:4317`. Nada passa por
 servidor nosso: o tráfego vai direto da máquina para o Google.
 
@@ -42,7 +42,7 @@ src/
   util/ids.js            newId(prefix)                                             [pronto]
   util/paths.js          nomes seguros para o disco local, junção de caminhos relativos
   net/http.js            httpRequest, requestJSON, HttpError, drain, closeHttp     [pronto]
-  google/errors.js       classifyError, VazaoError, stalledError                   [pronto]
+  google/errors.js       classifyError, SobeDesceError, stalledError                   [pronto]
   google/oauth.js        AuthManager (OAuth loopback + PKCE, multi-conta)
   google/drive.js        DriveClient (listar, árvore, pastas, metadados)
   engine/hasher.js       Hasher (MD5 em worker thread + cache por caminho/tamanho/mtime)
@@ -73,7 +73,7 @@ scripts/demo.js          sobe o app ligado ao Drive falso, com arquivos de exemp
 - Todo I/O longo aceita `signal` (AbortSignal). Abort = pausa/cancelamento, nunca erro para o usuário.
 - Endpoints do Google SEMPRE via `endpoints()` de `config.js` (os testes apontam para o mock).
 - Testes: `node:test` + `node:assert/strict`, arquivos `test/*.test.js`, usando `test/mock-drive.js`
-  e `VAZAO_HOME` num diretório temporário. Teste lento (> 10 s) tem `slow` no nome.
+  e `SOBEDESCE_HOME` num diretório temporário. Teste lento (> 10 s) tem `slow` no nome.
 
 ## Contratos
 
@@ -88,8 +88,8 @@ export function safeLocalName(name, platform = process.platform): string
   // remove pontos/espaços no fim (Windows), evita nomes reservados (CON, PRN, AUX, NUL, COM1..9, LPT1..9)
   // acrescentando '_', limita a 240 bytes UTF-8 preservando a extensão. Nunca devolve '' / '.' / '..'.
 export function uniqueName(name, taken: Set<string>): string   // 'a.mov' -> 'a (2).mov' se ocupado (case-insensitive)
-export function isJunkFile(name): boolean             // .DS_Store, ._*, Thumbs.db, desktop.ini, *.vazao-part, Icon\r, .Spotlight-V100, .Trashes, .fseventsd
-export const PART_SUFFIX = '.vazao-part'
+export function isJunkFile(name): boolean             // .DS_Store, ._*, Thumbs.db, desktop.ini, *.sobedesce-part, Icon\r, .Spotlight-V100, .Trashes, .fseventsd
+export const PART_SUFFIX = '.sobedesce-part'
 ```
 
 ### google/oauth.js — `AuthManager extends EventEmitter`
@@ -112,7 +112,7 @@ beginLogin(redirectUri): { url, state }     // PKCE S256, state aleatório, acce
 async completeLogin({ code, state, redirectUri }): account   // troca code por tokens, busca about.user, salva/atualiza conta
 async getAccessToken(accountId, { forceRefresh = false } = {}): string
     // cache em memória; renova se faltar < 120 s; renovações concorrentes da mesma conta compartilham a promessa;
-    // invalid_grant => status 'reauth', emite 'accounts', lança VazaoError('reauth', ...)
+    // invalid_grant => status 'reauth', emite 'accounts', lança SobeDesceError('reauth', ...)
 async removeAccount(accountId)              // revoga (melhor esforço) e apaga
 // eventos: 'accounts' (lista pública)
 ```
@@ -124,7 +124,7 @@ new DriveClient(auth: AuthManager, accountId: string)
 async api(method, pathOrUrl, { query, body, headers, signal, expect, retries = 6 } = {}): any
     // monta URL em endpoints().driveApi (ou usa URL absoluta), põe Authorization, supportsAllDrives=true.
     // 401 -> getAccessToken(forceRefresh) e repete uma vez. 'retry' -> backoffDelay + repete até `retries`.
-    // Outros erros: lança (HttpError/VazaoError) — quem chama classifica com classifyError.
+    // Outros erros: lança (HttpError/SobeDesceError) — quem chama classifica com classifyError.
 async authHeader(): { authorization: 'Bearer …' }
 async about(): { user: { email, name, photoUrl, permissionId }, quota: { limit|null, usage, usageInDrive } }
 async listSharedDrives(): Array<{ id, name }>
@@ -365,7 +365,7 @@ stop()
 
 ### Servidor (src/server) — API
 
-Escuta em `127.0.0.1`, porta `VAZAO_PORT` ou 4317 (se ocupada, tenta as próximas 20).
+Escuta em `127.0.0.1`, porta `SOBEDESCE_PORT` ou 4317 (se ocupada, tenta as próximas 20).
 Segurança: rejeita `Host` diferente de `127.0.0.1:<porta>`/`localhost:<porta>` (DNS rebinding);
 métodos que alteram estado exigem `Content-Type: application/json` e, se houver `Origin`, que seja a do app.
 Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` com status 4xx/5xx.

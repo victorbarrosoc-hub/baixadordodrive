@@ -67,7 +67,7 @@ const DISK_CODES = {
 /** @returns {ErrorInfo} */
 export function classifyError(err) {
   if (isAbortError(err)) return info('abort', null, 'Interrompido.')
-  if (err?.kind && err?.message && err.name === 'VazaoError') {
+  if (err?.kind && err?.message && err.name === 'SobeDesceError') {
     return { kind: err.kind, reason: err.reason ?? null, message: err.message, retryAfterMs: err.retryAfterMs ?? null, status: err.status ?? null }
   }
 
@@ -108,10 +108,10 @@ function info(kind, reason, message, status = null, retryAfterMs = null) {
 }
 
 /** Erro próprio do app, já classificado. */
-export class VazaoError extends Error {
+export class SobeDesceError extends Error {
   constructor(kind, message, { reason = null, retryAfterMs = null, status = null } = {}) {
     super(message)
-    this.name = 'VazaoError'
+    this.name = 'SobeDesceError'
     this.kind = kind
     this.reason = reason
     this.retryAfterMs = retryAfterMs
