@@ -20,6 +20,9 @@ import { splitRel, toNFC, uniqueName } from '../util/paths.js'
 const KiB = 1024
 const MiB = 1024 * KiB
 const CHUNK_ALIGN = 256 * KiB
+// Depois de uma falha sem avanço, o próximo PUT é pequeno: se o Google recusar (ex.: 403 do limite diário),
+// a resposta chega inteira. Com um corpo enorme ainda saindo, a recusa muitas vezes vira só "EPIPE".
+const PROBE_SIZE = CHUNK_ALIGN
 /** Maior arquivo que o Drive aceita (5 TB). */
 export const MAX_UPLOAD_SIZE = 5 * 1024 ** 4
 const SESSION_MAX_AGE_MS = 6 * 24 * 3600_000 // a URI vale 1 semana: com folga, abre outra
@@ -44,6 +47,7 @@ const MSG = {
   gaveUp: 'O envio falhou várias vezes seguidas sem avançar. Confira a internet e tente de novo.',
   badResponse: 'O Google respondeu de um jeito inesperado. Tentando de novo…',
   quota: 'Você atingiu o limite de upload do Google (750 GB por dia). Retomo sozinho mais tarde.',
+  verifyLater: 'Não deu para conferir o arquivo agora. Tente de novo.',
 }
 
 const NOTE = {
@@ -54,6 +58,7 @@ const NOTE = {
   sessionLost: 'A sessão de envio expirou: recomecei do início.',
   localChanged: 'O arquivo mudou desde a última vez: recomecei do início.',
   replaceGone: 'O arquivo que seria substituído não existe mais no Drive: enviei como novo.',
+  localGone: 'O arquivo local foi apagado durante o envio, mas o Drive recebeu tudo.',
 }
 
 // Tipo pelo nome (o Drive usa para ícone/prévia). Desconhecido = application/octet-stream.
@@ -344,7 +349,7 @@ export class UploadTask extends EventEmitter {
       if ((phase === 'init' || phase === 'conflict') && !this.parentRetried) {
         // A pasta (talvez do cache) foi apagada: procura/cria de novo uma vez.
         this.parentRetried = true
-        await this.#forgetParent()
+        await this.#forgetParent(signal)
         await this.#failure(info, signal, { cause: err, wait: false })
         return
       }
@@ -487,7 +492,8 @@ export class UploadTask extends EventEmitter {
     this.phase = 'data'
     await this.#ensureUnchanged()
     const start = r.session.offset
-    const chunk = chunkLength(this.#settings().uploadChunkSize)
+    let chunk = chunkLength(this.#settings().uploadChunkSize)
+    if ((r.attempts || 0) > 0) chunk = chunk > 0 ? Math.min(chunk, PROBE_SIZE) : PROBE_SIZE
     const end = (chunk > 0 ? Math.min(this.size, start + chunk) : this.size) - 1
     const headers = {
       ...(await this.#authHeader(signal)),
@@ -652,8 +658,15 @@ export class UploadTask extends EventEmitter {
       return finalError('fatal', message, { reason })
     }
     if (item.size != null && item.size !== this.size) throw reject(MSG.sizeMismatch, 'sizeMismatch')
-    const st = await this.#statLocal()
-    if (!sameStat(r.local, st)) throw reject(MSG.changedDuring, 'localChanged')
+    let st = null
+    try {
+      st = await this.#statLocal()
+    } catch (err) {
+      // Apagado com o envio já lido por inteiro: o descritor aberto leu o conteúdo original, o Drive está certo.
+      if (err?.reason !== 'localMissing') throw err
+      r.note = NOTE.localGone
+    }
+    if (st && !sameStat(r.local, st)) throw reject(MSG.changedDuring, 'localChanged')
 
     if (this.hashP || this.#settings().verifyChecksums) {
       this.#startHash()
@@ -665,6 +678,8 @@ export class UploadTask extends EventEmitter {
         local = await this.#localMd5(signal)
       } catch (err) {
         if (signal.aborted) throw abortError(signal)
+        // Calculadora fechada sem pausa pedida (app encerrando): a sessão fica, e a conferência acontece na retomada.
+        if (isAbortError(err)) throw finalError('retry', MSG.verifyLater, { reason: 'verifyInterrupted' }, err)
         // Não deu para ler de novo (ex.: apagado depois de enviado): o envio vale, a conferência não.
         this.#log('upload: não consegui conferir o MD5:', err?.message)
       }
@@ -700,7 +715,7 @@ export class UploadTask extends EventEmitter {
     r.bytesDone = 0
   }
 
-  async #forgetParent() {
+  async #forgetParent(signal) {
     const r = this.record
     const stale = r.target.parentId
     r.target.parentId = null
@@ -711,7 +726,10 @@ export class UploadTask extends EventEmitter {
     const key = `${r.target.rootId}/${parts.join('/')}`
     const p = cache.get(key)
     if (!p) return
-    const id = await Promise.resolve(p).catch(() => null)
+    const id = await abortable(Promise.resolve(p), signal).catch(err => {
+      if (signal.aborted) throw err
+      return null
+    })
     // Só tira do cache se ainda aponta para a pasta que sumiu (outra tarefa pode já ter recriado).
     if (id === stale && cache.get(key) === p) cache.delete(key)
   }
