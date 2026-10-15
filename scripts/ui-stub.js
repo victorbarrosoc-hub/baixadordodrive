@@ -1061,7 +1061,7 @@ function fakeBridgeScript() {
     openExternal: function (url) {
       log('openExternal', url); window.__stubExternal.push(url)
       // simula a pessoa terminando o login no navegador do sistema
-      if (/\/api\/auth\/start/.test(url)) setTimeout(function () { fetch(url).catch(function () {}) }, window.__stubOAuthDelay || 2500)
+      if (String(url).indexOf('/api/auth/start') >= 0) setTimeout(function () { fetch(url).catch(function () {}) }, window.__stubOAuthDelay || 2500)
       return Promise.resolve()
     },
     reveal: function (p) { log('reveal', p); window.__stubRevealed.push(p) },
