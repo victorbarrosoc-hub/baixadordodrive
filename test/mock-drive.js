@@ -85,7 +85,7 @@ const DRIVE_FIELDS = new Set([
 const DRIVE_LIST_FIELDS = new Set(['kind', 'nextPageToken', 'drives'])
 
 // Sem `fields`, o Google devolve só isto (pegadinha clássica: sem pedir, não vem size nem md5Checksum).
-const DEFAULT_FILE_MASK = { kind: true, id: true, name: true, mimeType: true }
+const DEFAULT_FILE_MASK = { kind: true, id: true, name: true, mimeType: true, resourceKey: true }
 const DEFAULT_LIST_MASK = { kind: true, nextPageToken: true, incompleteSearch: true, files: DEFAULT_FILE_MASK }
 const DEFAULT_DRIVE_MASK = { kind: true, id: true, name: true }
 const DEFAULT_DRIVE_LIST_MASK = { kind: true, nextPageToken: true, drives: DEFAULT_DRIVE_MASK }
@@ -378,6 +378,24 @@ function waitDrain(res, signal) {
     res.once('close', done)
     signal.addEventListener('abort', done, { once: true })
   })
+}
+
+/** Espera `promise` por no máximo `ms` (sem deixar timer pendurado). */
+async function withTimeout(promise, ms) {
+  let timer
+  try {
+    return await Promise.race([promise, new Promise(resolve => (timer = setTimeout(resolve, ms)))])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function safeDecode(s) {
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return s
+  }
 }
 
 async function readBody(req, limit = MiB) {
@@ -818,7 +836,6 @@ class MockDrive {
     this.accessTokens = new Map()
     this.refreshTokens = new Map()
     this.dailyUploaded = 0
-    this._capCrosser = null
     this._seq = 0
     this._autoSeed = 0
     this._handlers = new Set()
@@ -851,13 +868,18 @@ class MockDrive {
       if (err.code !== 'ECONNRESET' && socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
       else socket.destroy()
     })
-    await new Promise((resolve, reject) => {
-      server.once('error', reject)
-      server.listen(0, '127.0.0.1', () => {
-        server.off('error', reject)
-        resolve()
+    try {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(0, '127.0.0.1', () => {
+          server.off('error', reject)
+          resolve()
+        })
       })
-    })
+    } catch (err) {
+      await fsp.rm(this.tmpDir, { recursive: true, force: true }).catch(noop)
+      throw err
+    }
     this.server = server
     this.url = `http://127.0.0.1:${server.address().port}`
     this.env = {
@@ -883,8 +905,8 @@ class MockDrive {
     this.server.closeAllConnections()
     await Promise.allSettled([...this._workers].map(w => w.terminate()))
     for (const wake of this._md5Queue.splice(0)) wake()
-    await Promise.race([Promise.allSettled([...this._handlers]), delay(5000)])
-    await Promise.race([closed, delay(5000)])
+    await withTimeout(Promise.allSettled([...this._handlers]), 5000)
+    await withTimeout(closed, 5000)
     await fsp.rm(this.tmpDir, { recursive: true, force: true }).catch(noop)
   }
 
@@ -932,7 +954,6 @@ class MockDrive {
   resetDailyUsage() {
     this.dailyUploaded = 0
     this._stats.dailyUploadBytes = 0
-    this._capCrosser = null
     for (const s of this.sessions.values()) s.crossedCap = false
   }
 
@@ -1518,12 +1539,12 @@ class MockDrive {
       }
       if (rest === '' && method === 'POST') return drive('upload.create', (q, s, u) => this._uploadInit(q, s, u, null), { write: true })
       const m = /^\/([^/]+)$/.exec(rest)
-      if (m && method === 'PATCH') return drive('upload.update', (q, s, u) => this._uploadInit(q, s, u, decodeURIComponent(m[1])), { write: true })
+      if (m && method === 'PATCH') return drive('upload.update', (q, s, u) => this._uploadInit(q, s, u, safeDecode(m[1])), { write: true })
       return notFound
     }
 
     if (!p.startsWith('/drive/v3/')) return notFound
-    const segs = p.slice('/drive/v3/'.length).split('/').map(decodeURIComponent)
+    const segs = p.slice('/drive/v3/'.length).split('/').map(safeDecode)
     if (segs[0] === 'about' && segs.length === 1 && method === 'GET') return drive('about.get', (q, s, u) => this._about(q, s, u))
     if (segs[0] === 'drives') {
       if (segs.length === 1 && method === 'GET') return drive('drives.list', (q, s, u) => this._drivesList(q, s, u))
@@ -1984,6 +2005,7 @@ class MockDrive {
     if (!raw.length) return {}
     const meta = JSON.parse(raw.toString('utf8'))
     if (!meta || typeof meta !== 'object' || Array.isArray(meta)) throw new SyntaxError('metadados inválidos')
+    if (meta.name != null && typeof meta.name !== 'string') throw new SyntaxError('name precisa ser texto')
     return meta
   }
 
@@ -2038,7 +2060,7 @@ class MockDrive {
       return null
     }
     if (parent.mimeType !== FOLDER_MIME) {
-      this._send(res, 400, gError(400, 'invalid', 'The specified parent is not a folder.', { location: 'parents' }))
+      this._send(res, 404, notFoundFile(raw))
       return null
     }
     return parent
@@ -2082,8 +2104,8 @@ class MockDrive {
     }
     if (meta.name != null) item.name = String(meta.name)
     if (meta.description !== undefined) item.description = meta.description
+    // Renomear/mover não mexe em modifiedTime (só quando vem explícito).
     if (meta.modifiedTime != null) item.modifiedTime = toIso(meta.modifiedTime)
-    else if (meta.name != null || add.length) item.modifiedTime = item.modifiedTime // renomear/mover não muda modifiedTime do conteúdo
     if (typeof meta.trashed === 'boolean' && meta.trashed !== item.trashed) this._setTrashed(item, meta.trashed)
     item.version++
     this._send(res, 200, await this._fileJson(item, mask ?? DEFAULT_FILE_MASK))
@@ -2106,13 +2128,11 @@ class MockDrive {
   }
 
   _countUploaded(session, n) {
+    const before = this._capCrossed()
     this.dailyUploaded += n
     this._stats.dailyUploadBytes = this.dailyUploaded
     // A sessão que cruza o limite pode terminar; as outras levam 403 (o Google faz assim com os 750 GB/dia).
-    if (this._capCrossed() && !this._capCrosser) {
-      this._capCrosser = session.id
-      session.crossedCap = true
-    }
+    if (!before && this._capCrossed()) session.crossedCap = true
   }
 
   _expired(session) {
@@ -2136,6 +2156,8 @@ class MockDrive {
     } catch {
       return this._send(res, 400, gError(400, 'parseError', 'Parse Error'))
     }
+    const { error: fieldsError } = this._parseMask(url, FILE_FIELDS)
+    if (fieldsError) return this._send(res, 400, fieldsError)
     const lengthHeader = req.headers['x-upload-content-length']
     let declared = null
     if (lengthHeader != null) {
@@ -2222,16 +2244,14 @@ class MockDrive {
     if (req.headers.authorization != null && !this._tokenInfo(req.headers.authorization)) {
       return this._reject(req, res, 401, AUTH_ERROR_BODY, AUTH_ERROR_HEADERS)
     }
-    let session = this.sessions.get(uploadId)
-    if (session && this._expired(session)) {
-      await this._dropSession(session)
-      session = null
-    }
+    const session = this.sessions.get(uploadId)
     if (!session) return this._reject(req, res, 404, gError(404, 'notFound', 'Upload session not found or expired.'))
     const cr = parseContentRange(req.headers['content-range'])
     if (cr === undefined) return this._reject(req, res, 400, gError(400, 'badRequest', 'Failed to parse Content-Range header.'))
     const cl = req.headers['content-length'] != null ? Number(req.headers['content-length']) : null
     return this._withSession(session, async () => {
+      // Expiração conferida dentro da trava: nunca apaga o arquivo debaixo de um PUT em andamento.
+      if (!session.gone && this._expired(session)) await this._dropSession(session)
       if (session.gone) return this._reject(req, res, 404, gError(404, 'notFound', 'Upload session not found or expired.'))
       if (cr === null) {
         // Sem Content-Range: o corpo é o arquivo inteiro numa requisição só.
@@ -2377,7 +2397,7 @@ class MockDrive {
     const pending = []
     let pendingLen = 0
     let writePos = c0
-    const fh = await fsp.open(session.path, 'r+')
+    let fh = null
     const flush = async () => {
       if (!pendingLen || writeError) return
       const buf = pending.length === 1 ? pending[0] : Buffer.concat(pending, pendingLen)
@@ -2415,6 +2435,7 @@ class MockDrive {
       pendingLen += b.length
     }
     const pacer = new Pacer(() => this.options.perConnectionBps, this._closing.signal)
+    // Registrado antes de qualquer await: uma requisição nova na mesma sessão sempre consegue derrubar esta.
     session.active = {
       interrupt: () => {
         interrupted = true
@@ -2422,6 +2443,7 @@ class MockDrive {
       },
     }
     try {
+      fh = await fsp.open(session.path, 'r+')
       for await (let chunk of req) {
         this._stats.bytesReceived += chunk.length
         const limit = dropAt ?? stallAt
@@ -2442,12 +2464,15 @@ class MockDrive {
           break
         }
       }
-    } catch {
-      interrupted = true
+    } catch (err) {
+      if (fh) interrupted = true
+      else writeError = err
     } finally {
       session.active = null
-      await flush()
-      await fh.close().catch(noop)
+      if (fh) {
+        await flush()
+        await fh.close().catch(noop)
+      }
     }
     if (writeError) return { writeError }
     // Cortado de propósito ou não: o que não chegou inteiro não conta (snapPos ≤ bytes realmente gravados).
@@ -2504,11 +2529,13 @@ class MockDrive {
       return this._reject(req, res, 401, AUTH_ERROR_BODY, AUTH_ERROR_HEADERS)
     }
     const session = this.sessions.get(uploadId)
-    if (!session || this._expired(session)) {
-      if (session) await this._dropSession(session)
-      return this._reject(req, res, 404, gError(404, 'notFound', 'Upload session not found or expired.'))
-    }
-    await this._withSession(session, () => this._dropSession(session))
+    if (!session) return this._reject(req, res, 404, gError(404, 'notFound', 'Upload session not found or expired.'))
+    const existed = await this._withSession(session, async () => {
+      const alive = !session.gone && !this._expired(session)
+      if (!session.gone) await this._dropSession(session)
+      return alive
+    })
+    if (!existed) return this._reject(req, res, 404, gError(404, 'notFound', 'Upload session not found or expired.'))
     await drainRequest(req, DRAIN_LIMIT)
     // 499 é o código que o Google usa para "upload cancelado".
     this._send(res, 499, null, {}, 'Client Closed Request')
