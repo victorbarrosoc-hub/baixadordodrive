@@ -504,13 +504,16 @@ test('limitador de metadados: no máximo 8 simultâneas, ~20 req/s e recuperaç�
   assert.ok(rateElapsed >= 1200, `taxa acima de 20/s? ${rateElapsed.toFixed(0)} ms`)
 
   // Unidade: corte pela metade e volta gradual.
-  const lim = new MetadataLimiter({ maxConcurrent: 8, ratePerSec: 20, cooldownMs: 300, recoverMs: 400 })
+  const half = new MetadataLimiter({ maxConcurrent: 8, ratePerSec: 20 })
+  half.penalize()
+  half.penalize() // mesma rajada: um corte só
+  assert.deepEqual(half.stats(), { active: 0, waiting: 0, limit: 4, rate: 10, cuts: 1 })
+
+  const lim = new MetadataLimiter({ maxConcurrent: 8, ratePerSec: 1000, cooldownMs: 400, recoverMs: 400 })
   lim.penalize()
-  lim.penalize() // mesma rajada: um corte só
   let st = lim.stats()
-  assert.equal(st.cuts, 1)
-  assert.equal(st.rate, 10)
   assert.equal(st.limit, 4)
+  assert.equal(st.rate, 500)
   await Promise.all(Array.from({ length: 4 }, () => lim.acquire()))
   let fifthIn = false
   const fifth = lim.acquire().then(() => (fifthIn = true))
@@ -522,10 +525,10 @@ test('limitador de metadados: no máximo 8 simultâneas, ~20 req/s e recuperaç�
   for (let i = 0; i < 4; i++) lim.release()
   st = lim.stats()
   assert.equal(st.active, 0)
-  assert.ok(st.rate < 20, 'durante o resfriamento não sobe')
-  await new Promise(resolve => setTimeout(resolve, 900))
+  assert.ok(st.rate < 1000, 'durante o resfriamento não sobe')
+  await new Promise(resolve => setTimeout(resolve, 1000))
   st = lim.stats()
-  assert.equal(st.rate, 20)
+  assert.equal(st.rate, 1000)
   assert.equal(st.limit, 8)
   // Cortes seguidos têm piso: a navegação nunca para de vez.
   const floor = new MetadataLimiter({ ratePerSec: 20, cooldownMs: 0 })
