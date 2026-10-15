@@ -45,6 +45,20 @@ const FATAL_REASONS = {
   fileNotDownloadable: 'Este arquivo não pode ser baixado (o dono bloqueou downloads).',
   cannotCopyFile: 'O dono bloqueou cópias/downloads deste arquivo.',
   exportSizeLimitExceeded: 'Documento do Google grande demais para exportar (limite de 10 MB do Google).',
+  accessNotConfigured: 'A Google Drive API não está ativada no seu projeto do Google Cloud. Ative em console.cloud.google.com/apis/library/drive.googleapis.com.',
+  SERVICE_DISABLED: 'A Google Drive API não está ativada no seu projeto do Google Cloud. Ative em console.cloud.google.com/apis/library/drive.googleapis.com.',
+  activeItemCreationLimitExceeded: 'Sua conta atingiu o limite de itens do Google Drive.',
+  fileSizeLimitExceeded: 'Arquivo maior que o limite do Google Drive (5 TB).',
+}
+
+// Erros do servidor de OAuth (token/consentimento).
+const OAUTH_REASONS = {
+  invalid_client: 'O Google não reconheceu sua chave (Client ID/secret). Confira a chave em Ajustes ou crie outra.',
+  deleted_client: 'O Google apagou ou desativou seu cliente OAuth (fica inativo após 6 meses sem uso). Restaure em Google Auth Platform → Clientes ou crie outro.',
+  unauthorized_client: 'Sua chave não é do tipo "App para computador". Crie um cliente desse tipo no Google Cloud.',
+  admin_policy_enforced: 'O administrador do Google Workspace bloqueou este app. Peça para ele liberar o Client ID (Admin → Segurança → Controles de API).',
+  org_internal: 'Este app está como "Interno" e só aceita contas da sua organização.',
+  access_denied: 'O acesso foi negado. Se o app está em modo Teste, adicione seu e-mail em Público-alvo → Usuários de teste.',
 }
 
 const NETWORK_CODES = new Set([
@@ -74,6 +88,7 @@ export function classifyError(err) {
   if (err instanceof HttpError) {
     const { status, reason } = err
     if (reason === 'invalid_grant') return info('reauth', reason, 'O acesso a esta conta expirou. Conecte a conta de novo.', status)
+    if (reason && OAUTH_REASONS[reason]) return info('fatal', reason, OAUTH_REASONS[reason], status)
     if (status === 401) return info('auth', reason, 'Sessão do Google expirou, renovando…', status)
     if (reason && QUOTA_REASONS[reason]) {
       const q = QUOTA_REASONS[reason]

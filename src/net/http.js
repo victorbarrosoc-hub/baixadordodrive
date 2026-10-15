@@ -119,7 +119,8 @@ async function readBody(body, limit = MAX_ERROR_BODY) {
  * @param {object} opts { method, headers, body, signal, expect: number[], maxRedirections }
  */
 export async function httpRequest(url, opts = {}) {
-  const { method = 'GET', headers = {}, body, signal, expect = [200], maxRedirects = 5 } = opts
+  const { method = 'GET', body, signal, expect = [200], maxRedirects = 5 } = opts
+  let headers = opts.headers || {}
   let target = url instanceof URL ? url : new URL(url)
   for (let hop = 0; ; hop++) {
     const res = await request(target, {
@@ -131,9 +132,15 @@ export async function httpRequest(url, opts = {}) {
     })
     const status = res.statusCode
     if (expect.includes(status)) return { status, headers: res.headers, body: res.body }
+    // 308 NÃO é redirecionamento aqui: no upload retomável do Google significa "continue daqui".
     if ([301, 302, 303, 307].includes(status) && res.headers.location && hop < maxRedirects && (method === 'GET' || method === 'HEAD')) {
       res.body.destroy()
-      target = new URL(res.headers.location, target)
+      const next = new URL(res.headers.location, target)
+      // Só manda o token para hosts do Google (ou o mesmo host, p/ o servidor falso dos testes).
+      if (next.host !== target.host && !/(^|\.)(googleapis|googleusercontent)\.com$/i.test(next.hostname)) {
+        headers = Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== 'authorization'))
+      }
+      target = next
       continue
     }
     const errBody = await readBody(res.body)

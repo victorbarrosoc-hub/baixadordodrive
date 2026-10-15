@@ -23,8 +23,10 @@ Por que é rápido:
   restante (como IDM/aria2), então todas as conexões trabalham até o último byte.
 - **Conexões lentas são refeitas**: o Google às vezes estrangula uma conexão; se uma fica muito
   abaixo da mediana das outras, ela é reaberta.
-- **Upload**: o Drive só aceita os pedaços de UM arquivo em ordem, então o paralelismo vem de
-  vários arquivos ao mesmo tempo + pedaços grandes (256 MiB) para minimizar pausas entre pedaços.
+- **Upload**: o Drive só aceita os bytes de UM arquivo em ordem (uma requisição por vez por arquivo),
+  então o paralelismo vem de vários arquivos ao mesmo tempo. Por padrão cada arquivo vai num fluxo
+  contínuo (uma requisição do ponto onde parou até o fim — recomendação do Google, sem pausas entre
+  pedaços). Um fluxo único costuma render ~40–100 MB/s; 4 arquivos simultâneos enchem links de 1 Gbps.
 - **Nada se perde**: o progresso é gravado em disco (gravação atômica). Downloads guardam a posição
   de cada segmento (só posições já sincronizadas com `fdatasync`); uploads guardam a URL da sessão
   retomável e perguntam ao Google quanto já chegou.
@@ -107,12 +109,20 @@ getClientInfo(): { configured: boolean, clientIdHint: string|null }      // hint
 async setClientCredentials(input)   // aceita o JSON baixado do Console ({installed:{client_id,client_secret}} ou {web:{...}}),
                                     // string JSON, ou { clientId, clientSecret }. Valida formato; lança Error PT-BR.
 listAccounts(): Array<{ id, email, name, photoUrl, addedAt, status: 'ok'|'reauth' }>   // nunca expõe tokens
-beginLogin(redirectUri): { url, state }     // PKCE S256, state aleatório, access_type=offline, prompt=consent,
-                                            // scope = DRIVE_SCOPE. Guarda verifier por state (expira em 15 min).
-async completeLogin({ code, state, redirectUri }): account   // troca code por tokens, busca about.user, salva/atualiza conta
+beginLogin(redirectUri): { url, state }     // PKCE S256 (verifier = base64url(randomBytes(64))), state aleatório,
+                                            // access_type=offline, prompt=consent, scope = DRIVE_SCOPE (sem include_granted_scopes).
+                                            // Guarda verifier por state (expira em 15 min).
+async completeLogin({ code, state, redirectUri, error }): account
+    // `error` do callback (ex.: access_denied) vira mensagem PT-BR. Troca code por tokens SEMPRE enviando
+    // client_secret (clientes Desktop ainda exigem). Confere se `scope` da resposta contém o escopo do Drive
+    // (consentimento granular: o usuário pode desmarcar) — senão erro "Marque a permissão do Google Drive".
+    // Sem refresh_token na resposta = falha. Busca about.user, salva/atualiza conta com consentedAt.
 async getAccessToken(accountId, { forceRefresh = false } = {}): string
     // cache em memória; renova se faltar < 120 s; renovações concorrentes da mesma conta compartilham a promessa;
-    // invalid_grant => status 'reauth', emite 'accounts', lança SobeDesceError('reauth', ...)
+    // invalid_grant => status 'reauth', emite 'accounts', lança SobeDesceError('reauth', ...).
+    //   Se aconteceu ~7 dias após consentedAt, a mensagem explica o modo Teste do Google Cloud
+    //   ("publique o app em Público-alvo → Publicar app, ou reconecte toda semana").
+    // Nunca sobrescreve o refresh token salvo com undefined. Erros de rede no endpoint de token: retry com backoff.
 async removeAccount(accountId)              // revoga (melhor esforço) e apaga
 // eventos: 'accounts' (lista pública)
 ```
@@ -141,16 +151,26 @@ async ensureFolderPath(rootId, relDir, { signal, cache }): string
     // cria/acha cada nível de relDir dentro de rootId e devolve o id da última pasta.
     // `cache` (Map) guarda promessas por `${rootId}/${prefixo}` para criação concorrente não duplicar pastas.
 async search(text, { signal }): DriveItem[]                       // name contains, até 200 resultados
+// Detalhes obrigatórios (ver docs/GOOGLE-NOTES.md):
+//  - supportsAllDrives=true em TODA chamada files.*; includeItemsFromAllDrives=true em files.list;
+//    pageSize=1000; dentro de drive compartilhado use corpora=drive&driveId=<id>.
+//  - `fields` sempre explícito (about.get EXIGE fields).
+//  - Itens com resourceKey: mandar header 'X-Goog-Drive-Resource-Keys: <id>/<resourceKey>' (helper resourceKeyHeader(item)).
+//  - Limitador interno das chamadas de metadados: no máx. 8 simultâneas e ~20 req/s (token bucket);
+//    em 403/429 de limite, reduz pela metade e volta a subir devagar.
+//  - NÃO mandar Accept-Encoding: gzip (undici.request não descompacta).
 mediaUrl(fileId): string        // {driveApi}/files/{id}?alt=media&supportsAllDrives=true&acknowledgeAbuse=false
 exportUrl(fileId, mimeType): string
 uploadInitUrl(): string         // {driveUpload}/files?uploadType=resumable&supportsAllDrives=true&fields=…
 uploadUpdateUrl(fileId): string // {driveUpload}/files/{id}?uploadType=resumable&supportsAllDrives=true&fields=…
 
 DriveItem = { id, name, mimeType, size: number|null, md5: string|null, modifiedTime: string|null,
+              headRevisionId: string|null, resourceKey: string|null, canDownload: boolean,
               parents: string[], driveId: string|null, isFolder, isGoogleDoc, isShortcut,
               shortcutTargetId: string|null, shortcutTargetMimeType: string|null,
               relPath?: string, relDir?: string, target?: DriveItem }
-FILE_FIELDS = 'id,name,mimeType,size,md5Checksum,modifiedTime,parents,driveId,shortcutDetails'
+FILE_FIELDS = 'id,name,mimeType,size,md5Checksum,modifiedTime,headRevisionId,resourceKey,parents,driveId,' +
+              'shortcutDetails(targetId,targetMimeType,targetResourceKey),capabilities(canDownload)'
 GOOGLE_EXPORTS = { 'application/vnd.google-apps.document': { mime: '…wordprocessingml.document', ext: '.docx' },
                    spreadsheet -> .xlsx, presentation -> .pptx, drawing -> .png ; outros google-apps: não baixáveis }
 ```
@@ -221,16 +241,19 @@ liveSegments(): Array<{ start, end, pos, active: boolean, speed: number }>   // 
 speed(): number
 ```
 Algoritmo:
+0. `size === 0`: cria o arquivo vazio sem nenhuma requisição (Range em arquivo vazio falha).
 1. Google Doc nativo (`source.export`): uma conexão, sem Range, escreve no tempPath e renomeia.
-2. Revalida metadados (`getItem`): se `md5`/`size`/`modifiedTime` mudou desde a criação do registro,
-   zera segmentos e recomeça. Confere espaço livre (`fs.statfs`) >= bytes restantes, senão fatal ENOSPC.
+2. Revalida metadados (`getItem`): se `md5`/`size`/`headRevisionId` mudou desde a criação do registro,
+   zera segmentos e recomeça (senão juntaria pedaços de duas versões). Confere espaço livre (`fs.statfs`) >= bytes restantes, senão fatal ENOSPC.
 3. Abre `tempPath` (`r+` se existe e segmentos têm progresso, senão cria e `truncate(size)` → arquivo esparso).
    Se o arquivo temporário sumiu ou é menor que `size`, recomeça do zero.
 4. Segmentos iniciais: `n = clamp(ceil(size / minSegmentSize), 1, connectionsPerDownload)` partes iguais.
 5. Workers (até `connectionsPerDownload`): pegam segmento livre; sem livre, **roubam** a metade do
-   maior restante (> 2 × 4 MiB) — encolhem `end` do dono e criam novo segmento `[meio, endAntigo]`.
+   maior restante (se restam > 32 MiB nele) — encolhem `end` do dono e criam novo segmento `[meio, endAntigo]`.
    O dono para quando `pos > end` (conferido a cada pedaço recebido).
-6. GET `mediaUrl` com `Range: bytes=pos-end`, espera 206 (200 aceito só se pos === 0). Corpo em
+6. GET `mediaUrl` com `Range: bytes=pos-end` (+ header de resourceKey se houver), exige 206 com
+   `Content-Range` começando em `pos` (200 só é aceito se pos === 0 — e aí o arquivo vira 1 conexão só;
+   qualquer outra divergência: descarta o corpo e tenta de novo, NUNCA grava bytes no lugar errado). Corpo em
    stream: agrupa até 1 MiB, `await limiter.take`, `fh.write(buf, 0, len, pos)`, avança `pos` ao vivo.
    `ctx.onBytes` a cada pedaço recebido.
 7. Travamento: sem bytes por `stallTimeoutMs` → aborta a requisição (erro STALLED, retry).
@@ -240,6 +263,8 @@ Algoritmo:
 8. Erros por worker: 'retry' → `backoffDelay(tentativas)` e reabre; 'auth' → força refresh e reabre;
    tentativas zeram quando há progresso; > 10 falhas seguidas sem progresso → falha a tarefa.
    'fatal'/'quota'/'notfound'/'reauth' → aborta todos os workers e rejeita.
+   `downloadQuotaExceeded` (cota do arquivo) chega como 'quota': o manager reagenda com atraso crescente
+   (15 min, 1 h, 4 h, 24 h) e os outros arquivos seguem.
    416 → se o segmento já está completo segue; senão o arquivo mudou: recomeça do zero.
 9. Checkpoint a cada 2 s: `await fh.datasync()`, copia `pos` vivo → `record.segments[i].pos`,
    atualiza `record.bytesDone`, `ctx.persist()`. Só posições sincronizadas são persistidas.
@@ -262,23 +287,31 @@ Algoritmo:
    mesmo tamanho → conforme `uploadConflict`: 'skip' (se md5 local = md5 remoto, ou sem md5 remoto e
    mesmo tamanho) → `record.status='skipped'`, `note='Já estava no Drive'`, resolve; 'replace' →
    `replaceFileId = existente.id`; 'rename' → sobe com nome `uniqueName`.
-4. Sessão: se não há (ou tem > 6 dias): POST `uploadInitUrl()` (ou PATCH `uploadUpdateUrl(replaceFileId)`)
+4. Sessão: se não há (ou tem > 6 dias — a URI expira em 1 semana): POST `uploadInitUrl()` (ou PATCH `uploadUpdateUrl(replaceFileId)`)
    com `{ name, parents:[parentId] (só no create), modifiedTime: ISO(mtime) }`,
    headers `X-Upload-Content-Type` (pelo nome; padrão application/octet-stream) e
    `X-Upload-Content-Length`. Guarda `Location` em `session.uri` e persiste NA HORA.
+   A URI da sessão é uma credencial: nunca vai para a UI nem para logs (mascare `upload_id`).
+   Mesmo assim, toda requisição leva `Authorization` atualizado (inofensivo, como o rclone faz).
 5. Se havia sessão: consulta status (PUT vazio, `Content-Range: bytes */size`): 308 + `Range: bytes=0-N`
    → offset N+1 (sem Range → 0); 200/201 → já terminou; 404/410 → sessão morreu → nova sessão, offset 0.
 6. Envio: a partir de `offset`, PUT de `[offset, fim]` onde fim = offset + chunk − 1 (`uploadChunkSize`,
-   múltiplo de 256 KiB; 0 = tudo que falta), `Content-Range: bytes a-b/size`, corpo = `fs.createReadStream`
+   múltiplo de 256 KiB; **0 = tudo que falta, o padrão**), `Content-Range: bytes a-b/size`, corpo = `fs.createReadStream`
    (highWaterMark 1 MiB) passando pelo limiter + `onBytes` + detector de travamento.
    308 → novo offset = o que o **Google** disse no `Range` (pode ser menor que o enviado); persiste.
    200/201 → JSON do arquivo (`id, md5Checksum, size`): `target.fileId`, `verify.actual`.
    Falha 'retry' → backoff, consulta status, continua do offset do Google.
+   308 é resposta normal do protocolo (não seguir como redirecionamento). Se um 308 trouxer `Location`, troque a URI.
 7. Arquivo vazio (size 0): sessão + PUT com `Content-Length: 0` e sem corpo.
 8. Verificação: se `verifyChecksums`, começa `hasher.hash(local.path)` em paralelo ao envio; no fim compara
    com `md5Checksum` devolvido. Diferente → `verify.state='mismatch'` e falha (o arquivo no Drive fica, a UI avisa).
 9. Pausa: aborta o PUT atual; a sessão continua válida (≈ 1 semana); retomar = passo 5.
-10. Cota de 750 GB/dia → erro 'quota' (o manager põe em 'waiting' e tenta de novo depois).
+10. Cota de 750 GB/dia: o Google responde 403 `userRateLimitExceeded` ("User rate limit exceeded."), igual a
+    um limite de taxa comum. Regra: se o MESMO upload recebe esse erro 5 vezes seguidas sem nenhum progresso
+    (ou 3 vezes seguidas ao abrir sessão), lança `SobeDesceError('quota', 'Você atingiu o limite de upload
+    do Google (750 GB por dia)…', { reason: 'uploadLimitExceeded', retryAfterMs: 60 min })`.
+    O arquivo que cruza o limite termina; os próximos esperam.
+11. Tamanho > 5 TB (5.497.558.138.880 bytes): fatal antes de começar.
 
 ### engine/planner.js
 
@@ -293,8 +326,11 @@ Batch = { id, type, label, createdAt, accountId }   // label: 'Pasta Projeto X' 
 ```
 Downloads: pastas viram `destDir/<nome da pasta>/<relPath>`; nomes passam por `safeLocalName` e
 `uniqueName` (o Drive permite nomes repetidos na mesma pasta). Docs nativos usam `GOOGLE_EXPORTS`;
-outros `google-apps.*` vão para `skipped`. Atalho para arquivo baixa o alvo. Conflito com arquivo local
+outros `google-apps.*` vão para `skipped`, assim como `canDownload === false` ("O dono bloqueou downloads").
+Atalho para arquivo baixa o alvo. Conflito com arquivo local
 existente: 'skip' (mesmo tamanho → não cria registro, vai para skipped), 'rename', 'overwrite'.
+Uploads: arquivo > 5 TB vai para `skipped`; se a soma do lote passa do espaço livre do Drive
+(`about().quota`, quando há limite) o resultado inclui `warnings: ['…']` (não bloqueia).
 Uploads: pasta selecionada sobe como `<destFolderId>/<nome da pasta>/...`; ignora `isJunkFile` e links
 simbólicos; arquivos soltos vão direto em `destFolderId`.
 
@@ -313,8 +349,11 @@ stats(): Stats
 // eventos: 'transfers' (PublicTransfer[] alterados, no máximo 4×/s), 'removed' (ids), 'stats' (Stats, 2×/s), 'batches'
 PublicTransfer = registro sem tokens/sessão + { speed, eta, segments: liveSegments() (≤ 32, só download ativo) }
 Stats = { down: { speed, active, queued }, up: { speed, active, queued }, totals: { count, bytes, doneBytes },
-          eta, history: Array<{ t, down, up }> (últimos 120 s, 1 ponto/s), keepAwake: boolean }
+          eta, history: Array<{ t, down, up }> (últimos 120 s, 1 ponto/s), keepAwake: boolean,
+          usage: { [accountId]: { up24h, down24h } } }   // bytes nas últimas 24 h (cota de 750 GB/dia de upload)
 ```
+Livro-razão de uso: a cada byte confirmado, soma no balde da hora atual por conta/direção
+(`usage.json`, guarda 25 h) → `stats.usage` mostra "612 de 750 GB nas últimas 24 h".
 Agendamento: respeita `maxConcurrentDownloads` / `maxConcurrentUploads` (lidos ao vivo), ordem da fila
 (prioridade, depois createdAt). Ao concluir/falhar, agenda o próximo. Erros: 'retry' (estourou tentativas)
 → 'failed'; 'quota' → 'waiting' com `retryAt` e reagenda sozinho; 'reauth' → 'paused' com erro

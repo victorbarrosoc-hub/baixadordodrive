@@ -55,13 +55,17 @@ export const DEFAULT_SETTINGS = Object.freeze({
   /** Quantos arquivos baixam ao mesmo tempo. */
   maxConcurrentDownloads: 3,
   /** Quantos arquivos sobem ao mesmo tempo (o Drive não aceita partes paralelas de um mesmo arquivo). */
-  maxConcurrentUploads: 3,
+  maxConcurrentUploads: 4,
   /** Conexões simultâneas por arquivo baixado (download segmentado). */
   connectionsPerDownload: 8,
-  /** Menor pedaço que vale a pena abrir uma conexão nova. */
-  minSegmentSize: 16 * MiB,
-  /** Tamanho de cada pedaço do upload retomável (múltiplo de 256 KiB). 0 = envia o restante numa requisição só. */
-  uploadChunkSize: 256 * MiB,
+  /** Tamanho mínimo de cada segmento inicial do download (rclone usa 64 MiB; segmentos grandes economizam cota da API). */
+  minSegmentSize: 64 * MiB,
+  /**
+   * Upload retomável: 0 = "contínuo" (o restante do arquivo numa requisição só, sem pausas entre pedaços —
+   * é o que o Google recomenda). Valor > 0 = pedaços desse tamanho (múltiplo de 256 KiB), útil em redes
+   * que derrubam conexões longas.
+   */
+  uploadChunkSize: 0,
   /** Limite de banda em bytes/s. 0 = sem limite. */
   bandwidthLimitDown: 0,
   bandwidthLimitUp: 0,
