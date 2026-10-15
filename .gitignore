@@ -1,0 +1,6 @@
+node_modules/
+.vazao-dev/
+*.vazao-part
+.DS_Store
+coverage/
+test/.tmp/
