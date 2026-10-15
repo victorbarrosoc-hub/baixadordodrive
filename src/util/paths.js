@@ -35,7 +35,8 @@ export function safeLocalName(name, platform = process.platform) {
   let out = toNFC(name).replace(/[\u0000-\u001f\u007f]/g, '_')
   if (platform === 'win32') {
     out = out.replace(/[<>:"/\\|?*]/g, '_').replace(/[ .]+$/g, '')
-    if (WIN_RESERVED.test(out)) out = `${out}_`
+    // "CON.txt" também é reservado: o '_' vai antes da primeira extensão ("CON_.txt").
+    if (WIN_RESERVED.test(out)) out = out.replace(/^[^.]*/, m => `${m}_`)
   } else {
     out = out.replace(/[/]/g, '_')
     if (platform === 'darwin') out = out.replace(/:/g, '_')

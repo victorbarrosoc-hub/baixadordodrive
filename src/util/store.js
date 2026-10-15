@@ -26,12 +26,18 @@ async function writeNow(file, data, mode) {
   const tmp = `${file}.tmp-${crypto.randomBytes(4).toString('hex')}`
   const handle = await fs.open(tmp, 'w', mode)
   try {
-    await handle.writeFile(JSON.stringify(data, null, 1))
-    await handle.sync()
-  } finally {
-    await handle.close()
+    try {
+      await handle.writeFile(JSON.stringify(data, null, 1))
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    await fs.rename(tmp, file)
+  } catch (err) {
+    // Sem isso, cada tentativa com disco cheio deixaria mais um temporário para trás.
+    await fs.unlink(tmp).catch(() => {})
+    throw err
   }
-  await fs.rename(tmp, file)
 }
 
 /** Grava `data` em `file` de forma atômica. Gravações concorrentes no mesmo arquivo são enfileiradas. */
