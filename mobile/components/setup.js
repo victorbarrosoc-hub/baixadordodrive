@@ -8,7 +8,6 @@ import { Button, copyText, cx } from './ui.js'
 import { InstallHint } from './install-hint.js'
 
 const CLIENTS_URL = 'https://console.cloud.google.com/auth/clients'
-const CREATE_URL = 'https://console.cloud.google.com/auth/clients/create'
 const AUDIENCE_URL = 'https://console.cloud.google.com/auth/audience'
 
 export function SetupScreen() {
@@ -69,9 +68,6 @@ export function SetupScreen() {
             <b>Criar cliente → Aplicativo da Web</b>
             <span class="sub">Em “Tipo de aplicativo”. O nome pode ser SOBEDESCE Celular.</span>
           </div>
-          <a class="btn btn-ghost btn-sm" href=${CREATE_URL} target="_blank" rel="noopener noreferrer" aria-label="Abrir Criar cliente">
-            <${Icon} name="external" size=${15} />
-          </a>
         </li>
         <li class="step step-wide">
           <span class="step-num" aria-hidden="true">3</span>

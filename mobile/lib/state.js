@@ -10,6 +10,8 @@ let state = {
   auth: { status: 'signedOut', error: null, needsTap: false },
   user: null, // { displayName, emailAddress, photoLink }
   quota: null, // { limit, usage }
+  dest: null, // pasta de destino { id, name, driveId, path }
+  awake: false, // trava de tela acesa ativa
   sheet: null, // { name, props }
   toasts: [],
 }

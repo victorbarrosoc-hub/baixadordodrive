@@ -96,7 +96,7 @@ function Destination({ dest }) {
   return html`<button type="button" class="dest" onClick=${() => openSheet('folders')} aria-label=${`Destino: ${folderTrail(dest)}. Trocar pasta`}>
     <span class="dest-eyebrow">Enviar para</span>
     <span class="dest-row">
-      <span class="dest-icon" aria-hidden="true"><${Icon} name=${dest.id === 'root' ? 'drive' : isShared && dest.path?.length === 1 ? 'shared-drive' : 'folder'} size=${22} /></span>
+      <span class="dest-icon" aria-hidden="true"><${Icon} name=${dest.id === 'root' ? 'disk' : isShared && dest.path?.length === 1 ? 'shared-drive' : 'folder'} size=${22} /></span>
       <span class="dest-text">
         <span class="dest-name">${dest.name}</span>
         ${trail ? html`<span class="dest-trail">${trail}</span>` : html`<span class="dest-trail">${isShared ? 'Drive compartilhado' : 'Pasta principal do seu Drive'}</span>`}
@@ -123,7 +123,7 @@ function Picker({ dest, account }) {
       <span class="pick-icon" aria-hidden="true"><${Icon} name="upload" size=${24} strokeWidth=${1.8} /></span>
       <span class="pick-text">
         <b>Escolher arquivos</b>
-        <span>Vídeos, fotos, áudio — qualquer tamanho</span>
+        <span>Vídeos, fotos, qualquer tamanho</span>
       </span>
     </label>
     <p class="tip"><${Icon} name="info" size=${15} /> <span>Para vídeos no tamanho original, escolha pelo app <b>Arquivos</b>; pela Fototeca o iPhone às vezes converte.</span></p>
