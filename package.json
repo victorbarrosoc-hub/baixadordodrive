@@ -5,6 +5,9 @@
   "type": "module",
   "private": true,
   "license": "MIT",
+  "author": "SOBEDESCE",
+  "homepage": "https://github.com/victorbarrosoc-hub/baixadordodrive",
+  "main": "desktop/main.js",
   "engines": {
     "node": ">=20.18"
   },
@@ -14,6 +17,9 @@
   "scripts": {
     "start": "node src/index.js",
     "demo": "node scripts/demo.js",
+    "desktop": "electron .",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never",
     "test": "node --test --test-concurrency=1 test/",
     "test:fast": "node --test --test-concurrency=1 --test-skip-pattern=slow test/"
   },
@@ -21,5 +27,9 @@
     "htm": "^3.1.1",
     "preact": "^10.27.0",
     "undici": "^7.16.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
   }
 }

@@ -1,0 +1,80 @@
+# Gera o app de desktop num Mac e num Windows de verdade (na nuvem do GitHub).
+# Os instaladores ficam em "Actions" → execução → "Artifacts". Uma tag v* (ex.: v0.1.0) também publica um Release.
+name: App de desktop
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    name: Testes do motor
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:fast
+
+  app:
+    name: App (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: Mac
+            build: npm run dist:mac
+            files: dist/*.dmg
+          - os: windows-latest
+            label: Windows
+            build: npm run dist:win
+            files: dist/*.exe
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: ${{ matrix.build }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SOBEDESCE-${{ matrix.label }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publicar release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: instaladores
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: instaladores/*
+          generate_release_notes: true

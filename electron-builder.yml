@@ -1,0 +1,67 @@
+# Empacotamento do app de desktop (npm run dist:mac / dist:win, ou o GitHub Actions).
+appId: app.sobedesce.desktop
+productName: SOBEDESCE
+copyright: Copyright © 2026 SOBEDESCE
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+directories:
+  output: dist
+  buildResources: build
+
+# Sem asar: o motor usa worker_threads e serve a interface direto do disco.
+asar: false
+files:
+  - package.json
+  - desktop/**/*
+  - src/**/*
+  - public/**/*
+  - "!**/*.map"
+  - "!**/*.md"
+
+mac:
+  target:
+    - target: dmg
+      arch: [universal]
+  category: public.app-category.productivity
+  icon: build/icon.png
+  # Sem certificado da Apple por enquanto: assinatura ad-hoc (o macOS pede "Abrir Mesmo Assim" na primeira vez).
+  identity: "-"
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  notarize: false
+  extendInfo:
+    NSDesktopFolderUsageDescription: O SOBEDESCE lê e grava arquivos que você escolhe para enviar ou baixar.
+    NSDocumentsFolderUsageDescription: O SOBEDESCE lê e grava arquivos que você escolhe para enviar ou baixar.
+    NSDownloadsFolderUsageDescription: O SOBEDESCE grava os downloads na pasta que você escolher.
+    NSRemovableVolumesUsageDescription: O SOBEDESCE lê e grava arquivos em discos externos que você escolher.
+    NSNetworkVolumesUsageDescription: O SOBEDESCE lê e grava arquivos em volumes de rede que você escolher.
+
+dmg:
+  title: SOBEDESCE
+  contents:
+    - x: 140
+      y: 200
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  icon: build/icon.png
+
+nsis:
+  # Instala só para o usuário atual, sem pedir senha de administrador.
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SOBEDESCE
+  artifactName: ${productName}-${version}-windows-setup.${ext}
+
+linux:
+  target: [AppImage]
+  category: Utility
+  icon: build/icon.png
