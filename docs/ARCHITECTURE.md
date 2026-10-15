@@ -462,3 +462,25 @@ Seletor de pastas/arquivos locais próprio (modal) usando `/api/local/*`.
 - Limites de banda na UI são MB/s decimais (× 1e6); pedaço de upload em MiB (0 = contínuo).
 - Servir de `public/`: `/favicon.svg`, `/lib/*`, `/components/*`, `/app.js`, `/styles.css`. Sem scripts inline (CSP estrita funciona).
 - Depois do OAuth, o callback leva para `/` (a UI recarrega `/api/state`).
+
+## App de desktop (Electron) — contrato com `src/index.js`
+
+O app de desktop (`desktop/`) reaproveita o motor inteiro: o processo principal do Electron sobe o motor com
+`utilityProcess.fork('src/index.js')` e abre uma janela apontando para a URL local. Por isso `src/index.js` precisa:
+
+- Exportar `startApp({ home, port, open = true }) → { url, port, manager, shutdown() }` (usado pelo demo e pelos testes).
+- Quando rodar como processo filho do Electron (`process.parentPort` existe):
+  - não abrir navegador; usar a porta de `SOBEDESCE_PORT` (o Electron passa 0 = porta livre);
+  - depois que o servidor estiver ouvindo: `process.parentPort.postMessage({ type: 'ready', url, port })`;
+  - ao receber `{ type: 'shutdown' }` (via `process.parentPort.on('message', e => e.data)`): `shutdown()` (pausa tudo,
+    grava a fila) e `process.exit(0)`;
+  - erro fatal na subida: `postMessage({ type: 'fatal', message })` e sair com código 1.
+- Com `SOBEDESCE_DESKTOP=1`, a página de retorno do OAuth (aberta no navegador do sistema, porque o Google
+  bloqueia login dentro de apps Electron) diz "Conta conectada. Pode voltar para o SOBEDESCE." em vez de
+  redirecionar para a interface.
+
+A janela do Electron carrega a mesma interface; `window.sobedesce` (preload) oferece extras nativos:
+`{ desktop: true, platform, pickFolder(opts) → string|null, pickPaths(opts) → string[], pathForFile(File) → string,
+setProgress(fraction|null, activeCount), notify(title, body), openExternal(url), reveal(path) }`.
+A interface usa esses extras quando existem (seletor nativo, arrastar do Finder/Explorer, progresso no Dock/barra de
+tarefas) e cai no seletor próprio quando roda no navegador.
