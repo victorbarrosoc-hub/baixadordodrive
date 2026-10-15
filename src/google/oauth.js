@@ -54,10 +54,10 @@ export function parseClientCredentials(input) {
   const clientSecret = String(src.client_secret ?? src.clientSecret ?? '').trim()
   if (!clientId) throw badInput('Falta o Client ID.')
   if (!clientId.endsWith(CLIENT_SUFFIX) || clientId.length <= CLIENT_SUFFIX.length || /\s/.test(clientId)) {
-    throw badInput('Esse Client ID não parece certo: ele termina em .apps.googleusercontent.com. Confira se copiou inteiro.')
+    throw badInput('Esse Client ID não parece certo: ele precisa terminar em .apps.googleusercontent.com. Confira se copiou inteiro.')
   }
   if (!clientSecret) {
-    throw badInput('Falta o segredo do cliente (client secret). Ele só aparece quando o cliente é criado: baixe o JSON nessa hora ou crie um novo segredo no Google Cloud.')
+    throw badInput('Falta o segredo do cliente (client secret). O Google só mostra o segredo ao criar o cliente: se o JSON veio sem ele, crie um novo segredo no Google Cloud e baixe o JSON de novo.')
   }
   return { clientId, clientSecret }
 }
@@ -101,6 +101,7 @@ function normalizeAccount(raw) {
     status: raw.status === 'reauth' ? 'reauth' : 'ok',
     reauthAt: Number(raw.reauthAt) || null,
     reauthReason: raw.reauthReason ?? null,
+    clientId: raw.clientId ?? null, // cliente OAuth que emitiu o refresh token
   }
 }
 
@@ -155,18 +156,31 @@ export class AuthManager extends EventEmitter {
   async setClientCredentials(input) {
     await this.#ready()
     const next = parseClientCredentials(input)
-    const changed = Boolean(this.client && this.client.clientId !== next.clientId)
+    const previous = this.client?.clientId ?? null
     await writeJSONAtomic(this.paths.credentials, next, { mode: 0o600 })
     this.client = next
-    if (changed && this.accounts.length) {
-      // Refresh token só vale com o cliente que o emitiu: com outra chave, cada conta precisa reconectar.
-      const now = Date.now()
-      for (const acc of this.accounts) {
+    // Refresh token só vale com o cliente que o emitiu: com outra chave, a conta precisa reconectar.
+    // Se a pessoa voltar para a chave antiga, as contas dela voltam a funcionar.
+    let touched = false
+    const now = Date.now()
+    for (const acc of this.accounts) {
+      const issuer = acc.clientId ?? previous
+      if (issuer && issuer !== next.clientId) {
+        if (acc.status === 'reauth' && acc.reauthReason === 'clientChanged') continue
+        acc.clientId = issuer
         acc.status = 'reauth'
         acc.reauthAt = now
         acc.reauthReason = 'clientChanged'
+        this.tokens.delete(acc.id)
+        touched = true
+      } else if (acc.status === 'reauth' && acc.reauthReason === 'clientChanged') {
+        acc.status = 'ok'
+        acc.reauthAt = null
+        acc.reauthReason = null
+        touched = true
       }
-      this.tokens.clear()
+    }
+    if (touched) {
       await this.#save()
       this.emit('accounts', this.listAccounts())
     }
@@ -200,6 +214,7 @@ export class AuthManager extends EventEmitter {
         status: a.status,
         reauthAt: a.reauthAt,
         reauthReason: a.reauthReason,
+        clientId: a.clientId,
       })),
     }
     await writeJSONAtomic(this.paths.accounts, data, { mode: 0o600 })
@@ -282,6 +297,7 @@ export class AuthManager extends EventEmitter {
       status: 'ok',
       reauthAt: null,
       reauthReason: null,
+      clientId: this.client.clientId,
     }
     let account = this.#find(id)
     if (account) Object.assign(account, fields)
@@ -399,7 +415,8 @@ export class AuthManager extends EventEmitter {
   }
 
   #reauthError(account) {
-    return new SobeDesceError('reauth', this.#reauthMessage(account), { reason: 'invalid_grant' })
+    const reason = account.reauthReason === 'clientChanged' ? 'clientChanged' : 'invalid_grant'
+    return new SobeDesceError('reauth', this.#reauthMessage(account), { reason })
   }
 
   #reauthMessage(account) {

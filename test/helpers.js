@@ -46,6 +46,7 @@ export async function loginWithMock(auth, redirectUri = REDIRECT_URI) {
 /**
  * Sobe o Drive falso, aponta os endpoints para ele, cria SOBEDESCE_HOME temporário, configura a chave OAuth
  * do mock e conecta a conta. Chame `cleanup()` no fim (t.after). closeHttp() fica para o after() do arquivo.
+ * As `failures` só são ligadas depois do login (o login não sorteia falhas, então a sequência do PRNG é a mesma).
  * @param {object} [mockOptions] opções de startMockDrive
  */
 export async function setupDrive(mockOptions = {}) {
@@ -53,13 +54,15 @@ export async function setupDrive(mockOptions = {}) {
   process.env.SOBEDESCE_HOME = home
   let mock = null
   try {
-    mock = await startMockDrive(mockOptions)
+    const { failures, ...options } = mockOptions
+    mock = await startMockDrive(options)
     mock.applyEnv()
     const paths = dataPaths(home)
     const auth = new AuthManager({ paths })
     await auth.init()
     await auth.setClientCredentials(mock.client)
     const account = await loginWithMock(auth)
+    if (failures) mock.setOptions({ failures })
     const drive = new DriveClient(auth, account.id)
     let cleaned = false
     const cleanup = async () => {

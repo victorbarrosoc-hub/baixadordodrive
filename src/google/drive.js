@@ -30,6 +30,7 @@ const PAGE_SIZE = 1000
 const SEARCH_LIMIT = 200
 const MAX_RETRY_WAIT_MS = 120_000
 const FOLDER_CACHE_TTL_MS = 5 * 60_000
+const MAX_CACHED_FOLDERS = 20_000
 const PROGRESS_MS = 200 // walk: no máximo 5 avisos de progresso por segundo
 const ENSURE_TRIES = 6
 const MY_DRIVE_NAME = 'Meu Drive'
@@ -223,6 +224,9 @@ export class MetadataLimiter {
   }
 }
 
+// Criações de pasta em andamento (promessa guardada no cache de ensureFolderPath) -> { controller, waiters, settled }.
+const sharedLevels = new WeakMap()
+
 // Um limitador por conta (e por AuthManager), compartilhado por todos os DriveClient dela: a cota do Google é por usuário.
 const limiters = new WeakMap()
 
@@ -381,7 +385,17 @@ export class DriveClient {
   }
 
   #remember(item) {
-    if (item?.isFolder) this.folders.set(item.id, { id: item.id, name: item.name, parents: item.parents, driveId: item.driveId, at: Date.now() })
+    if (!item?.isFolder) return
+    // Varreduras enormes passam por aqui: o cache tem teto (saem os mais antigos).
+    if (this.folders.size >= MAX_CACHED_FOLDERS) {
+      let drop = MAX_CACHED_FOLDERS / 4
+      for (const key of this.folders.keys()) {
+        if (drop-- <= 0) break
+        this.folders.delete(key)
+      }
+    }
+    this.folders.delete(item.id)
+    this.folders.set(item.id, { id: item.id, name: item.name, parents: item.parents, driveId: item.driveId, at: Date.now() })
   }
 
   #cachedFolder(id) {
@@ -491,32 +505,60 @@ export class DriveClient {
       prefix = prefix ? `${prefix}/${part}` : part
       const key = `${rootId}/${prefix}`
       let p = cache.get(key)
-      if (!p) {
+      let entry = p ? sharedLevels.get(p) : null
+      if (!p || entry?.controller.signal.aborted) {
         // A criação é compartilhada: não usa o signal de quem pediu primeiro (a pausa dele não pode
-        // derrubar os outros). Cada um só para de esperar quando o próprio signal aborta.
-        p = this.#ensureLevel(parentId, part, driveId)
-        cache.set(key, p)
-        p.catch(() => {
-          if (cache.get(key) === p) cache.delete(key)
-        })
+        // derrubar os outros). Ela só é cancelada quando TODOS que esperavam por ela desistiram.
+        const controller = new AbortController()
+        const level = this.#ensureLevel(parentId, part, driveId, controller.signal)
+        entry = { controller, waiters: 0, settled: false }
+        sharedLevels.set(level, entry)
+        cache.set(key, level)
+        level.then(
+          () => {
+            entry.settled = true
+          },
+          () => {
+            entry.settled = true
+            if (cache.get(key) === level) cache.delete(key) // a próxima chamada tenta de novo
+          },
+        )
+        p = level
       }
-      parentId = await abortable(p, signal)
+      parentId = await this.#joinLevel(p, entry, signal, () => {
+        if (cache.get(key) === p) cache.delete(key)
+      })
     }
     return parentId
   }
 
-  async #ensureLevel(parentId, name, driveId) {
+  async #joinLevel(p, entry, signal, forget) {
+    if (!entry) return abortable(p, signal) // promessa posta no cache por outra pessoa: só espera
+    entry.waiters++
+    try {
+      return await abortable(p, signal)
+    } finally {
+      entry.waiters--
+      if (entry.waiters === 0 && !entry.settled) {
+        // Ninguém mais espera (todos pausaram): sai do cache já, para quem chegar depois não pegar a promessa cancelada.
+        forget()
+        entry.controller.abort()
+      }
+    }
+  }
+
+  async #ensureLevel(parentId, name, driveId, signal) {
     for (let attempt = 0; ; attempt++) {
       try {
         // Sempre procura antes de criar: se um "criar" anterior deu erro mas chegou ao Google, a pasta já está lá.
-        const found = await this.findChild(parentId, name, { folder: true, driveId })
+        const found = await this.findChild(parentId, name, { folder: true, driveId, signal })
         if (found) return found.id
-        return (await this.createFolder(name, parentId, { retries: 0 })).id
+        return (await this.createFolder(name, parentId, { retries: 0, signal })).id
       } catch (err) {
         const info = classifyError(err)
         if (info.kind !== 'retry' || attempt + 1 >= ENSURE_TRIES) throw err
         if (isRateLimit(info)) this.limiter.penalize()
-        await sleep(Math.min(MAX_RETRY_WAIT_MS, Math.max(backoffDelay(attempt, { base: this.retryBaseMs }), info.retryAfterMs ?? 0)))
+        await sleep(Math.min(MAX_RETRY_WAIT_MS, Math.max(backoffDelay(attempt, { base: this.retryBaseMs }), info.retryAfterMs ?? 0)), signal)
       }
     }
   }

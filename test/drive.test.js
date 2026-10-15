@@ -11,7 +11,7 @@ import {
   resourceKeyHeader,
   escapeQueryValue,
 } from '../src/google/drive.js'
-import { closeHttp } from '../src/net/http.js'
+import { closeHttp, HttpError } from '../src/net/http.js'
 import { classifyError } from '../src/google/errors.js'
 
 const FOLDER = 'application/vnd.google-apps.folder'
@@ -163,7 +163,7 @@ test('listChildren pagina tudo (> 1000 itens, páginas curtas), ignora lixeira e
 test('drives compartilhados: lista, navega com corpora=drive e lê itens com supportsAllDrives', async t => {
   const { mock, drive } = await setup(t)
   const team = mock.addSharedDrive('Equipe Montagem')
-  const other = mock.addSharedDrive('Arquivo Morto')
+  mock.addSharedDrive('Arquivo Morto')
   const proj = mock.addFolder('Projeto X', team.id)
   const clip = mock.addFile('A001.mov', proj.id, { size: 4096 })
   mock.addFile('solto.wav', team.id, { size: 10 })
@@ -172,7 +172,6 @@ test('drives compartilhados: lista, navega com corpora=drive e lê itens com sup
   const drives = await drive.listSharedDrives()
   assert.deepEqual(drives.map(d => d.name).sort(), ['Arquivo Morto', 'Equipe Montagem'])
   assert.ok(drives.every(d => d.id && Object.keys(d).length === 2))
-  void other
 
   const calls = spyApi(drive)
   const top = await drive.listChildren(team.id)
@@ -337,7 +336,10 @@ test('ensureFolderPath: 50 uploads simultâneos na mesma pasta nova criam cada n
   const other = await drive.ensureFolderPath(dest.id, 'A/B/C', { cache: new Map() })
   assert.equal(other, ids[0])
   assert.equal(await drive.ensureFolderPath(dest.id, ''), dest.id)
-  assert.equal(await drive.ensureFolderPath('root', 'Novo/Sub'), drive.folderCache.get('root/Novo/Sub') && (await drive.folderCache.get('root/Novo/Sub')))
+  // Sem `cache`, usa o do próprio cliente.
+  const novo = await drive.ensureFolderPath('root', 'Novo/Sub')
+  assert.equal(mock.getItem(novo).name, 'Sub')
+  assert.equal(await drive.folderCache.get('root/Novo/Sub'), novo)
   assert.equal(mock.listAll().filter(i => i.name === 'C').length, 1)
 
   // Nomes em NFD viram NFC (o mesmo nível de quem mandou em NFC).
@@ -355,23 +357,63 @@ test('ensureFolderPath: 50 uploads simultâneos na mesma pasta nova criam cada n
   const yIds = await Promise.all(stayers)
   assert.equal(new Set(yIds).size, 1)
   assert.equal(mock.listAll().filter(i => i.name === 'Y').length, 1)
+
+  // Todos que esperavam pausaram: a criação compartilhada é cancelada e sai do cache.
+  const gone = new Map()
+  const acs = [new AbortController(), new AbortController()]
+  const waiting = acs.map(c => drive.ensureFolderPath(dest.id, 'Z/W', { cache: gone, signal: c.signal }))
+  assert.equal(gone.size, 1)
+  for (const c of acs) c.abort()
+  for (const w of waiting) await assert.rejects(w, err => classifyError(err).kind === 'abort')
+  assert.equal(gone.size, 0)
+  await new Promise(resolve => setTimeout(resolve, 150))
+  assert.equal(mock.listAll().filter(i => i.name === 'Z').length, 0, 'nada foi criado depois da pausa')
+  const w = await drive.ensureFolderPath(dest.id, 'Z/W', { cache: gone })
+  assert.equal(mock.getItem(w).name, 'W')
+  assert.equal(mock.listAll().filter(i => i.name === 'Z').length, 1)
 })
 
-test('ensureFolderPath: erro do Google ao criar não duplica a pasta e a próxima tentativa funciona', async t => {
+test('ensureFolderPath: com erros do Google cada nível sai uma vez só; "criar" que chegou mas falhou não duplica', async t => {
   const { mock, drive: base } = await setup(t)
   // Taxa alta: o assunto aqui é a repetição, não o limitador (que tem teste próprio).
   const drive = new DriveClient(base.auth, base.accountId, { retryBaseMs: 5, ratePerSec: 1000 })
   const dest = mock.addFolder('Destino')
   mock.setOptions({ failures: { error5xxProb: 0.35 }, seed: 7 })
-  const ids = await Promise.all(Array.from({ length: 10 }, (_, i) => drive.ensureFolderPath(dest.id, `P${i % 3}/Q`, { cache: new Map() })))
+  const cache = new Map()
+  const ids = await Promise.all(Array.from({ length: 12 }, (_, i) => drive.ensureFolderPath(dest.id, `P${i % 3}/Q`, { cache })))
   mock.setOptions({ failures: {} })
   assert.ok(mock.stats().faults.error5xx > 0)
-  for (const name of ['P0', 'P1', 'P2']) {
-    const matches = mock.listAll().filter(i => i.name === name)
-    assert.ok(matches.length >= 1)
-  }
-  // Com caches separados pode haver corrida entre processos, mas cada caminho devolve uma pasta real.
+  for (const name of ['P0', 'P1', 'P2']) assert.equal(mock.listAll().filter(i => i.name === name).length, 1, name)
+  assert.equal(mock.listAll().filter(i => i.name === 'Q').length, 3)
+  assert.equal(new Set(ids).size, 3)
   for (const id of ids) assert.equal(mock.getItem(id).name, 'Q')
+
+  // O Google criou a pasta mas a resposta se perdeu (503): a nova tentativa acha a pasta em vez de criar outra.
+  const original = drive.api.bind(drive)
+  let lost = 0
+  drive.api = async (method, pathOrUrl, opts) => {
+    const res = await original(method, pathOrUrl, opts)
+    if (method === 'POST' && pathOrUrl === 'files' && lost++ === 0) {
+      throw new HttpError(503, { body: { error: { code: 503, message: 'Backend Error', errors: [{ reason: 'backendError' }] } }, method, url: 'files' })
+    }
+    return res
+  }
+  const id = await drive.ensureFolderPath(dest.id, 'Entrega', { cache: new Map() })
+  assert.equal(lost, 1)
+  const entregas = mock.listAll().filter(i => i.name === 'Entrega')
+  assert.equal(entregas.length, 1)
+  assert.equal(entregas[0].id, id)
+
+  // Tentativas esgotadas: o erro sobe e a promessa ruim sai do cache (a próxima chamada tenta de novo).
+  drive.api = original
+  mock.setOptions({ failures: { error5xxProb: 1 } })
+  const failing = new DriveClient(base.auth, base.accountId, { retryBaseMs: 1, ratePerSec: 1000 })
+  const failCache = new Map()
+  await assert.rejects(failing.ensureFolderPath(dest.id, 'Nunca', { cache: failCache }), err => classifyError(err).kind === 'retry')
+  assert.equal(failCache.size, 0)
+  mock.setOptions({ failures: {} })
+  const ok = await failing.ensureFolderPath(dest.id, 'Nunca', { cache: failCache })
+  assert.equal(mock.getItem(ok).name, 'Nunca')
 })
 
 test('findChild: escapa aspas e barras, confere o nome exato e filtra pasta/arquivo', async t => {

@@ -248,7 +248,7 @@ test('login: state desconhecido, acesso negado, escopo desmarcado, sem refresh_t
 })
 
 test('renova quando faltam menos de 120 s; com tempo sobrando usa o cache', async t => {
-  const { auth, mock, accountId } = await loggedIn(t, { tokenTtlSec: 3600 })
+  const { auth, mock, accountId, paths } = await loggedIn(t, { tokenTtlSec: 3600 })
   mock.resetStats()
   const t1 = await auth.getAccessToken(accountId)
   assert.equal(await auth.getAccessToken(accountId), t1)
@@ -270,8 +270,8 @@ test('renova quando faltam menos de 120 s; com tempo sobrando usa o cache', asyn
   assert.equal(await auth.getAccessToken(accountId), t4)
   assert.equal(mock.stats().requests['oauth.token'], 3)
 
-  // O refresh manda client_secret e o refresh token salvo continua o mesmo (o Google não manda outro).
-  const saved = JSON.parse(await fs.readFile(dataPaths().accounts, 'utf8'))
+  // O refresh token salvo continua o mesmo (o Google não manda outro na renovação).
+  const saved = JSON.parse(await fs.readFile(paths.accounts, 'utf8'))
   assert.match(saved.accounts[0].refreshToken, /^1\/\/mock-/)
 })
 
@@ -337,7 +337,7 @@ test('invalid_grant: conta vira "reauth", emite "accounts" e explica; reconectar
 })
 
 test('invalid_grant ~7 dias depois de conectar: mensagem explica o modo Teste', async t => {
-  const { auth, mock, accountId, paths } = await loggedIn(t)
+  const { mock, accountId, paths } = await loggedIn(t)
   // Finge que o consentimento foi há 7 dias (reabrindo o app a partir do disco).
   const saved = JSON.parse(await fs.readFile(paths.accounts, 'utf8'))
   saved.accounts[0].consentedAt = Date.now() - 7 * DAY + 3600_000
@@ -370,7 +370,6 @@ test('invalid_grant ~7 dias depois de conectar: mensagem explica o modo Teste', 
   const fourth = new AuthManager({ paths })
   await fourth.init()
   await assert.rejects(fourth.getAccessToken(accountId), err => !/modo Teste/.test(err.message) && /Conecte a conta de novo/.test(err.message))
-  void auth
 })
 
 test('removeAccount revoga o token (melhor esforço) e apaga a conta', async t => {
@@ -441,4 +440,9 @@ test('trocar a chave por outro cliente pede para reconectar as contas', async t 
   assert.equal(auth.listAccounts()[0].status, 'reauth')
   assert.equal(events.length, 1)
   await assert.rejects(auth.getAccessToken(accountId), err => err.kind === 'reauth' && /chave do Google mudou/.test(err.message))
+  // Voltar para a chave que emitiu o token desfaz o "reconectar".
+  await auth.setClientCredentials(mock.client)
+  assert.equal(auth.listAccounts()[0].status, 'ok')
+  assert.equal(events.length, 2)
+  assert.ok(await auth.getAccessToken(accountId, { forceRefresh: true }))
 })
