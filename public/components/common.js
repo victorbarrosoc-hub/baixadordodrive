@@ -41,9 +41,10 @@ export function Segmented({ value, options, onChange, size, label, class: klass 
     const i = options.findIndex((o) => o.value === value)
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       e.preventDefault()
+      const el = e.currentTarget
       const next = options[(i + (e.key === 'ArrowRight' ? 1 : options.length - 1)) % options.length]
       onChange(next.value)
-      requestAnimationFrame(() => e.currentTarget?.querySelector('[aria-checked="true"]')?.focus())
+      requestAnimationFrame(() => el?.querySelector('[aria-checked="true"]')?.focus())
     }
   }
   return html`<div class=${cx('seg', size && `seg-${size}`, klass)} role="radiogroup" aria-label=${label} onKeyDown=${onKey}>

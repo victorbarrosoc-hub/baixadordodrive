@@ -1,6 +1,6 @@
 // Janela modal (com foco preso, Esc fecha), diálogos de confirmação/texto e o host que desenha a pilha.
-import { html, useEffect, useRef, useState } from '/vendor/preact-htm.js'
-import { closeModal, useModalStack } from '../lib/modals.js'
+import { html, useEffect, useLayoutEffect, useRef, useState } from '/vendor/preact-htm.js'
+import { closeAllModals, closeModal, useModalStack } from '../lib/modals.js'
 import { cx } from '../lib/ui.js'
 import { Icon } from './icons.js'
 import { Button, IconButton } from './common.js'
@@ -14,7 +14,7 @@ export function Modal({ title, subtitle, onClose, children, footer, size = 'md',
   const titleId = useRef(`m-${Math.random().toString(36).slice(2, 8)}`).current
   const downOnBackdrop = useRef(false)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
     const target = el.querySelector('[data-autofocus]') || el.querySelector('.modal-body ' + FOCUSABLE) || el.querySelector(FOCUSABLE)
@@ -120,6 +120,10 @@ export function ModalHost() {
   useEffect(() => {
     document.documentElement.classList.toggle('has-modal', stack.length > 0)
   }, [stack.length])
+  useEffect(() => {
+    window.addEventListener('hashchange', closeAllModals)
+    return () => window.removeEventListener('hashchange', closeAllModals)
+  }, [])
   return html`${stack.map((m, i) => {
     const C = TYPES[m.type]
     if (!C) return null

@@ -32,6 +32,11 @@ export function closeModal(id, value = null) {
   }, 0)
 }
 
+/** Fecha tudo (ex.: a pessoa trocou de tela com uma janela aberta). */
+export function closeAllModals() {
+  for (const m of [...stack].reverse()) closeModal(m.id, null)
+}
+
 export function useModalStack() {
   const [list, setList] = useState(stack)
   useEffect(() => {

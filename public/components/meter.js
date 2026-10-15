@@ -80,6 +80,7 @@ export function Waveform({ history }) {
   const p = useMemo(() => buildPaths(history || []), [history])
   const scale = bytes(p.top).replace(/ /, ' ') + '/s'
   return html`<div class="wave">
+    <div class="wave-plot">
     <svg class="wave-svg" viewBox=${`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <linearGradient id="wg-down" x1="0" y1="0" x2="0" y2="1">
@@ -109,6 +110,7 @@ export function Waveform({ history }) {
     ${p.lastUp != null ? html`<span class="wave-dot wave-dot-up" style=${`top:${((MID + p.lastUp) / H) * 100}%`}></span>` : null}
     <span class="wave-scale wave-scale-top">${scale}</span>
     <span class="wave-scale wave-scale-bottom">${scale}</span>
+    </div>
     <div class="wave-ruler" aria-hidden="true">
       <span>−2:00</span><span>−1:30</span><span>−1:00</span><span>−0:30</span><span>agora</span>
     </div>
@@ -138,9 +140,10 @@ function Readout({ dir, data }) {
  */
 export const MeterHero = memo(function MeterHero({ doneCount, totalCount, canPause, canResume }) {
   const stats = useStore((s) => s.stats)
+  const lost = useStore((s) => s.conn === 'lost')
   const remaining = Math.max(0, (stats.totals?.bytes || 0) - (stats.totals?.doneBytes || 0))
   const moving = (stats.down?.speed || 0) + (stats.up?.speed || 0) > 0
-  return html`<section class="hero card" aria-label="Velocidade agora">
+  return html`<section class=${cx('hero card', lost && 'is-stale')} aria-label="Velocidade agora" title=${lost ? 'Sem contato com o motor — os números podem estar desatualizados' : undefined}>
     <div class="hero-top">
       <${Readout} dir="down" data=${stats.down || {}} />
       <${Readout} dir="up" data=${stats.up || {}} />

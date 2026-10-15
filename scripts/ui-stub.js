@@ -7,8 +7,9 @@
 //   STUB_PORT=4318        porta
 //   STUB_SETUP=0          simula instalação nova (sem chave do Google, sem contas, sem transferências)
 //   STUB_MANY=1           acrescenta um lote com 3.000 quadros EXR (teste de desempenho da lista)
-//   STUB_DEMO_DIR=/caminho  cria ali uma "casa" e discos externos de exemplo (arquivos esparsos,
-//                         não ocupam espaço) e usa isso no seletor local em vez da sua pasta pessoal
+//   STUB_DEMO_DIR=/caminho  cria ali um disco de exemplo (/Users/victor com Filmes, Downloads…, e
+//                         /Volumes/Externo SSD) com arquivos esparsos (não ocupam espaço) e mostra
+//                         esse diretório como se fosse a raiz "/" do computador (bom para screenshots)
 //   STUB_PLATFORM=darwin  plataforma informada à interface (darwin | win32 | linux)
 //
 // Implementa todas as rotas de docs/ARCHITECTURE.md com dados inventados, transferências que
@@ -62,8 +63,12 @@ function log(...args) {
 
 // ───────────────────────────── pasta local de demonstração ─────────────────────────────
 
-const HOME = DEMO_DIR ? path.join(DEMO_DIR, 'home', 'victor') : os.homedir()
-const VOLUMES = DEMO_DIR ? path.join(DEMO_DIR, 'Volumes') : null
+// Com STUB_DEMO_DIR, a pasta de demonstração vira a raiz virtual "/" (como um chroot).
+const toReal = (p) => (DEMO_DIR ? path.join(DEMO_DIR, path.posix.resolve('/', String(p).replace(/\\/g, '/'))) : path.resolve(p))
+const toVirtual = (r) => (DEMO_DIR ? '/' + path.relative(DEMO_DIR, r).split(path.sep).join('/') : r)
+const vjoin = (...parts) => (DEMO_DIR ? path.posix.join(...parts) : path.join(...parts))
+const HOME = DEMO_DIR ? '/Users/victor' : os.homedir()
+const VOLUMES = DEMO_DIR ? '/Volumes' : null
 
 function sparse(file, size) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -76,7 +81,7 @@ function sparse(file, size) {
 
 function buildDemoDir() {
   if (!DEMO_DIR) return
-  const h = HOME
+  const h = toReal(HOME)
   for (const d of ['Desktop', 'Downloads', 'Documents', 'Movies', 'Music', 'Pictures']) fs.mkdirSync(path.join(h, d), { recursive: true })
   sparse(path.join(h, '.zshrc'), 1200)
   sparse(path.join(h, 'Desktop', 'Orçamento Mar Aberto.pdf'), 840 * KB)
@@ -100,10 +105,10 @@ function buildDemoDir() {
   sparse(path.join(doc, 'Entrega', 'Legendas_PT.srt'), 48 * KB)
   sparse(path.join(doc, '.DS_Store'), 6 * KB)
   fs.mkdirSync(path.join(doc, 'Lixo'), { recursive: true })
-  const ssd = path.join(VOLUMES, 'Externo SSD')
+  const ssd = path.join(toReal(VOLUMES), 'Externo SSD')
   for (let i = 1; i <= 6; i++) sparse(path.join(ssd, 'CARD_A', 'CLIP', `A00${i}_C00${i}_0618RX.R3D`), between(20, 60) * GB)
   sparse(path.join(ssd, 'Backup Projeto.zip'), 4.6 * GB)
-  const raid = path.join(VOLUMES, 'RAID Edição')
+  const raid = path.join(toReal(VOLUMES), 'RAID Edição')
   sparse(path.join(raid, 'Finalização', 'Cor', 'Offline_v12.drp'), 96 * MB)
   sparse(path.join(raid, 'Finalização', 'Cor', 'Grade_v3.exr'), 210 * MB)
   sparse(path.join(raid, 'Finalização', 'Som', 'Mix_5.1_v2.wav'), 3.4 * GB)
@@ -246,7 +251,7 @@ function walkDrive(id, base = '') {
 // ───────────────────────────── estado do app ─────────────────────────────
 
 const DEFAULT_SETTINGS = {
-  downloadDir: path.join(HOME, 'Downloads'),
+  downloadDir: vjoin(HOME, 'Downloads'),
   maxConcurrentDownloads: 3,
   maxConcurrentUploads: 3,
   connectionsPerDownload: 8,
@@ -324,7 +329,7 @@ function addDownload(batch, item, relPath, destDir, extra = {}) {
   const name = exp ? item.name + exp.ext : item.name
   const rec = baseRecord('download', batch, name, relPath ? relPath + (exp ? exp.ext : '') : name, exp ? between(40, 900) * KB : item.size, {
     source: { fileId: item.id, mimeType: item.mimeType, md5: item.md5, modifiedTime: item.modifiedTime, ...(exp ? { export: exp } : {}) },
-    dest: { path: path.join(destDir, relPath ? relPath + (exp ? exp.ext : '') : name), tempPath: path.join(destDir, (relPath || name) + '.sobedesce-part') },
+    dest: { path: vjoin(destDir, relPath ? relPath + (exp ? exp.ext : '') : name), tempPath: vjoin(destDir, (relPath || name) + '.sobedesce-part') },
     segments: [],
     note: exp ? `Exportado como ${exp.ext}` : null,
     ...extra,
@@ -387,31 +392,31 @@ function buildTransfers() {
   // Lote 1: downloads de brutos (dois rodando com segmentos, alguns na fila, dois concluídos)
   const b1 = makeBatch('download', 'Brutos — Dia 01', t0 - 26 * 60e3)
   const it = (id) => driveItems.get(id)
-  const r1 = addDownload(b1, it('f_a001c002'), 'Dia 01/A001_C002_0612XY.mov', path.join(dl, 'Brutos'), { status: 'running', startedAt: t0 - 9 * 60e3 })
+  const r1 = addDownload(b1, it('f_a001c002'), 'Dia 01/A001_C002_0612XY.mov', vjoin(dl, 'Brutos'), { status: 'running', startedAt: t0 - 9 * 60e3 })
   r1.segments = stolenSegments(r1.size, [1, 0.92, 0.71, 1, 0.58, 0.44, 0.83, 0.3])
   r1.bytesDone = segDone(r1.segments)
-  const r2 = addDownload(b1, it('f_a001c003'), 'Dia 01/A001_C003_0612K7.mov', path.join(dl, 'Brutos'), { status: 'running', startedAt: t0 - 3 * 60e3 })
+  const r2 = addDownload(b1, it('f_a001c003'), 'Dia 01/A001_C003_0612K7.mov', vjoin(dl, 'Brutos'), { status: 'running', startedAt: t0 - 3 * 60e3 })
   r2.segments = stolenSegments(r2.size, [0.36, 0.22, 0.41, 0.18, 0.3, 0.27, 0.12, 0.33])
   r2.bytesDone = segDone(r2.segments)
-  addDownload(b1, it('f_a001c004'), 'Dia 01/A001_C004_0612QM.mov', path.join(dl, 'Brutos'))
-  for (const cid of driveItems.get('f_dia01').children.slice(3)) addDownload(b1, it(cid), `Dia 01/${it(cid).name}`, path.join(dl, 'Brutos'))
-  const done1 = addDownload(b1, it('f_boom1'), 'Áudio/Boom_T01.wav', path.join(dl, 'Brutos'), { status: 'completed', startedAt: t0 - 25 * 60e3, finishedAt: t0 - 22 * 60e3 })
+  addDownload(b1, it('f_a001c004'), 'Dia 01/A001_C004_0612QM.mov', vjoin(dl, 'Brutos'))
+  for (const cid of driveItems.get('f_dia01').children.slice(3)) addDownload(b1, it(cid), `Dia 01/${it(cid).name}`, vjoin(dl, 'Brutos'))
+  const done1 = addDownload(b1, it('f_boom1'), 'Áudio/Boom_T01.wav', vjoin(dl, 'Brutos'), { status: 'completed', startedAt: t0 - 25 * 60e3, finishedAt: t0 - 22 * 60e3 })
   done1.bytesDone = done1.size
   done1.verify = { state: 'ok', expected: done1.source.md5, actual: done1.source.md5 }
-  const done2 = addDownload(b1, it('f_prproj'), 'Projeto.prproj', path.join(dl, 'Brutos'), { status: 'completed', startedAt: t0 - 24 * 60e3, finishedAt: t0 - 23.5 * 60e3 })
+  const done2 = addDownload(b1, it('f_prproj'), 'Projeto.prproj', vjoin(dl, 'Brutos'), { status: 'completed', startedAt: t0 - 24 * 60e3, finishedAt: t0 - 23.5 * 60e3 })
   done2.bytesDone = done2.size
   done2.verify = { state: 'ok', expected: done2.source.md5, actual: done2.source.md5 }
 
   // Lote 2: upload da entrega (um enviando, um aguardando cota, um que já estava no Drive)
-  const ent = DEMO_DIR ? path.join(HOME, 'Movies', 'Documentário Mar Aberto', 'Entrega') : path.join(HOME, 'Entrega')
+  const ent = vjoin(HOME, 'Movies', 'Documentário Mar Aberto', 'Entrega')
   const b2 = makeBatch('upload', 'Pasta Entrega', t0 - 14 * 60e3)
-  const u1 = addUpload(b2, path.join(ent, 'Master_ProRes4444.mov'), 212 * GB, 'Entrega/Master_ProRes4444.mov', { rootId: 'f_mar', relDir: 'Entrega' }, { status: 'running', startedAt: t0 - 13 * 60e3 })
+  const u1 = addUpload(b2, vjoin(ent, 'Master_ProRes4444.mov'), 212 * GB, 'Entrega/Master_ProRes4444.mov', { rootId: 'f_mar', relDir: 'Entrega' }, { status: 'running', startedAt: t0 - 13 * 60e3 })
   u1.bytesDone = Math.round(u1.size * 0.274)
-  addUpload(b2, path.join(ent, 'Master_H264.mp4'), 8.2 * GB, 'Entrega/Master_H264.mp4', { rootId: 'f_mar', relDir: 'Entrega' }, {
+  addUpload(b2, vjoin(ent, 'Master_H264.mp4'), 8.2 * GB, 'Entrega/Master_H264.mp4', { rootId: 'f_mar', relDir: 'Entrega' }, {
     status: 'waiting', retryAt: t0 + 47 * 60e3, attempts: 1,
     error: { message: 'Você atingiu o limite de upload do Google (750 GB por dia). Retomo sozinho mais tarde.', reason: 'uploadLimitExceeded', kind: 'quota', at: t0 - 60e3 },
   })
-  const sk = addUpload(b2, path.join(ent, 'Legendas_PT.srt'), 48 * KB, 'Entrega/Legendas_PT.srt', { rootId: 'f_mar', relDir: 'Entrega' }, { status: 'skipped', note: 'Já estava no Drive', finishedAt: t0 - 13.5 * 60e3 })
+  const sk = addUpload(b2, vjoin(ent, 'Legendas_PT.srt'), 48 * KB, 'Entrega/Legendas_PT.srt', { rootId: 'f_mar', relDir: 'Entrega' }, { status: 'skipped', note: 'Já estava no Drive', finishedAt: t0 - 13.5 * 60e3 })
   sk.target.fileId = 'f_legendas'
 
   // Lote 3: avulsos (Doc exportado, um com problema, um pausado, um verificando)
@@ -434,7 +439,7 @@ function buildTransfers() {
 
   if (MANY) {
     const b4 = makeBatch('download', 'Cor — EXR (3.000 quadros)', t0 - 40 * 60e3)
-    const destDir = path.join(dl, 'Cor EXR')
+    const destDir = vjoin(dl, 'Cor EXR')
     for (let i = 1; i <= 3000; i++) {
       const name = `MAR_010_v003.${pad(1000 + i, 6)}.exr`
       const item = { id: `f_exr${i}`, name, mimeType: 'image/x-exr', size: Math.round(between(44, 52) * MB), md5: md5Of(name), modifiedTime: new Date(t0 - 86400e3).toISOString(), isGoogleDoc: false }
@@ -863,7 +868,7 @@ function compareUpload(job, body) {
   const b = makeBatch('upload', label)
   let bytes = 0
   for (const x of pick) {
-    addUpload(b, path.join(job.localPath, x.relPath), x.local.size, x.relPath, { rootId: job.driveFolderId, relDir: x.relDir })
+    addUpload(b, vjoin(job.localPath, x.relPath), x.local.size, x.relPath, { rootId: job.driveFolderId, relDir: x.relDir })
     bytes += x.local.size
   }
   broadcast('batches', batches)
@@ -894,28 +899,28 @@ async function localRoots() {
   const roots = []
   const add = async (name, p, kind) => {
     try {
-      if ((await fsp.stat(p)).isDirectory()) roots.push({ name, path: p, kind })
+      if ((await fsp.stat(toReal(p))).isDirectory()) roots.push({ name, path: p, kind })
     } catch {}
   }
   await add('Início', HOME, 'home')
-  await add('Mesa', path.join(HOME, 'Desktop'), 'desktop')
-  await add('Downloads', path.join(HOME, 'Downloads'), 'downloads')
-  await add('Documentos', path.join(HOME, 'Documents'), 'documents')
-  await add('Filmes', path.join(HOME, 'Movies'), 'movies')
+  await add('Mesa', vjoin(HOME, 'Desktop'), 'desktop')
+  await add('Downloads', vjoin(HOME, 'Downloads'), 'downloads')
+  await add('Documentos', vjoin(HOME, 'Documents'), 'documents')
+  await add('Filmes', vjoin(HOME, 'Movies'), 'movies')
   const volDirs = VOLUMES ? [VOLUMES] : ['/Volumes', `/media/${os.userInfo().username}`, '/mnt']
   for (const dir of volDirs) {
     try {
-      for (const d of await fsp.readdir(dir, { withFileTypes: true })) if (d.isDirectory() && !d.name.startsWith('.')) await add(d.name, path.join(dir, d.name), 'volume')
+      for (const d of await fsp.readdir(toReal(dir), { withFileTypes: true })) if (d.isDirectory() && !d.name.startsWith('.')) await add(d.name, vjoin(dir, d.name), 'volume')
     } catch {}
   }
-  return { roots, home: HOME, sep: path.sep }
+  return { roots, home: HOME, sep: DEMO_DIR ? '/' : path.sep }
 }
 
 async function localList(p, hidden) {
-  const abs = path.resolve(p || HOME)
+  const abs = DEMO_DIR ? path.posix.resolve('/', p || HOME) : path.resolve(p || HOME)
   let dirents
   try {
-    dirents = await fsp.readdir(abs, { withFileTypes: true })
+    dirents = await fsp.readdir(toReal(abs), { withFileTypes: true })
   } catch (err) {
     if (err.code === 'ENOENT') throw httpError(404, 'Essa pasta não existe.')
     if (err.code === 'ENOTDIR') throw httpError(400, 'Isso é um arquivo, não uma pasta.')
@@ -926,14 +931,15 @@ async function localList(p, hidden) {
   await Promise.all(dirents.map(async (d) => {
     if (!hidden && d.name.startsWith('.')) return
     if (d.isSymbolicLink()) return
-    const full = path.join(abs, d.name)
+    const full = vjoin(abs, d.name)
     try {
-      const st = await fsp.stat(full)
+      const st = await fsp.stat(toReal(full))
       entries.push({ name: d.name.normalize('NFC'), path: full, isDir: st.isDirectory(), size: st.isDirectory() ? 0 : st.size, mtimeMs: st.mtimeMs })
     } catch {}
   }))
   entries.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name, 'pt-BR', { numeric: true, sensitivity: 'base' }) : a.isDir ? -1 : 1))
-  const parent = path.dirname(abs) === abs ? null : path.dirname(abs)
+  const dirname = DEMO_DIR ? path.posix.dirname : path.dirname
+  const parent = dirname(abs) === abs ? null : dirname(abs)
   return { path: abs, parent, entries }
 }
 
@@ -943,7 +949,7 @@ async function scanPaths(paths, limit = 5000) {
     if (out.length >= limit) return
     let st
     try {
-      st = await fsp.lstat(p)
+      st = await fsp.lstat(toReal(p))
     } catch {
       return
     }
@@ -953,23 +959,21 @@ async function scanPaths(paths, limit = 5000) {
     if (st.isDirectory()) {
       let list = []
       try {
-        list = await fsp.readdir(p)
+        list = await fsp.readdir(toReal(p))
       } catch {
         return
       }
-      for (const c of list.sort()) await walk(path.join(p, c), base ? `${base}/${c}` : c)
+      for (const c of list.sort()) await walk(vjoin(p, c), base ? `${base}/${c}` : c)
     } else out.push({ path: p, size: st.size, relPath: base })
   }
   for (const p of paths) {
-    const abs = path.resolve(p)
-    let st
+    const abs = DEMO_DIR ? path.posix.resolve('/', p) : path.resolve(p)
     try {
-      st = await fsp.stat(abs)
+      await fsp.stat(toReal(abs))
     } catch {
       continue
     }
     await walk(abs, path.basename(abs))
-    void st
   }
   return out
 }
@@ -1273,7 +1277,7 @@ const server = http.createServer(async (req, res) => {
 // ───────────────────────────── início ─────────────────────────────
 
 buildDemoDir()
-state.settings.downloadDir = path.join(HOME, 'Downloads')
+state.settings.downloadDir = vjoin(HOME, 'Downloads')
 buildDrive()
 seed = 99
 buildTransfers()

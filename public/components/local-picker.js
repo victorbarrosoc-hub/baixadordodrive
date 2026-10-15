@@ -73,6 +73,7 @@ export function LocalPicker({ mode = 'files', title, subtitle, confirmLabel, ini
   const [hist, setHist] = useState({ list: [], i: -1 })
   const listRef = useRef(null)
   const seq = useRef(0)
+  const editing = useRef(false) // não sobrescreve o que a pessoa está digitando na barra de caminho
 
   const load = async (p, { push = true } = {}) => {
     const my = ++seq.current
@@ -83,14 +84,14 @@ export function LocalPicker({ mode = 'files', title, subtitle, confirmLabel, ini
       if (my !== seq.current) return
       setListing(res)
       setCwd(res.path)
-      setPathText(res.path)
+      if (!editing.current) setPathText(res.path)
       setFocus(0)
       if (mode === 'folder') setSelected(new Map())
       if (push) setHist((h) => ({ list: [...h.list.slice(0, h.i + 1), res.path], i: h.i + 1 }))
     } catch (err) {
       if (my !== seq.current) return
       setError(err.message)
-      setPathText(cwd || p || '')
+      if (!editing.current) setPathText(cwd || p || '')
     } finally {
       if (my === seq.current) setLoading(false)
     }
@@ -255,7 +256,8 @@ export function LocalPicker({ mode = 'files', title, subtitle, confirmLabel, ini
             class="path-field"
             onSubmit=${(e) => {
               e.preventDefault()
-              const p = pathText.trim().replace(/^["']|["']$/g, '')
+              editing.current = false
+              const p = (e.currentTarget.querySelector('input')?.value ?? pathText).trim().replace(/^["']|["']$/g, '')
               if (p) load(p.startsWith('~') && roots?.home ? roots.home + p.slice(1) : p)
             }}
           >
@@ -264,10 +266,15 @@ export function LocalPicker({ mode = 'files', title, subtitle, confirmLabel, ini
               class="path-input"
               type="text"
               value=${pathText}
-              onInput=${(e) => setPathText(e.currentTarget.value)}
+              onInput=${(e) => {
+                editing.current = true
+                setPathText(e.currentTarget.value)
+              }}
+              onBlur=${() => (editing.current = false)}
               onKeyDown=${(e) => {
                 if (e.key === 'Escape' && pathText !== cwd) {
                   e.stopPropagation()
+                  editing.current = false
                   setPathText(cwd || '')
                 }
               }}

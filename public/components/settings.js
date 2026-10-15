@@ -152,7 +152,7 @@ export function SettingsScreen() {
         <${Row} label="Downloads ao mesmo tempo" desc="Quantos arquivos baixam juntos.">
           <${Stepper} label="Downloads ao mesmo tempo" value=${d.maxConcurrentDownloads} min=${1} max=${8} onChange=${(v) => set('maxConcurrentDownloads', v)} />
         </${Row}>
-        <${Row} label="Conexões por arquivo" desc="Cada arquivo baixado é dividido em pedaços que vêm em paralelo. 8–16 costuma encher a banda.">
+        <${Row} label="Conexões por arquivo" desc="Cada arquivo baixado vem em pedaços paralelos. Entre 8 e 16 costuma encher a banda.">
           <${Slider}
             label="Conexões por arquivo"
             value=${d.connectionsPerDownload}

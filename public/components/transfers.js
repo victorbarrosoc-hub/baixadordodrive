@@ -47,7 +47,7 @@ export function statusInfo(t) {
     case 'paused':
       return { tone: t.error ? 'warning' : 'muted', label: t.error ? 'Pausado · precisa de você' : 'Pausado', icon: 'pause' }
     case 'waiting':
-      return { tone: 'warning', label: t.retryAt ? `Aguardando cota — retoma às ${clock(t.retryAt)}` : 'Aguardando cota', icon: 'clock' }
+      return { tone: 'warning', label: 'Aguardando cota', icon: 'clock', sub: t.retryAt ? `retoma às ${clock(t.retryAt)}` : null }
     case 'completed':
       return t.verify?.state === 'mismatch'
         ? { tone: 'warning', label: 'Chegou diferente', icon: 'warning' }
@@ -129,10 +129,13 @@ const TransferRow = memo(function TransferRow({ t, platform }) {
       ${message}
     </div>
     <div class="trow-nums">${numbers}</div>
-    <div class=${cx('trow-eta', !running && 'is-dim')}>
-      <span class="tc">${running ? timecode(t.eta) : '--:--:--'}</span>
+    <div class="trow-eta" title=${running ? 'Tempo restante' : undefined}>
+      ${running ? html`<span class="tc">${timecode(t.eta)}</span>` : null}
     </div>
-    <div class="trow-status"><${Pill} tone=${st.tone} icon=${st.icon} title=${t.status === 'waiting' ? `Retoma às ${clock(t.retryAt)}` : st.label}>${st.label}</${Pill}></div>
+    <div class="trow-status">
+      <${Pill} tone=${st.tone} icon=${st.icon} title=${st.sub ? `${st.label} — ${st.sub}` : st.label}>${st.label}</${Pill}>
+      ${st.sub ? html`<span class="status-sub">${st.sub}</span>` : null}
+    </div>
     <div class="trow-actions">${actions}</div>
   </div>`
 })
@@ -256,9 +259,12 @@ export function TransfersScreen() {
       const batch = meta.get(batchId) || { id: batchId || 'sem-lote', label: 'Outras transferências', type: items[0]?.type, createdAt: Math.min(...items.map((t) => t.createdAt || 0)) }
       const sum = summarize(items)
       const isActive = items.some((t) => !FINISHED.has(t.status))
-      groups.push({ batch, items, sum, isActive })
+      // ordem: lotes andando, depois na fila, depois parados (pausa/problema) — na ordem da fila (mais antigo
+      // primeiro, como o motor processa) — e por fim os concluídos, do mais recente para o mais antigo
+      const rank = sum.by.running ? 0 : sum.by.queued || sum.by.waiting || sum.by.verifying ? 1 : isActive ? 2 : 3
+      groups.push({ batch, items, sum, isActive, rank })
     }
-    groups.sort((a, b) => (a.isActive === b.isActive ? (b.batch.createdAt || 0) - (a.batch.createdAt || 0) : a.isActive ? -1 : 1))
+    groups.sort((a, b) => a.rank - b.rank || (a.rank === 3 ? -1 : 1) * ((a.batch.createdAt || 0) - (b.batch.createdAt || 0)))
     return { all, counts, doneCount, totalCount, canPause, canResume, finished, groups }
   }, [transfers, batches])
 

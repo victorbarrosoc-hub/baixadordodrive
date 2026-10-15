@@ -4,7 +4,7 @@ import { html, useEffect, useMemo, useState } from '/vendor/preact-htm.js'
 import { useStore } from '../lib/store.js'
 import { navigate } from '../lib/router.js'
 import { api, attempt } from '../lib/api.js'
-import { bytes, plural, tildify } from '../lib/format.js'
+import { bytes, plural, shortPath } from '../lib/format.js'
 import { cx, useDebounced } from '../lib/ui.js'
 import { announceBatch, driveFolderUrl, uploadPaths } from '../lib/actions.js'
 import { pickLocal, promptDialog } from '../lib/modals.js'
@@ -83,7 +83,7 @@ function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear,
     <button type="button" class="dest-chip" onClick=${onChangeDest} title=${`Baixar em ${destDir}`}>
       <${Icon} name="folder" size=${15} />
       <span class="dest-label">Para</span>
-      <span class="dest-name">${tildify(destDir, home) || 'Escolher…'}</span>
+      <span class="dest-name">${shortPath(destDir, home) || 'Escolher…'}</span>
       <${Icon} name="chevron-updown" size=${12} />
     </button>
     <${Button} variant="primary" icon="download" onClick=${onDownload} loading=${busy}>Baixar</${Button}>

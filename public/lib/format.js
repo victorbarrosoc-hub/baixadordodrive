@@ -175,8 +175,17 @@ export function tildify(p, home) {
 export function initials(name = '', email = '') {
   const src = (name || email.split('@')[0] || '?').trim()
   const parts = src.split(/[\s._-]+/).filter(Boolean)
-  const s = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : src.slice(0, 2)
+  const s = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : src.slice(0, 1)
   return s.toUpperCase()
+}
+
+/** Caminho curto para chips: ~/Downloads, …/Brutos/Dia 01 */
+export function shortPath(p, home) {
+  const t = tildify(p || '', home)
+  const sep = t.includes('\\') && !t.includes('/') ? '\\' : '/'
+  const parts = t.split(sep).filter(Boolean)
+  if (parts.length <= 3) return t
+  return `…${sep}${parts.slice(-2).join(sep)}`
 }
 
 /** Busca sem acento e sem caixa. */

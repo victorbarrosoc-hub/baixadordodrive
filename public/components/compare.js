@@ -129,12 +129,18 @@ function MiniStack({ f }) {
 
 function folderText(f) {
   if (!f.files) return 'Vazia'
-  const pend = f.missing + f.different
-  if (f.state === 'complete' && !f.onlyDrive) return `${plural(f.files, 'arquivo', 'arquivos')} · tudo no Drive`
-  if (f.state === 'complete') return `${plural(f.files, 'arquivo', 'arquivos')} · ${f.onlyDrive} só no Drive`
-  if (!pend) return plural(f.files, 'arquivo', 'arquivos')
-  return `faltam ${count(pend)} de ${count(f.files)} · ${bytes(f.missingBytes || 0)}`
+  if (onlyOnDrive(f)) return `${plural(f.files, 'arquivo', 'arquivos')} só no Drive`
+  if (!f.missing && !f.different) {
+    return f.onlyDrive ? `${plural(f.files, 'arquivo', 'arquivos')} · ${count(f.onlyDrive)} só no Drive` : `${plural(f.files, 'arquivo', 'arquivos')} · tudo no Drive`
+  }
+  const parts = []
+  if (f.missing) parts.push(`${f.missing === 1 ? 'falta' : 'faltam'} ${count(f.missing)}${f.different ? '' : ` de ${count(f.files)}`}`)
+  if (f.different) parts.push(`${count(f.different)} ${f.different === 1 ? 'diferente' : 'diferentes'}${f.missing ? '' : ` de ${count(f.files)}`}`)
+  if (f.missingBytes) parts.push(bytes(f.missingBytes))
+  return parts.join(' · ')
 }
+
+const onlyOnDrive = (f) => f.files > 0 && f.onlyDrive === f.files
 
 function FolderTree({ folders, selected, onSelect, onUpload, busy }) {
   const [collapsed, setCollapsed] = useState(() => {
@@ -167,7 +173,7 @@ function FolderTree({ folders, selected, onSelect, onUpload, busy }) {
     ${rows.map((f) => {
       const open = !collapsed.has(f.relDir)
       const kids = hasKids.has(f.relDir)
-      const badge = STATE_BADGE[f.state] || STATE_BADGE.partial
+      const badge = onlyOnDrive(f) ? { label: 'Só no Drive', tone: 'neutral', icon: 'cloud' } : STATE_BADGE[f.state] || STATE_BADGE.partial
       const pend = f.missing + f.different
       return html`<div
         class=${cx('tree-row', selected === f.relDir && 'is-selected', `state-${f.state}`)}
@@ -238,12 +244,12 @@ function Results({ jobId, result, onReset }) {
   const [folder, setFolder] = useState(null)
   const [status, setStatus] = useState('all')
   const [includeDiff, setIncludeDiff] = useState(false)
-  const [limit, setLimit] = useState(200)
+  const [limit, setLimit] = useState(60)
   const [busy, setBusy] = useState(false)
   const listRef = useRef(null)
   const s = result.summary
 
-  useEffect(() => setLimit(200), [folder, status])
+  useEffect(() => setLimit(60), [folder, status])
 
   const filtered = useMemo(() => {
     return result.files.filter((f) => (folder == null || inDir(f.relDir, folder)) && (status === 'all' || f.status === status || (status === 'synced' && f.status === 'elsewhere')))

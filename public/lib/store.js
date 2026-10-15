@@ -54,17 +54,18 @@ export function useStore(selector) {
   const value = selector(state)
   const last = useRef(value)
   last.current = value
-  useEffect(
-    () =>
-      subscribe((s) => {
-        const v = sel.current(s)
-        if (!Object.is(v, last.current)) {
-          last.current = v
-          force((n) => n + 1)
-        }
-      }),
-    [],
-  )
+  useEffect(() => {
+    const check = (s) => {
+      const v = sel.current(s)
+      if (!Object.is(v, last.current)) {
+        last.current = v
+        force((n) => n + 1)
+      }
+    }
+    const off = subscribe(check)
+    check(state) // algo pode ter mudado entre o render e a assinatura
+    return off
+  }, [])
   return value
 }
 

@@ -64,7 +64,18 @@ function AccountMenu({ accounts, active, onClose }) {
       ? html`<div class="menu-sep"></div>
           <div class="menu-label">Trocar de conta</div>
           ${accounts.map(
-            (a) => html`<button type="button" role="menuitemradio" aria-checked=${a.id === active?.id ? 'true' : 'false'} class="menu-item" onClick=${() => { setActiveAccount(a.id); onClose() }}>
+            (a) => html`<button
+              type="button"
+              role="menuitemradio"
+              aria-checked=${a.id === active?.id ? 'true' : 'false'}
+              class="menu-item"
+              onClick=${() => {
+                setActiveAccount(a.id)
+                // cada conta tem seu próprio Drive: volta para a raiz
+                if (location.hash.startsWith('#/drive/')) navigate('drive')
+                onClose()
+              }}
+            >
               <${Avatar} name=${a.name} email=${a.email} photoUrl=${a.photoUrl} size=${22} />
               <span class="menu-item-text">${a.email}</span>
               ${a.id === active?.id ? html`<${Icon} name="check" size=${14} />` : null}
