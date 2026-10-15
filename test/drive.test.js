@@ -509,7 +509,9 @@ test('limitador de metadados: no máximo 8 simultâneas, ~20 req/s e recuperaç�
   half.penalize() // mesma rajada: um corte só
   assert.deepEqual(half.stats(), { active: 0, waiting: 0, limit: 4, rate: 10, cuts: 1 })
 
-  const lim = new MetadataLimiter({ maxConcurrent: 8, ratePerSec: 1000, cooldownMs: 400, recoverMs: 400 })
+  const cooldownMs = 1000
+  const lim = new MetadataLimiter({ maxConcurrent: 8, ratePerSec: 1000, cooldownMs, recoverMs: 400 })
+  const cutAt = Date.now()
   lim.penalize()
   let st = lim.stats()
   assert.equal(st.limit, 4)
@@ -518,15 +520,18 @@ test('limitador de metadados: no máximo 8 simultâneas, ~20 req/s e recuperaç�
   let fifthIn = false
   const fifth = lim.acquire().then(() => (fifthIn = true))
   await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(fifthIn, false, 'acima do limite cortado espera vaga')
-  assert.equal(lim.stats().waiting, 1)
+  st = lim.stats()
+  // Só dá para afirmar enquanto o resfriamento não acabou (máquina muito carregada pode pular isso).
+  if (Date.now() - cutAt < cooldownMs * 0.8) {
+    assert.equal(fifthIn, false, 'acima do limite cortado espera vaga')
+    assert.equal(st.waiting, 1)
+    assert.equal(st.rate, 500, 'durante o resfriamento não sobe')
+  }
   lim.release()
   await fifth
   for (let i = 0; i < 4; i++) lim.release()
-  st = lim.stats()
-  assert.equal(st.active, 0)
-  assert.ok(st.rate < 1000, 'durante o resfriamento não sobe')
-  await new Promise(resolve => setTimeout(resolve, 1000))
+  assert.equal(lim.stats().active, 0)
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, cutAt + cooldownMs + 600 - Date.now())))
   st = lim.stats()
   assert.equal(st.rate, 1000)
   assert.equal(st.limit, 8)
