@@ -3,6 +3,7 @@ import { ArrowRight, Download, Laptop, Smartphone } from "lucide-react";
 import { buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DOWNLOAD_MAC, DOWNLOAD_WINDOWS } from "@/lib/site";
+import { DicaInstalar } from "./dica-instalar";
 
 /** "Comece por aqui": os dois jeitos de usar, logo depois de conectar o Drive. */
 export function Comecar() {
@@ -20,6 +21,7 @@ export function Comecar() {
           Enviar arquivos
           <ArrowRight aria-hidden="true" />
         </Link>
+        <DicaInstalar />
       </div>
       <div className="grid content-start gap-4 border-t border-line p-6 sm:border-t-0 sm:border-l">
         <span className="grid size-10 place-items-center rounded-xl bg-down/10 text-down-text">
