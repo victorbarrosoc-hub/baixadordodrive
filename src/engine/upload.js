@@ -409,7 +409,8 @@ export class UploadTask extends EventEmitter {
     const name = toNFC(r.name)
     const existing = await drive.findChild(r.target.parentId, name, { folder: false, signal, driveId: r.target.driveId })
     if (!existing) return false
-    const mode = this.#settings().uploadConflict || 'skip'
+    // Registro pode trazer a própria regra (Referências: 'skip' — igual não sobe de novo, diferente ganha outro nome).
+    const mode = ['skip', 'rename', 'replace'].includes(r.conflict) ? r.conflict : this.#settings().uploadConflict || 'skip'
     const binary = existing.size != null && !existing.isShortcut && !existing.isGoogleDoc
     if (mode === 'replace' && binary) {
       r.target.replaceFileId = existing.id
@@ -457,6 +458,12 @@ export class UploadTask extends EventEmitter {
     if (!replaceId) {
       meta.name = toNFC(r.name)
       meta.parents = [r.target.parentId]
+      // Metadados extras de quem criou o registro (Referências: descrição e appProperties), só ao criar o arquivo.
+      const extra = r.target.meta
+      if (extra && typeof extra === 'object') {
+        if (typeof extra.description === 'string') meta.description = extra.description
+        if (extra.appProperties && typeof extra.appProperties === 'object') meta.appProperties = { ...extra.appProperties }
+      }
     }
     if (Number.isFinite(r.local.mtimeMs)) meta.modifiedTime = new Date(r.local.mtimeMs).toISOString()
     // Marcas do app (a prévia leve leva { sobedesce: 'previa', original }): vão junto na criação, sem chamada extra.

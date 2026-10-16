@@ -805,7 +805,8 @@ export class TransferManager extends EventEmitter {
         delete rec.netWaitBytes
         if (rec.type === 'upload' && rec.status === 'completed' && rec.target?.fileId) this.#thumb('attach', rec)
         // "Já estava no Drive" também ganha a prévia leve (se ainda não tem): reenviar a pasta gera as que faltam.
-        if (rec.type === 'upload' && rec.target?.fileId) this.#previa(rec)
+        // Referências já chegam leves (até 1080p): nada de Proxy/ dentro da coleção.
+        if (rec.type === 'upload' && rec.target?.fileId && !rec.referencia) this.#previa(rec)
       } else if (entry.after === 'shutdown') {
         // Fica como estava: na próxima abertura vira 'queued' (autoResume) ou 'paused'.
         if (!isAbortError(err)) this.#fail(rec, err)
@@ -1196,6 +1197,8 @@ export class TransferManager extends EventEmitter {
     if (this.doneBatches.has(batchId)) return
     this.doneBatches.add(batchId)
     const b = this.batches.get(batchId)
+    // Lote "quieto": quem criou avisa do jeito dele (Referências: "Salvo em <Coleção>").
+    if (b?.quiet) return
     const label = b?.label || (b?.type === 'upload' ? 'Envio' : 'Download')
     this.emit('toast', { kind: 'success', message: `${label} terminou: ${plural(n, 'arquivo', 'arquivos')}.`, batchId, bytes: size })
   }

@@ -5,7 +5,7 @@
 //     cabeçalho Authorization; aqui a requisição vai para o Google com o token, repassando o Range (o Safari só toca
 //     vídeo com 206), e volta em streaming — nada é guardado. O token vem da página (postMessage com MessageChannel,
 //     lib/stream.js) e fica só na memória deste SW, que some quando ele dorme.
-const CACHE = 'sobedesce-app-v7'
+const CACHE = 'sobedesce-app-v9'
 const SCOPE = new URL('./', self.location).pathname // "/app/"
 const STREAM = SCOPE + 'stream/'
 const GOOGLE_API = 'https://www.googleapis.com/drive/v3'
@@ -25,8 +25,10 @@ const SHELL = [
   './lib/idb.js',
   './lib/lan.js',
   './lib/platform.js',
+  './lib/referencias.js',
   './lib/state.js',
   './lib/stream.js',
+  './lib/tamanho.js',
   './lib/uploader.js',
   './lib/wakelock.js',
   './components/account.js',
@@ -38,6 +40,7 @@ const SHELL = [
   './components/player.js',
   './components/preview.js',
   './components/queue.js',
+  './components/referencias.js',
   './components/settings.js',
   './components/tabs.js',
   './components/thumb.js',

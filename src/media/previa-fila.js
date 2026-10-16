@@ -136,7 +136,8 @@ export class GeradorPrevias {
 
   /** Vídeo que pode ter proxy (pela extensão; RAW fica de fora). */
   elegivel(record) {
-    return !!(record && record.type === 'upload' && record.local?.path && isVideoName(record.name || record.local.path))
+    // Referências (vídeos salvos de redes sociais) não ganham proxy.
+    return !!(record && record.type === 'upload' && !record.referencia && record.local?.path && isVideoName(record.name || record.local.path))
   }
 
   /** Vale cópia leve para este envio? */

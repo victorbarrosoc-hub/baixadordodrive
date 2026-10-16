@@ -108,6 +108,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   brawThumbnails: true,
   /** "Gerar miniaturas" (tela Drive): a última pasta do computador escolhida para achar os originais ('' = nenhuma). */
   rawThumbLocalDir: '',
+  /** Referências: a pessoa já viu o aviso de primeiro uso ("Salve só para referência dos seus projetos…"). */
+  referenciasAvisoVisto: false,
   /**
    * Proxy (prévia leve) ao enviar: ao terminar de subir um vídeo pesado, gera uma cópia H.264 em 1080p e sobe em
    * Proxy/<nome>.mp4, ao lado do original, para a prévia tocar fluida no celular, no app e no site. O original não muda.

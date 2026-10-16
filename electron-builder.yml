@@ -43,6 +43,14 @@ mac:
       arch: [universal]
   category: public.app-category.productivity
   icon: build/icon.png
+  # yt-dlp das Referências (src/referencias/), baixado por `node scripts/ytdlp-baixar.mjs` (o CI roda antes do dist).
+  # Fica fora de app/, em <Resources>/yt-dlp/ (o motor procura ali; depois o app se atualiza sozinho). O yt-dlp_macos
+  # já é universal: o mesmo arquivo vai nas duas arquiteturas e o x64ArchFiles diz ao @electron/universal para não
+  # tentar juntar (lipo) os dois.
+  extraResources:
+    - from: build/yt-dlp/mac
+      to: yt-dlp
+  x64ArchFiles: "Contents/Resources/yt-dlp/yt-dlp"
   # Sem certificado da Apple por enquanto: assinatura ad-hoc (o macOS pede "Abrir Mesmo Assim" na primeira vez).
   identity: "-"
   hardenedRuntime: false
@@ -70,6 +78,10 @@ win:
     - target: nsis
       arch: [x64, arm64]
   icon: build/icon.png
+  # yt-dlp das Referências: um por arquitetura (yt-dlp.exe e yt-dlp_arm64.exe do Release, gravados como yt-dlp.exe).
+  extraResources:
+    - from: build/yt-dlp/${os}-${arch}
+      to: yt-dlp
 
 nsis:
   # Instala só para o usuário atual, sem pedir senha de administrador.

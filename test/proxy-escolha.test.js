@@ -397,3 +397,19 @@ test('rotas: envio com "proxy", proxy por arquivo, o arquivo no Drive (original 
   assert.equal((await call('POST', '/api/previas/lote', { accountId: acc, driveFolderId: pasta.id, somente: ['../x'] })).status, 400)
   assert.equal((await call('POST', '/api/previas/lote', { accountId: acc, driveFolderId: pasta.id, baixar: 'sim' })).status, 400)
 })
+
+test('Referências não ganham proxy: nem no fim do envio, nem pelo "Gerar proxy"', async t => {
+  const { mock, m, dir, fake, previas } = await realSetup(t)
+  const pasta = mock.addFolder('Refs')
+  const v = await put(dir, 'reels.mp4', 80_000)
+  const st = await fs.stat(v)
+  const rec = { id: 'tref1', type: 'upload', accountId: null, status: 'queued', name: 'reels.mp4', relPath: 'reels.mp4', size: st.size, bytesDone: 0, local: { path: v, size: st.size, mtimeMs: st.mtimeMs }, target: { rootId: pasta.id, relDir: '', parentId: pasta.id, driveId: null, replaceFileId: null, fileId: null }, session: null, referencia: { jobId: 'r1', colecao: 'Moodboard' } }
+  rec.accountId = (await m.auth.listAccounts())[0].id
+  await m.add({ batch: { id: 'bref', type: 'upload', label: 'Referência', createdAt: Date.now(), accountId: rec.accountId }, records: [rec] })
+  await waitFor(() => m.get('tref1')?.status === 'completed', { timeoutMs: 15_000 })
+  await previas.idle()
+  assert.equal(m.get('tref1').previa, undefined)
+  assert.equal(m.setProxy(['tref1'], true), 0)
+  await previas.idle()
+  assert.equal(fake.calls.length, 0)
+})

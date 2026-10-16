@@ -33,6 +33,7 @@ let state = {
   oauthWait: null, // desktop: esperando o login terminar no navegador do sistema
   media: null, // { key } das rotas de miniatura e prévia (src/server/media.js)
   rawThumbs: null, // "Gerar miniaturas": o lote atual ou o último { jobId, status, progress, error, driveFolderId, localDir }
+  referencias: null, // Referências (src/referencias/service.js): { ativo, motivo, navegador, trabalhos, versoes, ytdlp }
   previas: null, // "Gerar prévias": o lote atual ou o último (mesmo formato)
   versao: null, // aviso de versão nova (src/version.js): { atual, ultima, disponivel, nova, plataforma, baixarUrl, verificando, falhou, … }
 }
@@ -104,6 +105,7 @@ function applyFull(data) {
     rawThumbs: data.rawThumbs !== undefined ? data.rawThumbs : state.rawThumbs,
     previas: data.previas !== undefined ? data.previas : state.previas,
     versao: data.versao !== undefined ? data.versao : state.versao,
+    referencias: data.referencias !== undefined ? data.referencias : state.referencias,
   })
   applyTheme(state.settings?.theme)
 }
@@ -229,6 +231,7 @@ function connect() {
   on('rawthumbs', (d) => d?.jobId && setRawThumbs(d))
   on('previas', (d) => d?.jobId && setPrevias(d))
   on('versao', (d) => setVersao(d?.versao || d))
+  on('referencias', (d) => d && typeof d === 'object' && setState({ referencias: d.referencias || d }))
   on('toast', (d) => d?.message && toast(d.kind || 'info', d.message))
 }
 

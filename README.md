@@ -194,6 +194,18 @@ O Google Drive toca vídeo pesado sem travar porque usa uma cópia leve que ele 
 - **Espaço no Drive:** cada cópia ocupa cerca de **2 a 5% do original** (≈ 40 MB por minuto de vídeo). Uma diária de 500 GB em ProRes vira uns 10–20 GB de prévias.
 - O ffmpeg vem dentro do app (GPL v3; licença e fontes em `Resources/ffmpeg-licencas`). Sem ele (rodando do código), o app usa o ffmpeg do sistema (`brew install ffmpeg`), a variável `SOBEDESCE_FFMPEG`, ou `node scripts/ffmpeg-baixar.mjs` para baixar o mesmo do instalador.
 
+### Referências (vídeos e fotos que inspiram seus projetos)
+
+Uma biblioteca no estilo "Salvos" do Instagram, guardada no **seu Drive** em `SOBEDESCE Referências/<Coleção>/`. Precisa da conta SOBEDESCE.
+
+- **Tela Referências** (barra lateral): coleções com capa das últimas miniaturas, **Nova coleção**, e dentro de cada uma a grade com prévia (player, **Baixar original**, **Abrir no Drive**) e a origem de cada vídeo (**Abrir original**, autor, legenda, sua nota). No menu da coleção: **Renomear**, **Link pra IA** (uma página com a lista dos vídeos, links e legendas, no formato que IAs leem bem: ligar, copiar, trocar, desligar) e **Apagar**.
+- **Colar link**: cole o link de um reel, vídeo do YouTube, TikTok, Vimeo, Pinterest, X… escolha a coleção e o computador baixa na hora (até 1080p, MP4) e sobe para o Drive com o link original, autor, título e legenda na descrição do arquivo. O envio aparece em **Transferências** como qualquer outro.
+- **Navegador de referências** (app de desktop, botão **Abrir navegador**): um navegador dentro do app. Entre no Instagram/YouTube **uma vez** por ali; com um vídeo ou post aberto, **Salvar referência** acende. Clique com o botão direito numa imagem para **Salvar imagem como referência**. O login fica só nesse navegador (separado do app e do seu navegador de sempre); o app usa os cookies dele só para baixar o vídeo que você pediu, num arquivo temporário apagado logo em seguida.
+- **Do celular**: em sobedesce.com/app (aba Referências) ou pelo Compartilhar, o link entra numa fila; o computador aberto pega a fila a cada 30 s (e quando você volta para o app), baixa e sobe. Links com erro aparecem no topo da coleção com **Tentar de novo**.
+- Erros aparecem com o motivo: "O Instagram pediu login: entre no Instagram pelo navegador de referências", "Vídeo privado ou removido", "Esse post não tem vídeo…".
+- O baixador é o **yt-dlp** (domínio público, Unlicense), que vem dentro do app e **se atualiza sozinho** (uma vez por dia, só a versão publicada no GitHub do yt-dlp e conferida pelo SHA-256 do próprio Release; o que não confere nunca roda). Para juntar vídeo e áudio do YouTube ele usa o ffmpeg do app.
+- **Uso responsável:** salve só para referência pessoal dos seus projetos. Baixar conteúdo de terceiros pode ir contra os termos de uso de cada plataforma e contra direitos de quem criou: a responsabilidade pelo uso é de quem salva. Nada é publicado nem compartilhado pelo app; o Link pra IA mostra só a lista (os arquivos continuam privados no seu Drive, a não ser que você mesmo os abra).
+
 ---
 
 ## Dicas de velocidade
@@ -238,6 +250,7 @@ Tudo fica numa pasta do seu usuário: **`~/.sobedesce`** no Mac (pasta oculta; n
 - `cloud.json`: o token deste computador na conta SOBEDESCE e a última lista de Drives dela (permissão 600; some ao sair da conta).
 - `queue.json`: a fila de transferências e o ponto onde cada uma parou.
 - `settings.json`, `hash-cache.json` (MD5 já calculados), `compares/` (últimas comparações), `usage.json` (uso das últimas 24 h).
+- `referencias.json` (downloads de referências em andamento e os últimos que terminaram), `referencias/` (temporários dos downloads; esvazia sozinha), `yt-dlp/` (o yt-dlp atualizado e o cache dele). Os cookies do navegador de referências ficam na pasta do Electron (sessão `navegador`), nunca aqui.
 
 **Privacidade:**
 
