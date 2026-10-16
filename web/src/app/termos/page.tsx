@@ -81,7 +81,7 @@ export default function TermosPage() {
 
       <LegalSection title="Encerramento">
         <p>
-          Você pode parar de usar e pedir para apagar a conta quando quiser (veja{" "}
+          Você pode parar de usar e apagar a conta quando quiser, na hora, pelo botão Apagar minha conta em Sua conta (veja{" "}
           <Link href={`${ROTAS.privacidade}#desconectar`}>como desconectar e apagar</Link>). Podemos suspender uma conta que viole estes termos.
         </p>
       </LegalSection>

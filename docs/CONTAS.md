@@ -32,6 +32,9 @@ Mudou algo aqui? Avise as outras frentes.
 | `SOBEDESCE_KEY` | 32 bytes em base64. Cifra AES-256-GCM dos tokens do Google. |
 | `NEXT_PUBLIC_SITE_URL` | Opcional. Padrão `https://sobedesce.vercel.app`. |
 | `SOBEDESCE_GOOGLE_BASE` | Só testes: Google falso. Ignorada se `VERCEL` ou `NODE_ENV=production`, e só aceita 127.0.0.1/localhost. Caminhos usados: `/o/oauth2/v2/auth`, `/token`, `/revoke`, `/v1/userinfo` (o Google falso das contas está em `web/tests/google-falso.mts`). |
+| `RESEND_API_KEY` | E-mail transacional (Resend, `POST https://api.resend.com/emails`, sem SDK). Sem ela: em dev o e-mail vai para o console; em produção não envia e `/esqueci-a-senha` mostra "indisponível". |
+| `EMAIL_REMETENTE` | Opcional. Padrão `SOBEDESCE <nao-responda@dissesim.com.br>` (o domínio precisa estar verificado no Resend). |
+| `SOBEDESCE_RESEND_BASE` | Só testes: Resend falso (`web/tests/resend-falso.mts`). Mesma regra do Google falso. |
 | `SOBEDESCE_PGLITE_DIR` | Só testes/local: onde fica o PGlite (padrão `./data/pglite`; `memory://` = em memória). |
 
 Redirect do Google: `https://sobedesce.vercel.app/api/google/callback`
@@ -51,10 +54,12 @@ Redirect do Google: `https://sobedesce.vercel.app/api/google/callback`
 - `codigosDispositivo`: `id`, `codigo` (único, `ABCD-EFGH`, sem letras ambíguas), `segredoHash`
   (sha256, único), `nome`, `plataforma`, `usuarioId` (null até aprovar), `aprovadoEm`, `usadoEm`,
   `consultadoEm` (última consulta do `/aguardar`, para o 429), `expiraEm` (10 min), `criadoEm`.
+- `redefinicoesSenha`: "Esqueci a senha". `id`, `usuarioId`, `tokenHash` (sha256, único), `expiraEm` (1 h),
+  `usadoEm` (uso único), `criadoEm`.
 - `tentativas`: limite de tentativas (login por e-mail+IP, criação de conta por IP, código de
   dispositivo por IP). `id` (identity), `chave`, `quando`. Limpeza preguiçosa.
   Regras atuais (`web/src/lib/auth/limite.ts`): login 8 erros/15 min por e-mail+IP e 40/15 min por IP;
-  criar conta 10/h por IP; `/api/dispositivo/iniciar` 30/h por IP; código errado na tela 20/15 min por IP.
+  criar conta 10/h por IP; esqueci a senha 3/h por e-mail e 10/h por IP; apagar conta 8 senhas erradas/15 min; `/api/dispositivo/iniciar` 30/h por IP; código errado na tela 20/15 min por IP.
 
 Migrações em `web/drizzle/` (`npm run db:generate`). Na Vercel o `vercel-build` aplica antes do build.
 
@@ -111,13 +116,16 @@ renova no Google (uma renovação por vez por conta). `invalid_grant` → `estad
 | `/` | home | Página inicial animada (downloads do .dmg/.exe, celular, criar conta). |
 | `/privacidade`, `/termos` | home | Exigidas pela tela de consentimento do Google. |
 | `/entrar`, `/criar-conta` | contas | E-mail e senha. `/entrar` também tem "Entrar com Google". |
-| `/conta` | contas | Drives conectados (conectar, reconectar, remover), computadores conectados (desconectar), dados da conta, sair. |
-| `/dispositivo?codigo=` | contas | Liberar um computador (pede login). |
+| `/conta` | contas | Drives conectados (conectar, reconectar, remover), computadores conectados (desconectar), dados da conta, sair, apagar a conta. |
+| `/dispositivo?codigo=` | contas | Liberar um computador (pede login). Ao liberar, a conta recebe um e-mail de aviso. |
+| `/esqueci-a-senha`, `/nova-senha` | contas | Senha nova por e-mail. |
 | `/app` | celular | O envio pelo celular (PWA), usando os Drives da conta. |
 
 Cabeçalho e rodapé do site: `web/src/components/site/` (frente home). As telas de conta usam
 `web/src/components/ui/` (Button, Input, Field, Card) e um cabeçalho simples próprio em
-`web/src/components/conta/`. Ficam no grupo `web/src/app/(conta)/`; `/sair` pede um toque (POST),
+`web/src/components/conta/`. Ficam no grupo `web/src/app/(conta)/`, junto com `/esqueci-a-senha`
+(resposta sempre igual) e `/nova-senha?token=` (link de 1 h, uso único; ao salvar, todas as sessões
+antigas caem, inclusive computadores, e a pessoa entra); `/sair` pede um toque (POST),
 um link não derruba a sessão. `/dispositivo` sem `codigo` mostra um campo para digitar o código.
 
 Downloads do desktop: Release `versao-de-teste` do GitHub
@@ -131,3 +139,15 @@ Downloads do desktop: Release `versao-de-teste` do GitHub
 - Entrar: `POST /api/dispositivo/iniciar` → abre o navegador em `url` → `aguardar` a cada
   `intervalo` s → guarda o token no diretório de dados (arquivo 0600).
 - Servidor: `https://sobedesce.vercel.app` (`SOBEDESCE_CLOUD_URL` troca, para testes).
+
+## 8. Apagar a conta e e-mails
+
+- **Apagar minha conta** (fim de `/conta`): diálogo com a senha atual e a palavra `APAGAR`; o servidor
+  confere as duas (`web/src/lib/auth/apagar.ts`). Revoga no Google o token de cada Drive (melhor
+  esforço), encerra todas as sessões (site e computadores: o Bearer passa a dar 401), apaga contas
+  Google, códigos de dispositivo, links de senha e o usuário, limpa o cookie e leva para `/?conta=apagada`
+  (a home mostra "Conta apagada."). Conta sem senha (só Google, se um dia existir): vale um login
+  feito há menos de 15 min.
+- **E-mails** (`web/src/lib/email/`, HTML preto e branco + texto, enviados depois da resposta com `after`):
+  senha nova, conta apagada (confirmação) e computador conectado (nome, sistema, quando, "Se não foi
+  você, desconecte em Sua conta").

@@ -54,8 +54,12 @@ export default function PrivacidadePage() {
             ferramentas de rastreamento.
           </li>
           <li>
-            <strong>Segurança:</strong> para impedir abuso, registramos por pouco tempo as tentativas de entrar e de criar conta (e-mail e endereço IP, com
-            data e hora). Esses registros são apagados depois.
+            <strong>Segurança:</strong> para impedir abuso, registramos por pouco tempo as tentativas de entrar, de criar conta e de pedir senha nova
+            (e-mail e endereço IP, com data e hora). Esses registros são apagados depois.
+          </li>
+          <li>
+            <strong>Senha nova:</strong> quando você usa “Esqueci a senha”, guardamos por uma hora só o hash do link enviado. Depois de usado, ele não vale
+            mais.
           </li>
         </LegalList>
         <p>
@@ -120,7 +124,9 @@ export default function PrivacidadePage() {
       <LegalSection title="Com quem compartilhamos">
         <p>
           Com ninguém, para nenhum fim comercial. Não vendemos, não alugamos e não compartilhamos os seus dados. Eles ficam em provedores que operam o
-          serviço para nós: a Vercel (hospedagem do site) e a Neon (banco de dados). E, claro, no Google, quando você conecta o Drive.
+          serviço para nós: a Vercel (hospedagem do site), a Neon (banco de dados) e a Resend (envio dos e-mails da conta, como o link de senha nova, a
+          confirmação de conta apagada e o aviso de computador conectado; ela recebe o seu e-mail, o seu nome e o texto da mensagem). E, claro, no Google,
+          quando você conecta o Drive.
         </p>
         <p>Só entregaríamos dados se uma lei ou ordem judicial obrigasse.</p>
       </LegalSection>
@@ -141,8 +147,9 @@ export default function PrivacidadePage() {
             <strong>Desconectar um computador:</strong> em Sua conta, na lista de computadores conectados.
           </li>
           <li>
-            <strong>Apagar a conta:</strong> escreva para <Email /> a partir do e-mail da conta. Apagamos a conta, as contas Google conectadas, os tokens e
-            as sessões em até 15 dias e confirmamos por e-mail.
+            <strong>Apagar a conta:</strong> em Sua conta, no fim da página, toque em Apagar minha conta e confirme com a sua senha. Na hora, tiramos o
+            acesso de cada Drive no Google, desconectamos os computadores e apagamos a conta, as contas Google conectadas, os tokens e as sessões. Mandamos
+            uma confirmação por e-mail. Os arquivos no seu Google Drive continuam lá.
           </li>
           <li>
             <strong>No computador:</strong> os dados do app ficam na pasta <code className="font-mono text-[14px]">.sobedesce</code> da sua pasta de
@@ -161,7 +168,7 @@ export default function PrivacidadePage() {
       <LegalSection title="Por quanto tempo">
         <p>
           Guardamos os dados da conta enquanto ela existir. Quando você remove um Drive, os tokens dele são apagados. Quando você apaga a conta, apagamos
-          tudo o que está ligado a ela.
+          tudo o que está ligado a ela na mesma hora. Cópias de segurança automáticas dos provedores podem levar alguns dias para sair do ciclo.
         </p>
       </LegalSection>
 
