@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { telasDeAbertura } from "@/lib/pwa";
 import { SITE_DESCRICAO, SITE_NOME, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
@@ -12,10 +13,16 @@ export const metadata: Metadata = {
     locale: "pt_BR",
     siteName: SITE_NOME,
     title: "SOBEDESCE · Arquivos gigantes no Google Drive",
-    description: SITE_DESCRICAO,
+    description: "Do celular e do computador direto para o seu Drive. Rápido, retoma de onde parou e confere cada arquivo.",
     url: "/",
   },
   twitter: { card: "summary_large_image" },
+  // Tela de Início do iPhone: abre como app (sem a barra do Safari), com ícone, nome e tela de abertura.
+  appleWebApp: { capable: true, title: SITE_NOME, statusBarStyle: "default", startupImage: telasDeAbertura() },
+  icons: { apple: [{ url: "/app/icons/apple-touch-icon.png", sizes: "180x180" }] },
+  formatDetection: { telephone: false },
+  // O Next só escreve mobile-web-app-capable; iPhones com iOS mais antigo ainda leem este.
+  other: { "apple-mobile-web-app-capable": "yes" },
 };
 
 export const viewport: Viewport = {
