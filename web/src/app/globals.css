@@ -34,10 +34,93 @@
   --radius-card: 18px;
   --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Palco escuro da home (animações de transferência) e tons claros das cores de envio e download. */
+  --color-stage: #060608;
+  --color-stage-2: #111114;
+  --color-up-soft: #a995ff;
+  --color-down-soft: #6cb6ff;
+
+  --animate-rise: sd-rise 1s var(--ease-out-soft) both;
+  --animate-fade: sd-fade 1.2s var(--ease-out-soft) both;
+}
+
+@keyframes sd-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sd-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Barra que enche e recomeça (telefone da home). */
+@keyframes sd-fill {
+  0% {
+    width: var(--from, 0%);
+  }
+  82%,
+  100% {
+    width: 100%;
+  }
+}
+
+/* Linha tracejada que anda (conexões entre conta e aparelhos). */
+@keyframes sd-dash-x {
+  to {
+    background-position: 24px 0;
+  }
+}
+@keyframes sd-dash-y {
+  to {
+    background-position: 0 24px;
+  }
+}
+
+/* Bytes viajando do aparelho para o Google. */
+@keyframes sd-travel {
+  from {
+    left: 0%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  to {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes sd-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
 }
 
 html {
   -webkit-text-size-adjust: 100%;
+  overflow-x: clip;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
@@ -51,6 +134,12 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-down);
   outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
