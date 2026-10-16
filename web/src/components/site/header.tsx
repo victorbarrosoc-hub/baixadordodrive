@@ -5,8 +5,8 @@ import { Logo } from "./logo";
 
 const LINKS = [
   { href: "/#recursos", label: "Recursos" },
-  { href: "/#celular", label: "Celular" },
-  { href: "/#baixar", label: "Baixar" },
+  { href: "/#baixar", label: "Plataformas" },
+  { href: "/privacidade", label: "Privacidade" },
 ];
 
 /** Cabeçalho fixo e translúcido do site público. */

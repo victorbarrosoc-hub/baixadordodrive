@@ -30,7 +30,7 @@ export function Hero() {
           O Drive na velocidade que a sua internet aguenta.
         </h1>
         <p className="mx-auto mt-6 max-w-[34rem] animate-rise text-[17px] leading-[1.5] text-pretty text-ink-2 [animation-delay:160ms] sm:text-[20px]">
-          O SOBEDESCE sobe e baixa arquivos gigantes do Google Drive com várias conexões ao mesmo tempo. Pausa sem perder nada e confere cada arquivo no fim.
+          Sobe e baixa arquivos gigantes do Google Drive com várias conexões ao mesmo tempo.
         </p>
 
         <div className="mt-9 flex animate-rise flex-wrap items-center justify-center gap-3 [animation-delay:240ms]">
@@ -63,9 +63,6 @@ export function Hero() {
             <ArrowRight aria-hidden="true" />
           </Link>
         </div>
-        <p className="mt-5 animate-rise text-[13px] text-balance text-ink-3 [animation-delay:320ms]">
-          Mac e Windows, versão de teste. No celular, direto pelo navegador.
-        </p>
       </div>
 
       <div className="mx-auto mt-14 max-w-6xl animate-fade px-4 [animation-delay:300ms] sm:mt-20 sm:px-8">
