@@ -24,7 +24,15 @@ export const GOOGLE_EXPORTS = Object.freeze({
   'application/vnd.google-apps.drawing': Object.freeze({ mime: 'image/png', ext: '.png' }),
 })
 
+/** Campos extras para navegar e ver a prévia (miniatura, dimensões, dono). Não entram nas varreduras grandes. */
+export const MEDIA_FIELDS =
+  'hasThumbnail,thumbnailLink,iconLink,webViewLink,owners(displayName,emailAddress),' +
+  'videoMediaMetadata(width,height,durationMillis),' +
+  'imageMediaMetadata(width,height,rotation,time,cameraMake,cameraModel,exposureTime,aperture,isoSpeed,focalLength)'
+export const BROWSE_FIELDS = `${FILE_FIELDS},${MEDIA_FIELDS}`
+
 const LIST_FIELDS = `nextPageToken,files(${FILE_FIELDS})`
+const BROWSE_LIST_FIELDS = `nextPageToken,files(${BROWSE_FIELDS})`
 const ABOUT_FIELDS = 'user(displayName,emailAddress,permissionId,photoLink),storageQuota(limit,usage,usageInDrive)'
 const PAGE_SIZE = 1000
 const SEARCH_LIMIT = 200
@@ -73,7 +81,33 @@ export function toDriveItem(f) {
     shortcutTargetId: f.shortcutDetails?.targetId ?? null,
     shortcutTargetMimeType: f.shortcutDetails?.targetMimeType ?? null,
     shortcutTargetResourceKey: f.shortcutDetails?.targetResourceKey ?? null,
+    ...mediaInfo(f),
   }
+}
+
+const num = v => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null)
+
+/** Campos de prévia (só quando a resposta trouxe: as varreduras não pedem e o DriveItem fica como era). */
+function mediaInfo(f) {
+  if (!f || (f.hasThumbnail === undefined && f.thumbnailLink === undefined && !f.videoMediaMetadata && !f.imageMediaMetadata && !f.owners && !f.webViewLink)) return {}
+  const out = { hasThumbnail: Boolean(f.hasThumbnail && f.thumbnailLink), thumbnailLink: f.thumbnailLink ?? null }
+  if (f.iconLink) out.iconLink = f.iconLink
+  if (f.webViewLink) out.webViewLink = f.webViewLink
+  const owner = Array.isArray(f.owners) ? f.owners[0] : null
+  if (owner) out.owner = { name: owner.displayName ?? null, email: owner.emailAddress ?? null }
+  const v = f.videoMediaMetadata
+  const i = f.imageMediaMetadata
+  if (v) out.video = { width: num(v.width), height: num(v.height), durationMs: num(v.durationMillis) }
+  if (i) {
+    const image = { width: num(i.width), height: num(i.height) }
+    if (num(i.rotation)) image.rotation = num(i.rotation)
+    if (i.time) image.time = String(i.time)
+    const camera = [i.cameraMake, i.cameraModel].filter(Boolean).join(' ').trim()
+    if (camera) image.camera = camera
+    for (const k of ['exposureTime', 'aperture', 'isoSpeed', 'focalLength']) if (num(i[k]) != null) image[k] = num(i[k])
+    out.image = image
+  }
+  return out
 }
 
 /** Itens antigos compartilhados por link exigem o resourceKey num cabeçalho, senão o Google responde 404. */
@@ -364,7 +398,6 @@ export class DriveClient {
     const r = await this.api('GET', 'about', { query: { fields: ABOUT_FIELDS }, signal })
     const u = r.user || {}
     const q = r.storageQuota || {}
-    const num = v => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null)
     return {
       user: { email: u.emailAddress ?? null, name: u.displayName ?? null, photoUrl: u.photoLink ?? null, permissionId: u.permissionId ?? null },
       quota: { limit: num(q.limit), usage: num(q.usage) ?? 0, usageInDrive: num(q.usageInDrive) ?? 0 },
@@ -388,9 +421,10 @@ export class DriveClient {
   // ─────────── itens ───────────
 
   /** `resourceKey` (opcional) é a do próprio item, para itens antigos compartilhados por link. */
-  async getItem(fileId, { signal, resourceKey } = {}) {
+  /** `media: true` também traz miniatura, dimensões e dono (prévia). */
+  async getItem(fileId, { signal, resourceKey, media = false } = {}) {
     const headers = resourceKey ? { 'x-goog-drive-resource-keys': `${fileId}/${resourceKey}` } : undefined
-    const f = await this.api('GET', `files/${encodeURIComponent(fileId)}`, { query: { fields: FILE_FIELDS }, headers, signal })
+    const f = await this.api('GET', `files/${encodeURIComponent(fileId)}`, { query: { fields: media ? BROWSE_FIELDS : FILE_FIELDS }, headers, signal })
     const item = toDriveItem(f)
     this.#remember(item)
     if (fileId === 'root' && item.isFolder) this.myDriveRootId = item.id
@@ -431,13 +465,13 @@ export class DriveClient {
   }
 
   /** files.list com todas as páginas (páginas curtas, até vazias, podem vir com nextPageToken). */
-  async #list(q, { driveId = null, signal, limit = Infinity, pageSize = PAGE_SIZE } = {}) {
+  async #list(q, { driveId = null, signal, limit = Infinity, pageSize = PAGE_SIZE, media = false } = {}) {
     const out = []
     let pageToken
     do {
       const query = {
         q,
-        fields: LIST_FIELDS,
+        fields: media ? BROWSE_LIST_FIELDS : LIST_FIELDS,
         pageSize: Math.min(pageSize, PAGE_SIZE),
         includeItemsFromAllDrives: 'true',
         supportsAllDrives: 'true',
@@ -463,18 +497,18 @@ export class DriveClient {
     return `'${escapeQueryValue(folderId)}' in parents and trashed = false`
   }
 
-  /** Filhos diretos (sem lixeira), pastas primeiro e depois por nome. */
-  async listChildren(folderId, { signal } = {}) {
+  /** Filhos diretos (sem lixeira), pastas primeiro e depois por nome. `media: true` = campos da prévia (tela Drive). */
+  async listChildren(folderId, { signal, media = false } = {}) {
     const driveId = await this.#driveIdOf(folderId, signal)
-    const items = await this.#list(this.#childrenQuery(folderId), { driveId, signal })
+    const items = await this.#list(this.#childrenQuery(folderId), { driveId, signal, media })
     return sortItems(items)
   }
 
-  async search(text, { signal } = {}) {
+  async search(text, { signal, media = false } = {}) {
     const term = String(text ?? '').trim()
     if (!term) return []
     const q = `name contains '${escapeQueryValue(term)}' and trashed = false`
-    const items = await this.#list(q, { signal, limit: SEARCH_LIMIT, pageSize: SEARCH_LIMIT })
+    const items = await this.#list(q, { signal, limit: SEARCH_LIMIT, pageSize: SEARCH_LIMIT, media })
     return sortItems(items)
   }
 
