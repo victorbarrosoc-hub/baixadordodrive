@@ -310,6 +310,9 @@ export async function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', pub
   on(ctx.auth?.cloud, 'signedOut', ev => hub.send('toast', { kind: 'error', message: ev.message }))
   on(ctx.settings, 'change', s => hub.send('settings', s))
   on(ctx.versao, 'status', st => hub.send('versao', st))
+  on(ctx.referencias, 'status', st => hub.send('referencias', st))
+  on(ctx.referencias, 'toast', t => hub.send('toast', { kind: t.kind, message: t.message }))
+  on(ctx.referencias?.updater, 'status', () => hub.send('referencias', ctx.referencias.status()))
 
   let closing = null
   const close = () => {

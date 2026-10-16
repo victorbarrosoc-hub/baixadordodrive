@@ -2183,7 +2183,8 @@ code {
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   height: calc(52px + var(--safe-b));
   padding: 0 var(--safe-r) var(--safe-b) var(--safe-l);
   background: var(--glass);
@@ -2219,6 +2220,9 @@ code {
 }
 .tab-down.is-on {
   color: var(--down-text);
+}
+.tab-refs.is-on {
+  color: var(--text);
 }
 .tab-dot {
   position: absolute;
@@ -3503,4 +3507,603 @@ html.has-preview .toasts {
 }
 .fhere .frow-name {
   font-size: 15px;
+}
+
+/* ───────────── Referências (components/referencias.js) ───────────── */
+.refs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 12px;
+}
+.rtop .dtop-actions .icon-btn,
+.rtop .dtop-back {
+  color: var(--text);
+}
+.rsub {
+  margin: -4px 0 0;
+  font-size: 13.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rsub-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text);
+}
+.rnotice .btn {
+  margin-top: 10px;
+}
+.rnotice > .icon {
+  color: var(--text);
+}
+
+/* Salvar link: o botão grande, preto (claro no escuro), como o Escolher arquivos da aba Enviar */
+.rsave {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 76px;
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  text-align: left;
+  box-shadow: 0 10px 28px -12px rgba(0, 0, 0, 0.45);
+  transition: transform 0.12s var(--ease), filter 0.15s;
+}
+.rsave:active {
+  transform: scale(0.985);
+  filter: brightness(0.92);
+}
+.rsave-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--primary-fg) 14%, transparent);
+}
+.rsave-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.rsave-text b {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.rsave-text span {
+  font-size: 13.5px;
+  opacity: 0.72;
+}
+.rsave-plus {
+  opacity: 0.7;
+}
+.rsave.is-small {
+  min-height: 52px;
+  padding: 8px 14px 8px 10px;
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-card), inset 0 0 0 1px var(--hairline);
+}
+.rsave.is-small .rsave-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+.rsave.is-small .rsave-text b {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* links esperando o computador */
+.rwait {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.rwait b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.rwait span {
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.rwait-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--warn);
+  animation: breathe 2s ease-in-out infinite;
+}
+.rwait-dot.is-err {
+  background: var(--err);
+  animation: none;
+}
+
+/* coleções */
+.rhead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 10px 2px -2px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.rhead span {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.rgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rcard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  -webkit-touch-callout: none;
+}
+.rcard:active .rcover {
+  transform: scale(0.97);
+  filter: brightness(0.94);
+}
+.rcover {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  width: 100%;
+  aspect-ratio: 1;
+  margin-bottom: 7px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-card), inset 0 0 0 0.5px var(--hairline);
+  transition: transform 0.15s var(--ease), filter 0.15s;
+}
+.rcover-cell {
+  position: relative;
+  overflow: hidden;
+  background: var(--fill);
+}
+.rcover-cell .thumb {
+  position: absolute;
+  inset: 0;
+}
+.rcover-cell.is-empty {
+  background: var(--fill);
+}
+.rcover-other {
+  display: grid;
+  place-items: center;
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  color: var(--text-3);
+}
+.rcover.is-new {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  place-items: center;
+  color: var(--text-3);
+  background: transparent;
+  box-shadow: none;
+  outline: 1.5px dashed var(--hairline-strong);
+  outline-offset: -1.5px;
+}
+.rcard-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 2px;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rcard-ai {
+  flex: none;
+  color: var(--text-2);
+}
+.rcard-meta {
+  min-height: 1.35em;
+  padding: 0 2px;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rcard-meta.has-queue {
+  color: var(--warn-text);
+}
+.rcard-new .rcard-name {
+  color: var(--text-2);
+}
+.rgrid.is-skeleton .rcover {
+  box-shadow: none;
+}
+
+.rempty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 20px 20px;
+  text-align: center;
+}
+.rempty b {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.rempty p {
+  max-width: 320px;
+  margin: 0 0 8px;
+  font-size: 14.5px;
+  color: var(--text-2);
+}
+.rempty-art {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 4px;
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-card), inset 0 0 0 1px var(--hairline);
+}
+.rempty.is-small {
+  padding-top: 28px;
+}
+
+.rtip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  text-align: left;
+}
+.rtip.is-static {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--hairline-2);
+}
+.rtip-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--fill);
+  color: var(--text);
+}
+.rtip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.rtip-text b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.rtip-text span {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.rtip-chev {
+  color: var(--text-3);
+}
+
+/* dentro da coleção: grade de 3 colunas, retrato (como os Salvos) */
+.rtiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  margin: 0 calc(-1 * var(--gutter) + 4px);
+  padding: 0;
+  list-style: none;
+}
+.rtile {
+  display: block;
+  width: 100%;
+  -webkit-touch-callout: none;
+}
+.rtile-media {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: var(--fill);
+  transition: filter 0.15s;
+}
+.rtile:active .rtile-media {
+  filter: brightness(0.88);
+}
+.rtile-media .thumb {
+  position: absolute;
+  inset: 0;
+}
+.rtile-plat {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  max-width: calc(100% - 52px);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.rtile.is-pending .rtile-media {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--hairline-2);
+}
+.rpend {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px;
+  color: var(--text-2);
+  text-align: center;
+}
+.rpend-plat {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+.rpend-text {
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+.rtile.is-error .rtile-media {
+  background: color-mix(in srgb, var(--err) 8%, var(--surface));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--err) 30%, transparent);
+}
+.rtile.is-error .rpend {
+  color: var(--err-text);
+}
+.rtiles.is-skeleton .rtile-media {
+  border-radius: 0;
+}
+
+/* bloco da prévia */
+.rinfo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.rinfo-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.rinfo-meta {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.rinfo-caption {
+  margin: 4px 0 0;
+  font-size: 15px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 11.5em;
+  overflow-y: auto;
+}
+.rinfo-open {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+/* folhas */
+.rsheet {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rfield {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rfield-label {
+  margin: 6px 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.rfield .field-help {
+  margin: 0 4px;
+}
+.rurl {
+  position: relative;
+  display: block;
+}
+.rurl .input {
+  padding-right: 96px;
+}
+.rurl-paste {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+}
+.rnote {
+  height: auto;
+  min-height: 72px;
+  padding: 12px 14px;
+  line-height: 1.4;
+  resize: vertical;
+  font-family: var(--font);
+}
+.rpick {
+  max-height: 248px;
+  overflow-y: auto;
+}
+.rsheet .menu-item .icon {
+  color: var(--text-2);
+}
+.rsheet .menu-item.is-danger .icon {
+  color: var(--err-text);
+}
+.rpick-check {
+  margin-left: auto;
+  color: var(--text) !important;
+}
+.rpick-wait {
+  display: grid;
+  place-items: center;
+  height: 64px;
+  color: var(--text-3);
+}
+.rsheet-go {
+  margin-top: 6px;
+}
+.rexplain {
+  margin: 2px 4px 4px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.rlink {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+.rlink .rfield-label {
+  margin: 0;
+}
+.rlink-url {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  user-select: all;
+  -webkit-user-select: all;
+}
+.rlink-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rmenu-danger {
+  margin-top: 12px;
+}
+.menu-item.is-danger,
+.menu-item.is-danger .icon {
+  color: var(--err-text);
+}
+.menu-item:disabled {
+  opacity: 0.5;
+}
+.btn.is-danger {
+  color: var(--err-text);
+}
+.rdel-foot {
+  margin-bottom: 8px;
+}
+.ritem {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.ritem > .icon {
+  flex: none;
+  color: var(--text-2);
+}
+.ritem.is-error > .icon {
+  color: var(--err-text);
+}
+.ritem.is-ok > .icon {
+  color: var(--ok-text);
+}
+.ritem b {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 600;
+}
+.ritem p {
+  margin: 2px 0 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.ritem-note {
+  margin: 0 4px;
+  font-size: 14.5px;
+  white-space: pre-wrap;
+}
+.ritem-acts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+.rsteps {
+  margin: 0;
+  padding: 0 4px 0 24px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-2);
 }

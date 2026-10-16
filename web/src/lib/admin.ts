@@ -5,6 +5,7 @@ import "server-only";
  */
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
+import type { Plano } from "@/lib/db/schema";
 
 const PADRAO = ["contato@dissesim.com.br"];
 
@@ -30,6 +31,7 @@ export async function ehAdmin(usuario: { id: string; email: string }, admins = e
 export type DriveAdmin = { email: string; nome: string | null; fotoUrl: string | null; estado: "ok" | "reconectar"; criadoEm: Date };
 export type PessoaAdmin = {
   id: string;
+  plano: Plano;
   nome: string;
   email: string;
   criadoEm: Date;
@@ -53,6 +55,7 @@ export async function listarPessoas(agora = new Date()): Promise<{ pessoas: Pess
         id: schema.usuarios.id,
         nome: schema.usuarios.nome,
         email: schema.usuarios.email,
+        plano: schema.usuarios.plano,
         senhaHash: schema.usuarios.senhaHash,
         criadoEm: schema.usuarios.criadoEm,
         ultimoLoginEm: schema.usuarios.ultimoLoginEm,
@@ -80,6 +83,7 @@ export async function listarPessoas(agora = new Date()): Promise<{ pessoas: Pess
   for (const u of usuarios) {
     porUsuario.set(u.id, {
       id: u.id,
+      plano: u.plano,
       nome: u.nome,
       email: u.email,
       criadoEm: u.criadoEm,

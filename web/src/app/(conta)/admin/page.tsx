@@ -6,6 +6,8 @@ import { MenuConta } from "@/components/conta/menu";
 import { Moldura } from "@/components/conta/moldura";
 import { Card } from "@/components/ui/card";
 import { ehAdmin, filtrarPessoas, listarPessoas, type PessoaAdmin } from "@/lib/admin";
+import { betaAberto, NOME_PLANO, PLANOS } from "@/lib/recursos";
+import { acaoTrocarPlano } from "../acoes";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { tempoRelativo } from "@/lib/tempo";
 
@@ -25,6 +27,33 @@ function Numero({ valor, rotulo, detalhe }: { valor: number; rotulo: string; det
   );
 }
 
+/** Plano da conta (para quando o beta fechar). Um formulário simples: funciona sem JavaScript. */
+function Plano({ p }: { p: PessoaAdmin }) {
+  return (
+    <form action={acaoTrocarPlano} className="flex items-center gap-1.5">
+      <input type="hidden" name="usuarioId" value={p.id} />
+      <label className="sr-only" htmlFor={`plano-${p.id}`}>
+        Plano de {p.nome}
+      </label>
+      <select
+        id={`plano-${p.id}`}
+        name="plano"
+        defaultValue={p.plano}
+        className="h-8 rounded-full bg-surface-2 pr-2 pl-3 text-[13px] font-medium ring-1 ring-line outline-none focus:ring-2 focus:ring-up"
+      >
+        {PLANOS.map((pl) => (
+          <option key={pl} value={pl}>
+            {NOME_PLANO[pl]}
+          </option>
+        ))}
+      </select>
+      <button type="submit" className="h-8 rounded-full px-3 text-[13px] font-medium text-ink-2 ring-1 ring-line hover:bg-surface-2 hover:text-ink">
+        Salvar
+      </button>
+    </form>
+  );
+}
+
 function Pessoa({ p, agora }: { p: PessoaAdmin; agora: Date }) {
   const foto = p.drives.find((d) => d.fotoUrl)?.fotoUrl ?? null;
   const uso = p.ultimoUsoEm ? `ativo ${tempoRelativo(p.ultimoUsoEm, agora)}` : "nunca entrou";
@@ -40,6 +69,10 @@ function Pessoa({ p, agora }: { p: PessoaAdmin; agora: Date }) {
           <p className="truncate text-[14px] text-ink-2" title={p.email}>
             {p.email}
           </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="rounded-full bg-surface-2 px-2.5 py-0.5 text-[12px] font-medium text-ink-2 ring-1 ring-line">Plano {NOME_PLANO[p.plano]}</span>
+            <Plano p={p} />
+          </div>
           <p className="text-[13px] text-ink-3">
             Conta criada em {dataCurta.format(p.criadoEm)} · {p.comSenha ? "e-mail e senha" : "entrou com o Google"}
             {p.computadores ? (
@@ -85,6 +118,21 @@ export default async function Admin({ searchParams }: Props) {
 
   return (
     <Moldura titulo="Quem está na plataforma" subtitulo="Contas SOBEDESCE, os Drives conectados e o último acesso." acao={<MenuConta admin />}>
+      <p className="mb-4 flex flex-wrap items-center gap-2 px-1 text-[14px] text-ink-2">
+        {betaAberto() ? (
+          <span className="inline-flex items-center gap-2 rounded-full bg-ok/12 px-3 py-1 font-medium text-ok-text ring-1 ring-ok/30">
+            <span aria-hidden className="size-1.5 rounded-full bg-ok" />
+            Beta aberto: todos usam tudo
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-2 rounded-full bg-warn/12 px-3 py-1 font-medium text-warn-text ring-1 ring-warn/30">
+            <span aria-hidden className="size-1.5 rounded-full bg-warn" />
+            Beta fechado: vale o plano de cada conta
+          </span>
+        )}
+        <span className="text-[13px] text-ink-3">O plano de cada conta fica guardado para quando o beta fechar (SOBEDESCE_BETA_ABERTO=0).</span>
+      </p>
+
       <Card className="mb-10 grid grid-cols-2 gap-px overflow-hidden bg-line sm:grid-cols-4">
         <Numero valor={resumo.contas} rotulo="contas" />
         <Numero valor={resumo.drivesOk} rotulo="Drives conectados" detalhe={resumo.drivesReconectar ? `${resumo.drivesReconectar} para reconectar` : undefined} />

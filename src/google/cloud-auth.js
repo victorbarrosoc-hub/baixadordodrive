@@ -292,6 +292,26 @@ export class CloudAuth extends EventEmitter {
     return { status: res.status, data }
   }
 
+  /**
+   * Chamada autenticada à API do site para outras partes do app (Referências: src/referencias/api.js).
+   * Devolve { status, data }. Status fora de `expect` → HttpError (com o corpo { erro, mensagem } lido em `body`).
+   * 401 com o token deste computador = sessão revogada: sai da conta (como nas outras chamadas) e lança 'reauth'.
+   */
+  async request(method, path, { body, expect = [200], timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+    await this.#ready()
+    const s = this.session
+    if (!s) throw new SobeDesceError('reauth', MSG_NOT_SIGNED_IN, { reason: 'cloudSignedOut' })
+    try {
+      return await this.#call(method, path, { body, expect, timeoutMs, token: s.token })
+    } catch (err) {
+      if (this.#isRevoked(err, s.token)) {
+        await this.#revoked()
+        throw new SobeDesceError('reauth', MSG_SIGNED_OUT, { reason: 'cloudSignedOut', status: 401 })
+      }
+      throw err
+    }
+  }
+
   /** 401 numa chamada com o token do dispositivo: a sessão foi revogada no site (ou venceu). */
   #isRevoked(err, token) {
     return err instanceof HttpError && err.status === 401 && token && this.session?.token === token

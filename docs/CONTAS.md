@@ -89,7 +89,7 @@ Códigos comuns: `401 sem_sessao`, `403 origem` (cookie sem Origin do site), `40
 
 | Método e caminho | Entrada | Saída |
 |---|---|---|
-| `GET /api/eu` | | `200 { usuario: { id, email, nome }, contas: Conta[] }` · `401 { erro: "sem_sessao" }` |
+| `GET /api/eu` | | `200 { usuario: { id, email, nome }, contas: Conta[], recursos: { referencias } }` · `401 { erro: "sem_sessao" }` |
 | `GET /api/drive/contas` | | `200 { contas: Conta[] }` |
 | `POST /api/drive/token` | `{ conta: "<id>", renovar?: boolean }` | `200 { accessToken, expiraEm (ms epoch), email }` · `404 nao_encontrada` · `409 { erro: "reconectar", mensagem }` · `502 google` · `503 sem_config` |
 | `POST /api/dispositivo/iniciar` | `{ nome, plataforma }` (sem sessão; `plataforma` fora de mac/windows/linux vira null) | `200 { codigo, segredo, url, intervalo: 3, expiraEm }` · `429 devagar` |
@@ -99,6 +99,10 @@ Códigos comuns: `401 sem_sessao`, `403 origem` (cookie sem Origin do site), `40
 | `GET /api/google/callback` | | 302 para `volta` com `?google=ok` ou `?erro=<codigo>` |
 
 `Conta = { id, email, nome, fotoUrl, estado: "ok" | "reconectar" }`. Nunca sai token de refresh.
+
+Referências (coleções, fila do computador, Atalho do iPhone e o link pra IA em `/r/<token>`): contrato próprio em
+[REFERENCIAS.md](REFERENCIAS.md). `recursos` diz o que a conta usa (`web/src/lib/recursos.ts`: beta aberto por
+`SOBEDESCE_BETA_ABERTO`, padrão ligado; fechado, vale `usuarios.plano` ou ser admin).
 
 Erros que o callback devolve em `?erro=` (textos em `web/src/components/conta/mensagens.ts`):
 `google_recusado` (access_denied), `google_sem_conta` (entrar com conta Google não vinculada: vai para
