@@ -32,7 +32,6 @@ export const SITE_NOME = "SOBEDESCE";
 
 export const SITE_URL = siteUrl();
 
-// A confirmar com o Victor
 export const CONTATO_EMAIL = "contato@dissesim.com.br";
 
 /** Data da última revisão da Política de Privacidade e dos Termos. */
