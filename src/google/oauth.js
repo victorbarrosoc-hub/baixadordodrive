@@ -458,7 +458,7 @@ export class AuthManager extends EventEmitter {
   async removeAccount(accountId) {
     await this.#ready()
     if (isCloudAccountId(String(accountId))) {
-      throw badInput('Este Drive vem da sua conta SOBEDESCE. Para tirar, use sobedesce.vercel.app/conta.')
+      throw badInput('Este Drive vem da sua conta SOBEDESCE. Para tirar, use sobedesce.com/conta.')
     }
     const account = this.#find(accountId)
     if (!account) return this.listAccounts()

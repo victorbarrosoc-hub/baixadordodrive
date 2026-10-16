@@ -1,7 +1,7 @@
 #!/bin/sh
 # SOBEDESCE · instalador para Mac, sem o aviso "A Apple não pôde verificar se o item SOBEDESCE está livre de malware".
 #
-#   curl -fsSL https://sobedesce.vercel.app/instalar.sh | bash
+#   curl -fsSL https://sobedesce.com/instalar.sh | bash
 #
 # Por que funciona: o aviso vem da "quarentena" que o navegador põe em tudo o que baixa. O curl não põe.
 # O que este script faz, nesta ordem:
@@ -15,7 +15,7 @@
 main() {
   set -eu
 
-  SITE="${SOBEDESCE_SITE:-https://sobedesce.vercel.app}"
+  SITE="${SOBEDESCE_SITE:-https://sobedesce.com}"
   DEST="/Applications/SOBEDESCE.app"
   NOVO="/Applications/.SOBEDESCE-instalando.app"
   ANTIGO="/Applications/.SOBEDESCE-antigo.app"

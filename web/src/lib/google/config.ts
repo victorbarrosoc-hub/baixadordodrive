@@ -2,15 +2,18 @@
  * Cliente OAuth "Aplicativo da Web" da SOBEDESCE (docs/CONTAS.md §2).
  * Nada aqui lança no import: sem as variáveis, a tela de conta avisa e o resto abre normal.
  */
-import { siteUrl } from "@/lib/site";
+import { origemDoSite } from "@/lib/site";
 import { GoogleError } from "./erros";
 
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 export const ESCOPOS = ["openid", "email", "profile", DRIVE_SCOPE].join(" ");
 
-/** Endereço de retorno cadastrado no Google Cloud. */
-export function redirectUri(): string {
-  return `${siteUrl()}/api/google/callback`;
+/**
+ * Endereço de retorno cadastrado no Google Cloud. Um por endereço do site (sobedesce.com e o antigo .vercel.app):
+ * o Google volta para o mesmo endereço onde o login começou, onde está o cookie do state.
+ */
+export function redirectUri(origem?: string | null): string {
+  return `${origemDoSite(origem)}/api/google/callback`;
 }
 
 /** Id e segredo do cliente. Sem eles: GoogleError("sem_config"). */
