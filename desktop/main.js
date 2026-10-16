@@ -1,9 +1,11 @@
 // Processo principal do app de desktop: sobe o motor, abre a janela e cuida do que é nativo
 // (seletor de pastas, Dock/barra de tarefas, notificações, sair sem perder transferências).
 import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, powerSaveBlocker, session, shell, utilityProcess } from 'electron'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { allowPermission, trustedSender } from './security.js'
+import { handoffCommand, isHandoffScript } from '../src/updater.js'
 
 const here = import.meta.dirname
 const isMac = process.platform === 'darwin'
@@ -41,7 +43,15 @@ function startEngine() {
       serviceName: 'SOBEDESCE Motor',
       stdio: 'pipe',
       // UV_THREADPOOL_SIZE: mais threads de disco para o motor (ver src/index.js).
-      env: { ...process.env, SOBEDESCE_NO_OPEN: '1', SOBEDESCE_DESKTOP: '1', UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || '16' },
+      // SOBEDESCE_APP_EXE/PID: só no app empacotado, liga o "Atualizar" (src/updater.js troca este app e reabre).
+      env: {
+        ...process.env,
+        SOBEDESCE_NO_OPEN: '1',
+        SOBEDESCE_DESKTOP: '1',
+        UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || '16',
+        SOBEDESCE_APP_EXE: app.isPackaged ? process.execPath : '',
+        SOBEDESCE_APP_PID: app.isPackaged ? String(process.pid) : '',
+      },
     })
     engine.stdout?.pipe(log)
     engine.stderr?.pipe(log)
@@ -50,6 +60,8 @@ function startEngine() {
       if (msg?.type === 'ready' && !settled) {
         settled = true
         resolve(msg.url)
+      } else if (msg?.type === 'update-handoff') {
+        runUpdateHandoff(msg.script)
       } else if (msg?.type === 'fatal' && !settled) {
         settled = true
         const err = new Error(msg.message)
@@ -67,6 +79,30 @@ function startEngine() {
       }
       if (!quitting) onEngineCrash(code)
     })
+  })
+}
+
+/**
+ * "Atualizar": o motor baixou e conferiu a versão nova e gravou o script da troca (src/updater.js). Este processo roda
+ * o script solto (ele espera o app fechar, troca e abre de novo) e fecha o app. As transferências pausam ao sair e
+ * continuam na próxima abertura (o motor só chega aqui com nenhuma andando ou com a pessoa tendo confirmado).
+ */
+function runUpdateHandoff(script) {
+  const command = isHandoffScript(script) ? handoffCommand(process.platform, script) : null
+  if (!command) return
+  const failed = err => dialog.showErrorBox('Não deu para atualizar', `${err?.message || err}\n\nUse Baixar no aviso de versão nova.`)
+  let child
+  try {
+    child = spawn(command.cmd, command.args, { detached: true, stdio: 'ignore', windowsHide: true })
+  } catch (err) {
+    return failed(err)
+  }
+  child.once('error', failed)
+  // Só fecha depois que o script de fato começou (senão o app fecharia sem ninguém para abrir de novo).
+  child.once('spawn', () => {
+    child.unref()
+    quitConfirmed = true
+    app.quit()
   })
 }
 

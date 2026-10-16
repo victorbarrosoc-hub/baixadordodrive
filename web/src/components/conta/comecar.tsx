@@ -2,7 +2,8 @@ import Link from "next/link";
 import { ArrowRight, Download, Laptop, Smartphone } from "lucide-react";
 import { buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { DOWNLOAD_MAC, DOWNLOAD_WINDOWS } from "@/lib/site";
+import { Comando } from "@/components/comando";
+import { DOWNLOAD_MAC, DOWNLOAD_WINDOWS, INSTALAR_MAC, INSTALAR_WINDOWS } from "@/lib/site";
 import { DicaInstalar } from "./dica-instalar";
 
 /** "Comece por aqui": os dois jeitos de usar, logo depois de conectar o Drive. */
@@ -40,6 +41,20 @@ export function Comecar() {
             <Download aria-hidden="true" />
             Windows
           </a>
+        </div>
+        <div className="grid gap-3 border-t border-line pt-4">
+          <p className="text-[13px] leading-relaxed text-ink-2">
+            <b className="font-semibold text-ink">Sem o aviso de app não verificado.</b> Cole no Terminal do Mac ou no PowerShell do Windows: ele
+            baixa, confere e instala.
+          </p>
+          <div className="grid gap-1.5">
+            <span className="text-[12px] font-medium text-ink-3">Mac · Terminal</span>
+            <Comando comando={INSTALAR_MAC} rotulo="Comando para instalar no Mac pelo Terminal" />
+          </div>
+          <div className="grid gap-1.5">
+            <span className="text-[12px] font-medium text-ink-3">Windows · PowerShell</span>
+            <Comando comando={INSTALAR_WINDOWS} rotulo="Comando para instalar no Windows pelo PowerShell" />
+          </div>
         </div>
       </div>
     </Card>

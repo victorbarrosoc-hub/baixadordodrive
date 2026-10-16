@@ -14,6 +14,7 @@ import { TransferManager } from './engine/manager.js'
 import { startServer, DEFAULT_PORT } from './server/app.js'
 import { MobileReceiver } from './mobile/receiver.js'
 import { VersionChecker } from './version.js'
+import { Updater } from './updater.js'
 import { closeHttp, requestJSON } from './net/http.js'
 
 // O libuv tem 4 threads para todo o disco (gravações dos downloads, fdatasync dos checkpoints, leitura do MD5,
@@ -130,13 +131,16 @@ function banner(url, root) {
 /**
  * Sobe tudo: ajustes, contas, MD5, fila e servidor. Usado pelo `npm start`, pelo demo, pelos testes e pelo desktop.
  * @param {{ home?: string, port?: number, open?: boolean, desktop?: boolean, quiet?: boolean,
- *   managerOptions?: object, serverOptions?: object, mobileOptions?: object, cloudOptions?: object, versionOptions?: object }} [opts]
+ *   managerOptions?: object, serverOptions?: object, mobileOptions?: object, cloudOptions?: object, versionOptions?: object,
+ *   updaterOptions?: object }} [opts]
  *   `managerOptions`/`serverOptions`/`mobileOptions`/`cloudOptions`/`versionOptions` (opcionais) vão para o
  *   TransferManager/startServer/MobileReceiver/CloudAuth/VersionChecker (os testes trocam peças, ex.: mobileOptions { port: 0, host: '127.0.0.1' }).
+ *   `updaterOptions` vai para o Updater (src/updater.js), que só existe com `handoff` (o app de desktop empacotado
+ *   passa: é o processo principal do Electron quem roda a troca e fecha o app).
  * @returns {Promise<{ url: string, port: number, manager: TransferManager, auth: AuthManager, settings: Settings,
  *   hasher: Hasher, paths: object, server: object, mobile: MobileReceiver, versao: VersionChecker, shutdown(): Promise<void> }>}
  */
-export async function startApp({ home, port, open = true, desktop = false, quiet = false, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {}, versionOptions = {} } = {}) {
+export async function startApp({ home, port, open = true, desktop = false, quiet = false, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {}, versionOptions = {}, updaterOptions = {} } = {}) {
   const root = home ? path.resolve(home) : dataDir()
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
   const paths = dataPaths(root)
@@ -158,7 +162,9 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     // Recepção do celular pelo Wi-Fi: liga/desliga sozinha conforme o ajuste mobileReceive.
     mobile = new MobileReceiver({ settings, auth, manager, hasher, paths, ...mobileOptions })
     // Aviso de versão nova: pergunta ao mesmo site da conta SOBEDESCE (só nos builds do GitHub Actions; ver src/version.js).
-    versao = new VersionChecker({ settings, baseUrl: auth.cloud?.baseUrl, log: (...a) => console.warn('[sobedesce]', ...a), ...versionOptions })
+    // "Atualizar" pelo próprio app: só no app de desktop empacotado (desktop/engine.js passa o handoff).
+    const updater = updaterOptions.handoff ? new Updater({ stateDir: root, log: (...a) => console.warn('[sobedesce]', ...a), ...updaterOptions }) : null
+    versao = new VersionChecker({ settings, baseUrl: auth.cloud?.baseUrl, log: (...a) => console.warn('[sobedesce]', ...a), updater, ...versionOptions })
     const wanted = port ?? (Number(process.env.SOBEDESCE_PORT) || DEFAULT_PORT)
     server = await startServer({ port: wanted, settings, auth, manager, hasher, paths, desktop, mobile, versao, ...serverOptions })
     // Falhar aqui (porta ocupada, pasta sem permissão) não impede o app de abrir: o erro aparece em Ajustes → Celular.

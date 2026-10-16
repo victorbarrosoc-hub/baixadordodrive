@@ -363,6 +363,13 @@ export class TransferManager extends EventEmitter {
     return out
   }
 
+  /** Transferências andando ou na fila (as que fechar o app pausa). Mesmo critério do ACTIVE da interface. */
+  activeCount() {
+    let n = 0
+    for (const r of this.records.values()) if (r.status === 'running' || r.status === 'verifying' || r.status === 'queued' || r.status === 'waiting') n++
+    return n
+  }
+
   stats() {
     const now = Date.now()
     const dirs = {

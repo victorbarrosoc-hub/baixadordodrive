@@ -24,7 +24,12 @@ parent.on('message', event => {
 
 try {
   // Sem o aviso de terminal ("aperte Ctrl+C"): aqui a saída vai só para o motor.log.
-  app = await startApp({ open: false, desktop: true, quiet: true })
+  // "Atualizar" (src/updater.js): só no app empacotado, que passa o caminho e o PID do processo principal.
+  // A troca é entregue ao processo principal, que roda o script solto e fecha o app.
+  const appExe = process.env.SOBEDESCE_APP_EXE || ''
+  const appPid = Number(process.env.SOBEDESCE_APP_PID) || 0
+  const updaterOptions = appExe && appPid ? { appExe, appPid, handoff: ({ script }) => parent.postMessage({ type: 'update-handoff', script }) } : {}
+  app = await startApp({ open: false, desktop: true, quiet: true, updaterOptions })
   console.log(`[motor] pronto em ${app.url} · dados em ${app.paths.root}`)
   parent.postMessage({ type: 'ready', url: app.url, port: app.port })
 } catch (err) {
