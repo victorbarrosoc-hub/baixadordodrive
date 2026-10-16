@@ -21,7 +21,7 @@ export function AvisoContaApagada() {
   }, []);
   if (!visivel) return null;
   return (
-    <div role="status" className="pointer-events-none fixed inset-x-0 top-[max(16px,env(safe-area-inset-top))] z-50 flex justify-center px-4">
+    <div role="status" className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+80px)] z-[100] flex justify-center px-4">
       <p className="pointer-events-auto inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-[15px] font-medium text-primary-fg shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
         <CircleCheck aria-hidden className="size-[18px]" />
         Conta apagada.

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { connection } from "next/server";
 import { Aviso } from "@/components/conta/aviso";
 import { Moldura } from "@/components/conta/moldura";
 import { buttonClasses } from "@/components/ui/button";
@@ -9,7 +10,9 @@ import { FormEsqueci } from "./form";
 
 export const metadata: Metadata = { title: "Esqueci a senha" };
 
-export default function EsqueciASenha() {
+export default async function EsqueciASenha() {
+  // Lê o ambiente na hora do pedido (a chave do Resend pode entrar depois do build).
+  await connection();
   const disponivel = emailDisponivel();
   return (
     <Moldura
