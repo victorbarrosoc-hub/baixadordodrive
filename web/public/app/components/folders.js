@@ -1,9 +1,13 @@
-// Escolher a pasta de destino: Recentes (um toque), Meu Drive e drives compartilhados; só pastas; nova pasta.
+// Escolher a pasta de destino: Recentes (um toque), Meu Drive e drives compartilhados; nova pasta. Abaixo das pastas,
+// os arquivos que já estão ali (só para ver, apagados), para conferir o lugar antes de enviar.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { LAN } from '../lib/config.js'
 import { createFolder, listFolders, listSharedDrives } from '../lib/drive.js'
+import { isFolder, kindOf, listPage } from '../lib/browse.js'
+import { bytes } from '../lib/format.js'
 import { closeSheet, folderTrail, getRecents, pushRecent, setState, toast, useApp } from '../lib/state.js'
 import { Icon } from './icons.js'
+import { Thumb } from './thumb.js'
 import { Button, SheetHead, cx } from './ui.js'
 
 const cache = new Map() // id → pastas (vale enquanto a página está aberta)
@@ -152,6 +156,29 @@ function NewFolder({ parent, onCreated, onCancel }) {
   </form>`
 }
 
+/** Arquivos que já estão na pasta: só para ver (sem toque), com miniatura. Uma página basta para conferir. */
+function FilesHere({ folder, driveId }) {
+  const list = useList(`files:${driveId || 'my'}:${folder.id}`, (signal) =>
+    listPage({ folder, driveId }, { sort: 'name', signal }).then((r) => ({ files: r.files.filter((f) => !isFolder(f)), more: Boolean(r.next) })),
+  )
+  const files = list.data?.files || []
+  if (list.error || (list.data && !files.length)) return null
+  return html`<h3 class="list-label">${list.data ? `Já estão aqui · ${files.length}${list.data.more ? '+' : ''} ${files.length === 1 ? 'arquivo' : 'arquivos'}` : 'Já estão aqui'}</h3>
+    <ul class="group flist fhere" aria-label="Arquivos nesta pasta">
+      ${list.loading ? html`<${SkeletonRows} n=${3} />` : null}
+      ${files.map((f) => {
+        const kind = kindOf(f)
+        return html`<li key=${f.id} class="fhere-row">
+          <span class="fhere-media"><${Thumb} file=${f} px=${40} kind=${kind} small /></span>
+          <span class="frow-text">
+            <span class="frow-name">${f.name}</span>
+            ${f.size != null ? html`<span class="frow-sub">${bytes(Number(f.size))}</span>` : null}
+          </span>
+        </li>`
+      })}
+    </ul>`
+}
+
 function FolderList({ path, driveId, onEnter, creating, setCreating }) {
   const here = path[path.length - 1]
   const list = useList(`${driveId || 'my'}:${here.id}`, (signal) => listFolders(here.id, driveId, signal))
@@ -179,6 +206,7 @@ function FolderList({ path, driveId, onEnter, creating, setCreating }) {
         : null}
       ${(list.data || []).map((f) => html`<${FolderRow} key=${f.id} name=${f.name} onClick=${() => onEnter(f)} />`)}
     </ul>
+    ${LAN ? null : html`<${FilesHere} folder=${here} driveId=${driveId} />`}
   </div>`
 }
 
