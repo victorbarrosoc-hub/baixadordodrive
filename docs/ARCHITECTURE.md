@@ -61,6 +61,10 @@ src/
   engine/power.js        KeepAwake (impede o computador de dormir)
   media/raw-thumb.js     miniatura de .braw/.r3d: extrairFrame (Quick Look / Explorer / ajudante nativo) e RawThumbnailer
   media/raw-thumb-lote.js "Gerar miniaturas": RAW que já estão no Drive, achados no computador por nome + tamanho
+  media/previa.js        prévia leve: leitura (ffmpeg -i), decisão, linha de comando, detecção do ffmpeg/codificador, conversão
+  media/previa-fila.js   GeradorPrevias: fila depois do envio (Proxy/<nome>.mp4 + appProperties), vaga única de conversão
+  media/previa-lote.js   "Gerar prévias": vídeos que já estão no Drive, achados no computador por nome + tamanho
+  server/previas.js      rotas /api/previas* e o lote (SSE 'previas')
   local/fsbrowse.js      raízes (Início, Mesa, discos externos) e listagem de pastas
   local/scan.js          varredura recursiva local
   server/app.js          servidor HTTP, segurança, estáticos, SSE
@@ -69,6 +73,7 @@ public/                  UI (Preact + htm sem build; vendor servido de node_modu
 web/                     site com contas SOBEDESCE (Next.js); web/public/app = app do celular em /app/ (docs/CELULAR.md)
 test/mock-drive.js       Google Drive + OAuth falsos (com falhas e limite de banda por conexão)
 test/mock-cloud.js       site de contas falso (docs/CONTAS.md §5) que emite tokens do Drive falso
+scripts/ffmpeg-baixar.mjs baixa o ffmpeg do instalador (versões fixas + SHA-256) para build/ffmpeg/<mac|win>-<arch>/
 scripts/demo.js          sobe o app ligado ao Drive falso, com arquivos de exemplo (sem credenciais);
                          SOBEDESCE_DEMO_HOME troca a pasta do demo (só apaga pasta vazia ou com a marca .sobedesce-demo)
 ```
@@ -505,6 +510,71 @@ O que falta para o ajudante nativo (o caminho mais confiável, porque não depen
    `lipo` das duas arquiteturas; Windows x64 e arm64).
 4. Testar num Mac e num Windows com DaVinci Resolve/Blackmagic RAW instalados (aqui só há Linux).
 
+### media/previa*.js — prévia leve dos vídeos
+
+O Drive toca vídeo pesado fluido porque usa uma cópia leve própria; a API só entrega o original. O app gera a sua:
+**H.264 High 8 bits 4:2:0, lado maior ≤ 1920 (pares, pixels quadrados), ≈ 5 Mbit/s VBR (teto 7), AAC 128k estéreo (ou
+sem áudio), `+faststart`, GOP 60, rotação aplicada na imagem**, gravada em `Proxy/<nome-base>.mp4` ao lado do original
+(reaproveita uma subpasta `Proxy`/`Proxies` que já exista) com `appProperties { sobedesce: 'previa', original: <id> }`.
+O original nunca é tocado. Ajuste `previaLeve` (padrão ligado; Ajustes → Arquivos); `previaLocalDir` lembra a pasta do lote.
+
+```js
+// media/previa.js
+isVideoName(name), isRawName(name), previaName(name) /* A001.MOV → A001.mp4 */, isProxyName(cand, name)
+parseProbe(stderrDoFfmpegI): { durationS, bitrate, video: { codec, profile, pixFmt, bits, width, height, bitrate, sar }|null, audio, rotation }
+precisaPrevia(info|null, { name, size }): { gerar, motivo }
+  // gera: > 20 Mbit/s, codec ≠ H.264 8 bits 4:2:0 (ProRes, DNx, HEVC 10 bits…), > 1920 px, contêiner ≠ mp4/m4v/mov.
+  // não gera: H.264 ≤ 1080p com < 50 MB, RAW (.braw/.r3d/.ari…), sem vídeo. info null (só avconvert): .mov/.mp4/.m4v ≥ 50 MB.
+encoderArgs(enc), videoFilter(info, enc), argsTranscode({ input, output, encoder, info, hwDecode }), argsEncoderTest(enc)
+plano(motor, platform): [{ encoder, hwDecode }]   // Mac: VT + decodificação no chip → VT → libx264; Windows: hw → libx264
+ffmpegCandidates({ env, platform, arch, resourcesPath, appRoot }): [{ path, origem: 'env'|'app'|'sistema' }]
+  // SOBEDESCE_FFMPEG → <Resources>/ffmpeg/ffmpeg(.exe) (também <app>/../ffmpeg) → build/ffmpeg/<os>-<arch>/ → Homebrew → PATH
+async detectarMotor(): { via: 'ffmpeg'|'avconvert'|null, ffmpeg: { path, versao, origem }, encoder: { nome, hardware },
+                         encoders, avconvert, label, aviso, testados }
+  // `-encoders` + teste de 1 quadro (lavfi, os mesmos parâmetros) para cada codificador de hardware da plataforma
+  // (darwin: h264_videotoolbox; win32: h264_nvenc, h264_qsv, h264_amf, h264_mf); senão libx264. Mac sem ffmpeg: /usr/bin/avconvert.
+async gerarPrevia(file, { motor, name, size, forcar, signal, onProgress(fase, frac), tmpRoot, log })
+  : { estado: 'pronta', path, size, encoder, motivo, limpar() } | { estado: 'dispensada', motivo }   // lança PreviaError/AbortError
+runTool(cmd, args, { signal, timeoutMs, stallMs, onStdout, lowPriority })   // sem shell; SIGKILL no abort/tempo/travou
+```
+Regras do conversor: `os.setPriority(pid, PRIORITY_BELOW_NORMAL)` (nice 10 / BELOW_NORMAL); tempo limite 10 min + 8× a
+duração (6 h sem duração); sem saída por 5 min = travou; progresso por `-progress pipe:1` (`out_time_us`). Falha de uma
+tentativa passa para a próxima do `plano` (tempo esgotado/travou não). Temporário em `os.tmpdir()/sobedesce-previa-*`,
+apagado sempre (falha, cancelamento ou `limpar()` depois de subir). Sem espaço livre (~1,5× a cópia + 200 MB) ou cópia
+≥ 90% do original → dispensada.
+
+`GeradorPrevias` (media/previa-fila.js; opção `previas` do TransferManager, `null` desliga):
+- `enqueue(record, drive)` quando um envio de vídeo termina como `completed` **ou** `skipped` (reenviar a pasta gera as
+  que faltam). `record.previa = { estado: 'fila'|'analisando'|'gerando'|'enviando'|'pausada'|'pronta'|'dispensada'|
+  'falhou'|'cancelada', frac?, motivo?, fileId?, size?, encoder?, at }` vai para `queue.json`; pendentes voltam à fila ao
+  reabrir. O status da transferência nunca muda por causa da prévia.
+- Antes de converter: arquivo local igual ao enviado (tamanho/mtime) e `procurarProxy` (mesmo nome-base .mp4/.mov/.m4v na
+  pasta ou em Proxy/Proxies; o próprio original não conta) → se achar, `dispensada`.
+- Sobe com o `UploadTask` normal (limitador de banda dos envios; `uploadConflict: 'rename'`, sem MD5); `target.appProperties`
+  vai nos metadados da sessão retomável.
+- `pause()`/`resume()` seguem o "pausar/retomar tudo" do manager; `cancel(ids)` é o "Pular" da linha; `close()` no
+  encerramento deixa o estado como `fila`. Uma conversão por vez no app inteiro (`gerarESubir` do lote usa a mesma vaga).
+- `init()` (chamado por `startApp`): verificação do conversor, uma linha no log (`[motor] prévia leve: ffmpeg 9.0.2 · h264_videotoolbox`).
+
+"Gerar prévias" (media/previa-lote.js, botão na barra da tela Drive quando a pasta tem vídeo): igual ao "Gerar
+miniaturas" — lista os vídeos (fora das pastas Proxy e das nossas cópias) e os proxies existentes; varre o computador
+(`indexLocalRaw` com `accept: isVideoName`); par por nome + tamanho; `.mp4` pequeno até 1080p pelo Drive conta como leve.
+`refazer` substitui só as cópias marcadas (nova versão do mesmo arquivo); proxy de câmera nunca. Resumo:
+`{ phase, videos, jaTinham, jaLeves, total, aGerar, feitos, semLocal, tamanhoDiferente, falhou, localFiles, localTruncated,
+current, fase, frac, falhas[], semLocalNomes[], tamanhoNomes[], feitosIds[] }`. Um lote por vez (409), SSE `previas`.
+
+Prévia (as três): vídeo com mais de 30 MB (qualquer codec) procura a cópia leve antes de tocar e toca ela, com
+**Prévia leve | Original** no canto (troca no mesmo ponto; o selo diz "Proxy" quando é da câmera). Sem cópia, as regras de
+antes (proxy para o que não toca, aviso de vídeo pesado). Baixar baixa sempre o original. `appProperties` só é visível
+para o mesmo cliente OAuth que gravou: com a conta SOBEDESCE (o mesmo cliente do site e do celular) o selo diz "Prévia
+leve"; com um Drive "só neste computador" a cópia toca igual, só com o selo "Proxy".
+
+Empacotamento: `scripts/ffmpeg-baixar.mjs` (CI, job `app`) baixa FFmpeg 9.0.2 (martin-riedl.de, arm64 e x64) e 6.1.1
+(gyan.dev via ffmpeg-static, win x64) para `build/ffmpeg/<mac|win>-<arch>/` e confere o SHA-256; o `electron-builder.yml`
+copia `build/ffmpeg/${os}-${arch}` para `<Resources>/ffmpeg` (fora de app/) e `build/ffmpeg-licencas` (GPL v3, LEIAME
+com as fontes). No Mac universal o `@electron/universal` junta os dois ffmpeg com `lipo` (por isso cada pasta só tem o
+executável). Windows arm64 sai sem ffmpeg próprio (usa o do sistema, se houver).
+
 ### engine/compare.js
 
 ```js
@@ -556,7 +626,7 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 
 | Método | Rota | Corpo / query | Resposta |
 |---|---|---|---|
-| GET | `/api/state` | | `{ app:{name,version,platform}, setup:{configured, clientIdHint}, accounts, cloud, settings, transfers, batches, stats, media, rawThumbs, versao }` |
+| GET | `/api/state` | | `{ app:{name,version,platform}, setup:{configured, clientIdHint}, accounts, cloud, settings, transfers, batches, stats, media, rawThumbs, previas, versao }` |
 | POST | `/api/setup/credentials` | `{ json }` ou `{ clientId, clientSecret }` | `{ setup }` |
 | GET | `/api/auth/start` | | 302 para o Google (redirect_uri = `http://127.0.0.1:<porta>/oauth/callback`) |
 | GET | `/oauth/callback` | `code, state` | página HTML "Conta conectada" que volta para `/` |
@@ -584,6 +654,10 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | GET | `/api/raw-thumbs` | `refresh=1` (refaz a detecção) | `{ rawThumbs: { supported, found, via, enabled, last, downloadUrl } }` |
 | POST | `/api/raw-thumbs/lote` | `{ accountId, driveFolderId, localDir, recursive?: true, refazer?: false, folderName? }` | `{ jobId }` (progresso via SSE `rawthumbs`; 400 pasta inválida, 409 já tem um rodando) |
 | GET / DELETE | `/api/raw-thumbs/lote/:jobId` | | `{ jobId, status: running|done|canceled|error, progress, error? }` / `{ }` (para o lote) |
+| GET | `/api/previas` | `refresh=1` (refaz a detecção) | `{ previas: { enabled, motor: { via, label, aviso, versao, origem, encoder, hardware }, fila, pausada, atual, last } }` |
+| POST | `/api/previas/pular` | `{ ids: string[] }` | `{ count }` (pula a prévia leve desses envios) |
+| POST | `/api/previas/lote` | `{ accountId, driveFolderId, localDir, recursive?: true, refazer?: false, folderName? }` | `{ jobId }` (SSE `previas`; 400 pasta inválida, 409 já tem um rodando ou sem conversor) |
+| GET / DELETE | `/api/previas/lote/:jobId` | | como o das miniaturas |
 | POST | `/api/compare` | `{ accountId, localPath, driveFolderId, mode }` | `{ jobId }` (progresso via SSE) |
 | GET | `/api/compare/:jobId` | | `{ status, progress, result?, error? }` |
 | POST | `/api/compare/:jobId/upload` | `{ statuses?: ['missing','different'], relDirs?: string[] }` | `{ batch, count, bytes }` |
@@ -596,7 +670,7 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 
 SSE (`text/event-stream`, `event:` + `data:` JSON, ping a cada 15 s):
 `hello` (= `/api/state`), `transfers` (PublicTransfer[] alterados), `removed` (ids), `batches`,
-`stats`, `accounts`, `cloud` (CloudStatus), `settings`, `versao` (VersionStatus), `compare` (`{ jobId, status, progress, error? }`), `toast` (`{ kind, message }`).
+`stats`, `accounts`, `cloud` (CloudStatus), `settings`, `versao` (VersionStatus), `rawthumbs`, `previas` (lotes), `compare` (`{ jobId, status, progress, error? }`), `toast` (`{ kind, message }`).
 
 ### version.js — aviso de versão nova (`VersionChecker extends EventEmitter`)
 
@@ -715,6 +789,7 @@ Recepção do celular (`src/mobile/receiver.js`): o ponto confirmado (`offset`, 
 
 Empacotamento (`electron-builder.yml`, sem asar): `package.json`, `desktop/`, `src/`, `public/` e a casca do app do celular
 (`web/public/app/index.html`, `app.*`, `lib/`, `components/`, `vendor/`, `icons/`), que a recepção pelo Wi-Fi serve em `/m/`.
+Em `extraResources`: `ffmpeg/` (por arquitetura) e `ffmpeg-licencas/` (ver "media/previa*.js").
 Sair com transferência ativa sempre pergunta (X da janela no Windows/Linux, ⌘Q no Mac, Arquivo → Sair); confirmado, o motor
 pausa, grava a fila e só então o app fecha.
 

@@ -418,6 +418,25 @@ function safeDecode(s) {
 const THUMBNAIL_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif'])
 const THUMBNAIL_MAX = 2 * MiB
 
+/**
+ * appProperties como o Google: chaves e valores texto (até 124 bytes juntos); null apaga a chave. Mescla em `cur`.
+ * Devolve o objeto novo, ou { error } se o formato for inválido.
+ */
+function mergeAppProperties(cur, patch) {
+  if (patch == null) return cur ?? null
+  if (typeof patch !== 'object' || Array.isArray(patch)) return { error: 'Invalid value for: appProperties' }
+  const out = { ...(cur || {}) }
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) {
+      delete out[k]
+      continue
+    }
+    if (typeof v !== 'string' || Buffer.byteLength(k) + Buffer.byteLength(v) > 124) return { error: `Invalid value for: appProperties.${k}` }
+    out[k] = v
+  }
+  return Object.keys(out).length ? out : null
+}
+
 /** contentHints.thumbnail como o Google valida: base64 "URL-safe" (RFC 4648 §5), PNG/JPEG/GIF, até 2 MB. */
 function parseThumbnailHint(t) {
   if (!t || typeof t !== 'object' || typeof t.image !== 'string' || !t.image) return { error: 'Invalid value for: contentHints.thumbnail.image' }
@@ -1088,7 +1107,7 @@ class MockDrive {
     return id === 'root' ? this.rootId : id
   }
 
-  _insert({ id, name, mimeType, parentId, driveId = null, content = null, createdTime, modifiedTime, resourceKey = null, canDownload = true, trashed = false, shortcutDetails = null, docSize = null, md5Override, description = null, thumbnail = null, videoMediaMetadata = null, imageMediaMetadata = null }) {
+  _insert({ id, name, mimeType, parentId, driveId = null, content = null, createdTime, modifiedTime, resourceKey = null, canDownload = true, trashed = false, shortcutDetails = null, docSize = null, md5Override, description = null, thumbnail = null, videoMediaMetadata = null, imageMediaMetadata = null, appProperties = null }) {
     const parent = parentId ? this.items.get(parentId) : null
     const now = isoNow()
     const item = {
@@ -1112,6 +1131,7 @@ class MockDrive {
       thumbnail: null,
       videoMediaMetadata,
       imageMediaMetadata,
+      appProperties: appProperties && Object.keys(appProperties).length ? { ...appProperties } : null,
       version: 1,
       seq: this._seq++,
     }
@@ -1190,6 +1210,7 @@ class MockDrive {
       canDownload: item.canDownload,
       isFolder: item.mimeType === FOLDER_MIME,
       shortcutDetails: item.shortcutDetails ? { ...item.shortcutDetails } : null,
+      appProperties: item.appProperties ? { ...item.appProperties } : null,
     }
   }
 
@@ -1276,6 +1297,7 @@ class MockDrive {
       thumbnail: opts.thumbnail ?? null,
       videoMediaMetadata: opts.videoMediaMetadata ?? null,
       imageMediaMetadata: opts.imageMediaMetadata ?? null,
+      appProperties: opts.appProperties ?? null,
     })
     return this._view(item)
   }
@@ -1469,6 +1491,7 @@ class MockDrive {
       j.videoMediaMetadata = { width: v.width, height: v.height, durationMillis: v.durationMillis != null ? String(v.durationMillis) : undefined }
     }
     if (item.imageMediaMetadata) j.imageMediaMetadata = { ...item.imageMediaMetadata }
+    if (item.appProperties) j.appProperties = { ...item.appProperties }
     if (!item.driveId) j.owners = [{ kind: 'drive#user', displayName: this.user.displayName, emailAddress: this.user.emailAddress, permissionId: this.user.permissionId, me: true }]
     j.viewedByMe = true
     j.createdTime = item.createdTime
@@ -2210,6 +2233,8 @@ class MockDrive {
       shortcutDetails = { targetId: target.id, targetMimeType: target.mimeType }
     }
     const binary = !mimeType.startsWith(GAPPS)
+    const props = mergeAppProperties(null, meta.appProperties)
+    if (props?.error) return this._send(res, 400, gError(400, 'invalid', props.error, { location: 'appProperties' }))
     const item = this._insert({
       name: meta.name ?? 'Untitled',
       mimeType,
@@ -2218,6 +2243,7 @@ class MockDrive {
       modifiedTime: meta.modifiedTime ? toIso(meta.modifiedTime) : undefined,
       description: meta.description ?? null,
       shortcutDetails,
+      appProperties: props,
     })
     this._send(res, 200, await this._fileJson(item, mask ?? DEFAULT_FILE_MASK))
   }
@@ -2263,6 +2289,8 @@ class MockDrive {
     if (meta.modifiedTime != null && !isIsoDate(meta.modifiedTime)) {
       return this._send(res, 400, gError(400, 'invalid', 'Invalid value for: modifiedTime', { location: 'modifiedTime' }))
     }
+    const props = mergeAppProperties(item.appProperties, meta.appProperties)
+    if (props?.error) return this._send(res, 400, gError(400, 'invalid', props.error, { location: 'appProperties' }))
     let thumbnail = null
     if (meta.contentHints?.thumbnail != null) {
       thumbnail = parseThumbnailHint(meta.contentHints.thumbnail)
@@ -2291,6 +2319,7 @@ class MockDrive {
     // Renomear/mover não mexe em modifiedTime (só quando vem explícito).
     if (meta.modifiedTime != null) item.modifiedTime = toIso(meta.modifiedTime)
     if (typeof meta.trashed === 'boolean' && meta.trashed !== item.trashed) this._setTrashed(item, meta.trashed)
+    item.appProperties = props
     if (thumbnail) {
       // Como no Google: a miniatura nossa só vale para arquivo com conteúdo e cai quando o conteúdo muda.
       if (item.content) this._setThumbnail(item, thumbnail.data, thumbnail.mimeType)
@@ -2368,6 +2397,9 @@ class MockDrive {
     }
     if (meta.modifiedTime != null && !isIsoDate(meta.modifiedTime)) {
       return this._send(res, 400, gError(400, 'invalid', 'Invalid value for: modifiedTime', { location: 'modifiedTime' }))
+    }
+    if (mergeAppProperties(null, meta.appProperties)?.error) {
+      return this._send(res, 400, gError(400, 'invalid', 'Invalid value for: appProperties', { location: 'appProperties' }))
     }
     let parent = null
     let target = null
@@ -2703,6 +2735,7 @@ class MockDrive {
         content,
         modifiedTime: meta.modifiedTime ? toIso(meta.modifiedTime) : undefined,
         description: meta.description ?? null,
+        appProperties: mergeAppProperties(null, meta.appProperties),
       })
     } else {
       item = this.items.get(session.fileId)
@@ -2717,6 +2750,7 @@ class MockDrive {
       if (meta.name != null) item.name = String(meta.name)
       if (meta.mimeType) item.mimeType = meta.mimeType
       if (meta.description !== undefined) item.description = meta.description
+      if (meta.appProperties != null) item.appProperties = mergeAppProperties(item.appProperties, meta.appProperties)
       item.md5Override = undefined
       item.thumbnail = null
       item.version++

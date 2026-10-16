@@ -153,6 +153,8 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     hasher = new Hasher({ cacheFile: paths.hashCache, workers: 2 })
     manager = new TransferManager({ settings, auth, hasher, paths, ...managerOptions })
     await manager.init()
+    // Verificação do conversor da prévia leve (ffmpeg do app, do sistema ou avconvert): em segundo plano, vai para o log.
+    if (!quiet || desktop) manager.previas?.init?.().catch(() => {})
     // Recepção do celular pelo Wi-Fi: liga/desliga sozinha conforme o ajuste mobileReceive.
     mobile = new MobileReceiver({ settings, auth, manager, hasher, paths, ...mobileOptions })
     // Aviso de versão nova: pergunta ao mesmo site da conta SOBEDESCE (só nos builds do GitHub Actions; ver src/version.js).

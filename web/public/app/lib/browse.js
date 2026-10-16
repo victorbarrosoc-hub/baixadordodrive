@@ -25,6 +25,7 @@ const FILE_FIELDS = [
   'parents',
   'shortcutDetails',
   'capabilities(canDownload)',
+  'appProperties',
 ].join(',')
 
 /** Escopos da raiz: Meu Drive, Compartilhados comigo e Drives compartilhados. */
@@ -218,6 +219,15 @@ export function baseName(name = '') {
 /** Este arquivo serve de proxy de `orig`? (mesmo nome-base, outro arquivo, extensão de vídeo comum). */
 export function isProxyOf(cand, orig) {
   return cand.id !== orig.id && !isFolder(cand) && PROXY_EXT.includes(extOf(cand.name)) && baseName(cand.name) === baseName(orig.name)
+}
+
+/** Cópia leve gerada pelo app de computador (Proxy/<nome>.mp4, appProperties.sobedesce = 'previa'). */
+export const isPrevia = (f) => f?.appProperties?.sobedesce === 'previa'
+
+/** Vídeo grande (qualquer codec): a prévia procura antes a cópia leve e toca ela, fluida como no Drive. */
+export const LITE_MIN = 30e6
+export function wantsLite(f) {
+  return kindOf(f) === 'video' && Number(f.size || 0) > LITE_MIN && !isPrevia(f)
 }
 
 /** Vale procurar proxy? (vídeo que o navegador não toca; `failed` = tocou e deu erro de formato). */

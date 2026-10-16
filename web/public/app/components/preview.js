@@ -1,7 +1,7 @@
 // Prévia de um arquivo do Drive, em tela cheia (como as folhas do iOS): vídeo e áudio no player próprio, foto grande
 // com pinça, e os dados do arquivo. Baixar fica no topo. Arrastar para baixo fecha; para o lado, passa de arquivo.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
-import { canDownload, driveUrl, findProxy, getFile, isGoogleDoc, kindOf, mayPlay, showsAsImage, target, wantsProxy } from '../lib/browse.js'
+import { canDownload, driveUrl, findProxy, getFile, isGoogleDoc, isPrevia, kindOf, mayPlay, showsAsImage, target, wantsLite, wantsProxy } from '../lib/browse.js'
 import { loadThumb, streamReady, streamUrl } from '../lib/stream.js'
 import { bytes, duration, extOf, fullDate } from '../lib/format.js'
 import { toast } from '../lib/state.js'
@@ -208,6 +208,18 @@ const FAIL_TEXT = {
   nosw: 'A prévia precisa do app atualizado. Feche e abra o SOBEDESCE de novo.',
 }
 
+/** "Prévia leve | Original" no canto do player (o primeiro diz se é a cópia do app ou o proxy da câmera). */
+function LiteSwitch({ proxy, on, canOriginal, onPick }) {
+  return html`<div class="mp-switch" role="group" aria-label="O que tocar">
+    <button type="button" class=${cx(on && 'is-on')} aria-pressed=${on ? 'true' : 'false'} onClick=${(e) => (e.stopPropagation(), !on && onPick(true))}>
+      ${isPrevia(proxy) ? 'Prévia leve' : 'Proxy'}
+    </button>
+    ${canOriginal
+      ? html`<button type="button" class=${cx(!on && 'is-on')} aria-pressed=${!on ? 'true' : 'false'} onClick=${(e) => (e.stopPropagation(), on && onPick(false))}>Original</button>`
+      : null}
+  </div>`
+}
+
 function MediaStage({ file, kind, siblings, onZoom }) {
   const px = screenPx()
   const poster = useThumb(file, kind === 'image' ? px : Math.min(1600, px))
@@ -222,6 +234,18 @@ function MediaStage({ file, kind, siblings, onZoom }) {
   const [heavy, setHeavy] = useState(() => (kind === 'video' && isHeavy(file) ? 'taxa' : null))
   const [forced, setForced] = useState(false)
   const needProxy = kind === 'video' && (fail === 'format' || wantsProxy(file) || (heavy && !forced))
+  // Cópia leve (vídeo grande, qualquer codec): undefined = não olhou; 'look'; arquivo; null = não tem.
+  const lite = kind === 'video' && wantsLite(file)
+  const [liteP, setLiteP] = useState(undefined)
+  const [liteFail, setLiteFail] = useState(false)
+  const [orig, setOrig] = useState(false) // a pessoa tocou em "Original"
+  const at = useRef(0)
+  const [startAt, setStartAt] = useState(0)
+  const pick = (leve) => {
+    setStartAt(at.current || 0)
+    setOrig(!leve)
+    if (!leve) setForced(true)
+  }
   useEffect(() => {
     let alive = true
     setFail(null)
@@ -229,9 +253,23 @@ function MediaStage({ file, kind, siblings, onZoom }) {
     setProxyFail(false)
     setHeavy(kind === 'video' && isHeavy(file) ? 'taxa' : null)
     setForced(false)
+    setLiteP(undefined)
+    setLiteFail(false)
+    setOrig(false)
+    setStartAt(0)
     streamReady().then((ok) => alive && setSw(ok))
     return () => (alive = false)
   }, [file.id])
+  useEffect(() => {
+    if (!lite || !sw || liteP !== undefined) return
+    let alive = true
+    setLiteP('look')
+    findProxy(file, siblings).then(
+      (p) => alive && setLiteP(p || null),
+      () => alive && setLiteP(null),
+    )
+    return () => (alive = false)
+  }, [lite, sw, file.id])
   useEffect(() => {
     if (!needProxy || !sw || proxy !== undefined) return
     let alive = true
@@ -242,6 +280,49 @@ function MediaStage({ file, kind, siblings, onZoom }) {
     )
     return () => (alive = false)
   }, [needProxy, sw, file.id])
+
+  // Vídeo grande com cópia leve (ou proxy da câmera): toca ela por padrão, fluida; "Original" troca no mesmo ponto.
+  if (lite && (sw === undefined || liteP === 'look' || (liteP === undefined && sw))) return html`<div class="pv-wait"><span class="spinner"></span></div>`
+  if (lite && liteP && !liteFail) {
+    const canOriginal = mayPlay(file)
+    const switcher = html`<${LiteSwitch} proxy=${liteP} on=${!orig} canOriginal=${canOriginal} onPick=${pick} />`
+    if (!orig || !canOriginal) {
+      const vm = liteP.videoMediaMetadata || file.videoMediaMetadata
+      const ratio = vm?.width && vm?.height ? `${vm.width} / ${vm.height}` : null
+      return html`<div class="pv-proxy">
+        <${MediaPlayer}
+          key=${'l' + liteP.id}
+          kind="video"
+          src=${streamUrl(liteP)}
+          poster=${poster || null}
+          title=${`${file.name} (${isPrevia(liteP) ? 'prévia leve' : 'proxy'})`}
+          ratio=${ratio}
+          corner=${switcher}
+          startAt=${startAt}
+          timeRef=${at}
+          onFail=${() => setLiteFail(true)}
+        />
+        <p class="pv-proxy-note">${isPrevia(liteP) ? 'Cópia leve em 1080p, para tocar sem travar. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
+      </div>`
+    }
+    const vm = file.videoMediaMetadata
+    const ratio = vm?.width && vm?.height ? `${vm.width} / ${vm.height}` : null
+    return html`<div class="pv-proxy">
+      <${MediaPlayer}
+        key=${'o' + file.id}
+        kind="video"
+        src=${streamUrl(file)}
+        poster=${poster || null}
+        title=${file.name}
+        ratio=${ratio}
+        corner=${switcher}
+        startAt=${startAt}
+        timeRef=${at}
+        onFail=${() => (setStartAt(at.current || 0), setOrig(false))}
+      />
+      <p class="pv-proxy-note">Original: pode travar se a rede não der conta.</p>
+    </div>`
+  }
 
   if (kind === 'video' && needProxy && proxy && proxy !== 'look' && !proxyFail) {
     const vm = proxy.videoMediaMetadata || file.videoMediaMetadata
@@ -254,10 +335,10 @@ function MediaStage({ file, kind, siblings, onZoom }) {
         poster=${poster || proxyPoster || null}
         title=${`${file.name} (proxy)`}
         ratio=${ratio}
-        badge="Proxy"
+        badge=${isPrevia(proxy) ? 'Prévia leve' : 'Proxy'}
         onFail=${() => setProxyFail(true)}
       />
-      <p class="pv-proxy-note">Prévia em baixa resolução. O Baixar traz o original.</p>
+      <p class="pv-proxy-note">${isPrevia(proxy) ? 'Cópia leve em 1080p. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
     </div>`
   }
   if (kind === 'video' || kind === 'audio') {

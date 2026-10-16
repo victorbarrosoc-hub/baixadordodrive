@@ -1,0 +1,26 @@
+FFmpeg no SOBEDESCE
+===================
+
+O SOBEDESCE usa o FFmpeg (https://ffmpeg.org) só como programa separado, para gerar a "prévia leve"
+(cópia H.264 em 1080p) dos vídeos. O FFmpeg não faz parte do código do SOBEDESCE; ele vai junto no
+instalador, sem modificações, na pasta "ffmpeg" ao lado desta.
+
+Os executáveis incluídos são distribuídos sob a GNU General Public License versão 3 (GPL v3) — texto em
+COPYING.GPLv3.txt — porque foram compilados com componentes GPL (libx264 e outros). A licença do próprio
+FFmpeg está em FFmpeg-LICENSE.md.
+
+Origem dos executáveis (conferidos por SHA-256 em scripts/ffmpeg-baixar.mjs no código do SOBEDESCE):
+
+  Mac (Apple Silicon e Intel; os dois juntos num binário universal)
+    FFmpeg 9.0.2, compilado por Martin Riedl
+    https://ffmpeg.martin-riedl.de  (builds, versões das bibliotecas e configuração)
+    Script de compilação: https://git.martin-riedl.de/ffmpeg/build-script
+    Fonte do FFmpeg 9.0.2: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+
+  Windows (x64)
+    FFmpeg 6.1.1 "essentials", compilado por Gyan Doshi (https://www.gyan.dev/ffmpeg/builds/)
+    Fonte: https://github.com/FFmpeg/FFmpeg/commit/e38092ef93 e https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz
+    Pacote usado: https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1
+
+Código-fonte correspondente: além dos endereços acima, pode ser pedido aos mantenedores do SOBEDESCE
+(https://github.com/victorbarrosoc-hub/baixadordodrive) por até três anos a partir desta versão.

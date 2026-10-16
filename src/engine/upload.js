@@ -459,6 +459,8 @@ export class UploadTask extends EventEmitter {
       meta.parents = [r.target.parentId]
     }
     if (Number.isFinite(r.local.mtimeMs)) meta.modifiedTime = new Date(r.local.mtimeMs).toISOString()
+    // Marcas do app (a prévia leve leva { sobedesce: 'previa', original }): vão junto na criação, sem chamada extra.
+    if (r.target.appProperties && typeof r.target.appProperties === 'object') meta.appProperties = { ...r.target.appProperties }
     const headers = {
       ...(await this.#authHeader(signal)),
       'content-type': 'application/json; charset=UTF-8',

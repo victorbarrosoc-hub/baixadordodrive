@@ -5602,3 +5602,158 @@ button.tree-twisty:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ───── prévia leve (components/previa.js) ───── */
+.trow-previa {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.trow-previa > .icon,
+.trow-previa > .spinner {
+  flex: none;
+}
+.trow-previa > span:not(.previa-bar) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trow-previa .sub {
+  color: var(--text-3);
+}
+.trow-previa.is-done {
+  color: var(--ok-text);
+}
+.trow-previa.is-done .sub {
+  color: var(--text-2);
+}
+.trow-previa.is-fail {
+  color: var(--text-2);
+}
+.trow-previa.is-paused {
+  color: var(--text-3);
+}
+.previa-pct {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-weight: 550;
+}
+.previa-bar {
+  flex: 0 1 120px;
+  min-width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  overflow: hidden;
+}
+.previa-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--up);
+  transition: width 0.4s var(--ease);
+}
+.previa-skip {
+  flex: none;
+  margin-left: 2px;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.trow:hover .previa-skip,
+.previa-skip:focus-visible {
+  opacity: 1;
+}
+.srow-note.previa-engine {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.srow-note.previa-engine.is-hw {
+  color: var(--ok-text);
+}
+.srow-note.previa-engine .sub {
+  color: var(--text-3);
+}
+.srow-note .icon {
+  vertical-align: -2px;
+}
+.previa-engine-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.previa-engine-line.is-hw {
+  color: var(--ok-text);
+}
+.previa-cost {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+}
+
+/* Prévia leve | Original, no canto do player */
+.lite-switch {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 3;
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  transition: opacity 0.3s var(--ease);
+}
+.lite-switch button {
+  height: 24px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  color: rgba(255, 255, 255, 0.72);
+  background: transparent;
+  cursor: pointer;
+}
+.lite-switch button:hover {
+  color: #fff;
+}
+.lite-switch button.is-on {
+  color: #fff;
+  background: color-mix(in srgb, var(--up) 85%, transparent);
+  cursor: default;
+}
+.lite-switch button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.player-video.is-idle .lite-switch {
+  opacity: 0;
+}
+.proxy-tag.is-previa {
+  background: color-mix(in srgb, var(--up) 85%, transparent);
+}
+.srow-note.previa-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.srow-note.previa-warn > .icon {
+  flex: none;
+  margin-top: 2px;
+}

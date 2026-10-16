@@ -61,6 +61,8 @@ jobs:
       - run: npm ci
       # Identidade do build (src/build-info.json vai dentro do app): o aviso "Nova versão do SOBEDESCE" compara com ela.
       - run: node scripts/build-info.mjs
+      # ffmpeg da prévia leve (versões fixas, conferidas por SHA-256) em build/ffmpeg/; o electron-builder põe em Resources/ffmpeg.
+      - run: node scripts/ffmpeg-baixar.mjs
       - run: ${{ matrix.build }}
       # Os instaladores vão para um Release de teste ("SOBEDESCE · versão de teste"): Releases não usam
       # a cota de armazenamento de artefatos do Actions, que é pequena e enche rápido.

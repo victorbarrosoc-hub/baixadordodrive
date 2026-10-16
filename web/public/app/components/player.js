@@ -78,7 +78,7 @@ function Scrubber({ time, dur, buffered, onSeek, onScrub }) {
  * kind 'video' | 'audio'. `poster` (miniatura) aparece até o primeiro quadro. onFail(code) quando o navegador não
  * consegue tocar (formato ou rede): quem chama decide o aviso.
  */
-export function MediaPlayer({ kind, src, poster, title, ratio, badge, onFail, onStall }) {
+export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, startAt = 0, timeRef, onFail, onStall }) {
   const wrap = useRef(null)
   const media = useRef(null)
   const hideTimer = useRef(0)
@@ -86,6 +86,8 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, onFail, on
   const [ui, setUi] = useState(true)
   const [scrub, setScrub] = useState(null)
   const patch = (p) => set((o) => ({ ...o, ...p }))
+  // Quem troca de fonte (prévia leve ↔ original) lê onde estava e manda `startAt` para a nova continuar dali.
+  if (timeRef) timeRef.current = s.time
 
   const sync = () => {
     const m = media.current
@@ -203,7 +205,14 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, onFail, on
       x-webkit-airplay="allow"
       disablepictureinpicture=${kind === 'audio' ? true : undefined}
       aria-label=${title}
-      onLoadedMetadata=${sync}
+      onLoadedMetadata=${() => {
+        const m = media.current
+        if (m && startAt > 0) {
+          m.currentTime = Math.min(startAt, Number.isFinite(m.duration) ? Math.max(0, m.duration - 0.1) : startAt)
+          m.play()?.catch?.(() => {})
+        }
+        sync()
+      }}
       onDurationChange=${sync}
       onTimeUpdate=${() => {
         if (scrub == null) sync()
@@ -233,6 +242,7 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, onFail, on
     />
     ${kind === 'video' && poster && !s.started ? html`<img class="mp-poster" src=${poster} alt="" referrerpolicy="no-referrer" draggable="false" />` : null}
     ${badge ? html`<span class="mp-badge">${badge}</span>` : null}
+    ${corner ? html`<div class="mp-corner" data-control>${corner}</div>` : null}
     ${kind === 'audio' ? html`<div class="mp-art">${poster ? html`<img src=${poster} alt="" referrerpolicy="no-referrer" draggable="false" />` : html`<span class="mp-art-glyph"><${Icon} name="music" size=${46} strokeWidth=${1.3} /></span>`}</div>` : null}
 
     <button type="button" class="mp-big" onClick=${toggle} aria-label=${playing ? 'Pausar' : 'Reproduzir'} data-control>
