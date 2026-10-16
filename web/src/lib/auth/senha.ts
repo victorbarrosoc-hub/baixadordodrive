@@ -4,8 +4,7 @@
  */
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, type ScryptOptions } from "node:crypto";
 
-export const SENHA_MINIMA = 10;
-export const SENHA_MAXIMA = 200;
+export { SENHA_MAXIMA, SENHA_MINIMA } from "./senha-regras";
 
 const N = 32768;
 const R = 8;

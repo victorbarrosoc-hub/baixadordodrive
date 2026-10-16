@@ -17,7 +17,7 @@ type Acesso = { conta: ContaFalsa; refresh: string | null; expira: number; revog
 const s256 = (v: string) => createHash("sha256").update(v).digest("base64url");
 const aleatorio = (prefixo: string) => prefixo + randomBytes(24).toString("base64url");
 
-export async function iniciarGoogleFalso(cliente: { clientId: string; clientSecret: string }) {
+export async function iniciarGoogleFalso(cliente: { clientId: string; clientSecret: string }, porta = 0) {
   const codigos = new Map<string, Codigo>();
   const refreshes = new Map<string, Refresh>();
   const acessos = new Map<string, Acesso>();
@@ -120,17 +120,25 @@ export async function iniciarGoogleFalso(cliente: { clientId: string; clientSecr
         return enviar(res, 200, { sub, email, email_verified: true, name, picture });
       }
 
+      // Controle (scripts de screenshot): troca a conta do próximo consentimento.
+      if (url.pathname === "/__proximo" && req.method === "POST") {
+        const p = await corpo(req);
+        proximo.conta = p.get("sub") ? { sub: p.get("sub")!, email: p.get("email") ?? "", name: p.get("name") ?? "", picture: p.get("picture") ?? undefined } : null;
+        proximo.negar = p.get("negar") === "1";
+        return enviar(res, 200, { ok: true });
+      }
+
       enviar(res, 404, { error: "not_found" });
     } catch {
       enviar(res, 500, { error: "internal" });
     }
   });
 
-  await new Promise<void>((ok) => servidor.listen(0, "127.0.0.1", ok));
-  const porta = (servidor.address() as AddressInfo).port;
+  await new Promise<void>((ok) => servidor.listen(porta, "127.0.0.1", ok));
+  const portaUsada = (servidor.address() as AddressInfo).port;
 
   return {
-    url: `http://127.0.0.1:${porta}`,
+    url: `http://127.0.0.1:${portaUsada}`,
     proximo,
     contadores,
     /** Todo refresh token passa a dar invalid_grant (os 7 dias do modo Teste). */
