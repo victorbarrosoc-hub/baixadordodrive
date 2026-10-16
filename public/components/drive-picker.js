@@ -4,6 +4,8 @@ import { attempt } from '../lib/api.js'
 import { promptDialog } from '../lib/modals.js'
 import { Icon } from './icons.js'
 import { Button } from './common.js'
+import { useStore } from '../lib/store.js'
+import { ProxyChoice, proxyPadrao } from './previa.js'
 import { Modal } from './modal.js'
 import { DriveTable } from './drive-table.js'
 import { Breadcrumb, SourceChips } from './drive.js'
@@ -19,8 +21,12 @@ function crumbsOf(data, drives) {
   })
 }
 
-export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', subtitle, confirmLabel, initialFolderId = 'root', onClose }) {
+export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', subtitle, confirmLabel, initialFolderId = 'root', proxyChoice = false, onClose }) {
   const [folderId, setFolderId] = useState(initialFolderId || 'root')
+  // Envio: "Gerar proxy dos vídeos" deste envio (marcado pelo ajuste; em "Perguntar", em destaque).
+  const settings = useStore((s) => s.settings)
+  const [proxy, setProxy] = useState(() => proxyPadrao(settings))
+  const extra = proxyChoice ? { proxy } : {}
   const [selected, setSelected] = useState(new Set())
   const drives = useSharedDrives(accountId)
   const { data, loading, error, reload } = useDriveFolder(accountId, folderId)
@@ -38,9 +44,9 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
   const confirm = () => {
     if (!folder) return
     if (chosenSub) {
-      onClose({ id: chosenSub.id, name: chosenSub.name, path: [...crumbs, chosenSub.name].join(' / '), driveId: chosenSub.driveId || folder.driveId || null })
+      onClose({ id: chosenSub.id, name: chosenSub.name, path: [...crumbs, chosenSub.name].join(' / '), driveId: chosenSub.driveId || folder.driveId || null, ...extra })
     } else {
-      onClose({ id: folder.id, name: crumbs[crumbs.length - 1] || folder.name, path: crumbs.join(' / '), driveId: folder.driveId || null })
+      onClose({ id: folder.id, name: crumbs[crumbs.length - 1] || folder.name, path: crumbs.join(' / '), driveId: folder.driveId || null, ...extra })
     }
   }
 
@@ -100,6 +106,7 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
           resetKey=${folderId}
           empty=${html`<div class="table-empty"><${Icon} name="folder" size=${22} /><b>Sem subpastas</b><span>Escolha esta mesma ou crie uma nova.</span></div>`}
         />
+        ${proxyChoice ? html`<div class="picker-proxy"><${ProxyChoice} checked=${proxy} onChange=${setProxy} ask=${settings?.proxyAoEnviar === 'perguntar'} /></div>` : null}
       </section>
     </div>
   </${Modal}>`

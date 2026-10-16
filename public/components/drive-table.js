@@ -24,7 +24,7 @@ export function compare(key, dir) {
 
 export const isOpenable = (it) => it.isFolder || (it.isShortcut && it.shortcutTargetMimeType === 'application/vnd.google-apps.folder')
 
-const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview, fsize, onCalcSize }) {
+const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview, fsize, onCalcSize, hasProxy }) {
   const folderLike = isOpenable(item)
   const disabled = mode === 'folder' && !folderLike
   return html`<div
@@ -47,6 +47,7 @@ const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick
         : html`<${FileIcon} name=${item.name} mimeType=${item.mimeType} isFolder=${folderLike} size=${28} shortcut=${item.isShortcut} />`}
       <span class="name" title=${item.name}>${item.name}</span>
       ${item.isGoogleDoc ? html`<span class="tag" title="Documento nativo do Google: é exportado (.docx, .xlsx, .pptx) ao baixar">Doc Google</span>` : null}
+      ${hasProxy ? html`<span class="tag tag-proxy" title="Tem proxy (cópia leve): a prévia toca fluida">Proxy</span>` : null}
     </span>
     <span class="drow-size" role="gridcell">${folderLike
       ? onCalcSize || fsize
@@ -71,7 +72,7 @@ const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick
  * @param {{ items: any[], mode?: 'browse'|'folder', selected: Set<string>, onSelect: (s:Set<string>)=>void,
  *           onOpen: (item)=>void, loading?: boolean, error?: string|null, onRetry?: ()=>void, empty?: any, resetKey?: string }} props
  */
-export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort, sizeOf, onCalcSize }) {
+export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort, sizeOf, onCalcSize, comProxy }) {
   const [sortLocal, setSortLocal] = useState({ key: 'name', dir: 'asc' })
   const sort = sortProp || sortLocal
   const setSort = onSort || setSortLocal
@@ -213,6 +214,7 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
       (it, i) => html`<${Row}
         key=${it.id}
         item=${it}
+        hasProxy=${!!comProxy?.has(it.id)}
         index=${i}
         mode=${mode}
         selected=${selected.has(it.id)}

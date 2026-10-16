@@ -6821,3 +6821,193 @@ button.tree-twisty:hover {
 .nav-panel .ref-pick {
   max-height: 320px;
 }
+
+/* ───── proxy: escolha no envio, por arquivo e selo (components/previa.js) ───── */
+.proxy-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--hairline-2);
+  background: var(--surface);
+  cursor: pointer;
+}
+.proxy-choice.is-ask {
+  border-color: color-mix(in srgb, var(--up) 55%, transparent);
+  background: color-mix(in srgb, var(--up) 7%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--up) 12%, transparent);
+}
+.proxy-choice-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.proxy-choice-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.proxy-choice-text b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.proxy-choice-text span {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+.picker-proxy {
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--hairline);
+}
+.envio-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.envio-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.envio-list .mono-path {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.envio-dialog .previa-cost {
+  margin-top: 10px;
+}
+.proxy-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-2);
+  background: var(--surface);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.proxy-chip.is-on {
+  color: var(--up-text);
+  border-color: color-mix(in srgb, var(--up) 40%, transparent);
+  background: color-mix(in srgb, var(--up) 9%, var(--surface));
+}
+.proxy-chip:hover {
+  border-color: var(--hairline-strong);
+}
+.proxy-chip:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.trow-previa.is-quiet {
+  color: var(--text-3);
+}
+.proxy-gerar {
+  flex: none;
+  font-size: 12px;
+}
+.tag-proxy,
+.gbadge-proxy {
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 13%, var(--surface));
+}
+.gbadge-proxy {
+  top: 7px;
+  bottom: auto;
+}
+.proxy-origens {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.proxy-origem {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--hairline-2);
+  cursor: pointer;
+}
+.proxy-origem.is-on {
+  border-color: color-mix(in srgb, var(--up) 55%, transparent);
+  background: color-mix(in srgb, var(--up) 6%, var(--surface));
+}
+.proxy-origem.is-found {
+  cursor: default;
+  align-items: center;
+}
+.proxy-origem input[type="radio"] {
+  margin-top: 3px;
+  accent-color: var(--up);
+}
+.proxy-origem > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.proxy-origem b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.proxy-origem span {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.proxy-origem .rt-pick {
+  margin-top: 6px;
+}
+.proxy-falta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--warn-text) !important;
+}
+.proxy-baixar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.proxy-baixar > .icon {
+  flex: none;
+}
+.proxy-baixar > span {
+  flex: 1;
+  min-width: 0;
+}
+.proxy-baixar b {
+  color: var(--text);
+  font-weight: 600;
+}
+.proxy-baixar .btn {
+  flex: none;
+}

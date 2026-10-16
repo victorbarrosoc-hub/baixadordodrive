@@ -678,6 +678,9 @@ export function createApi(ctx) {
       driveId: typeof body.driveId === 'string' && body.driveId ? body.driveId : null,
       signal,
     })
+    // Proxy (prévia leve) deste envio: a escolha da tela; sem ela, o ajuste vale na hora de gerar.
+    if (body.proxy != null && typeof body.proxy !== 'boolean') throw new HttpProblem(400, 'Pedido inválido.')
+    if (typeof body.proxy === 'boolean') for (const r of plan.records || []) r.proxy = body.proxy
     // Nome da pasta do Drive (a interface conta, quando sabe), para o "Acompanhar pelo celular".
     if (plan.batch) plan.batch.destino = destName(body.destName) || ((body.destFolderId || 'root') === 'root' && !body.driveId ? 'Meu Drive' : null)
     return enqueue(plan)
