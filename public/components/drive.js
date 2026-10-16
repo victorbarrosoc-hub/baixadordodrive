@@ -202,7 +202,7 @@ export function DriveScreen({ route }) {
   const uploadHere = async (e) => {
     const paths = await pickUploadPaths({ title: `Enviar para “${folderLabel(folder, drives)}”`, anchor: e?.currentTarget })
     if (!paths?.length) return
-    await uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null })
+    await uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives) })
   }
 
   const chooseDest = async () => {
@@ -245,7 +245,7 @@ export function DriveScreen({ route }) {
     <${FileDrop}
       label=${folderLabel(folder, drives)}
       enabled=${!!folder && !!accountId}
-      onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null })}
+      onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives) })}
     />
     <header class="page-head">
       <h1>Drive</h1>

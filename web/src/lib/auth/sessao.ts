@@ -3,12 +3,17 @@
  * (`Bearer sdd_...`); o banco guarda só o sha256. Expiração deslizante: web 30 dias, dispositivo 180.
  * Sem next/headers aqui: as rotas e os testes passam cookie e Authorization direto.
  */
-import { and, eq, gt, isNull, ne } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, ne } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Plataforma, TipoSessao } from "@/lib/db/schema";
 import { FORMATO_TOKEN_DISPOSITIVO, FORMATO_TOKEN_WEB, hashToken, novoId, novoToken, PREFIXO_DISPOSITIVO } from "./tokens";
 
-const { sessoes, usuarios } = schema;
+const { sessoes, usuarios, dispositivoStatus } = schema;
+
+/** O andamento das transferências (docs/CONTAS.md §9) some junto com a sessão do computador. */
+async function apagarAndamento(linhas: { id: string }[]) {
+  if (linhas.length) await db.delete(dispositivoStatus).where(inArray(dispositivoStatus.sessaoId, linhas.map((l) => l.id)));
+}
 
 export const COOKIE_SESSAO = "sd_sessao";
 const DIA = 24 * 60 * 60_000;
@@ -106,12 +111,18 @@ export async function autenticar(credenciais: { cookie?: string | null; authoriz
 }
 
 export async function revogarSessao(id: string): Promise<void> {
-  await db.update(sessoes).set({ revogadaEm: new Date() }).where(and(eq(sessoes.id, id), isNull(sessoes.revogadaEm)));
+  const r = await db.update(sessoes).set({ revogadaEm: new Date() }).where(and(eq(sessoes.id, id), isNull(sessoes.revogadaEm))).returning({ id: sessoes.id });
+  await apagarAndamento(r);
 }
 
 /** Revoga pelo token (sair do site com o cookie). */
 export async function revogarPorToken(token: string): Promise<void> {
-  await db.update(sessoes).set({ revogadaEm: new Date() }).where(and(eq(sessoes.tokenHash, hashToken(token)), isNull(sessoes.revogadaEm)));
+  const r = await db
+    .update(sessoes)
+    .set({ revogadaEm: new Date() })
+    .where(and(eq(sessoes.tokenHash, hashToken(token)), isNull(sessoes.revogadaEm)))
+    .returning({ id: sessoes.id });
+  await apagarAndamento(r);
 }
 
 /** Computador de um usuário (a pessoa desconecta em /conta). Devolve se achou. */
@@ -121,15 +132,18 @@ export async function revogarDispositivo(usuarioId: string, sessaoId: string): P
     .set({ revogadaEm: new Date() })
     .where(and(eq(sessoes.id, sessaoId), eq(sessoes.usuarioId, usuarioId), eq(sessoes.tipo, "dispositivo"), isNull(sessoes.revogadaEm)))
     .returning({ id: sessoes.id });
+  await apagarAndamento(r);
   return r.length > 0;
 }
 
 /** Todas as sessões do usuário menos a atual (troca de senha). */
 export async function revogarOutras(usuarioId: string, manter: string): Promise<void> {
-  await db
+  const r = await db
     .update(sessoes)
     .set({ revogadaEm: new Date() })
-    .where(and(eq(sessoes.usuarioId, usuarioId), ne(sessoes.id, manter), isNull(sessoes.revogadaEm)));
+    .where(and(eq(sessoes.usuarioId, usuarioId), ne(sessoes.id, manter), isNull(sessoes.revogadaEm)))
+    .returning({ id: sessoes.id });
+  await apagarAndamento(r);
 }
 
 /** Computadores ativos, do uso mais recente para o mais antigo. */

@@ -1,11 +1,13 @@
-// Service worker do app (escopo /app/). Duas tarefas:
+// Service worker do app (escopo /app/). Três tarefas:
 //  1. Guarda a casca do app para abrir sem rede, mas SEMPRE tenta a rede primeiro para html/js/css (atualizações
 //     chegam na hora). A conta (/api/*, /entrar, /conta) e o Google seguem direto, sem cache.
 //  2. /app/stream/<id>: prévia e download de arquivos do Drive. <video>, <audio>, <img> e links não mandam o
 //     cabeçalho Authorization; aqui a requisição vai para o Google com o token, repassando o Range (o Safari só toca
 //     vídeo com 206), e volta em streaming — nada é guardado. O token vem da página (postMessage com MessageChannel,
 //     lib/stream.js) e fica só na memória deste SW, que some quando ele dorme.
-const CACHE = 'sobedesce-app-v8'
+//  3. Avisos (Web Push): "Pronto: 8 arquivos enviados do MacBook…" quando o computador termina; o toque abre
+//     /app/#computador (ou a folha, se o app já estiver aberto).
+const CACHE = 'sobedesce-app-v10'
 const SCOPE = new URL('./', self.location).pathname // "/app/"
 const STREAM = SCOPE + 'stream/'
 const GOOGLE_API = 'https://www.googleapis.com/drive/v3'
@@ -19,6 +21,7 @@ const SHELL = [
   './vendor/preact-htm.js',
   './lib/auth.js',
   './lib/browse.js',
+  './lib/computador.js',
   './lib/config.js',
   './lib/drive.js',
   './lib/format.js',
@@ -33,6 +36,7 @@ const SHELL = [
   './lib/wakelock.js',
   './components/account.js',
   './components/browser.js',
+  './components/computador.js',
   './components/folders.js',
   './components/icons.js',
   './components/install-hint.js',
@@ -249,3 +253,43 @@ async function stream(event, url) {
   }
   return fail(401, 'O Google recusou o acesso.')
 }
+
+// ───── avisos (Web Push, docs/CONTAS.md §9) ─────
+
+self.addEventListener('push', (event) => {
+  let d = {}
+  try {
+    d = event.data ? event.data.json() : {}
+  } catch {
+    d = { corpo: event.data ? event.data.text() : '' }
+  }
+  const titulo = typeof d.titulo === 'string' && d.titulo ? d.titulo : 'SOBEDESCE'
+  const url = typeof d.url === 'string' && d.url.startsWith(SCOPE) ? d.url : SCOPE + '#computador'
+  event.waitUntil(
+    self.registration.showNotification(titulo, {
+      body: typeof d.corpo === 'string' ? d.corpo : '',
+      tag: typeof d.tag === 'string' ? d.tag : 'sd-computador',
+      renotify: true,
+      icon: SCOPE + 'icons/icon-192.png',
+      badge: SCOPE + 'icons/icon-192.png',
+      data: { url },
+    }),
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = event.notification.data?.url || SCOPE + '#computador'
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      const open = all.find((c) => new URL(c.url).pathname.startsWith(SCOPE))
+      if (open) {
+        await open.focus().catch(() => {})
+        open.postMessage({ type: 'sd-computador' })
+        return
+      }
+      await self.clients.openWindow(url)
+    })(),
+  )
+})

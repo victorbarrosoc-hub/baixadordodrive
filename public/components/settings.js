@@ -172,6 +172,7 @@ function firewallNote(platform) {
 /** Ajustes → Celular: recepção pelo Wi-Fi (QR, pastas, código), Atalho do iPhone e o app publicado na internet. */
 function MobileGroups({ d, set, accounts, activeId, home, platform }) {
   const confirmed = useStore((s) => s.settings)
+  const cloudOn = useStore((s) => !!s.cloud?.conectado)
   const on = !!d.mobileReceive
   const { state: m, reload, setState } = useMobileState(
     [confirmed?.mobileReceive, confirmed?.mobilePort, confirmed?.mobileStagingDir],
@@ -312,6 +313,12 @@ function MobileGroups({ d, set, accounts, activeId, home, platform }) {
       tone="down"
       foot="Fora do Wi-Fi, o celular sobe direto pro Google pelo app do site, com os Drives da sua conta SOBEDESCE. Nada passa por este computador."
     >
+      <${Row}
+        label="Acompanhar pelo celular"
+        desc=${html`O celular mostra o andamento das transferências deste computador (nomes dos arquivos e progresso).${cloudOn ? null : html`<br /><span class="srow-note">Funciona com a conta SOBEDESCE: entre nela lá em cima.</span>`}`}
+      >
+        <${Switch} label="Acompanhar pelo celular" checked=${d.acompanharCelular !== false} onChange=${(v) => set('acompanharCelular', v, { now: true })} />
+      </${Row}>
       ${m?.webQrSvg
         ? html`<div class="srow mqr-row">
             <${QrBox} svg=${m.webQrSvg} label="QR code do app do celular" />

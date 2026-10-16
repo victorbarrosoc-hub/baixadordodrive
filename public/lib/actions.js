@@ -67,9 +67,10 @@ export function announceBatch(res, verb = 'na fila') {
 }
 
 /** Envia caminhos locais para uma pasta do Drive. */
-export async function uploadPaths({ accountId, paths, destFolderId, driveId }) {
+export async function uploadPaths({ accountId, paths, destFolderId, driveId, destName }) {
   if (!paths?.length) return null
-  const res = await attempt(api.post('/api/transfers/upload', { accountId, paths, destFolderId, ...(driveId ? { driveId } : {}) }))
+  // destName: nome da pasta do Drive, só para mostrar (Acompanhar pelo celular).
+  const res = await attempt(api.post('/api/transfers/upload', { accountId, paths, destFolderId, ...(driveId ? { driveId } : {}), ...(destName ? { destName } : {}) }))
   announceBatch(res, 'para enviar')
   return res
 }
@@ -80,10 +81,10 @@ export async function uploadFlow({ destFolderId, driveId, destName, anchor } = {
   if (!activeAccountId) return null
   const paths = await pickUploadPaths({ title: destName ? `Enviar para “${destName}”` : 'O que você quer enviar?', anchor })
   if (!paths?.length) return null
-  let dest = destFolderId ? { id: destFolderId, driveId } : null
+  let dest = destFolderId ? { id: destFolderId, driveId, name: destName } : null
   if (!dest) {
     dest = await pickDriveFolder({ accountId: activeAccountId, title: 'Para qual pasta do Drive?', confirmLabel: 'Enviar para cá' })
     if (!dest) return null
   }
-  return uploadPaths({ accountId: activeAccountId, paths, destFolderId: dest.id, driveId: dest.driveId })
+  return uploadPaths({ accountId: activeAccountId, paths, destFolderId: dest.id, driveId: dest.driveId, destName: dest.name })
 }

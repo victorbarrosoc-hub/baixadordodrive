@@ -47,6 +47,8 @@ class MockCloud {
     this.colecoes = [] // { id, nome, contaGoogleId, driveFolderId, link, criadoEm }
     this.fila = [] // { id, url, nota, status, erro, driveFileId, colecaoId, dispositivo, criadoEm }
     this.raizes = new Map() // contaGoogleId -> id da pasta "SOBEDESCE Referências" no Drive falso
+    // Acompanhar pelo celular (docs/CONTAS.md §9): os retratos que o computador mandou.
+    this.andamento = [] // { metodo, corpo, nome }
     this.seq = 0
     this.server = null
     this.url = null
@@ -313,6 +315,16 @@ class MockCloud {
     }
 
     if (p.startsWith('/api/referencias/')) return this.#referencias(req, res, url, session)
+
+    if (p === '/api/dispositivos/status' && (method === 'POST' || method === 'DELETE')) {
+      const corpo = method === 'POST' ? await this.#body(req) : null
+      this.andamento.push({ metodo: method, corpo, nome: session.nome })
+      if (method === 'DELETE') {
+        res.writeHead(204, { 'cache-control': 'no-store' })
+        return res.end()
+      }
+      return this.#send(res, 200, { ok: true, avisados: 0 })
+    }
 
     if (method === 'POST' && p === '/api/dispositivo/sair') {
       this.stats.sair++

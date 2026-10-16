@@ -36,6 +36,9 @@ Mudou algo aqui? Avise as outras frentes.
 | `RESEND_API_KEY` | E-mail transacional (Resend, `POST https://api.resend.com/emails`, sem SDK). Sem ela: em dev o e-mail vai para o console; em produção não envia e `/esqueci-a-senha` mostra "indisponível". |
 | `EMAIL_REMETENTE` | Opcional. Padrão `SOBEDESCE <nao-responda@dissesim.com.br>` (o domínio precisa estar verificado no Resend). |
 | `SOBEDESCE_RESEND_BASE` | Só testes: Resend falso (`web/tests/resend-falso.mts`). Mesma regra do Google falso. |
+| `VAPID_PRIVATE_KEY` | Chave privada VAPID (Web Push, §9). Sem ela, os avisos no celular ficam desligados e o resto funciona. A pública fica no código (`web/src/lib/acompanhar/push.ts`). |
+| `VAPID_PUBLIC_KEY` | Opcional. Troca a chave pública do código (só se gerar um par novo; inscrições antigas param de receber). |
+| `VAPID_SUBJECT` | Opcional. Contato do VAPID (`mailto:` ou `https:`). Padrão: o endereço do site. |
 | `SOBEDESCE_PGLITE_DIR` | Só testes/local: onde fica o PGlite (padrão `./data/pglite`; `memory://` = em memória). |
 
 Redirect do Google: `https://sobedesce.vercel.app/api/google/callback`
@@ -156,3 +159,48 @@ Downloads do desktop: Release `versao-de-teste` do GitHub
 - **E-mails** (`web/src/lib/email/`, HTML preto e branco + texto, enviados depois da resposta com `after`):
   senha nova, conta apagada (confirmação) e computador conectado (nome, sistema, quando, "Se não foi
   você, desconecte em Sua conta").
+
+## 9. Acompanhar pelo celular
+
+O app de computador conta à conta como andam as transferências dele; o app do celular mostra ("No computador") e o
+site avisa por Web Push quando um lote termina. Código: `web/src/lib/acompanhar/` (formato, status, push) e
+`src/engine/acompanhar.js` (desktop).
+
+| Método e caminho | Quem | Entrada | Saída |
+|---|---|---|---|
+| `POST /api/dispositivos/status` | só Bearer de dispositivo (cookie → `403 so_computador`) | `StatusComputador` (até 64 KB; maior → `413 grande_demais`; formato ruim → `400 entrada`) | `200 { ok, avisados }` |
+| `DELETE /api/dispositivos/status` | só Bearer de dispositivo | | `204` (ajuste desligado: o retrato some) |
+| `GET /api/transferencias` | cookie ou Bearer | | `200 { ok, agora, onlineMs, computadores: [{ id, nome, plataforma, online, atualizadoEm, snapshot }], push: { ativo, chavePublica } }` |
+| `POST /api/push/inscricao` | cookie (com Origin) ou Bearer | `PushSubscription.toJSON()` = `{ endpoint, keys: { p256dh, auth } }` | `201 { ok }` · `400 entrada` |
+| `DELETE /api/push/inscricao` | cookie (com Origin) ou Bearer | `{ endpoint }` | `200 { ok, apagou }` |
+
+```
+StatusComputador = {
+  v: 1, estado: 'enviando'|'baixando'|'pausado'|'parado'|'concluido'|'erro',
+  rodada: string|null,            // rodada de trabalho: começa quando algo anda depois de tudo parado
+  geral: { feitoBytes, totalBytes, feitos, total, erros, velocidade, eta: s|null,
+           sobe: { arquivos, velocidade }, desce: { arquivos, velocidade }, fora? },   // fora = ativos fora da lista
+  itens: [{ id, nome, direcao: 'sobe'|'desce', feito, total|null, velocidade,
+            estado: 'enviando'|'baixando'|'conferindo'|'na_fila'|'esperando'|'pausado', destino?, erro? }],  // ≤ 60 (o app manda ≤ 50)
+  terminados: [{ nome, direcao, total|null, terminouEm (ms), ok, erro? }],   // ≤ 40 (o app manda os 30 últimos de 7 dias)
+  fechado?: true,                 // última notícia antes de o app fechar
+}
+```
+
+- **Banco:** `dispositivo_status` (`sessaoId` pk → `sessoes` em cascata, `usuarioId`, `snapshot` jsonb, `avisado`,
+  `atualizadoEm`) e `push_inscricoes` (`id`, `usuarioId`, `endpoint` único, `keys` jsonb, `criadoEm`, `ultimoEnvioEm`,
+  `falhas`). Migração `0003_acompanhar` (só acrescenta).
+- **Online:** notícia nos últimos 2 min e sem `fechado`. A lista só traz sessões válidas (não revogadas, não vencidas).
+- **Guarda:** só o último retrato de cada computador. Sem notícia há 7 dias → apagado (na leitura da conta e, a cada
+  10 min, numa limpeza geral no POST). Revogar a sessão (desconectar, trocar/redefinir a senha) apaga junto; apagar a
+  conta apaga em cascata.
+- **Avisos:** quando um POST chega com `estado` `concluido` ou `erro`, `rodada` e `total > 0`, o servidor troca
+  `avisado` para `"<rodada>:<estado>"` só se for diferente (um UPDATE condicional: dois pedidos juntos viram um aviso).
+  Quem trocou manda o push para todas as inscrições da conta: `{ titulo, corpo, url: '/app/#computador', tag }`, ex.
+  "Pronto" / "8 arquivos enviados do MacBook de Victor · 412 GB" (baixados no / transferidos no) e "Parou com erro" /
+  "2 arquivos não passaram no MacBook de Victor. 6 de 8 prontos.". Resposta 404/410 → inscrição apagada; outras
+  falhas somam `falhas` (10 seguidas → apagada). Até 20 inscrições por conta (as mais antigas saem).
+- **Inscrição:** só endereços https de serviços de push conhecidos (`*.push.apple.com`, `fcm.googleapis.com`,
+  `android.googleapis.com`, `*.push.services.mozilla.com`, `*.notify.windows.com`): o servidor faz POST para lá.
+  O mesmo endereço em outra conta passa para a conta nova.
+- **Sua conta:** bloco "Transferências agora" (quando há computador conectado) com link para `/app/#computador`.

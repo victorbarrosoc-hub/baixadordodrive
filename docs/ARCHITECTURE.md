@@ -60,6 +60,7 @@ src/
   engine/manager.js      TransferManager (fila, concorrência, persistência, eventos)
   engine/compare.js      compareFolders (local × Drive)
   engine/power.js        KeepAwake (impede o computador de dormir)
+  engine/acompanhar.js   AcompanharCelular: manda o andamento das transferências para a conta (docs/CONTAS.md §9)
   media/raw-thumb.js     miniatura de .braw/.r3d: extrairFrame (Quick Look / Explorer / ajudante nativo) e RawThumbnailer
   media/raw-thumb-lote.js "Gerar miniaturas": RAW que já estão no Drive, achados no computador por nome + tamanho
   media/previa.js        prévia leve: leitura (ffmpeg -i), decisão, linha de comando, detecção do ffmpeg/codificador, conversão
@@ -439,6 +440,34 @@ volta sozinho; depois de 16 esperas seguidas sem avanço → 'failed'; 'quota' �
 "Conecte a conta de novo"; 'fatal'/'notfound' → 'failed'. `cancel` de download apaga o `tempPath`;
 de upload faz DELETE na sessão (melhor esforço). Limites de banda e KeepAwake seguem `settings`.
 
+### engine/acompanhar.js — "Acompanhar pelo celular"
+
+Com a conta SOBEDESCE e o ajuste `acompanharCelular` (padrão ligado; Ajustes → Celular → Em qualquer lugar), manda um
+retrato curto das transferências para `POST /api/dispositivos/status` (Bearer do computador, `CloudAuth.request`;
+formato em `docs/CONTAS.md` §9). O celular mostra e o site avisa quando termina.
+
+```js
+montarRetrato(manager, { rodada: { id, inicio }|null, now, fechado }): StatusComputador
+  // membros da rodada: queued/running/verifying/waiting; pausado com updatedAt > inicio; completed/skipped/failed com
+  // (finishedAt ?? updatedAt) > inicio. Itens: os ativos/pausados (≤ 50; ao vivo via manager.get para os que rodam),
+  // terminados: os 30 últimos dos 7 dias (qualquer rodada). Nunca leva caminho local, conta ou sessão. ≤ 60 KB.
+  // destino: batch.destino (a rota de upload grava o destName que a interface manda, 'Meu Drive' na raiz; download =
+  // nome da pasta de destino; comparação = pasta do Drive/local) ou o nome da pasta do arquivo baixado.
+new AcompanharCelular({ manager, cloud, settings, ativoMs = 10 s, ociosoMs = 90 s, eventoMs = 1,5 s, minGapMs = 2 s,
+                        maxEsperaMs = 5 min, pausaLongaMs = 30 min, timeoutMs, fimTimeoutMs = 2,5 s, log, now })
+start(); close({ final }); agora(); retrato({ fechado })
+```
+- **Rodada:** abre quando algo fica ativo (ou termina entre dois retratos) depois de tudo parado; `inicio` = última vez
+  em que viu tudo parado (logo ao abrir o app, o `createdAt` do lote em andamento). Tudo parado → a rodada fica
+  "encerrada" e continua aparecendo (`concluido`/`erro`/`pausado`) até a próxima. O site avisa uma vez por rodada+estado.
+- **Ritmo:** mudança de status (começou, terminou, falhou, pausou) → envio em 1,5 s (junta os que acontecem juntos;
+  nunca menos de 2 s entre envios); andando, a cada 10 s; parado, sinal de vida a cada 90 s (o celular considera
+  ligado até 2 min). Um envio por vez.
+- **Falhas:** nunca lançam nem tocam na fila; recuo crescente até 5 min; 400/403/404/413 → 30 min sem tentar. Sessão
+  revogada (401) = a `CloudAuth` sai da conta e o envio para até entrar de novo (evento `status`).
+- **Ajuste desligado** com a conta ativa → `DELETE /api/dispositivos/status` (o retrato some do site) e nada mais vai.
+- **Fechar o app** (`startApp().shutdown`): se já mandou algo, um último retrato com `fechado: true` (até 2,5 s).
+
 ### media/raw-thumb.js — miniatura de .braw
 
 O Drive não gera miniatura de Blackmagic RAW; a API aceita uma nossa em `contentHints.thumbnail`, que vale no Drive web,
@@ -765,7 +794,7 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | GET | `/api/local/roots` | | `{ roots, home, sep }` |
 | GET | `/api/local/list` | `path`, `hidden` | `{ path, parent, entries }` |
 | POST | `/api/transfers/download` | `{ accountId, items: DriveItem[], destDir?, conflict? }` | `{ batch, count, bytes, skipped }` |
-| POST | `/api/transfers/upload` | `{ accountId, paths, destFolderId, driveId?, conflict? }` | `{ batch, count, bytes, skipped }` |
+| POST | `/api/transfers/upload` | `{ accountId, paths, destFolderId, driveId?, conflict?, destName? }` | `{ batch, count, bytes, skipped }` (`destName` = nome da pasta do Drive, só para o "Acompanhar pelo celular") |
 | POST | `/api/transfers/action` | `{ action: pause|resume|cancel|retry|remove|prioritize, ids?: string[]|'all', batchId? }` | `{ }` |
 | POST | `/api/transfers/clear` | | `{ }` |
 | GET | `/api/settings` / PATCH `/api/settings` | patch | `{ settings }` |

@@ -62,13 +62,26 @@ export default function PrivacidadePage() {
             se escrever uma) e, se usar o Atalho do iPhone, só o hash da chave dele. Os vídeos ficam no seu Drive, não com a gente.
           </li>
           <li>
+            <strong>Acompanhar pelo celular:</strong> se o ajuste “Acompanhar pelo celular” estiver ligado no app de computador (vem ligado), ele manda à
+            sua conta o andamento das transferências daquele computador: os nomes dos arquivos que estão passando e dos últimos que passaram, o tamanho, o
+            progresso, a velocidade e o nome da pasta de destino. Guardamos só o último retrato de cada computador, para você ver no celular. Ele é apagado
+            quando o computador fica 7 dias sem mandar notícia, quando você desliga o ajuste, desconecta o computador ou apaga a conta.
+          </li>
+          <li>
+            <strong>Avisos no celular:</strong> se você ligar “Avisar no celular quando terminar”, guardamos a inscrição de notificações do seu aparelho (um
+            endereço do serviço de notificações da Apple, do Google, da Mozilla ou da Microsoft e as chaves que cifram a mensagem). Mandamos por ele só o
+            aviso de fim de transferência, com o nome do computador, a quantidade de arquivos e o tamanho. Desligar o aviso ou apagar a conta apaga a
+            inscrição.
+          </li>
+          <li>
             <strong>Senha nova:</strong> quando você usa “Esqueci a senha”, guardamos por uma hora só o hash do link enviado. Depois de usado, ele não vale
             mais.
           </li>
         </LegalList>
         <p>
-          <strong>O que não guardamos:</strong> o conteúdo dos seus arquivos, os nomes deles e a sua fila de transferências. A fila do app de computador
-          fica no próprio computador (na pasta <code className="font-mono text-[14px]">.sobedesce</code>), e a do celular fica no próprio aparelho.
+          <strong>O que não guardamos:</strong> o conteúdo dos seus arquivos e a sua fila de transferências. A fila do app de computador fica no próprio
+          computador (na pasta <code className="font-mono text-[14px]">.sobedesce</code>), e a do celular fica no próprio aparelho. Os nomes dos arquivos
+          só chegam até nós no retrato do “Acompanhar pelo celular”, descrito acima, e por no máximo 7 dias.
         </p>
         <p>
           Os provedores que hospedam o serviço podem registrar dados técnicos de acesso, como endereço IP e horário, em registros de segurança e
@@ -133,7 +146,7 @@ export default function PrivacidadePage() {
         <p>
           Com ninguém, para nenhum fim comercial. Não vendemos, não alugamos e não compartilhamos os seus dados. Eles ficam em provedores que operam o
           serviço para nós: a Vercel (hospedagem do site), a Neon (banco de dados) e a Resend (envio dos e-mails da conta, como o link de senha nova, a
-          confirmação de conta apagada e o aviso de computador conectado; ela recebe o seu e-mail, o seu nome e o texto da mensagem). E, claro, no Google,
+          confirmação de conta apagada e o aviso de computador conectado; ela recebe o seu e-mail, o seu nome e o texto da mensagem). Os avisos no celular passam pelo serviço de notificações do seu navegador (Apple, Google, Mozilla ou Microsoft), cifrados de ponta a ponta. E, claro, no Google,
           quando você conecta o Drive.
         </p>
         <p>Só entregaríamos dados se uma lei ou ordem judicial obrigasse.</p>
@@ -175,7 +188,8 @@ export default function PrivacidadePage() {
 
       <LegalSection title="Por quanto tempo">
         <p>
-          Guardamos os dados da conta enquanto ela existir. Quando você remove um Drive, os tokens dele são apagados. Quando você apaga a conta, apagamos
+          Guardamos os dados da conta enquanto ela existir. O andamento das transferências de um computador fica no máximo 7 dias depois da última
+          notícia dele. Quando você remove um Drive, os tokens dele são apagados. Quando você apaga a conta, apagamos
           tudo o que está ligado a ela na mesma hora. Cópias de segurança automáticas dos provedores podem levar alguns dias para sair do ciclo.
         </p>
       </LegalSection>

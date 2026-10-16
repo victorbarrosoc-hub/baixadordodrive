@@ -12,6 +12,7 @@ import { Button, cx, useEngine } from './ui.js'
 import { QueueRow, SequenceBar } from './queue.js'
 import { InstallHint } from './install-hint.js'
 import { isIOS } from '../lib/platform.js'
+import { ComputerCard } from './computador.js'
 
 export function Avatar({ user, size = 32 }) {
   const [broken, setBroken] = useState(false)
@@ -257,6 +258,7 @@ export function MainScreen() {
   return html`<div class=${cx('screen', 'main', waiting && 'has-tap-pill')}>
     <${Header} user=${user} sum=${sum} items=${items} waiting=${waiting} />
     <main class="main-body">
+      ${LAN ? null : html`<${ComputerCard} />`}
       <${Destination} dest=${dest} />
       ${reconnect ? html`<${ReconnectNotice} drive=${drive} message=${authError} />` : null}
       <${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} />

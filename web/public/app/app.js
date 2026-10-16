@@ -15,6 +15,8 @@ import { engine } from './lib/uploader.js'
 import { startBridge } from './lib/stream.js'
 import { RefAtalhoSheet, RefDeleteSheet, RefItemSheet, RefLinkSheet, RefMenuSheet, RefNameSheet, RefSaveSheet } from './components/referencias.js'
 import { findUrl } from './lib/referencias.js'
+import { ComputerSheet } from './components/computador.js'
+import { startPc } from './lib/computador.js'
 
 const SHEETS = {
   folders: FolderSheet,
@@ -28,6 +30,7 @@ const SHEETS = {
   refDelete: RefDeleteSheet,
   refItem: RefItemSheet,
   refAtalho: RefAtalhoSheet,
+  computador: ComputerSheet,
 }
 
 // Android (share_target nos manifestos): /app/?compartilhar=1&title=&text=&url=. O navegador pode trocar a query
@@ -35,6 +38,7 @@ const SHEETS = {
 // abrir — quem não estava logado entra e volta para cá — e então abre "Salvar link" na aba Referências.
 const SHARE_KEY = 'sobedesce.compartilhar'
 let shared = null
+let wantComputer = !LAN && typeof location !== 'undefined' && location.hash === '#computador'
 function takeShare() {
   if (LAN) return
   const p = new URLSearchParams(location.search)
@@ -74,7 +78,34 @@ if (!LAN) {
   startBridge() // o service worker pede o token por aqui para a prévia e o download (/app/stream/)
   subscribe(openShared)
   // /app/#referencias (link de Sua conta): abre a aba, se a conta tiver o recurso.
-  window.addEventListener('hashchange', () => location.hash === '#referencias' && setState({ tab: 'refs' }))
+  window.addEventListener('hashchange', () => {
+    if (location.hash === '#referencias') setState({ tab: 'refs' })
+    if (location.hash === '#computador') openComputer()
+  })
+  // "No computador" (lib/computador.js): começa a acompanhar depois de entrar; /app/#computador (aviso do celular,
+  // link de Sua conta) abre a folha.
+  subscribe((st) => {
+    if (st.auth.status !== 'signedIn') return
+    startPc()
+    if (wantComputer) {
+      wantComputer = false
+      openComputer()
+    }
+  })
+  // Toque na notificação com o app já aberto: o service worker pede para abrir a folha.
+  navigator.serviceWorker?.addEventListener('message', (e) => {
+    if (e.data?.type === 'sd-computador') openComputer()
+  })
+}
+
+function openComputer() {
+  if (getState().auth.status !== 'signedIn') {
+    wantComputer = true
+    return
+  }
+  if (location.hash === '#computador') history.replaceState(null, '', location.pathname + location.search)
+  setState({ tab: 'send' })
+  openSheet('computador')
 }
 
 function App() {
