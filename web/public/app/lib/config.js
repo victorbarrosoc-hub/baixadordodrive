@@ -1,7 +1,7 @@
 // Configuração do SOBEDESCE Celular: endpoints, modo de teste local, endereços da conta e ajustes.
 // Os arquivos vão do navegador direto para o Google; o site da SOBEDESCE só entrega o token de acesso do Drive.
 
-export const VERSION = '2.0.0'
+export const VERSION = '2.1.0'
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost'])
 

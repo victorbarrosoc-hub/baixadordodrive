@@ -3,32 +3,39 @@
 import { html, render } from './vendor/preact-htm.js'
 import { DEV, LAN } from './lib/config.js'
 import * as auth from './lib/auth.js'
-import { getState, useApp } from './lib/state.js'
+import { getState, savedTab, setState, useApp } from './lib/state.js'
 import { AccountScreen, DrivesSheet } from './components/account.js'
 import { MainScreen } from './components/main.js'
+import { Tabs } from './components/tabs.js'
 import { FolderSheet } from './components/folders.js'
 import { SettingsSheet } from './components/settings.js'
 import { ItemSheet } from './components/queue.js'
 import { SheetHost, Toasts } from './components/ui.js'
 import { engine } from './lib/uploader.js'
+import { startBridge } from './lib/stream.js'
 
 const SHEETS = { folders: FolderSheet, settings: SettingsSheet, item: ItemSheet, drives: DrivesSheet }
 
 // Modo Wi-Fi (servido pelo SOBEDESCE do computador): sem conta aqui, quem fala com o Drive é o computador.
-if (!LAN) auth.boot()
+if (!LAN) {
+  auth.boot()
+  setState({ tab: savedTab() })
+  startBridge() // o service worker pede o token por aqui para a prévia e o download (/app/stream/)
+}
 
 function App() {
   const status = useApp((s) => s.auth.status)
-  const view = LAN || status === 'signedIn' ? html`<${MainScreen} />` : html`<${AccountScreen} />`
+  const view = LAN ? html`<${MainScreen} />` : status === 'signedIn' ? html`<${Tabs} />` : html`<${AccountScreen} />`
   return html`${view}<${SheetHost} registry=${SHEETS} /><${Toasts} />`
 }
 
 render(html`<${App} />`, document.getElementById('app'))
 document.documentElement.classList.add('is-ready')
 
-// Service worker do app (só a casca do app, em /app/; nunca toca na conta nem no Google). Fora do modo de teste e do
-// Wi-Fi (lá a casca vem do computador, protegida pelo código, e não deve ficar guardada).
-if ('serviceWorker' in navigator && !DEV && !LAN) {
+// Service worker do app: guarda a casca (/app/) e faz a prévia e o download do Drive (/app/stream/). Também no modo
+// de teste (é ele que faz o streaming). Nunca no Wi-Fi: lá a casca vem do computador, protegida pelo código, e não
+// deve ficar guardada.
+if ('serviceWorker' in navigator && !LAN) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(new URL('sw.js', import.meta.url), { scope: new URL('./', import.meta.url).pathname }).catch(() => {})
   })

@@ -95,3 +95,35 @@ export function initials(name = '', email = '') {
   const s = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : src.slice(0, 1)
   return s.toUpperCase()
 }
+
+/** Duração de mídia: "0:42", "12:05", "1:02:03". */
+export function duration(ms) {
+  const s = Math.max(0, Math.round((Number(ms) || 0) / 1000))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const r = String(s % 60).padStart(2, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${r}` : `${m}:${r}`
+}
+
+/** Tempo do player em segundos (com décimos fora): "0:07", "1:02:03". */
+export function clock(sec) {
+  return Number.isFinite(sec) ? duration(Math.floor(sec) * 1000) : '0:00'
+}
+
+const DATE_SHORT = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'short' })
+const DATE_YEAR = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' })
+const DATE_FULL = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+/** "12 de out." (este ano) ou "3 de mar. de 2024". */
+export function shortDate(iso) {
+  const d = new Date(iso)
+  if (!iso || Number.isNaN(d.getTime())) return ''
+  return (d.getFullYear() === new Date().getFullYear() ? DATE_SHORT : DATE_YEAR).format(d)
+}
+
+/** "12 de outubro de 2026 às 14:32". */
+export function fullDate(iso) {
+  const d = new Date(iso)
+  if (!iso || Number.isNaN(d.getTime())) return ''
+  return DATE_FULL.format(d)
+}
