@@ -42,6 +42,8 @@ const MAX_CACHED_FOLDERS = 20_000
 const PROGRESS_MS = 200 // walk: no máximo 5 avisos de progresso por segundo
 const ENSURE_TRIES = 6
 const MY_DRIVE_NAME = 'Meu Drive'
+const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024 // limite do Drive para contentHints.thumbnail
+const THUMBNAIL_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif'])
 // Sem conexão nenhuma (sem DNS, sem rota, conexão recusada): recuo longo não ajuda e deixava a tela do Drive
 // girando ~45 s antes de dizer "confira a internet". Repete a cada ~1 s só por uma janela curta (pega o Wi-Fi que
 // pisca); quem roda em segundo plano (download/upload) já tem a própria espera longa.
@@ -537,6 +539,25 @@ export class DriveClient {
     const item = toDriveItem(f)
     this.#remember(item)
     return item
+  }
+
+  /**
+   * Grava uma miniatura nossa no arquivo (`contentHints.thumbnail`, files.update). O Drive só mostra quando não
+   * consegue gerar a dele (ex.: .braw) e descarta quando o conteúdo do arquivo muda. Imagem PNG/JPEG/GIF até 2 MB,
+   * em base64 "URL-safe" (RFC 4648 §5). Repete como as outras chamadas (`api`).
+   */
+  async setThumbnail(fileId, image, mimeType = 'image/jpeg', { signal, retries } = {}) {
+    if (!Buffer.isBuffer(image) || !image.length) throw new Error('Miniatura vazia.')
+    if (image.length > MAX_THUMBNAIL_BYTES) throw new Error('Miniatura maior que 2 MB.')
+    if (!THUMBNAIL_MIMES.has(mimeType)) throw new Error(`Tipo de miniatura não aceito: ${mimeType}`)
+    const b64 = image.toString('base64url')
+    const r = await this.api('PATCH', `files/${encodeURIComponent(fileId)}`, {
+      query: { fields: 'id,hasThumbnail' },
+      body: { contentHints: { thumbnail: { image: b64 + '='.repeat((4 - (b64.length % 4)) % 4), mimeType } } },
+      signal,
+      retries,
+    })
+    return { id: r.id ?? fileId, hasThumbnail: r.hasThumbnail === true }
   }
 
   /**

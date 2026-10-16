@@ -22,6 +22,7 @@ import { httpRequest, drain } from '../net/http.js'
 import { DownloadTask } from './download.js'
 import { UploadTask } from './upload.js'
 import { KeepAwake } from './power.js'
+import { RawThumbnailer } from '../media/raw-thumb.js'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -119,9 +120,10 @@ export class TransferManager extends EventEmitter {
    * @param {ReturnType<typeof dataPaths>} [opts.paths]
    * @param {(accountId: string) => object} [opts.driveFactory] DriveClient da conta (um por conta, em cache)
    * Opções finas (testes): keepAwake, createTask(record, ctx), taskOptions { download, upload },
-   * quotaDelays (ms, cota de download do arquivo), quotaFallbackMs, quotaMaxMs, networkDelays (ms, rede fora do ar), log.
+   * quotaDelays (ms, cota de download do arquivo), quotaFallbackMs, quotaMaxMs, networkDelays (ms, rede fora do ar), log,
+   * thumbnailer (miniatura de .braw: RawThumbnailer; null desliga).
    */
-  constructor({ settings, auth = null, hasher = null, paths = dataPaths(), driveFactory, keepAwake, createTask, taskOptions = {}, quotaDelays = QUOTA_DELAYS, quotaFallbackMs = QUOTA_FALLBACK_MS, quotaMaxMs = 24 * HOUR, networkDelays = NETWORK_DELAYS, log } = {}) {
+  constructor({ settings, auth = null, hasher = null, paths = dataPaths(), driveFactory, keepAwake, createTask, taskOptions = {}, quotaDelays = QUOTA_DELAYS, quotaFallbackMs = QUOTA_FALLBACK_MS, quotaMaxMs = 24 * HOUR, networkDelays = NETWORK_DELAYS, log, thumbnailer } = {}) {
     super()
     if (!settings?.get) throw new Error('TransferManager: settings é obrigatório')
     this.settings = settings
@@ -139,6 +141,11 @@ export class TransferManager extends EventEmitter {
     this.log = log || ((...args) => {
       if (process.env.SOBEDESCE_DEBUG) console.error('[motor]', ...args)
     })
+    // Miniatura de .braw: o frame sai em paralelo ao envio e vai para o Drive depois que ele termina, em segundo
+    // plano. Nunca muda o status da transferência; quando grava, marca `thumbnail: true` no registro.
+    this.thumbnailer =
+      thumbnailer === undefined ? new RawThumbnailer({ settings, log: (...a) => this.log(...a), onResult: (rec, ok) => this.#thumbResult(rec, ok) }) : thumbnailer
+    if (this.thumbnailer && !this.thumbnailer.onResult) this.thumbnailer.onResult = (rec, ok) => this.#thumbResult(rec, ok)
 
     /** @type {Map<string, object>} id -> TransferRecord (ordem de inserção = ordem da fila) */
     this.records = new Map()
@@ -282,6 +289,7 @@ export class TransferManager extends EventEmitter {
       }
       for (const b of this.busy.values()) waits.push(b.promise)
       await this.#waitFor(waits, SHUTDOWN_WAIT_MS)
+      await this.thumbnailer?.close().catch(noop)
       this.settings.off?.('change', this.onSettingsChange)
       this.auth?.off?.('accounts', this.onAccounts)
       try {
@@ -696,6 +704,7 @@ export class TransferManager extends EventEmitter {
     rec.retryAt = null
     this.#touch(rec)
     this.#saveSoon()
+    if (rec.type === 'upload') this.#thumb('prepare', rec)
     entry.promise = (async () => {
       let failure = null
       try {
@@ -748,6 +757,7 @@ export class TransferManager extends EventEmitter {
         delete rec.autoRetries
         delete rec.netWaits
         delete rec.netWaitBytes
+        if (rec.type === 'upload' && rec.status === 'completed' && rec.target?.fileId) this.#thumb('attach', rec)
       } else if (entry.after === 'shutdown') {
         // Fica como estava: na próxima abertura vira 'queued' (autoResume) ou 'paused'.
         if (!isAbortError(err)) this.#fail(rec, err)
@@ -1045,6 +1055,23 @@ export class TransferManager extends EventEmitter {
   #touch(rec) {
     rec.updatedAt = Date.now()
     if (this.records.get(rec.id) === rec) this.dirty.add(rec.id)
+  }
+
+  /** Miniatura de RAW: nada daqui pode atrapalhar a fila. */
+  #thumb(step, rec) {
+    try {
+      if (step === 'prepare') this.thumbnailer?.prepare(rec)
+      else this.thumbnailer?.attach(rec, this.driveFor(rec.accountId))
+    } catch (err) {
+      this.log('miniatura:', err?.message)
+    }
+  }
+
+  #thumbResult(rec, ok) {
+    if (!ok || this.records.get(rec.id) !== rec) return
+    rec.thumbnail = true
+    this.#touch(rec)
+    this.#saveSoon()
   }
 
   #forget(id) {

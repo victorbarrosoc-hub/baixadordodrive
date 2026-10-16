@@ -3345,6 +3345,20 @@ button.tree-twisty:hover {
   max-width: 420px;
   color: var(--text);
 }
+.srow-note {
+  display: inline-block;
+  margin-top: 4px;
+  color: var(--text-2);
+}
+.srow-note.is-warn {
+  color: var(--warn-text);
+}
+.srow-note a {
+  margin-left: 4px;
+  color: var(--down-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .srow-control {
   flex: none;
   display: flex;

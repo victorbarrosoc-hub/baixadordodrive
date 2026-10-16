@@ -579,6 +579,13 @@ export function createApi(ctx) {
   // ── ajustes
   route('GET', '/api/settings', () => ({ settings: ctx.settings.get() }))
 
+  // Miniatura de .braw (Ajustes): o que o computador tem para tirar o frame e o último resultado.
+  route('GET', '/api/raw-thumbs', async ({ query }) => {
+    const t = ctx.manager.thumbnailer
+    const rawThumbs = t ? await t.status({ refresh: query.get('refresh') === '1' }) : { supported: false, found: false, via: null, enabled: false, last: null, downloadUrl: null }
+    return { rawThumbs }
+  })
+
   route('PATCH', '/api/settings', async ({ body }) => {
     try {
       validateSettings(body, ctx.settings.get())
