@@ -26,6 +26,17 @@ files:
   - "!**/*.map"
   - "!**/*.md"
 
+# ffmpeg da prévia leve (src/media/previa.js), baixado por `node scripts/ffmpeg-baixar.mjs` (o CI roda antes do dist).
+# Fica fora de app/, em <Resources>/ffmpeg/ (o motor procura ali). No Mac universal o electron-builder empacota x64 e
+# arm64 separados (${arch} = x64 / arm64) e o @electron/universal junta os dois ffmpeg num binário só (lipo); por
+# isso cada pasta tem SÓ o executável (arquivo comum diferente entre as arquiteturas faria o universal falhar).
+# Sem a pasta (build local sem o download) o app sai sem ffmpeg e usa o do sistema, se houver.
+extraResources:
+  - from: build/ffmpeg/${os}-${arch}
+    to: ffmpeg
+  - from: build/ffmpeg-licencas
+    to: ffmpeg-licencas
+
 mac:
   target:
     - target: dmg

@@ -19,6 +19,7 @@ import { DrivePreview } from './drive-preview.js'
 import { onProxies, knownProxy, siblingProxies } from '../lib/media.js'
 import { createDriveFolder, useAbout, useDriveFolder, useDriveSearch, useSharedDrives } from './drive-data.js'
 import { hasRawFiles, onRawThumbsDone, openRawThumbs, useRawThumbsRunning } from './raw-thumbs.js'
+import { hasVideoFiles, onPreviasDone, openPrevias, usePreviasRunning } from './previa.js'
 
 /** Fontes: Meu Drive + drives compartilhados, em pílulas. */
 export function SourceChips({ drives, current, onPick, vertical }) {
@@ -121,6 +122,9 @@ export function DriveScreen({ route }) {
   reloadRef.current = reload
   useEffect(() => onRawThumbsDone((job) => job.progress?.feitos && reloadRef.current()), [])
   const thumbsRunning = useRawThumbsRunning()
+  // "Gerar prévias" terminou: recarrega a pasta (a subpasta Proxy aparece).
+  useEffect(() => onPreviasDone((job) => job.progress?.feitos && reloadRef.current()), [])
+  const previasRunning = usePreviasRunning()
 
   const searching = !!q.trim()
   const items = searching ? search.items : data?.items || null
@@ -262,6 +266,11 @@ export function DriveScreen({ route }) {
         ${!searching && folder && (hasRawFiles(items) || thumbsRunning)
           ? html`<button type="button" class="btn btn-secondary" onClick=${() => openRawThumbs({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } })} title="Miniatura para os BRAW/R3D, a partir dos originais no computador">
               ${thumbsRunning ? html`<${Spinner} size=${14} />` : html`<${Icon} name="photo" size=${16} />`}<span>Gerar miniaturas</span>
+            </button>`
+          : null}
+        ${!searching && folder && (hasVideoFiles(items, folder) || previasRunning)
+          ? html`<button type="button" class="btn btn-secondary" onClick=${() => openPrevias({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } })} title="Cópia leve em 1080p (pasta Proxy) para a prévia tocar fluida, a partir dos originais no computador">
+              ${previasRunning ? html`<${Spinner} size=${14} />` : html`<${Icon} name="film" size=${16} />`}<span>Gerar prévias</span>
             </button>`
           : null}
         <${Button} icon="folder-plus" onClick=${newFolder} disabled=${searching}>Nova pasta</${Button}>

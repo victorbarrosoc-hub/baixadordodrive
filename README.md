@@ -177,6 +177,20 @@ O Google Drive não gera miniatura de **Blackmagic RAW (.braw)**: o arquivo apar
 - No Mac com macOS 15 ou mais novo, se o Finder não mostra miniatura de .braw, o SOBEDESCE também não consegue. O [Calibrated QuickLook](https://www.calibratedsoftware.com/calibrated-quicklook/) (grátis) resolve as duas coisas.
 - **BRAW que já estão no Drive:** abra a pasta na tela **Drive** e clique em **Gerar miniaturas**. Escolha onde estão os originais (HD ou cartão): o SOBEDESCE acha os mesmos arquivos (mesmo nome e mesmo tamanho), tira um frame e grava a miniatura no Drive. Nada é enviado de novo. Dá para incluir as subpastas e refazer as que já têm miniatura; no fim aparece o resumo (gravadas, sem arquivo no computador, tamanho diferente, falharam).
 
+### Prévia leve dos vídeos (toca fluida como no Drive)
+
+O Google Drive toca vídeo pesado sem travar porque usa uma cópia leve que ele mesmo gera; pela API só dá para pegar o original (ProRes, 4K de câmera, HEVC 10 bits…), que é pesado demais para tocar pela rede. O SOBEDESCE faz a cópia leve dele:
+
+- Quando um vídeo pesado termina de subir, o app gera uma **cópia H.264 em 1080p** (≈ 5 Mbit/s, áudio AAC estéreo) e sobe em **`Proxy/<mesmo nome>.mp4`**, ao lado do original — a mesma convenção das câmeras Blackmagic. **O original não muda.**
+- A prévia do **celular**, do **app de computador** e do **site da produtora** procuram essa cópia primeiro e tocam ela, fluida. No player aparece **Prévia leve | Original**: tocar em **Original** troca para o arquivo de verdade no mesmo ponto. **Baixar sempre baixa o original.**
+- Só vídeo que precisa: mais de 20 Mbit/s, codec que não é H.264 8 bits (ProRes, DNx, HEVC 10 bits, XAVC Intra…), maior que 1080p ou contêiner que o navegador não abre (MXF, MKV, AVI, MTS). MP4 H.264 leve fica como está. BRAW/R3D ficam de fora (o ffmpeg não abre; a câmera já grava o proxy).
+- Se o vídeo já tem proxy (da câmera, na mesma pasta ou em `Proxy`/`Proxies`), o app não gera outro.
+- Roda **depois** do envio, uma cópia por vez, com prioridade baixa (só usa o processador que sobra). No Mac usa o **chip de vídeo** (VideoToolbox); no Windows, a placa de vídeo quando existe (NVIDIA, Intel Quick Sync, AMD); senão o ffmpeg no processador. A linha do envio mostra **"Gerando prévia leve… 42%"** e depois **"Prévia leve pronta"**; dá para **Pular**. Pausar tudo pausa a prévia também. Se falhar, o envio continua concluído (só fica sem a cópia).
+- Liga e desliga em **Ajustes → Arquivos → Gerar prévia leve dos vídeos** (ligado por padrão). Ali aparece o que o computador está usando ("Usando o chip de vídeo do Mac", "Usando o ffmpeg") ou um aviso se não houver conversor.
+- **Vídeos que já estão no Drive:** na tela **Drive**, **Gerar prévias** (aparece quando a pasta tem vídeo). Escolha onde estão os originais (HD ou cartão): o app acha os mesmos arquivos (nome + tamanho), gera a cópia e sobe na pasta Proxy. Dá para incluir subpastas e refazer as prévias leves que já existem (proxy de câmera nunca é trocado).
+- **Espaço no Drive:** cada cópia ocupa cerca de **2 a 5% do original** (≈ 40 MB por minuto de vídeo). Uma diária de 500 GB em ProRes vira uns 10–20 GB de prévias.
+- O ffmpeg vem dentro do app (GPL v3; licença e fontes em `Resources/ffmpeg-licencas`). Sem ele (rodando do código), o app usa o ffmpeg do sistema (`brew install ffmpeg`), a variável `SOBEDESCE_FFMPEG`, ou `node scripts/ffmpeg-baixar.mjs` para baixar o mesmo do instalador.
+
 ---
 
 ## Dicas de velocidade
@@ -246,6 +260,6 @@ npm run desktop      # app de desktop (Electron) a partir do código
 ```
 
 - **Gerar os instaladores:** o GitHub Actions (`.github/workflows/desktop.yml`) gera o `.dmg` num Mac e o `.exe` num Windows na nuvem. Roda sozinho em pushes na `main`; em outras branches, só quando a mensagem do commit tem **`[build]`**. Os instaladores vão para o Release **SOBEDESCE · versão de teste** (Releases não gastam a cota de artefatos do Actions). Uma tag **`v*`** (ex.: `git tag v0.2.0 && git push --tags`) também publica um **Release** com os instaladores.
-- Localmente: `npm run dist:mac` (precisa de um Mac) e `npm run dist:win`.
+- Localmente: `node scripts/ffmpeg-baixar.mjs` (o ffmpeg da prévia leve, em `build/ffmpeg/`) e depois `npm run dist:mac` (precisa de um Mac) ou `npm run dist:win`.
 - Arquitetura, contratos e decisões: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Notas verificadas da API do Google: [docs/GOOGLE-NOTES.md](docs/GOOGLE-NOTES.md). App do celular: [docs/CELULAR.md](docs/CELULAR.md). Contas SOBEDESCE: [docs/CONTAS.md](docs/CONTAS.md).
-- Variáveis úteis: `SOBEDESCE_HOME` (pasta de dados), `SOBEDESCE_PORT` (porta da interface), `SOBEDESCE_NO_OPEN=1` (não abre o navegador), `SOBEDESCE_DEBUG=1` (log detalhado do motor).
+- Variáveis úteis: `SOBEDESCE_HOME` (pasta de dados), `SOBEDESCE_PORT` (porta da interface), `SOBEDESCE_NO_OPEN=1` (não abre o navegador), `SOBEDESCE_DEBUG=1` (log detalhado do motor), `SOBEDESCE_FFMPEG` (ffmpeg da prévia leve).

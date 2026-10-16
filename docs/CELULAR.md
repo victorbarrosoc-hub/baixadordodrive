@@ -101,6 +101,10 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   `files.list` por nome). Achou: toca o proxy no mesmo player, com o selo “Proxy” e “Prévia em baixa resolução. O
   Baixar traz o original.” O **Baixar** continua sendo o original. Na grade, bruto sem miniatura usa a do proxy
   quando ele já é conhecido (mesma pasta na tela ou prévia aberta antes).
+- **Prévia leve:** vídeo com mais de 30 MB (qualquer codec) procura o mesmo proxy **antes** de tocar (a cópia H.264
+  1080p que o app de computador grava em `Proxy/<nome>.mp4`, `appProperties.sobedesce = 'previa'`, ou o da câmera) e
+  toca ele por padrão, com **Prévia leve | Original** no canto do player (troca no mesmo ponto). O aviso de vídeo
+  pesado só aparece quando não há cópia. `FILE_FIELDS` pede `appProperties`.
 - **Baixar** (no topo, azul), **Abrir no Drive** e **Compartilhar** (Web Share, com o link do Drive). Acima de 1 GB
   avisa antes: no celular a tela precisa ficar aberta, e no computador o app SOBEDESCE baixa muito mais rápido.
   Documentos do Google não têm bytes: só “Abrir”.
