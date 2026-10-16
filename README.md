@@ -26,7 +26,7 @@ Tudo roda no seu computador. Os arquivos vão direto entre a sua máquina e o Go
 
 1. **Baixe o instalador (.dmg)**:
    - **Releases:** na página do projeto no GitHub, abra **Releases** e baixe o `SOBEDESCE-…-mac-universal.dmg` da versão mais recente.
-   - **Ou pelo Actions** (versões em teste): no GitHub, abra **Actions** → clique na execução mais recente de **App de desktop** com ✓ verde → role até **Artifacts** → baixe **SOBEDESCE-Mac**. Vem um `.zip`; abra e o `.dmg` está dentro.
+   - **Versão de teste:** no GitHub, abra **Releases** → **SOBEDESCE · versão de teste** → baixe `SOBEDESCE-…-mac-universal.dmg`.
 2. **Abra o .dmg e arraste o SOBEDESCE para a pasta Aplicativos.**
 3. **Primeira abertura.** O app ainda não tem assinatura da Apple, então o macOS bloqueia na primeira vez:
    - Tente abrir o SOBEDESCE normalmente e feche o aviso.
@@ -44,7 +44,7 @@ O mesmo `.dmg` funciona em Macs com Apple Silicon (M1, M2, M3, M4…) e com Inte
 
 ## Instalar no Windows
 
-1. **Baixe o instalador (.exe)**: em **Releases** (`SOBEDESCE-…-windows-setup.exe`) ou em **Actions** → execução mais recente → **Artifacts** → **SOBEDESCE-Windows** (vem em `.zip`; o `.exe` está dentro).
+1. **Baixe o instalador (.exe)**: em **Releases** → **SOBEDESCE · versão de teste** (ou uma versão numerada) → `SOBEDESCE-…-windows-setup.exe`.
 2. **Abra o instalador.** Ele instala só para o seu usuário, sem pedir senha de administrador, e cria atalho na Área de Trabalho e no Menu Iniciar.
 3. **Se o Windows mostrar "O Windows protegeu o computador" (SmartScreen):** clique em **Mais informações** → **Executar assim mesmo**. Aparece porque o app não tem certificado pago da Microsoft.
 4. **Firewall:** se for receber arquivos do celular, na primeira vez o Windows pergunta se o SOBEDESCE pode usar a rede. Marque **Redes privadas** e permita.
@@ -181,7 +181,7 @@ npm run test:fast    # pula os lentos
 npm run desktop      # app de desktop (Electron) a partir do código
 ```
 
-- **Gerar os instaladores:** o GitHub Actions (`.github/workflows/desktop.yml`) gera o `.dmg` num Mac e o `.exe` num Windows na nuvem. Roda sozinho em pushes na `main`; em outras branches, só quando a mensagem do commit tem **`[build]`**. Os instaladores ficam em **Actions → execução → Artifacts**. Uma tag **`v*`** (ex.: `git tag v0.2.0 && git push --tags`) também publica um **Release** com os instaladores.
+- **Gerar os instaladores:** o GitHub Actions (`.github/workflows/desktop.yml`) gera o `.dmg` num Mac e o `.exe` num Windows na nuvem. Roda sozinho em pushes na `main`; em outras branches, só quando a mensagem do commit tem **`[build]`**. Os instaladores vão para o Release **SOBEDESCE · versão de teste** (Releases não gastam a cota de artefatos do Actions). Uma tag **`v*`** (ex.: `git tag v0.2.0 && git push --tags`) também publica um **Release** com os instaladores.
 - Localmente: `npm run dist:mac` (precisa de um Mac) e `npm run dist:win`.
 - Arquitetura, contratos e decisões: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Notas verificadas da API do Google: [docs/GOOGLE-NOTES.md](docs/GOOGLE-NOTES.md). App do celular: [mobile/README.md](mobile/README.md).
 - Variáveis úteis: `SOBEDESCE_HOME` (pasta de dados), `SOBEDESCE_PORT` (porta da interface), `SOBEDESCE_NO_OPEN=1` (não abre o navegador), `SOBEDESCE_DEBUG=1` (log detalhado do motor).
