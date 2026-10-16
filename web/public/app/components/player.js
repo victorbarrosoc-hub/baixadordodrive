@@ -78,7 +78,7 @@ function Scrubber({ time, dur, buffered, onSeek, onScrub }) {
  * kind 'video' | 'audio'. `poster` (miniatura) aparece até o primeiro quadro. onFail(code) quando o navegador não
  * consegue tocar (formato ou rede): quem chama decide o aviso.
  */
-export function MediaPlayer({ kind, src, poster, title, ratio, badge, onFail }) {
+export function MediaPlayer({ kind, src, poster, title, ratio, badge, onFail, onStall }) {
   const wrap = useRef(null)
   const media = useRef(null)
   const hideTimer = useRef(0)
@@ -145,6 +145,32 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, onFail }) 
     }
   }
 
+  // Travou: em espera por mais de 4 s, ou o tempo anda sem quadro novo (a imagem congela e o relógio segue).
+  const stallTimer = useRef(0)
+  const lastFrame = useRef({ media: 0, at: 0 })
+  useEffect(() => {
+    const m = media.current
+    if (!onStall || kind !== 'video' || !m || !m.requestVideoFrameCallback) return
+    let id = 0
+    const tick = (_now, meta) => {
+      lastFrame.current = { media: meta.mediaTime, at: m.currentTime }
+      id = m.requestVideoFrameCallback(tick)
+    }
+    id = m.requestVideoFrameCallback(tick)
+    return () => m.cancelVideoFrameCallback?.(id)
+  }, [onStall, kind, src])
+  const stall = () => {
+    clearTimeout(stallTimer.current)
+    media.current?.pause()
+    onStall?.()
+  }
+  useEffect(() => () => clearTimeout(stallTimer.current), [])
+  const checkFrames = () => {
+    const m = media.current
+    if (!onStall || kind !== 'video' || !m || m.paused || !m.requestVideoFrameCallback) return
+    if (m.currentTime - lastFrame.current.at > 3) stall()
+  }
+
   const onError = () => {
     const err = media.current?.error
     onFail?.(err?.code || 0)
@@ -179,13 +205,27 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, onFail }) 
       aria-label=${title}
       onLoadedMetadata=${sync}
       onDurationChange=${sync}
-      onTimeUpdate=${() => scrub == null && sync()}
+      onTimeUpdate=${() => {
+        if (scrub == null) sync()
+        checkFrames()
+      }}
       onProgress=${sync}
       onPlay=${() => (patch({ playing: true, started: true, ended: false }), showUi())}
       onPause=${() => (patch({ playing: false }), setUi(true))}
       onPlaying=${() => patch({ waiting: false, playing: true, started: true })}
-      onWaiting=${() => patch({ waiting: true })}
-      onCanPlay=${() => patch({ waiting: false })}
+      onWaiting=${() => {
+        patch({ waiting: true })
+        clearTimeout(stallTimer.current)
+        if (onStall && kind === 'video') stallTimer.current = setTimeout(stall, 4000)
+      }}
+      onSeeked=${() => {
+        // Depois de pular, o próximo quadro ainda não chegou: não conta como travado.
+        lastFrame.current.at = media.current?.currentTime ?? 0
+      }}
+      onCanPlay=${() => {
+        patch({ waiting: false })
+        clearTimeout(stallTimer.current)
+      }}
       onEnded=${() => (patch({ playing: false, ended: true }), setUi(true))}
       onVolumeChange=${() => patch({ muted: media.current?.muted })}
       onRateChange=${() => patch({ rate: media.current?.playbackRate || 1 })}

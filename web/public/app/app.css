@@ -2892,6 +2892,13 @@ html.has-preview .toasts {
 .pv-none-art .glyph-ext {
   font-size: 12px;
 }
+.pv-none-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
 .pv-none-text {
   max-width: 34ch;
   font-size: 14.5px;

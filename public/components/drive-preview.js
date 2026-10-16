@@ -23,6 +23,14 @@ function timecode(sec) {
   return clipTime(sec) || '0:00'
 }
 
+/** Acima disso (Mbit/s) o original não toca liso pela rede; o Drive toca uma cópia leve. ProRes 4K passa de 700. */
+const HEAVY_MBPS = 400
+function mbpsOf(item) {
+  const ms = Number(item.video?.durationMs || item.videoMediaMetadata?.durationMillis || 0)
+  const size = Number(item.size || 0)
+  return ms > 0 && size > 0 ? (size * 8) / (ms / 1000) / 1e6 : 0
+}
+
 /** Estado e ações de um <video>/<audio>. */
 function useMedia(ref, { onFail }) {
   const [st, setSt] = useState({ playing: false, time: 0, duration: 0, buffered: 0, volume: 1, muted: false, rate: 1, ready: false, waiting: false })
@@ -55,8 +63,12 @@ function useMedia(ref, { onFail }) {
       if (m.tagName === 'VIDEO' && m.videoWidth === 0 && m.duration > 0) fail.current?.('novideo')
     }
     const onError = () => fail.current?.(m.error?.code === 4 ? 'format' : 'error')
+    let stallTimer = 0
     const wait = (on) => () => {
       stalled.current = on
+      clearTimeout(stallTimer)
+      // Esperando dados por muito tempo com o vídeo tocando: a rede não dá conta do original.
+      if (on && m.tagName === 'VIDEO') stallTimer = setTimeout(() => !m.paused && stalled.current && fail.current?.('stall'), 6000)
       read()
     }
     const evs = { play: onPlay, playing: wait(false), pause: read, ended: read, timeupdate: read, durationchange: read, progress: read, volumechange: read, ratechange: read, waiting: wait(true), canplay: wait(false), seeked: wait(false), loadedmetadata: onMeta, error: onError }
@@ -78,6 +90,7 @@ function useMedia(ref, { onFail }) {
     else if (m.readyState >= 1) onMeta()
     read()
     return () => {
+      clearTimeout(stallTimer)
       cancelAnimationFrame(raf)
       for (const [k, fn] of Object.entries(evs)) m.removeEventListener(k, fn)
       m.removeEventListener('play', onPlayFrames)
@@ -378,24 +391,27 @@ function Content({ accountId, item, keysRef, onDownload }) {
   const kind = previewKind(item)
   const ext = extOf(item.name).toUpperCase()
   const original = streamUrl(accountId, item)
+  // Pesado: taxa (tamanho/duração) alta demais para tocar pela rede, ou travou tocando. O Drive toca uma cópia leve.
+  const [heavy, setHeavy] = useState(() => kind === 'video' && mbpsOf(item) > HEAVY_MBPS)
   const [mode, setMode] = useState(() => {
-    if (kind === 'video') return tryPlayVideo(item) ? 'play' : 'proxy'
+    if (kind === 'video') return tryPlayVideo(item) && !(mbpsOf(item) > HEAVY_MBPS) ? 'play' : 'proxy'
     if (kind === 'audio') return tryPlayAudio(item) ? 'play' : 'fail'
     return 'show'
   })
   const [proxy, setProxy] = useState(() => knownProxy(accountId, item.id) ?? undefined)
+  const [forced, setForced] = useState(false)
 
   useEffect(() => {
     if (mode !== 'proxy') return undefined
     let alive = true
-    if (!proxyWorth(item)) {
+    if (!proxyWorth(item) && !heavy) {
       setMode('fail')
       return undefined
     }
     findProxy(accountId, item).then((p) => {
       if (!alive) return
       setProxy(p)
-      setMode(p ? 'proxy-play' : 'fail')
+      setMode(p ? 'proxy-play' : heavy ? 'heavy' : 'fail')
     })
     return () => {
       alive = false
@@ -406,7 +422,19 @@ function Content({ accountId, item, keysRef, onDownload }) {
   keysRef.current = null
 
   if (kind === 'video' && mode === 'play') {
-    return html`<${VideoPlayer} key=${'o' + item.id} src=${original} poster=${thumbUrl(accountId, item, 1280)} keysRef=${keysRef} onFail=${() => setMode('proxy')} />`
+    return html`<${VideoPlayer}
+      key=${'o' + item.id}
+      src=${original}
+      poster=${thumbUrl(accountId, item, 1280)}
+      keysRef=${keysRef}
+      onFail=${(why) => {
+        if (why === 'stall') {
+          if (forced) return
+          setHeavy(true)
+        }
+        setMode('proxy')
+      }}
+    />`
   }
   if (kind === 'video' && mode === 'proxy-play' && proxy) {
     return html`<${VideoPlayer}
@@ -414,7 +442,7 @@ function Content({ accountId, item, keysRef, onDownload }) {
       src=${streamUrl(accountId, proxy)}
       poster=${thumbUrl(accountId, proxy, 1280) || thumbUrl(accountId, item, 1280)}
       keysRef=${keysRef}
-      onFail=${() => setMode('fail')}
+      onFail=${(why) => why !== 'stall' && setMode('fail')}
       badge=${html`<div class="proxy-note"><span class="proxy-tag">Proxy</span><span>Prévia em baixa resolução. O Baixar traz o original.</span></div>`}
     />`
   }
@@ -423,6 +451,26 @@ function Content({ accountId, item, keysRef, onDownload }) {
       ${bigPoster ? html`<img class="pother-poster" src=${bigPoster} alt="" />` : html`<${FileIcon} name=${item.name} mimeType=${item.mimeType} size=${112} />`}
       <div class="pother-text"><span class="pwait"><${Spinner} size=${14} /> Procurando o proxy da câmera…</span></div>
     </div>`
+  }
+  if (kind === 'video' && mode === 'heavy') {
+    return html`<${Other}
+      item=${item}
+      poster=${bigPoster}
+      title="Vídeo pesado demais para tocar pela rede"
+      text=${`${ext || 'Arquivo'}${item.size != null ? ` · ${bytes(item.size)}` : ''}. O Google Drive toca uma cópia leve dele.`}
+      actions=${html`<div class="pother-acts">
+        <${Button} variant="primary" class="btn-down" icon="download" onClick=${onDownload}>Baixar original</${Button}>
+        <${Button} variant="secondary" icon="external" onClick=${() => openExternal(item.webViewLink || driveFileUrl(item.id))}>Ver no Google Drive</${Button}>
+        <${Button}
+          variant="ghost"
+          onClick=${() => {
+            setForced(true)
+            setMode('play')
+          }}
+          >Tentar mesmo assim</${Button}
+        >
+      </div>`}
+    />`
   }
   if ((kind === 'video' || kind === 'audio') && mode === 'fail') {
     return html`<${Other}
