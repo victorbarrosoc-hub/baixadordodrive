@@ -55,7 +55,7 @@ describe("criar conta, entrar e sair", () => {
     assert.equal(res.status, 200);
     assert.equal(res.headers.get("cache-control"), "no-store");
     const corpo = await res.json();
-    assert.deepEqual(corpo, { usuario: { id: r.usuario.id, email: "victor@exemplo.com", nome: "Victor" }, contas: [] });
+    assert.deepEqual(corpo, { usuario: { id: r.usuario.id, email: "victor@exemplo.com", nome: "Victor" }, contas: [], recursos: { referencias: true } });
 
     const { db, schema } = amb.banco;
     const linhas = await db.select().from(schema.sessoes);

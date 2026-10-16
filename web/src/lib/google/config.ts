@@ -54,6 +54,7 @@ export function endpoints() {
       token: `${base}/token`,
       revoke: `${base}/revoke`,
       userinfo: `${base}/v1/userinfo`,
+      drive: `${base}/drive/v3`,
     };
   }
   return {
@@ -61,5 +62,6 @@ export function endpoints() {
     token: "https://oauth2.googleapis.com/token",
     revoke: "https://oauth2.googleapis.com/revoke",
     userinfo: "https://openidconnect.googleapis.com/v1/userinfo",
+    drive: "https://www.googleapis.com/drive/v3",
   };
 }

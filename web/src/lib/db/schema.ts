@@ -3,11 +3,14 @@
  * Tabelas definidas em docs/CONTAS.md §3. Depois de mudar: npm run db:generate.
  * Colunas em camelCase aqui, snake_case no banco (casing do Drizzle).
  */
-import { bigint, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 /** Data e hora com fuso. `agora()`: obrigatória, padrão now(). */
 const quando = () => timestamp({ withTimezone: true, mode: "date" });
 const agora = () => quando().notNull().defaultNow();
+
+/** Planos (docs/REFERENCIAS.md §1). Enquanto o beta está aberto, todo mundo usa tudo. */
+export type Plano = "gratis" | "pro" | "produtora";
 
 /** Contas da SOBEDESCE (e-mail e senha). */
 export const usuarios = pgTable("usuarios", {
@@ -20,6 +23,7 @@ export const usuarios = pgTable("usuarios", {
   criadoEm: agora(),
   atualizadoEm: agora(),
   ultimoLoginEm: quando(),
+  plano: text().$type<Plano>().notNull().default("gratis"),
 });
 
 export type TipoSessao = "web" | "dispositivo";
@@ -66,6 +70,8 @@ export const contasGoogle = pgTable(
     accessExpiraEm: quando(),
     escopos: text().notNull().default(""),
     estado: text().$type<EstadoContaGoogle>().notNull().default("ok"),
+    /** Pasta "SOBEDESCE Referências" deste Drive (achada ou criada na primeira coleção). */
+    referenciasPastaId: text(),
     criadoEm: agora(),
     atualizadoEm: agora(),
   },
@@ -115,4 +121,71 @@ export const redefinicoesSenha = pgTable(
     criadoEm: agora(),
   },
   (t) => [index("redefinicoes_senha_usuario_idx").on(t.usuarioId)],
+);
+
+// ───── Referências (docs/REFERENCIAS.md) ─────
+
+/** Coleções de referências: uma pasta em "SOBEDESCE Referências/<nome>" no Drive da pessoa. */
+export const colecoes = pgTable(
+  "colecoes",
+  {
+    id: text().primaryKey(),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    contaGoogleId: text()
+      .notNull()
+      .references(() => contasGoogle.id, { onDelete: "cascade" }),
+    driveFolderId: text().notNull(),
+    nome: text().notNull(),
+    /** Nome sem maiúsculas nem acentos: não deixa duas coleções com o "mesmo" nome. */
+    nomeChave: text().notNull(),
+    /** Link pra IA (/r/<token>): 32 bytes base64url. null = desligado. */
+    publicaToken: text().unique(),
+    criadoEm: agora(),
+    atualizadoEm: agora(),
+  },
+  (t) => [index("colecoes_usuario_idx").on(t.usuarioId), uniqueIndex("colecoes_usuario_nome_idx").on(t.usuarioId, t.nomeChave)],
+);
+
+export type StatusFila = "pendente" | "baixando" | "pronto" | "erro";
+
+/** Links que o celular (ou o Atalho do iPhone) guardou para o computador baixar. */
+export const referenciasFila = pgTable(
+  "referencias_fila",
+  {
+    id: text().primaryKey(),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    colecaoId: text()
+      .notNull()
+      .references(() => colecoes.id, { onDelete: "cascade" }),
+    url: text().notNull(),
+    nota: text(),
+    status: text().$type<StatusFila>().notNull().default("pendente"),
+    erro: text(),
+    driveFileId: text(),
+    /** Sessão (computador) que pegou o item. */
+    dispositivoId: text(),
+    criadoEm: agora(),
+    atualizadoEm: agora(),
+  },
+  (t) => [index("referencias_fila_usuario_status_idx").on(t.usuarioId, t.status), index("referencias_fila_colecao_idx").on(t.colecaoId)],
+);
+
+/** Chave do Atalho do iPhone: só serve para pôr links na fila. Só o sha256. */
+export const atalhos = pgTable(
+  "atalhos",
+  {
+    id: text().primaryKey(),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    tokenHash: text().notNull().unique(),
+    criadoEm: agora(),
+    ultimoUsoEm: quando(),
+    revogadoEm: quando(),
+  },
+  (t) => [index("atalhos_usuario_idx").on(t.usuarioId)],
 );

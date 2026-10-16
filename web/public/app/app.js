@@ -3,7 +3,7 @@
 import { html, render } from './vendor/preact-htm.js'
 import { DEV, LAN } from './lib/config.js'
 import * as auth from './lib/auth.js'
-import { getState, savedTab, setState, useApp } from './lib/state.js'
+import { getState, openSheet, savedTab, setState, subscribe, useApp } from './lib/state.js'
 import { AccountScreen, DrivesSheet } from './components/account.js'
 import { MainScreen } from './components/main.js'
 import { Tabs } from './components/tabs.js'
@@ -13,14 +13,68 @@ import { ItemSheet } from './components/queue.js'
 import { SheetHost, Toasts } from './components/ui.js'
 import { engine } from './lib/uploader.js'
 import { startBridge } from './lib/stream.js'
+import { RefAtalhoSheet, RefDeleteSheet, RefItemSheet, RefLinkSheet, RefMenuSheet, RefNameSheet, RefSaveSheet } from './components/referencias.js'
+import { findUrl } from './lib/referencias.js'
 
-const SHEETS = { folders: FolderSheet, settings: SettingsSheet, item: ItemSheet, drives: DrivesSheet }
+const SHEETS = {
+  folders: FolderSheet,
+  settings: SettingsSheet,
+  item: ItemSheet,
+  drives: DrivesSheet,
+  refSave: RefSaveSheet,
+  refName: RefNameSheet,
+  refMenu: RefMenuSheet,
+  refLink: RefLinkSheet,
+  refDelete: RefDeleteSheet,
+  refItem: RefItemSheet,
+  refAtalho: RefAtalhoSheet,
+}
+
+// Android (share_target nos manifestos): /app/?compartilhar=1&title=&text=&url=. O navegador pode trocar a query
+// inteira pelos parâmetros, então vale também só url/text. O link fica guardado na aba (sessionStorage) até a conta
+// abrir — quem não estava logado entra e volta para cá — e então abre "Salvar link" na aba Referências.
+const SHARE_KEY = 'sobedesce.compartilhar'
+let shared = null
+function takeShare() {
+  if (LAN) return
+  const p = new URLSearchParams(location.search)
+  if (p.has('compartilhar') || p.has('url') || p.has('text')) {
+    const text = [p.get('url'), p.get('text'), p.get('title')].filter(Boolean).join(' ').slice(0, 4000)
+    if (findUrl(text)) shared = text
+    const clean = new URL(location.href)
+    for (const k of ['compartilhar', 'url', 'text', 'title']) clean.searchParams.delete(k)
+    history.replaceState(null, '', clean.pathname + clean.search + clean.hash)
+  }
+  try {
+    if (shared) sessionStorage.setItem(SHARE_KEY, shared)
+    else shared = sessionStorage.getItem(SHARE_KEY)
+  } catch {
+    // sem sessionStorage: vale só nesta abertura
+  }
+}
+takeShare()
+
+function openShared(state) {
+  if (!shared || state.auth.status !== 'signedIn' || !state.recursos?.referencias) return
+  const texto = shared
+  shared = null
+  try {
+    sessionStorage.removeItem(SHARE_KEY)
+  } catch {
+    // nada guardado
+  }
+  setState({ tab: 'refs', refsOpen: null })
+  openSheet('refSave', { texto })
+}
 
 // Modo Wi-Fi (servido pelo SOBEDESCE do computador): sem conta aqui, quem fala com o Drive é o computador.
 if (!LAN) {
   auth.boot()
   setState({ tab: savedTab() })
   startBridge() // o service worker pede o token por aqui para a prévia e o download (/app/stream/)
+  subscribe(openShared)
+  // /app/#referencias (link de Sua conta): abre a aba, se a conta tiver o recurso.
+  window.addEventListener('hashchange', () => location.hash === '#referencias' && setState({ tab: 'refs' }))
 }
 
 function App() {
