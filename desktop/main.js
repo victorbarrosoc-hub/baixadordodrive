@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { allowPermission, trustedSender } from './security.js'
+import { abrirNavegador, cookiesPara, fecharNavegador, registrarCanais } from './navegador.js'
 import { handoffCommand, isHandoffScript } from '../src/updater.js'
 
 const here = import.meta.dirname
@@ -62,6 +63,9 @@ function startEngine() {
         resolve(msg.url)
       } else if (msg?.type === 'update-handoff') {
         runUpdateHandoff(msg.script)
+      } else if (msg?.type === 'cookies-pedido') {
+        // Referências: o motor precisa dos cookies do navegador de referências para o yt-dlp (só os domínios do vídeo).
+        responderCookies(msg)
       } else if (msg?.type === 'fatal' && !settled) {
         settled = true
         const err = new Error(msg.message)
@@ -104,6 +108,19 @@ function runUpdateHandoff(script) {
     quitConfirmed = true
     app.quit()
   })
+}
+
+async function responderCookies(msg) {
+  const child = engine
+  let cookies = []
+  try {
+    cookies = await cookiesPara(msg.dominios)
+  } catch {
+    cookies = []
+  }
+  try {
+    child?.postMessage({ type: 'cookies-resposta', id: msg.id, cookies })
+  } catch {}
 }
 
 async function onEngineCrash(code) {
@@ -246,6 +263,7 @@ app.on('before-quit', event => {
   }
   quitConfirmed = true
   quitting = true
+  fecharNavegador()
   if (!engine) return
   event.preventDefault()
   const child = engine
@@ -315,6 +333,15 @@ ipcMain.on('sobedesce:notify', (event, { title, body } = {}) => {
 ipcMain.handle('sobedesce:open-external', (event, url) => {
   if (trustedSender(event, engineUrl)) openExternal(url)
 })
+
+ipcMain.handle('sobedesce:abrir-navegador', (event, url) => {
+  if (!trustedSender(event, engineUrl) || !engineUrl) return false
+  abrirNavegador({ engineUrl, url: typeof url === 'string' ? url : null, openExternal })
+  return true
+})
+
+// Barra do navegador de referências (preload-navegador.cjs): a mesma regra de origem da ponte principal.
+registrarCanais(ipcMain, event => trustedSender(event, engineUrl))
 
 ipcMain.handle('sobedesce:reveal', (event, target) => {
   if (!trustedSender(event, engineUrl)) return false

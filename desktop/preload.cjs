@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld('sobedesce', {
   notify: (title, body) => ipcRenderer.send('sobedesce:notify', { title, body }),
   openExternal: url => ipcRenderer.invoke('sobedesce:open-external', url),
   reveal: path => ipcRenderer.invoke('sobedesce:reveal', path),
+  // Referências: abre o navegador de referências (janela própria; desktop/navegador.js).
+  abrirNavegador: url => ipcRenderer.invoke('sobedesce:abrir-navegador', url || null),
 })

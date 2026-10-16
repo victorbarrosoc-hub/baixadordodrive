@@ -1210,6 +1210,7 @@ class MockDrive {
       canDownload: item.canDownload,
       isFolder: item.mimeType === FOLDER_MIME,
       shortcutDetails: item.shortcutDetails ? { ...item.shortcutDetails } : null,
+      description: item.description ?? null,
       appProperties: item.appProperties ? { ...item.appProperties } : null,
     }
   }
@@ -1294,6 +1295,7 @@ class MockDrive {
       canDownload: opts.canDownload !== false,
       trashed: opts.trashed,
       md5Override: 'md5' in opts ? opts.md5 : undefined,
+      description: opts.description ?? null,
       thumbnail: opts.thumbnail ?? null,
       videoMediaMetadata: opts.videoMediaMetadata ?? null,
       imageMediaMetadata: opts.imageMediaMetadata ?? null,

@@ -15,6 +15,7 @@ import { newId } from '../util/ids.js'
 import { isAbortError } from '../util/backoff.js'
 import { qrSvg, shortcutSteps } from '../mobile/qr.js'
 import { gerarMiniaturasLote, resumoLote } from '../media/raw-thumb-lote.js'
+import { referenciasRoutes } from './referencias.js'
 import { registerPrevias } from './previas.js'
 import { registerTamanho } from './tamanho.js'
 
@@ -430,6 +431,8 @@ export function createApi(ctx) {
       rawThumbs: thumbJobs.view(),
       // Aviso de versão nova (src/version.js): build deste app, o mais novo conhecido e se mostra o aviso.
       versao: ctx.versao?.status() ?? null,
+      // Referências (src/referencias/service.js): se está liberado, os downloads em andamento e os que deram erro.
+      referencias: ctx.referencias?.status() ?? null,
       // "Gerar prévias": o lote atual (ou o último).
       previas: previas.view(),
     }
@@ -468,6 +471,9 @@ export function createApi(ctx) {
   const tamanhos = registerTamanho({ route, ctx, account, HttpProblem, toProblem })
 
   const stringList = (v, max = 10_000) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, max) : null)
+
+  // ── Referências (src/server/referencias.js)
+  referenciasRoutes(route, ctx)
 
   // ── estado e eventos
   route('GET', '/api/state', () => state())

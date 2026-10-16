@@ -588,9 +588,10 @@ function infoRows(item) {
 
 /**
  * @param {{ accountId: string, items: any[], index: number, onIndex: (i:number)=>void, onClose: ()=>void,
- *           onDownload: (item)=>Promise<boolean>, dest: string, destLabel?: string, onChangeDest: ()=>void }} props
+ *           onDownload: (item)=>Promise<boolean>, dest: string, destLabel?: string, onChangeDest: ()=>void,
+ *           extra?: (item)=>any }} props   `extra`: bloco a mais no painel de informações (Referências: origem, autor, legenda)
  */
-export function DrivePreview({ accountId, items, index, onIndex, onClose, onDownload, dest, destLabel, onChangeDest }) {
+export function DrivePreview({ accountId, items, index, onIndex, onClose, onDownload, dest, destLabel, onChangeDest, extra }) {
   const item = items[index]
   const root = useRef(null)
   const keys = useRef(null)
@@ -693,6 +694,7 @@ export function DrivePreview({ accountId, items, index, onIndex, onClose, onDown
           ${hasNext ? html`<button type="button" class="qlook-nav is-next" onClick=${() => onIndex(index + 1)} aria-label="Próximo" title="Próximo (→)"><${Icon} name="chevron-right" size=${20} /></button>` : null}
         </div>
         <aside class="qlook-info" aria-label="Informações">
+          ${typeof extra === 'function' ? extra(item) : null}
           <dl>
             ${rows.map(([k, v]) => html`<div class="qrow"><dt>${k}</dt><dd>${v}</dd></div>`)}
           </dl>
