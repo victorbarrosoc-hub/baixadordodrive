@@ -136,6 +136,7 @@ O Google Drive não gera miniatura de **Blackmagic RAW (.braw)**: o arquivo apar
 - Liga e desliga em **Ajustes → Arquivos → Gerar miniatura de BRAW** (ligado por padrão). Se o Blackmagic RAW não estiver instalado, os Ajustes avisam.
 - Também vale para **.r3d** quando o computador sabe mostrar a miniatura dele.
 - No Mac com macOS 15 ou mais novo, se o Finder não mostra miniatura de .braw, o SOBEDESCE também não consegue. O [Calibrated QuickLook](https://www.calibratedsoftware.com/calibrated-quicklook/) (grátis) resolve as duas coisas.
+- **BRAW que já estão no Drive:** abra a pasta na tela **Drive** e clique em **Gerar miniaturas**. Escolha onde estão os originais (HD ou cartão): o SOBEDESCE acha os mesmos arquivos (mesmo nome e mesmo tamanho), tira um frame e grava a miniatura no Drive. Nada é enviado de novo. Dá para incluir as subpastas e refazer as que já têm miniatura; no fim aparece o resumo (gravadas, sem arquivo no computador, tamanho diferente, falharam).
 
 ---
 

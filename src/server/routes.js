@@ -14,6 +14,7 @@ import { writeJSONAtomic } from '../util/store.js'
 import { newId } from '../util/ids.js'
 import { isAbortError } from '../util/backoff.js'
 import { qrSvg, shortcutSteps } from '../mobile/qr.js'
+import { gerarMiniaturasLote, resumoLote } from '../media/raw-thumb-lote.js'
 
 const BODY_LIMIT = 1024 * 1024
 const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba a conexão
@@ -276,6 +277,105 @@ class CompareJobs {
   }
 }
 
+// ─────────── "Gerar miniaturas" (RAW que já estão no Drive) ───────────
+
+/**
+ * Um lote por vez (decodificar RAW pesa e divide a fila com os envios). Progresso pelo SSE ('rawthumbs', no
+ * máximo 4×/s) e por GET; o último lote fica guardado para a interface mostrar o resumo depois.
+ */
+class RawThumbJobs {
+  constructor(ctx) {
+    this.ctx = ctx
+    this.job = null
+  }
+
+  running() {
+    return this.job?.status === 'running' ? this.job : null
+  }
+
+  start({ accountId, driveFolderId, folderName, localDir, recursive, refazer }) {
+    const thumbnailer = this.ctx.manager.thumbnailer
+    if (!thumbnailer?.frameFor) throw new HttpProblem(409, 'Este computador não tem como tirar o frame dos RAW.')
+    if (this.running()) throw new HttpProblem(409, 'Já estou gerando miniaturas. Espere terminar ou pare o lote atual.')
+    const id = newId('thb')
+    const job = { id, accountId, driveFolderId, folderName, localDir, recursive, refazer, status: 'running', progress: null, error: null, ac: new AbortController(), lastSent: 0, timer: null }
+    this.job = job
+    this.#emit(job)
+    const run = async () => {
+      try {
+        const s = await gerarMiniaturasLote({
+          drive: this.ctx.manager.driveFor(accountId),
+          driveFolderId,
+          localDir,
+          recursive,
+          refazer,
+          frame: (file, opts) => thumbnailer.frameFor(file, opts),
+          signal: job.ac.signal,
+          onProgress: p => this.#progress(job, p),
+        })
+        job.progress = { ...s }
+        job.status = 'done'
+        this.ctx.log(`miniaturas: ${resumoLote(s)}`)
+      } catch (err) {
+        if (job.ac.signal.aborted) {
+          job.status = 'canceled'
+          job.error = 'Parado. As miniaturas que já foram gravadas ficam.'
+        } else {
+          const p = toProblem(err)
+          if (!p) this.ctx.log('gerar miniaturas falhou:', err?.stack || err)
+          job.status = 'error'
+          job.error = p?.message || 'O lote não terminou: algo deu errado no caminho.'
+        }
+      } finally {
+        // As miniaturas novas: o servidor esquece o que sabia (a tela pede de novo).
+        if (job.progress?.feitosIds?.length) this.ctx.media?.forget?.(accountId, job.progress.feitosIds)
+        this.#emit(job)
+      }
+    }
+    run()
+    return id
+  }
+
+  #progress(job, p) {
+    if (job.status !== 'running') return
+    job.progress = { ...p, falhas: p.falhas.slice(), semLocalNomes: p.semLocalNomes.slice(), tamanhoNomes: p.tamanhoNomes.slice(), feitosIds: p.feitosIds.slice() }
+    const wait = job.lastSent + COMPARE_EVENT_MS - Date.now()
+    if (wait <= 0) return this.#emit(job)
+    job.timer ??= setTimeout(() => {
+      job.timer = null
+      if (job.status === 'running') this.#emit(job)
+    }, wait)
+    job.timer.unref?.()
+  }
+
+  view(job = this.job) {
+    if (!job) return null
+    return { jobId: job.id, accountId: job.accountId, driveFolderId: job.driveFolderId, folderName: job.folderName, localDir: job.localDir, recursive: job.recursive, refazer: job.refazer, status: job.status, progress: job.progress, ...(job.error ? { error: job.error } : {}) }
+  }
+
+  #emit(job) {
+    if (job.timer) clearTimeout(job.timer)
+    job.timer = null
+    job.lastSent = Date.now()
+    this.ctx.hub?.send('rawthumbs', this.view(job))
+  }
+
+  lookup(id) {
+    return this.job?.id === id ? this.job : null
+  }
+
+  cancel(id) {
+    const job = this.lookup(id)
+    job?.ac.abort()
+    return !!job
+  }
+
+  close() {
+    this.job?.ac.abort()
+    if (this.job?.timer) clearTimeout(this.job.timer)
+  }
+}
+
 // ─────────── rotas ───────────
 
 function match(pattern, segs) {
@@ -309,6 +409,7 @@ export function createApi(ctx) {
   const routes = []
   const route = (method, pattern, handler, { raw = false } = {}) => routes.push({ method, pattern: pattern.split('/').filter(Boolean), handler, raw })
   const jobs = new CompareJobs(ctx)
+  const thumbJobs = new RawThumbJobs(ctx)
 
   const state = () => {
     const snap = ctx.manager.snapshot()
@@ -323,6 +424,8 @@ export function createApi(ctx) {
       stats: snap.stats,
       // Chave das rotas de mídia (<img>/<video> não mandam cabeçalho): só a interface lê /api/state.
       media: ctx.media ? { key: ctx.media.key } : null,
+      // "Gerar miniaturas": o lote atual (ou o último), para a interface voltar a mostrar depois de reconectar.
+      rawThumbs: thumbJobs.view(),
     }
   }
 
@@ -586,6 +689,43 @@ export function createApi(ctx) {
     return { rawThumbs }
   })
 
+  // "Gerar miniaturas" (tela Drive): acha os RAW do Drive no computador, tira o frame e grava como miniatura.
+  route('POST', '/api/raw-thumbs/lote', async ({ body }) => {
+    const acc = account(body.accountId)
+    const folderId = body.driveFolderId
+    if (typeof folderId !== 'string' || !DRIVE_ID.test(folderId)) throw new HttpProblem(400, 'Escolha a pasta do Drive.')
+    const raw = body.localDir
+    if (typeof raw !== 'string' || !raw.trim() || raw.includes('\0') || raw.length > 4096) throw new HttpProblem(400, 'Escolha a pasta do computador onde estão os originais.')
+    const localDir = expandHome(raw)
+    if (!path.isAbsolute(localDir)) throw new HttpProblem(400, 'Escolha a pasta do computador onde estão os originais.')
+    let st
+    try {
+      st = await fs.stat(localDir)
+    } catch {
+      throw new HttpProblem(400, 'Não achei essa pasta no computador. O disco ou o cartão está conectado?')
+    }
+    if (!st.isDirectory()) throw new HttpProblem(400, 'Escolha uma pasta do computador (não um arquivo).')
+    for (const k of ['recursive', 'refazer']) if (body[k] != null && typeof body[k] !== 'boolean') throw new HttpProblem(400, 'Pedido inválido.')
+    const folderName = typeof body.folderName === 'string' ? body.folderName.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 255) : ''
+    const jobId = thumbJobs.start({ accountId: acc.id, driveFolderId: folderId, folderName, localDir, recursive: body.recursive !== false, refazer: body.refazer === true })
+    // Lembra a pasta para a próxima vez (falhar aqui não impede o lote).
+    if (ctx.settings.get().rawThumbLocalDir !== localDir) {
+      ctx.settings.update({ rawThumbLocalDir: localDir }).catch(err => ctx.log('não consegui lembrar a pasta das miniaturas:', err?.message))
+    }
+    return { jobId }
+  })
+
+  route('GET', '/api/raw-thumbs/lote/:jobId', ({ params }) => {
+    const job = thumbJobs.lookup(params.jobId)
+    if (!job) throw new HttpProblem(404, 'Esse lote de miniaturas não existe mais.')
+    return thumbJobs.view(job)
+  })
+
+  route('DELETE', '/api/raw-thumbs/lote/:jobId', ({ params }) => {
+    if (!thumbJobs.cancel(params.jobId)) throw new HttpProblem(404, 'Esse lote de miniaturas não existe mais.')
+    return {}
+  })
+
   route('PATCH', '/api/settings', async ({ body }) => {
     try {
       validateSettings(body, ctx.settings.get())
@@ -708,5 +848,12 @@ export function createApi(ctx) {
     return false
   }
 
-  return { dispatch, state, close: () => jobs.close() }
+  return {
+    dispatch,
+    state,
+    close: () => {
+      jobs.close()
+      thumbJobs.close()
+    },
+  }
 }

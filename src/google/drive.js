@@ -700,8 +700,9 @@ export class DriveClient {
    * Varre a árvore de `folderId` com `concurrency` listagens simultâneas (BFS).
    * Cada item ganha relPath/relDir (NFC, '/') relativos à pasta varrida. Atalhos para arquivo ganham
    * `target` (DriveItem, ou null se o alvo sumiu); atalhos para pasta não são seguidos (evita ciclos).
+   * `media: true` traz também os campos da prévia (hasThumbnail…): usado pelo "Gerar miniaturas".
    */
-  async walk(folderId, { signal, onProgress, concurrency = 8 } = {}) {
+  async walk(folderId, { signal, onProgress, concurrency = 8, media = false } = {}) {
     if (signal?.aborted) throw abortError(signal)
     let root = await this.getItem(folderId, { signal })
     if (root.isShortcut && root.shortcutTargetId && root.shortcutTargetMimeType === FOLDER_MIME) {
@@ -752,7 +753,7 @@ export class DriveClient {
           const job = queue[head++]
           active++
           try {
-            const children = await this.#list(this.#childrenQuery(job.id), { driveId: job.driveId, signal: sig })
+            const children = await this.#list(this.#childrenQuery(job.id), { driveId: job.driveId, signal: sig, media })
             for (const child of children) {
               child.relDir = job.relDir
               child.relPath = joinRel(job.relDir, relSegment(child.name))

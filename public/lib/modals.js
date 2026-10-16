@@ -10,6 +10,18 @@ function emit() {
   for (const fn of subs) fn(stack)
 }
 
+// Janelas de outras telas (ex.: "Gerar miniaturas") se registram aqui: o host as desenha sem importar o módulo
+// delas (o que criaria um ciclo modal.js ⇄ tela).
+const registered = new Map()
+
+export function registerModal(type, Component) {
+  registered.set(type, Component)
+}
+
+export function registeredModal(type) {
+  return registered.get(type) || null
+}
+
 export function openModal(type, props = {}) {
   return new Promise((resolve) => {
     const id = ++seq

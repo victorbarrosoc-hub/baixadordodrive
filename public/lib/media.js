@@ -6,9 +6,20 @@ import { extOf, fileKind } from './format.js'
 
 const mediaKey = () => getState().media?.key || ''
 
+// Miniaturas regravadas agora há pouco ("Gerar miniaturas"): a versão na URL muda e nenhum cache (do navegador ou do
+// servidor) devolve a imagem antiga.
+const busted = new Map() // `${acc}:${id}` -> marca
+
+export function bustThumbs(accountId, ids) {
+  const mark = Date.now().toString(36)
+  for (const id of ids || []) busted.set(`${accountId}:${id}`, mark)
+}
+
 export function thumbUrl(accountId, item, size = 220) {
   if (!accountId || !item?.hasThumbnail || !mediaKey()) return null
-  return withQuery('/api/drive/thumb', { account: accountId, id: item.id, s: size, v: item.modifiedTime || '', rk: item.resourceKey || '', k: mediaKey() })
+  const bust = busted.get(`${accountId}:${item.id}`)
+  const v = `${item.modifiedTime || ''}${bust ? `~${bust}` : ''}`
+  return withQuery('/api/drive/thumb', { account: accountId, id: item.id, s: size, v, rk: item.resourceKey || '', k: mediaKey() })
 }
 
 export function streamUrl(accountId, item) {

@@ -348,6 +348,11 @@ export class MediaService {
     }
   }
 
+  /** Esquece o que sabe da miniatura destes arquivos (ganharam uma nova: "Gerar miniaturas"). */
+  forget(accountId, ids) {
+    for (const id of ids || []) this.links.delete(`${accountId}\n${id}`)
+  }
+
   async #link(accountId, id, { resourceKey, signal, fresh = false }) {
     const k = `${accountId}\n${id}`
     const hit = this.links.get(k)
