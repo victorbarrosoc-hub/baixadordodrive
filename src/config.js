@@ -106,6 +106,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
    * computador tem (Quick Look no Mac, miniatura do Explorer no Windows) e grava como miniatura do arquivo.
    */
   brawThumbnails: true,
+  /** "Gerar miniaturas" (tela Drive): a última pasta do computador escolhida para achar os originais ('' = nenhuma). */
+  rawThumbLocalDir: '',
   /** Sem receber/enviar nenhum byte por esse tempo, a conexão é refeita. */
   stallTimeoutMs: 30_000,
   /** Refaz conexões que ficaram muito mais lentas que as outras (o Google às vezes estrangula uma conexão). */
@@ -172,6 +174,7 @@ const OPTIONAL_STRINGS = {
   mobileAccountId: v => /^(nuvem:)?[\w.-]{0,200}$/.test(v), // contas da nuvem: 'nuvem:<id>'
   mobileFolderId: v => /^[\w.-]{0,200}$/.test(v),
   mobileFolderName: v => v.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(v),
+  rawThumbLocalDir: v => v.length <= 4096 && !/[\u0000-\u001f\u007f]/.test(v),
   mobileWebUrl: v => v === '' || (v.length <= 2048 && isWebUrl(v)),
   webClientId: v => v === '' || /^[A-Za-z0-9][\w.-]*\.apps\.googleusercontent\.com$/.test(v),
 }

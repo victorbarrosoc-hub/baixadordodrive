@@ -60,6 +60,7 @@ src/
   engine/compare.js      compareFolders (local × Drive)
   engine/power.js        KeepAwake (impede o computador de dormir)
   media/raw-thumb.js     miniatura de .braw/.r3d: extrairFrame (Quick Look / Explorer / ajudante nativo) e RawThumbnailer
+  media/raw-thumb-lote.js "Gerar miniaturas": RAW que já estão no Drive, achados no computador por nome + tamanho
   local/fsbrowse.js      raízes (Início, Mesa, discos externos) e listagem de pastas
   local/scan.js          varredura recursiva local
   server/app.js          servidor HTTP, segurança, estáticos, SSE
@@ -456,6 +457,31 @@ para `blackmagicdesign.com/products/blackmagicraw`). A detecção procura o Blac
 padrão (Mac: `/Applications/Blackmagic RAW`, `/Applications/DaVinci Resolve`; Windows: `Program Files\Blackmagic Design\…`)
 e, no Windows, o manipulador de miniatura de `.braw` no registro (`ShellEx\{e357fccd-…}`).
 
+No Mac, a detecção também aceita uma extensão de Quick Look de terceiros que abre RAW: algum item com
+"Calibrated", "BRAW" ou "Blackmagic RAW" no nome em `/Library/QuickLook`, `~/Library/QuickLook`, `/Applications` ou
+`~/Applications` (só olha nomes).
+
+**"Gerar miniaturas" para o que já está no Drive** (`media/raw-thumb-lote.js`, botão na barra da tela Drive quando a
+pasta tem .braw/.r3d). Nada sobe de novo:
+1. Lista os RAW da pasta do Drive (subpastas com `recursive`, padrão ligado; `walk`/`listChildren` com `media: true`
+   para trazer `hasThumbnail`, a mesma regra da prévia: `hasThumbnail && thumbnailLink`). Lixeira e atalhos ficam de
+   fora. Quem já tem miniatura é pulado, a não ser com `refazer`.
+2. Varre a pasta do computador ao mesmo tempo (`indexLocalRaw`): só guarda .braw/.r3d; pula ocultas (`.`), `$…`,
+   `System Volume Information`, `node_modules` e AppleDouble (`._`); não segue links simbólicos; pasta já vista
+   (dev+inode) não entra de novo; tetos `LOTE_LIMITS` (24 níveis, 400 mil itens) → `localTruncated` no resumo.
+3. Par = nome igual sem diferenciar maiúsculas, NFC/NFD iguais (`nameKey`) **e** tamanho igual. Vários com o mesmo
+   nome: o primeiro com o mesmo tamanho. Nome igual com tamanho diferente = "tamanho diferente" (pode ser outra tomada).
+4. Frame por `RawThumbnailer.frameFor(file, { signal })`: a mesma fila dos envios (2 extrações por vez), mesmo tempo
+   limite e teto de 1,5 MB, sem cache, sem a pausa depois de falhas e sem olhar `brawThumbnails` (foi pedido). Depois
+   `drive.setThumbnail`. Falha de um arquivo (sem frame, imagem inválida, Drive recusou/sem permissão) entra em
+   `falhas` com o motivo e o lote segue; cancelar (AbortSignal) para tudo.
+Resumo/progresso: `{ phase: drive|local|gerar|fim, raw, jaTinham, total, aGerar, feitos, semLocal, tamanhoDiferente,
+falhou, localFiles, localTruncated, current, falhas[], semLocalNomes[], tamanhoNomes[], feitosIds[] }` (listas com
+até 200 nomes). No servidor (`RawThumbJobs` em `routes.js`) roda **um lote por vez** (outro pedido = 409), o progresso
+vai pelo SSE `rawthumbs` (no máximo 4×/s) e o último lote fica em `/api/state` (`rawThumbs`). Ao terminar, o servidor
+esquece os links de miniatura desses arquivos (`media.forget`) e a interface muda a versão das URLs (`bustThumbs`),
+então nenhum cache devolve a imagem antiga. A pasta escolhida fica no ajuste `rawThumbLocalDir`.
+
 Confiabilidade conhecida (pesquisa de 2026-10):
 - **Mac**: o macOS 15 (Sequoia) deixou de carregar plug-ins `.qlgenerator`; só extensões de app (appex) geram miniatura.
   Há relatos no fórum da Blackmagic de miniaturas de BRAW sumindo no Finder desde o Sequoia. Onde a extensão da
@@ -556,6 +582,8 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | POST | `/api/transfers/clear` | | `{ }` |
 | GET | `/api/settings` / PATCH `/api/settings` | patch | `{ settings }` |
 | GET | `/api/raw-thumbs` | `refresh=1` (refaz a detecção) | `{ rawThumbs: { supported, found, via, enabled, last, downloadUrl } }` |
+| POST | `/api/raw-thumbs/lote` | `{ accountId, driveFolderId, localDir, recursive?: true, refazer?: false, folderName? }` | `{ jobId }` (progresso via SSE `rawthumbs`; 400 pasta inválida, 409 já tem um rodando) |
+| GET / DELETE | `/api/raw-thumbs/lote/:jobId` | | `{ jobId, status: running|done|canceled|error, progress, error? }` / `{ }` (para o lote) |
 | POST | `/api/compare` | `{ accountId, localPath, driveFolderId, mode }` | `{ jobId }` (progresso via SSE) |
 | GET | `/api/compare/:jobId` | | `{ status, progress, result?, error? }` |
 | POST | `/api/compare/:jobId/upload` | `{ statuses?: ['missing','different'], relDirs?: string[] }` | `{ batch, count, bytes }` |

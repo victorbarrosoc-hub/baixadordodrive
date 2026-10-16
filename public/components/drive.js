@@ -1,6 +1,6 @@
 // Tela Drive: navegar Meu Drive e drives compartilhados, buscar, criar pasta, enviar para a pasta atual
 // e baixar a seleção (barra flutuante embaixo, translúcida como no macOS).
-import { html, useEffect, useMemo, useState } from '/vendor/preact-htm.js'
+import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore } from '../lib/store.js'
 import { navigate } from '../lib/router.js'
 import { api, attempt } from '../lib/api.js'
@@ -18,6 +18,7 @@ import { DriveGrid } from './drive-grid.js'
 import { DrivePreview } from './drive-preview.js'
 import { onProxies, knownProxy, siblingProxies } from '../lib/media.js'
 import { createDriveFolder, useAbout, useDriveFolder, useDriveSearch, useSharedDrives } from './drive-data.js'
+import { hasRawFiles, onRawThumbsDone, openRawThumbs, useRawThumbsRunning } from './raw-thumbs.js'
 
 /** Fontes: Meu Drive + drives compartilhados, em pílulas. */
 export function SourceChips({ drives, current, onPick, vertical }) {
@@ -115,6 +116,11 @@ export function DriveScreen({ route }) {
   const [peek, setPeek] = useState(null) // id do item na prévia
   const [, setProxyTick] = useState(0)
   useEffect(() => onProxies(() => setProxyTick((n) => n + 1)), [])
+  // "Gerar miniaturas" terminou: recarrega a pasta para as miniaturas novas aparecerem.
+  const reloadRef = useRef(reload)
+  reloadRef.current = reload
+  useEffect(() => onRawThumbsDone((job) => job.progress?.feitos && reloadRef.current()), [])
+  const thumbsRunning = useRawThumbsRunning()
 
   const searching = !!q.trim()
   const items = searching ? search.items : data?.items || null
@@ -253,6 +259,11 @@ export function DriveScreen({ route }) {
         />
         ${!searching ? html`<${IconButton} icon="refresh" label="Atualizar" onClick=${reload} class=${loading && data ? 'is-spinning' : ''} />` : null}
         ${!searching && folder ? html`<a class="icon-btn" href=${folderId === 'root' ? 'https://drive.google.com/drive/my-drive' : driveFolderUrl(folderId)} target="_blank" rel="noopener" title="Abrir no navegador" aria-label="Abrir no navegador"><${Icon} name="external" /></a>` : null}
+        ${!searching && folder && (hasRawFiles(items) || thumbsRunning)
+          ? html`<button type="button" class="btn btn-secondary" onClick=${() => openRawThumbs({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } })} title="Miniatura para os BRAW/R3D, a partir dos originais no computador">
+              ${thumbsRunning ? html`<${Spinner} size=${14} />` : html`<${Icon} name="photo" size=${16} />`}<span>Gerar miniaturas</span>
+            </button>`
+          : null}
         <${Button} icon="folder-plus" onClick=${newFolder} disabled=${searching}>Nova pasta</${Button}>
         <${Button} variant="primary" icon="upload" onClick=${uploadHere} disabled=${searching}>Enviar para esta pasta</${Button}>
       </div>

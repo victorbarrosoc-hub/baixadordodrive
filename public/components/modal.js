@@ -1,6 +1,6 @@
 // Janela modal (com foco preso, Esc fecha), diálogos de confirmação/texto e o host que desenha a pilha.
 import { html, useEffect, useLayoutEffect, useRef, useState } from '/vendor/preact-htm.js'
-import { closeAllModals, closeModal, useModalStack } from '../lib/modals.js'
+import { closeAllModals, closeModal, registeredModal, useModalStack } from '../lib/modals.js'
 import { cx } from '../lib/ui.js'
 import { Icon } from './icons.js'
 import { Button, IconButton } from './common.js'
@@ -166,7 +166,7 @@ export function ModalHost() {
     return () => window.removeEventListener('hashchange', closeAllModals)
   }, [])
   return html`${stack.map((m, i) => {
-    const C = TYPES[m.type]
+    const C = TYPES[m.type] || registeredModal(m.type)
     if (!C) return null
     return html`<div key=${m.id} class=${cx('modal-layer', i < stack.length - 1 && 'is-under')}>
       <${C} ...${m.props} onClose=${(v) => closeModal(m.id, v)} />

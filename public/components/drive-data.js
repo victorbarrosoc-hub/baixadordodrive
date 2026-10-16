@@ -9,6 +9,11 @@ export function invalidateFolder(accountId, folderId) {
   listCache.delete(`${accountId}:${folderId}`)
 }
 
+/** Esquece todas as pastas desta conta (ex.: miniaturas novas em várias subpastas). */
+export function invalidateAccount(accountId) {
+  for (const k of listCache.keys()) if (k.startsWith(`${accountId}:`)) listCache.delete(k)
+}
+
 /** Lista uma pasta. Mostra o cache na hora e atualiza por trás (stale-while-revalidate). */
 export function useDriveFolder(accountId, folderId) {
   const key = `${accountId}:${folderId}`

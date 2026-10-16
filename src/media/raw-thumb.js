@@ -366,6 +366,19 @@ export function blackmagicPaths({ platform = process.platform, env = process.env
   return []
 }
 
+/**
+ * Mac: extensão de Quick Look de terceiros que abre RAW (Calibrated{Q} QuickLook e afins). Só olha nomes nas pastas
+ * onde elas costumam ficar; não abre nada.
+ */
+async function macQuickLookPlugin(home) {
+  const dirs = ['/Library/QuickLook', path.join(home, 'Library', 'QuickLook'), '/Applications', path.join(home, 'Applications')]
+  for (const d of dirs) {
+    const names = await fsp.readdir(d).catch(() => [])
+    if (names.some(n => /calibrated|braw|blackmagic\s*raw/i.test(n))) return true
+  }
+  return false
+}
+
 async function windowsThumbHandler(env, signal) {
   const reg = path.win32.join(env.SystemRoot || env.windir || 'C:\\Windows', 'System32', 'reg.exe')
   for (const key of [`HKCR\\.braw\\ShellEx\\${THUMB_HANDLER}`, `HKCR\\SystemFileAssociations\\.braw\\ShellEx\\${THUMB_HANDLER}`]) {
@@ -392,6 +405,7 @@ export async function detectExtractor({ platform = process.platform, env = proce
       }
     }
   }
+  if (!found && platform === 'darwin' && via) found = await macQuickLookPlugin(home ?? os.homedir()).catch(() => false)
   if (!found && platform === 'win32' && via) found = await windowsThumbHandler(env, signal).catch(() => false)
   return { supported: extractors.length > 0, found, via, downloadUrl: BLACKMAGIC_RAW_URL }
 }
@@ -496,9 +510,10 @@ export class RawThumbnailer {
    * @param {(file: string, opts: object) => Promise<Buffer|null>} [opts.extract] troca o extrairFrame (testes)
    * @param {number} [opts.maxConcurrent] extrações ao mesmo tempo (decodificar RAW pesa)
    */
-  constructor({ settings = null, extract = extrairFrame, log = () => {}, maxConcurrent = 2, timeoutMs = DEFAULT_TIMEOUT_MS, maxBytes = MAX_THUMB_BYTES, width = DEFAULT_WIDTH, onResult = null } = {}) {
+  constructor({ settings = null, extract = extrairFrame, detect = detectExtractor, log = () => {}, maxConcurrent = 2, timeoutMs = DEFAULT_TIMEOUT_MS, maxBytes = MAX_THUMB_BYTES, width = DEFAULT_WIDTH, onResult = null } = {}) {
     this.settings = settings
     this.extract = extract
+    this.detect = detect
     this.log = log
     this.maxConcurrent = Math.max(1, maxConcurrent)
     this.timeoutMs = timeoutMs
@@ -565,6 +580,40 @@ export class RawThumbnailer {
     this.cache.set(key, p)
     while (this.cache.size > CACHE_MAX) this.cache.delete(this.cache.keys().next().value)
     return p
+  }
+
+  /**
+   * Frame de um arquivo local para o "Gerar miniaturas" do Drive (raw-thumb-lote.js): mesma fila e mesmos limites
+   * dos envios, mas sem cache, sem a pausa depois de falhas e sem olhar o ajuste `brawThumbnails` (foi pedido).
+   * Devolve { buf, reason } e nunca rejeita, a não ser AbortError quando `signal` (ou o encerramento) interrompe.
+   */
+  async frameFor(file, { signal } = {}) {
+    const sig = signal ? AbortSignal.any([this.closing.signal, signal]) : this.closing.signal
+    if (sig.aborted) throw abortError(sig)
+    let reason = null
+    const job = this.#limit(() => {
+      if (sig.aborted) return null
+      return this.extract(file, { largura: this.width, maxBytes: this.maxBytes, timeoutMs: this.timeoutMs, signal: sig, log: r => (reason = r) })
+    })
+    job.catch(() => {})
+    // Cancelar não espera a vez na fila (nem um extrator que demora a largar).
+    let onAbort
+    const stop = new Promise((_, reject) => {
+      onAbort = () => reject(abortError(sig))
+      sig.addEventListener('abort', onAbort, { once: true })
+    })
+    stop.catch(() => {})
+    try {
+      const buf = await Promise.race([job, stop])
+      if (sig.aborted) throw abortError(sig)
+      if (Buffer.isBuffer(buf) && buf.length) return { buf, reason: null }
+      return { buf: null, reason: reason || 'sem miniatura' }
+    } catch (err) {
+      if (sig.aborted) throw abortError(sig)
+      return { buf: null, reason: err?.message || String(err) }
+    } finally {
+      sig.removeEventListener('abort', onAbort)
+    }
   }
 
   async #limit(fn) {
@@ -634,7 +683,7 @@ export class RawThumbnailer {
   }
 
   /** Para os Ajustes: o que existe no computador + o último resultado. Detecção em cache por 1 min. */
-  async status({ refresh = false, detect = detectExtractor } = {}) {
+  async status({ refresh = false, detect = this.detect } = {}) {
     if (refresh || !this.detected || Date.now() - this.detected.at > 60_000) {
       const d = await detect().catch(() => ({ supported: false, found: false, via: null, downloadUrl: BLACKMAGIC_RAW_URL }))
       this.detected = { ...d, at: Date.now() }

@@ -32,6 +32,7 @@ let state = {
   epoch: 0, // conta as cargas completas (hello / /api/state); quem observa transições recomeça a contagem
   oauthWait: null, // desktop: esperando o login terminar no navegador do sistema
   media: null, // { key } das rotas de miniatura e prévia (src/server/media.js)
+  rawThumbs: null, // "Gerar miniaturas": o lote atual ou o último { jobId, status, progress, error, driveFolderId, localDir }
 }
 
 const listeners = new Set()
@@ -98,6 +99,7 @@ function applyFull(data) {
     batches: data.batches || [],
     stats: data.stats || EMPTY_STATS,
     media: data.media ?? state.media,
+    rawThumbs: data.rawThumbs !== undefined ? data.rawThumbs : state.rawThumbs,
   })
   applyTheme(state.settings?.theme)
 }
@@ -148,6 +150,10 @@ export function setOAuthWait(value) {
 export function setActiveAccount(id) {
   storage.set('account', id)
   setState({ activeAccountId: id })
+}
+
+export function setRawThumbs(job) {
+  setState({ rawThumbs: job || null })
 }
 
 export function setCompareJob(jobId, info) {
@@ -208,6 +214,7 @@ function connect() {
   on('setup', (d) => setSetup(d?.setup || d))
   on('cloud', (d) => setCloud(d?.cloud || d))
   on('compare', (d) => d?.jobId && setCompareJob(d.jobId, { status: d.status, progress: d.progress, error: d.error || null }))
+  on('rawthumbs', (d) => d?.jobId && setRawThumbs(d))
   on('toast', (d) => d?.message && toast(d.kind || 'info', d.message))
 }
 
