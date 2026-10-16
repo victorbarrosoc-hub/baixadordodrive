@@ -16,6 +16,7 @@ import { isAbortError } from '../util/backoff.js'
 import { qrSvg, shortcutSteps } from '../mobile/qr.js'
 import { gerarMiniaturasLote, resumoLote } from '../media/raw-thumb-lote.js'
 import { registerPrevias } from './previas.js'
+import { registerTamanho } from './tamanho.js'
 
 const BODY_LIMIT = 1024 * 1024
 const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba a conexão
@@ -463,6 +464,9 @@ export function createApi(ctx) {
   // Prévia leve (src/server/previas.js): /api/previas, /api/previas/pular e o lote /api/previas/lote.
   const previas = registerPrevias({ route, ctx, account, HttpProblem, toProblem })
 
+  // Tamanho das pastas (src/server/tamanho.js): /api/drive/:acc/tamanho.
+  const tamanhos = registerTamanho({ route, ctx, account, HttpProblem, toProblem })
+
   const stringList = (v, max = 10_000) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, max) : null)
 
   // ── estado e eventos
@@ -892,6 +896,7 @@ export function createApi(ctx) {
       jobs.close()
       thumbJobs.close()
       previas.close()
+      tamanhos.close()
     },
   }
 }

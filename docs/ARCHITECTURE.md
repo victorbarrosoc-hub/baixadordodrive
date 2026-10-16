@@ -51,6 +51,7 @@ src/
   google/oauth.js        AuthManager (OAuth loopback + PKCE, multi-conta; junta as contas da nuvem)
   google/cloud-auth.js   CloudAuth (conta SOBEDESCE: fluxo de dispositivo, Drives da conta, tokens do site)
   google/drive.js        DriveClient (listar, árvore, pastas, metadados)
+  google/folder-size.js  walkFolderSize: soma o tamanho de uma pasta (o Drive não guarda), listagem mínima
   engine/hasher.js       Hasher (MD5 em worker thread + cache por caminho/tamanho/mtime)
   engine/hash-worker.js  código do worker
   engine/download.js     DownloadTask (segmentado, retomável)
@@ -65,6 +66,7 @@ src/
   media/previa-fila.js   GeradorPrevias: fila depois do envio (Proxy/<nome>.mp4 + appProperties), vaga única de conversão
   media/previa-lote.js   "Gerar prévias": vídeos que já estão no Drive, achados no computador por nome + tamanho
   server/previas.js      rotas /api/previas* e o lote (SSE 'previas')
+  server/tamanho.js      rotas /api/drive/:acc/tamanho (tamanho das pastas: contas guardadas na sessão, fila de 2)
   local/fsbrowse.js      raízes (Início, Mesa, discos externos) e listagem de pastas
   local/scan.js          varredura recursiva local
   server/app.js          servidor HTTP, segurança, estáticos, SSE
@@ -210,6 +212,11 @@ async ensureFolderPath(rootId, relDir, { signal, cache }): string
     // cria/acha cada nível de relDir dentro de rootId e devolve o id da última pasta.
     // `cache` (Map) guarda promessas por `${rootId}/${prefixo}` para criação concorrente não duplicar pastas.
 async search(text, { signal, media = false }): DriveItem[]        // name contains, até 200 resultados
+async folderSize(folderId, { signal, onProgress, concurrency = 4 }): { bytes, files, folders, docs, shortcuts, pending: 0, root }
+    // o Drive não guarda tamanho de pasta: soma a árvore (google/folder-size.js) com fields=nextPageToken,files(id,mimeType,size),
+    // pageSize 1000, sem lixeira, corpora=drive no drive compartilhado. Atalhos não são seguidos (contam em `shortcuts`),
+    // Docs do Google contam 0 (em `docs`, dentro de `files`). Subpasta que some no meio fica de fora.
+    // Cancelado: AbortError com err.partial. O app do celular faz a mesma conta em web/public/app/lib/tamanho.js.
 async setThumbnail(fileId, image: Buffer, mimeType = 'image/jpeg', { signal, retries }): { id, hasThumbnail }
     // PATCH files/{id} com contentHints.thumbnail = { image: base64 URL-safe (RFC 4648 §5, com '='), mimeType }.
     // PNG/JPEG/GIF até 2 MB (valida antes de chamar). O Drive só usa quando não gera a dele; conteúdo novo derruba.
@@ -646,6 +653,9 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | GET | `/api/drive/:acc/list` | `folderId` (padrão `root`) | `{ folder, path, items }` |
 | GET | `/api/drive/:acc/search` | `q` | `{ items }` |
 | POST | `/api/drive/:acc/folders` | `{ parentId, name }` | `{ item }` |
+| POST | `/api/drive/:acc/tamanho` | `{ folderId, refresh?, auto? }` | `{ tamanho: TamanhoView }` (começa ou devolve a conta guardada; `auto` não recomeça uma parada à mão) |
+| GET | `/api/drive/:acc/tamanho` | `ids=a,b,c` (até 200) | `{ tamanhos: { id: TamanhoView\|null } }` (a interface pergunta a cada ~0,7 s; sem pergunta por 20 s a conta é abandonada) |
+| DELETE | `/api/drive/:acc/tamanho` | `{ folderId, discard? }` | `{ tamanho }` ("Parar": guarda o parcial; `discard` esquece) |
 | GET | `/api/drive/:acc/proxy` | `id`, `rk?` | `{ proxy: DriveItem\|null }` (proxy de câmera; ver "Miniaturas e prévia") |
 | GET | `/api/drive/thumb` | `account, id, k, s?, v?, rk?` | imagem (miniatura; `x-sobedesce-cache: memory\|disk\|google`) |
 | GET/HEAD | `/api/drive/stream` | `account, id, k, rk?` + cabeçalho `Range` | bytes do arquivo (200/206/416) |

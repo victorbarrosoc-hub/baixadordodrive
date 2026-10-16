@@ -2682,6 +2682,97 @@ code {
 .lrow-chev {
   color: var(--text-3);
 }
+/* tamanho das pastas: "Calcular" ao lado da pasta e a linha do topo da pasta aberta */
+.lrows li.has-calc .lrow {
+  padding-right: 120px;
+}
+.lrows li.has-calc .lrow-chev {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.lrow-calc {
+  position: absolute;
+  top: 50%;
+  right: 40px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--up-text);
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 2;
+}
+.lrow-calc::before {
+  /* área de toque de 44 px sem aumentar o botão */
+  content: "";
+  position: absolute;
+  inset: -6px -4px;
+}
+.lrow-calc:active {
+  opacity: 0.5;
+}
+.dsize {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin: 0 0 12px;
+  padding: 6px 6px 6px 14px;
+  border-radius: var(--r);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  font-size: 14px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.dsize b {
+  color: var(--text);
+  font-weight: 650;
+}
+.dsize small {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.dsize-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+.dsize-spin {
+  width: 15px;
+  height: 15px;
+  color: var(--text-3);
+}
+.dsize-act {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: var(--up-text);
+  font-size: 14px;
+  font-weight: 550;
+}
+.dsize-act.is-icon {
+  width: 36px;
+  padding: 0;
+  color: var(--text-3);
+}
+.dsize-act:active {
+  background: var(--fill-2);
+}
+.dsize.is-error .dsize-text {
+  color: var(--err-text);
+}
 .lrows.is-skeleton .lrow {
   pointer-events: none;
 }

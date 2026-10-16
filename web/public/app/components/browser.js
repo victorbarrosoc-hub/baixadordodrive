@@ -1,8 +1,9 @@
 // Aba Drive: navegar no Meu Drive, Compartilhados comigo e Drives compartilhados, em grade com miniaturas ou em
 // lista; ordenar, buscar por nome, puxar para atualizar e carregar mais ao rolar. Tocar num arquivo abre a prévia.
 import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js'
-import { SCOPES, SORTS, getPrefs, isFolder, kindOf, knownProxy, listDrives, listPage, savePrefs, target } from '../lib/browse.js'
-import { bytes, duration, shortDate } from '../lib/format.js'
+import { SCOPES, SORTS, folderSizes, getPrefs, isFolder, kindOf, knownProxy, listDrives, listPage, savePrefs, target } from '../lib/browse.js'
+import { sizeIsBig } from '../lib/tamanho.js'
+import { bytes, count, duration, plural, shortDate } from '../lib/format.js'
 import { Icon } from './icons.js'
 import { Button, cx } from './ui.js'
 import { Preview } from './preview.js'
@@ -11,8 +12,75 @@ import { KindGlyph, Thumb } from './thumb.js'
 // Listas já abertas (voltar para uma pasta não pisca). Vale enquanto a página está aberta.
 const lists = new Map()
 
+// ───── tamanho das pastas (lib/tamanho.js) ─────
+
+const isLive = (v) => v?.status === 'running' || v?.status === 'queued'
+const total = (n) => bytes(n, { precise: true })
+
+/** Re-renderiza quando alguma conta de tamanho muda. */
+function useFolderSizes() {
+  const [, force] = useState(0)
+  useEffect(() => folderSizes.subscribe(() => force((n) => n + 1)), [])
+}
+
+/** "412,3 GB" pronto; ao vivo, o que já somou. Para o "Pasta · …" das linhas e dos quadros. */
+function sizeShort(v) {
+  if (!v) return ''
+  if (v.status === 'done') return total(v.bytes)
+  if (v.status === 'stopped') return `≥ ${bytes(v.bytes)}`
+  if (isLive(v)) return v.bytes ? `${bytes(v.bytes)}…` : 'calculando…'
+  return ''
+}
+
+const folderMeta = (f, base) => {
+  const s = sizeShort(folderSizes.get(target(f).id))
+  return s ? `${base} · ${s}` : base
+}
+
+/** Linha do topo da pasta aberta: "412,3 GB · 1.234 arquivos em 56 pastas" (começa sozinha ao abrir). */
+function FolderSize({ folder, driveId, active }) {
+  useFolderSizes()
+  const v = folderSizes.get(folder.id)
+  useEffect(() => {
+    if (!active) return
+    folderSizes.focus(folder.id)
+    folderSizes.start({ id: folder.id, driveId: driveId || folder.driveId || null }, { auto: true })
+  }, [folder.id, active, !v])
+  // Saiu da aba Drive: a conta que andava é esquecida (volta a contar ao abrir de novo).
+  useEffect(() => () => folderSizes.focus(null), [])
+  useEffect(() => {
+    if (!active) folderSizes.focus(null)
+  }, [active])
+  const again = () => folderSizes.start({ id: folder.id, driveId: driveId || folder.driveId || null }, { refresh: true })
+  if (!v) return null
+  if (isLive(v)) {
+    const big = sizeIsBig(v)
+    return html`<div class="dsize is-live" role="status">
+      <span class="spinner dsize-spin" aria-hidden="true"></span>
+      <span class="dsize-text">Calculando… ${count(v.files)}${big ? '+' : ''} ${v.files === 1 ? 'arquivo' : 'arquivos'} · <b>${bytes(v.bytes)}${big ? '…+' : ''}</b></span>
+      ${big ? html`<button type="button" class="dsize-act" onClick=${() => folderSizes.stop(folder.id)}>Parar</button>` : null}
+    </div>`
+  }
+  if (v.status === 'done') {
+    return html`<div class="dsize">
+      <span class="dsize-text"><b>${total(v.bytes)}</b> · ${plural(v.files, 'arquivo', 'arquivos')}${v.folders ? ` em ${plural(v.folders, 'pasta', 'pastas')}` : ''}${v.docs ? html`<br /><small>Documentos do Google não contam</small>` : null}</span>
+      <button type="button" class="dsize-act is-icon" onClick=${again} aria-label="Recalcular o tamanho"><${Icon} name="refresh" size=${16} strokeWidth=${2} /></button>
+    </div>`
+  }
+  if (v.status === 'stopped') {
+    return html`<div class="dsize">
+      <span class="dsize-text">Pelo menos <b>${bytes(v.bytes)}</b> · ${count(v.files)}+ arquivos</span>
+      <button type="button" class="dsize-act" onClick=${again}>Continuar</button>
+    </div>`
+  }
+  return html`<div class="dsize is-error">
+    <span class="dsize-text">${v.error || 'Não consegui somar esta pasta.'}</span>
+    <button type="button" class="dsize-act" onClick=${again}>Tentar de novo</button>
+  </div>`
+}
+
 function metaOf(f, kind) {
-  if (kind === 'folder') return f.isDrive ? 'Drive compartilhado' : 'Pasta'
+  if (kind === 'folder') return f.isDrive ? 'Drive compartilhado' : folderMeta(f, 'Pasta')
   if (kind === 'gdoc') return shortDate(f.modifiedTime) || 'Documento do Google'
   const parts = []
   if (f.size != null) parts.push(bytes(Number(f.size)))
@@ -35,15 +103,18 @@ function Tile({ f, siblings, onOpen }) {
         ${kind === 'video' && !dur && f.thumbnailLink ? html`<span class="tile-badge is-icon"><${Icon} name="play" size=${10} /></span>` : null}
       </span>
       <span class="tile-name">${f.name}</span>
-      <span class="tile-meta">${kind === 'folder' ? (f.isDrive ? 'Drive' : 'Pasta') : f.size != null ? bytes(Number(f.size)) : shortDate(f.modifiedTime)}</span>
+      <span class="tile-meta">${kind === 'folder' ? (f.isDrive ? 'Drive' : folderMeta(f, 'Pasta')) : f.size != null ? bytes(Number(f.size)) : shortDate(f.modifiedTime)}</span>
     </button>
   </li>`
 }
 
-function Row({ f, siblings, onOpen }) {
+function Row({ f, siblings, onOpen, driveId }) {
   const kind = kindOf(f)
   const dur = f.videoMediaMetadata?.durationMillis
-  return html`<li>
+  // Pasta: "Calcular" ao lado soma o que tem dentro (sob pedido; o Drive não guarda o tamanho de pastas).
+  const t = kind === 'folder' && !f.isDrive ? target(f) : null
+  const calc = t && !folderSizes.get(t.id)
+  return html`<li class=${calc ? 'has-calc' : undefined}>
     <button type="button" class="lrow" onClick=${() => onOpen(f)}>
       <span class="lrow-media"><${Thumb} file=${f} from=${thumbSource(f, kind, siblings)} px=${48} kind=${kind} small /></span>
       <span class="lrow-text">
@@ -52,6 +123,11 @@ function Row({ f, siblings, onOpen }) {
       </span>
       ${kind === 'folder' ? html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="lrow-chev" />` : null}
     </button>
+    ${calc
+      ? html`<button type="button" class="lrow-calc" onClick=${() => folderSizes.start({ id: t.id, driveId: driveId || f.driveId || null })} aria-label=${`Calcular o tamanho de ${f.name}`}>
+          Calcular
+        </button>`
+      : null}
   </li>`
 }
 
@@ -230,6 +306,7 @@ export function DriveScreen({ active }) {
   const driveId = nav.scope === 'drives' && nav.path[0] ? nav.path[0].id : null
   const where = useMemo(() => ({ scope: nav.scope, folder: search ? null : folder, driveId, search }), [nav, search])
   const list = useListing(where, prefs)
+  useFolderSizes()
   const { pull, busy } = usePull(root, active && !preview, () => list.reload())
 
   useEffect(() => {
@@ -261,7 +338,7 @@ export function DriveScreen({ active }) {
     if (isFolder(f)) {
       const t = target(f)
       const base = search ? [] : nav.path
-      const entry = { id: t.id, name: f.name }
+      const entry = { id: t.id, name: f.name, driveId: f.driveId || null }
       // Dentro de um resultado de busca: a pasta vira o novo começo da trilha.
       go(nav.scope, f.isDrive ? [entry] : [...base, entry])
       return
@@ -365,6 +442,7 @@ export function DriveScreen({ active }) {
     </div>
 
     <main class="drive-body" aria-busy=${list.loading ? 'true' : 'false'}>
+      ${folder && !search ? html`<${FolderSize} folder=${folder} driveId=${driveId} active=${active} />` : null}
       ${search ? html`<p class="drive-note">${list.loading ? 'Buscando…' : `${files.length}${list.next ? '+' : ''} ${files.length === 1 ? 'resultado' : 'resultados'} para “${search}”`}</p>` : null}
       ${list.loading && !list.files ? html`<${SkeletonGrid} view=${prefs.view} />` : null}
       ${list.error && !list.files
@@ -385,7 +463,7 @@ export function DriveScreen({ active }) {
       ${files.length
         ? prefs.view === 'grid'
           ? html`<ul class="tiles">${files.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${files} onOpen=${open} />`)}</ul>`
-          : html`<ul class="group lrows">${files.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${files} onOpen=${open} />`)}</ul>`
+          : html`<ul class="group lrows">${files.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${files} onOpen=${open} driveId=${driveId} />`)}</ul>`
         : null}
       ${list.error && list.files ? html`<p class="drive-note is-error">Não consegui carregar mais. <button type="button" class="link-btn" onClick=${list.more}>Tentar de novo</button></p>` : null}
       <div ref=${sentinel} class="drive-sentinel">${list.loadingMore ? html`<span class="spinner" aria-label="Carregando mais"></span>` : null}</div>
