@@ -100,6 +100,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   downloadConflict: 'skip',
   /** Upload quando já existe no Drive: 'skip' (pula se igual), 'rename' (sobe cópia), 'replace' (nova versão). */
   uploadConflict: 'skip',
+  /**
+   * Ao terminar de subir um .braw (o Drive não gera miniatura de Blackmagic RAW), tira um frame com o que o
+   * computador tem (Quick Look no Mac, miniatura do Explorer no Windows) e grava como miniatura do arquivo.
+   */
+  brawThumbnails: true,
   /** Sem receber/enviar nenhum byte por esse tempo, a conexão é refeita. */
   stallTimeoutMs: 30_000,
   /** Refaz conexões que ficaram muito mais lentas que as outras (o Google às vezes estrangula uma conexão). */

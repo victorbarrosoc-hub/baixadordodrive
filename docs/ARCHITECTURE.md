@@ -59,6 +59,7 @@ src/
   engine/manager.js      TransferManager (fila, concorrência, persistência, eventos)
   engine/compare.js      compareFolders (local × Drive)
   engine/power.js        KeepAwake (impede o computador de dormir)
+  media/raw-thumb.js     miniatura de .braw/.r3d: extrairFrame (Quick Look / Explorer / ajudante nativo) e RawThumbnailer
   local/fsbrowse.js      raízes (Início, Mesa, discos externos) e listagem de pastas
   local/scan.js          varredura recursiva local
   server/app.js          servidor HTTP, segurança, estáticos, SSE
@@ -198,6 +199,9 @@ async ensureFolderPath(rootId, relDir, { signal, cache }): string
     // cria/acha cada nível de relDir dentro de rootId e devolve o id da última pasta.
     // `cache` (Map) guarda promessas por `${rootId}/${prefixo}` para criação concorrente não duplicar pastas.
 async search(text, { signal }): DriveItem[]                       // name contains, até 200 resultados
+async setThumbnail(fileId, image: Buffer, mimeType = 'image/jpeg', { signal, retries }): { id, hasThumbnail }
+    // PATCH files/{id} com contentHints.thumbnail = { image: base64 URL-safe (RFC 4648 §5, com '='), mimeType }.
+    // PNG/JPEG/GIF até 2 MB (valida antes de chamar). O Drive só usa quando não gera a dele; conteúdo novo derruba.
 // Detalhes obrigatórios (ver docs/GOOGLE-NOTES.md):
 //  - supportsAllDrives=true em TODA chamada files.*; includeItemsFromAllDrives=true em files.list;
 //    pageSize=1000; dentro de drive compartilhado use corpora=drive&driveId=<id>.
@@ -386,7 +390,8 @@ simbólicos; arquivos soltos vão direto em `destFolderId`.
 ### engine/manager.js — `TransferManager extends EventEmitter`
 
 ```js
-new TransferManager({ settings, auth, hasher, paths = dataPaths(), driveFactory = (accountId) => DriveClient })
+new TransferManager({ settings, auth, hasher, paths = dataPaths(), driveFactory = (accountId) => DriveClient,
+                      thumbnailer = new RawThumbnailer({ settings }) })   // null desliga a miniatura de .braw
 async init()                    // carrega queue.json; 'running'/'verifying' viram 'queued' (autoResume) ou 'paused'
 snapshot(): { transfers: PublicTransfer[], batches: Batch[], stats: Stats }
 add({ batch, records }): void   // persiste e agenda
@@ -413,6 +418,66 @@ internet/Google fora do ar) → 'waiting' com `retryAt` crescente (1, 2, 5, 10, 
 volta sozinho; depois de 16 esperas seguidas sem avanço → 'failed'; 'quota' → 'waiting' com `retryAt` e reagenda sozinho; 'reauth' → 'paused' com erro
 "Conecte a conta de novo"; 'fatal'/'notfound' → 'failed'. `cancel` de download apaga o `tempPath`;
 de upload faz DELETE na sessão (melhor esforço). Limites de banda e KeepAwake seguem `settings`.
+
+### media/raw-thumb.js — miniatura de .braw
+
+O Drive não gera miniatura de Blackmagic RAW; a API aceita uma nossa em `contentHints.thumbnail`, que vale no Drive web,
+no app do Drive e no SOBEDESCE. Quando um envio de `.braw` (ou `.r3d`, sem diferenciar maiúsculas) **termina bem**,
+o motor grava um frame como miniatura. Ajuste `brawThumbnails` (padrão ligado; Ajustes → Arquivos).
+
+```js
+isRawThumbCandidate(name): boolean                 // RAW_THUMB_EXTS = ['.braw', '.r3d']
+async extrairFrame(path, { largura = 1280, maxBytes = 1,5 MB, timeoutMs = 20 s, signal, extractors?, log? })
+  : Buffer|null                                    // JPEG (PNG se não houver conversão e couber). NUNCA lança:
+                                                   // null + log(motivo curto). Tempo limite vale para tudo (mata o processo).
+async detectExtractor(): { supported, found, via: 'helper'|'quicklook'|'shell'|null, downloadUrl }   // para os Ajustes
+class RawThumbnailer { prepare(record), attach(record, drive): Promise<boolean>, status(), idle(), close() }
+```
+Extratores (trocáveis; `extractors` aceita qualquer `{ id, label, extract(file, { width, maxBytes, deadline, signal, tmp }) }`):
+1. **Ajudante nativo** `sobedesce-raw-frame` (se existir em `SOBEDESCE_RAW_HELPER` ou `<resources>/raw-frame/`):
+   `--input <braw> --output <jpg> --width <px> --max-bytes <n>` → 0 = imagem gravada, 2 = "não dá" (null), outro = falha.
+   **Ainda não existe no instalador** (ver "O que falta" abaixo).
+2. **Mac**: `qlmanage -t -s 1280 -o <tmp> <arquivo>` (usa a extensão de miniatura registrada para o tipo) e
+   `sips -s format jpeg -s formatOptions 80 -Z 1280` para JPEG; se não couber em 1,5 MB, qualidade 65 e depois 60 a 60 %
+   da largura. Sem `sips`, manda o PNG se couber.
+3. **Windows**: `powershell.exe -EncodedCommand` com C# em `Add-Type` (compila na memória, nada instalado):
+   `SHCreateItemFromParsingName` → `IShellItemImageFactory.GetImage(1280, SIIGBF_THUMBNAILONLY|SIIGBF_BIGGERSIZEOK)` →
+   JPEG (82/68 %, depois 60 %/40 % do tamanho) até caber. THUMBNAILONLY: sem manipulador de miniatura, sai 2 (null),
+   nunca o ícone do tipo. Caminhos entram por variável de ambiente (nada do nome do arquivo no texto do script).
+
+Fluxo no `TransferManager` (opção `thumbnailer`, `null` desliga): ao **começar** um envio candidato, `prepare(record)`
+começa a extração em paralelo (no máximo 2 ao mesmo tempo; cache por caminho+tamanho+mtime); ao **terminar** com
+`completed` e `target.fileId`, `attach(record, drive)` espera o frame e chama `drive.setThumbnail` **em segundo plano**:
+o status da transferência já é 'completed' e nunca muda por causa da miniatura. Gravou → `record.thumbnail = true`.
+Falha (sem extrator, tempo esgotado, imagem grande, Drive recusou) = só uma linha no log. Três falhas seguidas do
+extrator → 10 min sem tentar. O app fechar entre o fim do envio e a gravação perde a miniatura (melhor esforço).
+`GET /api/raw-thumbs` devolve `status()` para os Ajustes ("Não encontramos o Blackmagic RAW neste computador" + link
+para `blackmagicdesign.com/products/blackmagicraw`). A detecção procura o Blackmagic RAW/DaVinci Resolve nas pastas
+padrão (Mac: `/Applications/Blackmagic RAW`, `/Applications/DaVinci Resolve`; Windows: `Program Files\Blackmagic Design\…`)
+e, no Windows, o manipulador de miniatura de `.braw` no registro (`ShellEx\{e357fccd-…}`).
+
+Confiabilidade conhecida (pesquisa de 2026-10):
+- **Mac**: o macOS 15 (Sequoia) deixou de carregar plug-ins `.qlgenerator`; só extensões de app (appex) geram miniatura.
+  Há relatos no fórum da Blackmagic de miniaturas de BRAW sumindo no Finder desde o Sequoia. Onde a extensão da
+  Blackmagic não funciona, o Calibrated QuickLook (grátis, junto do Tin Man) gera miniatura de BRAW/R3D e o
+  `qlmanage` passa a funcionar sozinho. Se o Quick Look não tiver nada, o `.braw` só fica sem miniatura.
+- **Windows**: o manipulador de miniaturas do Blackmagic RAW Player teve regressões (ex.: 1.7 deixou de registrar a
+  DLL; relatos ainda em 2025). Mesma regra: sem miniatura do Explorer, sem miniatura no Drive, sem erro.
+- **ffmpeg não decodifica BRAW** (nem o 6.x nem o master de 2026: só ProRes RAW entrou; o decodificador BRAW ficou em patch).
+
+O que falta para o ajudante nativo (o caminho mais confiável, porque não depende de Quick Look/Explorer):
+1. Código C++ (~200 linhas) a partir do exemplo `ProcessClipCPU` do Blackmagic RAW SDK: carregar a biblioteca
+   **instalada** com `CreateBlackmagicRawFactoryInstanceFromPath` (Mac: o `BlackmagicRawAPI.framework` que vem com o
+   Blackmagic RAW/SDK ou com o DaVinci Resolve; Windows: a pasta do `BlackmagicRawAPI.dll` em
+   `Program Files\Blackmagic Design\…`; os caminhos exatos não estão documentados no manual e precisam ser confirmados
+   numa máquina com eles instalados),
+   decodificar o frame 0 em 1/4 de resolução na CPU, `RGBAU8`, e gravar JPEG (stb_image_write, domínio público).
+2. Headers do SDK no CI: o download do SDK na Blackmagic exige cadastro/aceite; não dá para baixar no workflow sem
+   guardar o instalador num lugar privado (segredo do repositório). Os headers trazem licença permissiva, mas o EULA do
+   SDK proíbe redistribuir o SDK: não versionar headers nem a biblioteca; o ajudante só carrega a que já está instalada.
+3. `electron-builder.yml`: `extraResources` com `raw-frame/sobedesce-raw-frame(.exe)` por plataforma (Mac universal:
+   `lipo` das duas arquiteturas; Windows x64 e arm64).
+4. Testar num Mac e num Windows com DaVinci Resolve/Blackmagic RAW instalados (aqui só há Linux).
 
 ### engine/compare.js
 
@@ -487,6 +552,7 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | POST | `/api/transfers/action` | `{ action: pause|resume|cancel|retry|remove|prioritize, ids?: string[]|'all', batchId? }` | `{ }` |
 | POST | `/api/transfers/clear` | | `{ }` |
 | GET | `/api/settings` / PATCH `/api/settings` | patch | `{ settings }` |
+| GET | `/api/raw-thumbs` | `refresh=1` (refaz a detecção) | `{ rawThumbs: { supported, found, via, enabled, last, downloadUrl } }` |
 | POST | `/api/compare` | `{ accountId, localPath, driveFolderId, mode }` | `{ jobId }` (progresso via SSE) |
 | GET | `/api/compare/:jobId` | | `{ status, progress, result?, error? }` |
 | POST | `/api/compare/:jobId/upload` | `{ statuses?: ['missing','different'], relDirs?: string[] }` | `{ batch, count, bytes }` |

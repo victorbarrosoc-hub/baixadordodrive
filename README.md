@@ -127,6 +127,16 @@ O celular e o computador precisam estar **na mesma rede Wi-Fi**. Na primeira vez
 
 **Pela internet (sem o computador, direto do celular para o Google):** abra **https://sobedesce.vercel.app/app/** no celular e entre com a sua conta SOBEDESCE. O app usa os Google Drives conectados à conta (em **/conta**), sem login do Google no celular. Em **Ajustes → Celular → Em qualquer lugar** há um QR que abre esse endereço. Detalhes em [docs/CELULAR.md](docs/CELULAR.md).
 
+### Miniaturas de BRAW
+
+O Google Drive não gera miniatura de **Blackmagic RAW (.braw)**: o arquivo aparece só com o ícone. Quando um .braw termina de subir, o SOBEDESCE tira um frame dele e grava como miniatura do arquivo no Drive. Ela aparece no Drive web, no app do Drive e no SOBEDESCE.
+
+- Precisa do **DaVinci Resolve** ou do **Blackmagic RAW** instalado no computador ([baixar o Blackmagic RAW](https://www.blackmagicdesign.com/products/blackmagicraw)). No Mac, o frame vem do Quick Look; no Windows, da miniatura do Explorer.
+- Começa junto com o envio e não atrasa nada. Se não der (Blackmagic RAW ausente, arquivo que o sistema não abre), o arquivo sobe normal, só sem miniatura.
+- Liga e desliga em **Ajustes → Arquivos → Gerar miniatura de BRAW** (ligado por padrão). Se o Blackmagic RAW não estiver instalado, os Ajustes avisam.
+- Também vale para **.r3d** quando o computador sabe mostrar a miniatura dele.
+- No Mac com macOS 15 ou mais novo, se o Finder não mostra miniatura de .braw, o SOBEDESCE também não consegue. O [Calibrated QuickLook](https://www.calibratedsoftware.com/calibrated-quicklook/) (grátis) resolve as duas coisas.
+
 ---
 
 ## Dicas de velocidade

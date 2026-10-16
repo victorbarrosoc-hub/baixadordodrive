@@ -412,6 +412,20 @@ function safeDecode(s) {
   }
 }
 
+const THUMBNAIL_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif'])
+const THUMBNAIL_MAX = 2 * MiB
+
+/** contentHints.thumbnail como o Google valida: base64 "URL-safe" (RFC 4648 §5), PNG/JPEG/GIF, até 2 MB. */
+function parseThumbnailHint(t) {
+  if (!t || typeof t !== 'object' || typeof t.image !== 'string' || !t.image) return { error: 'Invalid value for: contentHints.thumbnail.image' }
+  if (!THUMBNAIL_MIMES.has(t.mimeType)) return { error: 'Invalid value for: contentHints.thumbnail.mimeType' }
+  if (!/^[A-Za-z0-9_-]+={0,2}$/.test(t.image)) return { error: 'Invalid value for: contentHints.thumbnail.image (expected URL-safe base64)' }
+  const data = Buffer.from(t.image, 'base64url')
+  if (!data.length) return { error: 'Invalid value for: contentHints.thumbnail.image' }
+  if (data.length > THUMBNAIL_MAX) return { error: 'The thumbnail is too large.' }
+  return { mimeType: t.mimeType, data }
+}
+
 async function readBody(req, limit = MiB) {
   const chunks = []
   let size = 0
@@ -966,6 +980,7 @@ class MockDrive {
       uploadSessionsCreated: 0,
       uploadPuts: 0,
       statusQueries: 0,
+      thumbnailsSet: 0,
       dailyUploadBytes: this.dailyUploaded ?? 0,
       faults: { error5xx: 0, error429: 0, rateLimit403: 0, wrongRange: 0, ignoredRange: 0, downloadDrops: 0, downloadStalls: 0, uploadDrops: 0, uploadStalls: 0, shortPages: 0 },
     }
@@ -1240,9 +1255,16 @@ class MockDrive {
     item.headRevisionId = newRevisionId()
     item.modifiedTime = toIso(spec.modifiedTime) ?? isoNow()
     item.md5Override = undefined
+    item.thumbnail = null
     item.version++
     if (old.kind === 'disk') fsp.unlink(old.path).catch(noop)
     return this._view(item)
+  }
+
+  /** Miniatura gravada por contentHints.thumbnail: { mimeType, data: Buffer, version } ou null. */
+  getThumbnail(id) {
+    const t = this.items.get(this._resolve(id))?.thumbnail
+    return t ? { mimeType: t.mimeType, data: Buffer.from(t.data), version: t.version } : null
   }
 
   /** Bytes [start, end) do arquivo (end exclusivo; padrão = até o fim). Para conferências em testes. */
@@ -1352,7 +1374,11 @@ class MockDrive {
     j.version = String(item.version)
     j.webViewLink = isFolder ? `https://drive.google.com/drive/folders/${item.id}` : `https://drive.google.com/file/d/${item.id}/view?usp=drivesdk`
     j.iconLink = `https://drive-thirdparty.googleusercontent.com/16/type/${item.mimeType}`
-    j.hasThumbnail = false
+    j.hasThumbnail = Boolean(item.thumbnail)
+    if (item.thumbnail) {
+      j.thumbnailLink = `${this.url}/thumbnails/${item.id}?v=${item.thumbnail.version}`
+      j.thumbnailVersion = String(item.thumbnail.version)
+    }
     j.viewedByMe = true
     j.createdTime = item.createdTime
     j.modifiedTime = item.modifiedTime
@@ -1582,6 +1608,9 @@ class MockDrive {
       if (m && method === 'PATCH') return drive('upload.update', (q, s, u) => this._uploadInit(q, s, u, safeDecode(m[1])), { write: true })
       return notFound
     }
+
+    const thumb = /^\/thumbnails\/([^/]+)$/.exec(p)
+    if (thumb && method === 'GET') return { name: 'thumbnail', run: (q, s) => this._thumbnailGet(q, s, safeDecode(thumb[1])) }
 
     if (!p.startsWith('/drive/v3/')) return notFound
     const segs = p.slice('/drive/v3/'.length).split('/').map(safeDecode)
@@ -2040,8 +2069,8 @@ class MockDrive {
     await this._stream(req, res, 200, { 'content-type': mime, 'cache-control': 'private, max-age=0' }, content, 0, size)
   }
 
-  async _jsonBody(req) {
-    const raw = await readBody(req, MiB)
+  async _jsonBody(req, limit = MiB) {
+    const raw = await readBody(req, limit)
     if (!raw.length) return {}
     const meta = JSON.parse(raw.toString('utf8'))
     if (!meta || typeof meta !== 'object' || Array.isArray(meta)) throw new SyntaxError('metadados inválidos')
@@ -2109,7 +2138,7 @@ class MockDrive {
   async _filesUpdate(req, res, url, rawId) {
     let meta
     try {
-      meta = await this._jsonBody(req)
+      meta = await this._jsonBody(req, 4 * MiB)
     } catch {
       return this._send(res, 400, gError(400, 'parseError', 'Parse Error'))
     }
@@ -2123,6 +2152,11 @@ class MockDrive {
     }
     if (meta.modifiedTime != null && !isIsoDate(meta.modifiedTime)) {
       return this._send(res, 400, gError(400, 'invalid', 'Invalid value for: modifiedTime', { location: 'modifiedTime' }))
+    }
+    let thumbnail = null
+    if (meta.contentHints?.thumbnail != null) {
+      thumbnail = parseThumbnailHint(meta.contentHints.thumbnail)
+      if (thumbnail.error) return this._send(res, 400, gError(400, 'invalid', thumbnail.error, { location: 'contentHints.thumbnail' }))
     }
     const add = (url.searchParams.get('addParents') || '').split(',').filter(Boolean).map(id => this._resolve(id))
     const remove = (url.searchParams.get('removeParents') || '').split(',').filter(Boolean).map(id => this._resolve(id))
@@ -2147,8 +2181,21 @@ class MockDrive {
     // Renomear/mover não mexe em modifiedTime (só quando vem explícito).
     if (meta.modifiedTime != null) item.modifiedTime = toIso(meta.modifiedTime)
     if (typeof meta.trashed === 'boolean' && meta.trashed !== item.trashed) this._setTrashed(item, meta.trashed)
+    if (thumbnail) {
+      // Como no Google: a miniatura nossa só vale para arquivo com conteúdo e cai quando o conteúdo muda.
+      if (item.content) item.thumbnail = { mimeType: thumbnail.mimeType, data: thumbnail.data, version: (item.thumbnail?.version ?? 0) + 1 }
+      this._stats.thumbnailsSet++
+    }
     item.version++
     this._send(res, 200, await this._fileJson(item, mask ?? DEFAULT_FILE_MASK))
+  }
+
+  /** thumbnailLink: a imagem gravada (no Google é um endereço temporário do googleusercontent). */
+  _thumbnailGet(req, res, id) {
+    const t = this.items.get(id)?.thumbnail
+    if (!t) return this._reject(req, res, 404, gError(404, 'notFound', 'Not Found'))
+    res.writeHead(200, { 'content-type': t.mimeType, 'content-length': t.data.length, 'cache-control': 'private, max-age=60' })
+    res.end(t.data)
   }
 
   _filesDelete(req, res, url, rawId) {
@@ -2561,6 +2608,7 @@ class MockDrive {
       if (meta.mimeType) item.mimeType = meta.mimeType
       if (meta.description !== undefined) item.description = meta.description
       item.md5Override = undefined
+      item.thumbnail = null
       item.version++
       if (old?.kind === 'disk' && old.path !== content.path) fsp.unlink(old.path).catch(noop)
     }
