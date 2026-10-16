@@ -246,7 +246,7 @@ test('AuthManager: contas locais e da nuvem juntas; tokens da nuvem; DriveClient
   assert.equal(site.stats.renovar, 1)
 
   // Conta da nuvem não se remove pelo app.
-  await assert.rejects(auth.removeAccount('nuvem:g1'), /sobedesce\.vercel\.app\/conta/)
+  await assert.rejects(auth.removeAccount('nuvem:g1'), /sobedesce\.com\/conta/)
   // Sem conta SOBEDESCE: id nuvem: pede para entrar.
   const solo = new AuthManager({ paths: env.paths })
   await solo.init()

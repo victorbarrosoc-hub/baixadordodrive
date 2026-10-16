@@ -79,7 +79,12 @@ const nextConfig: NextConfig = {
     ];
   },
   async redirects() {
+    // Endereço antigo (sobedesce.vercel.app): só as páginas de apresentação vão para sobedesce.com. O resto continua
+    // servido nele: app do celular já instalado (/app/), login e conta das sessões de antes, API dos apps de computador.
+    const antigo = [{ type: "host" as const, value: "sobedesce.vercel.app" }];
     return [
+      { source: "/", has: antigo, destination: "https://sobedesce.com/", permanent: true },
+      { source: "/:pagina(privacidade|termos)", has: antigo, destination: "https://sobedesce.com/:pagina", permanent: true },
       // "/app" sem barra → "/app/". O Next aceita uma barra opcional no fim de toda origem; o (?!/) evita o laço.
       { source: "/:app(app(?!/))", destination: "/app/", permanent: true },
       // O padrão do Next (barra no fim → sem barra), menos em /app/.

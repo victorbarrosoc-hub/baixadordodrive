@@ -33,7 +33,7 @@ export async function conectar(req: Request): Promise<Response> {
   const volta = voltaSegura(url.searchParams.get("volta"));
 
   // O Google volta para o endereço cadastrado: o cookie do state precisa nascer nele.
-  const retorno = new URL(redirectUri());
+  const retorno = new URL(redirectUri(url.origin));
   if (url.host !== retorno.host) return redirecionar(new URL(url.pathname + url.search, retorno.origin), 307);
 
   if (!googleConfigurado() || !chaveConfigurada()) return redirecionar(new URL(paginaDeErro(modo, volta, "google_config"), url.origin));
@@ -52,7 +52,7 @@ export async function conectar(req: Request): Promise<Response> {
     path: "/api/google",
     secure: cookieSeguro(url.origin),
   });
-  return redirecionar(urlDeConsentimento({ state, desafio }), 302, [cookie]);
+  return redirecionar(urlDeConsentimento({ state, desafio, origem: retorno.origin }), 302, [cookie]);
 }
 
 export async function callback(req: Request): Promise<Response> {
@@ -79,7 +79,7 @@ export async function callback(req: Request): Promise<Response> {
   let tokens: Tokens;
   let quem: PerfilGoogle;
   try {
-    tokens = await trocarCodigo(code, estado.verificador);
+    tokens = await trocarCodigo(code, estado.verificador, url.origin);
     quem = await perfil(tokens.acesso);
   } catch {
     return falhar("google_erro");

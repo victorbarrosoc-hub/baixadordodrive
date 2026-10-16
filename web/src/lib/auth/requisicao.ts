@@ -3,7 +3,7 @@
  * Cookie `sd_sessao` (site, confere Origin nas mutações) ou `Authorization: Bearer sdd_...` (computador).
  */
 import { erro, lerCookie, origemConfere } from "@/lib/http";
-import { siteUrl } from "@/lib/site";
+import { origensDoSite } from "@/lib/site";
 import { autenticar, COOKIE_SESSAO, type Autenticado } from "./sessao";
 
 export function usuarioDaRequisicao(req: Request): Promise<Autenticado | null> {
@@ -19,7 +19,7 @@ export const SEM_SESSAO = () => erro(401, "sem_sessao", "Entre na sua conta para
 export async function exigirNaApi(req: Request, opcoes: { mutacao: boolean }): Promise<Autenticado | Response> {
   const atual = await usuarioDaRequisicao(req);
   if (!atual) return SEM_SESSAO();
-  if (opcoes.mutacao && atual.via === "cookie" && !origemConfere(req.headers, req.url, siteUrl())) {
+  if (opcoes.mutacao && atual.via === "cookie" && !origemConfere(req.headers, req.url, origensDoSite())) {
     return erro(403, "origem", "Pedido de outra origem recusado.");
   }
   return atual;

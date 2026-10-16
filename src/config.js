@@ -53,7 +53,7 @@ export function endpoints() {
 
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive'
 
-export const DEFAULT_CLOUD_URL = 'https://sobedesce.vercel.app'
+export const DEFAULT_CLOUD_URL = 'https://sobedesce.com'
 
 /**
  * Endereço do site das contas SOBEDESCE (docs/CONTAS.md). SOBEDESCE_CLOUD_URL troca (testes e demo).

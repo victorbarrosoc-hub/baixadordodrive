@@ -1,7 +1,13 @@
 /** Dados do site: endereço, contato, rotas e textos comuns. */
 
 /** Endereço público do site (links do e-mail, URL do dispositivo, retorno do Google). */
-export const SITE_OFICIAL = "https://sobedesce.vercel.app";
+export const SITE_OFICIAL = "https://sobedesce.com";
+
+/**
+ * Endereço antigo. Continua no ar e completo: apps de computador já instalados, o app do celular na Tela de Início
+ * e as sessões de antes usam ele. O login com Google funciona nos dois (cada um tem o seu retorno cadastrado).
+ */
+export const SITE_ANTIGO = "https://sobedesce.vercel.app";
 
 export function siteUrl(): string {
   const v = process.env.NEXT_PUBLIC_SITE_URL?.trim();
@@ -13,6 +19,16 @@ export function siteUrl(): string {
     }
   }
   return SITE_OFICIAL;
+}
+
+/** Origens que são o próprio site (o principal, o oficial e o antigo). */
+export function origensDoSite(): string[] {
+  return [...new Set([siteUrl(), SITE_OFICIAL, SITE_ANTIGO])];
+}
+
+/** A origem do pedido, se for uma das do site; senão o endereço principal. */
+export function origemDoSite(origem?: string | null): string {
+  return origem && origensDoSite().includes(origem) ? origem : siteUrl();
 }
 
 /**
