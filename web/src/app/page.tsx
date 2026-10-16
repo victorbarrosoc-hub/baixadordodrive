@@ -1,16 +1,12 @@
 import type { Metadata } from "next";
 import { AvisoContaApagada } from "@/components/conta/aviso-conta-apagada";
-import { AccountsSection } from "@/components/home/accounts-section";
-import { CompareSection } from "@/components/home/compare-section";
-import { DownloadsSection } from "@/components/home/downloads-section";
-import { FinalCta } from "@/components/home/final-cta";
+import { ClosingSection } from "@/components/home/closing-section";
+import { FeaturesGrid } from "@/components/home/features-grid";
 import { Hero } from "@/components/home/hero";
 import { MotionProvider } from "@/components/home/motion";
-import { PhoneSection } from "@/components/home/phone-section";
 import { PlatformScript } from "@/components/home/platform";
-import { PrivacySection } from "@/components/home/privacy-section";
-import { ResumeSection } from "@/components/home/resume-section";
-import { SpeedSection } from "@/components/home/speed-section";
+import { PlatformsSection } from "@/components/home/platforms-section";
+import { StatsStrip } from "@/components/home/stats-strip";
 import { SiteFooter } from "@/components/site/footer";
 import { SiteHeader } from "@/components/site/header";
 import { SITE_DESCRICAO } from "@/lib/site";
@@ -31,14 +27,10 @@ export default function Home() {
       <MotionProvider>
         <main>
           <Hero />
-          <SpeedSection />
-          <ResumeSection />
-          <CompareSection />
-          <PhoneSection />
-          <AccountsSection />
-          <PrivacySection />
-          <DownloadsSection />
-          <FinalCta />
+          <StatsStrip />
+          <FeaturesGrid />
+          <PlatformsSection />
+          <ClosingSection />
         </main>
       </MotionProvider>
       <SiteFooter />
