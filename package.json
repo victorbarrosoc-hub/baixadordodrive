@@ -20,12 +20,13 @@
     "desktop": "electron .",
     "dist:mac": "electron-builder --mac --publish never",
     "dist:win": "electron-builder --win --publish never",
-    "test": "node --test --test-concurrency=1 test/",
-    "test:fast": "node --test --test-concurrency=1 --test-skip-pattern=slow test/"
+    "test": "node --test --test-concurrency=1 \"test/*.test.js\"",
+    "test:fast": "node --test --test-concurrency=1 --test-skip-pattern=slow \"test/*.test.js\""
   },
   "dependencies": {
     "htm": "^3.1.1",
     "preact": "^10.27.0",
+    "qrcode-generator": "2.0.4",
     "undici": "^7.16.0"
   },
   "devDependencies": {

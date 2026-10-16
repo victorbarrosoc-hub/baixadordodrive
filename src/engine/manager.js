@@ -1,0 +1,1201 @@
+// Fila de transferências: agenda, persiste e conta tudo (contrato em docs/ARCHITECTURE.md, "engine/manager.js").
+//
+// Por que é assim:
+//  - Cada registro tem no máximo UMA tarefa viva (this.entries). Pausar/cancelar só pede o abort; o status final
+//    é decidido quando a tarefa termina de verdade, então nunca existem duas tarefas escrevendo no mesmo arquivo.
+//  - A fila vai para queue.json com gravação atômica agrupada (saveSoon). Duas mudanças gravam NA HORA:
+//    uma URI de sessão nova (sem ela, o upload recomeça do zero) e um download que voltou para trás
+//    (o temporário vai ser recriado e o registro antigo diria que há bytes que não existem mais).
+//  - A interface recebe só o que mudou, no máximo 4×/s, e nunca a URI da sessão (é uma credencial).
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { EventEmitter } from 'node:events'
+import { dataPaths } from '../config.js'
+import { JsonFile } from '../util/store.js'
+import { SpeedMeter, eta } from '../util/meter.js'
+import { BandwidthLimiter } from '../util/limiter.js'
+import { isAbortError } from '../util/backoff.js'
+import { PART_SUFFIX, toNFC, uniqueName } from '../util/paths.js'
+import { classifyError } from '../google/errors.js'
+import { DriveClient } from '../google/drive.js'
+import { httpRequest, drain } from '../net/http.js'
+import { DownloadTask } from './download.js'
+import { UploadTask } from './upload.js'
+import { KeepAwake } from './power.js'
+
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+
+const STATUSES = new Set(['queued', 'running', 'verifying', 'paused', 'waiting', 'completed', 'skipped', 'failed', 'canceled'])
+const FINISHED = new Set(['completed', 'skipped', 'canceled'])
+const TYPES = ['download', 'upload']
+
+const TRANSFERS_MS = 250 // 'transfers' no máximo 4×/s
+const STATS_MS = 500 // 'stats' 2×/s
+const HISTORY_MS = 1000 // um ponto por segundo no gráfico
+const HISTORY_LEN = 120
+const QUEUE_SAVE_MS = 1000
+const USAGE_SAVE_MS = 5000
+const USAGE_KEEP_MS = 25 * HOUR
+const MAX_SEGMENTS = 32
+const ACTION_WAIT_MS = 5000 // pausar/cancelar espera a tarefa parar por até isso antes de responder
+const SHUTDOWN_WAIT_MS = 8000 // o app precisa sair em até 10 s
+const DELETE_TIMEOUT_MS = 10_000
+const MAX_TIMER_MS = 2 ** 31 - 1
+
+/** Cota de download do arquivo: esperas crescentes (repetir logo não adianta). */
+export const QUOTA_DELAYS = Object.freeze([15 * MINUTE, HOUR, 4 * HOUR, 24 * HOUR])
+const QUOTA_FALLBACK_MS = HOUR
+// Falhas 'retry' que a própria tarefa anuncia como "vou tentar de novo": a fila tenta mais algumas vezes sozinha.
+const AUTO_RETRY = new Set(['remoteChanged', 'tempMissing', 'verifyFailed'])
+const MAX_AUTO_RETRIES = 3
+
+const noop = () => {}
+
+function pathKey(p) {
+  return toNFC(path.resolve(String(p))).toLowerCase()
+}
+
+function plural(n, one, many) {
+  return `${n.toLocaleString('pt-BR')} ${n === 1 ? one : many}`
+}
+
+function errorInfo(err) {
+  const info = classifyError(err)
+  let message = info.message || 'Algo deu errado nesta transferência.'
+  // Mensagens de "tentando de novo" não valem para uma falha que já é final.
+  if (info.kind === 'retry' && /Tentando de novo…|Reconectando…|Retomo assim/.test(message)) {
+    message = 'A conexão com o Google falhou várias vezes. Tente de novo daqui a pouco.'
+  }
+  if (info.kind === 'auth') message = 'O Google recusou o acesso desta conta. Tente de novo; se continuar, conecte a conta de novo.'
+  if (info.kind === 'abort') message = 'A transferência foi interrompida. Tente de novo.'
+  return { info, error: { message, reason: info.reason ?? null, kind: info.kind, at: Date.now() } }
+}
+
+/** Até `max` segmentos para a interface: os vizinhos são somados (o preenchimento continua proporcional). */
+function capSegments(list, max = MAX_SEGMENTS) {
+  const segs = list
+    .filter(s => s && Number.isFinite(s.start) && Number.isFinite(s.end))
+    .map(s => ({ start: s.start, end: s.end, pos: Math.max(s.start, Math.min(Number(s.pos) || s.start, s.end + 1)), active: !!s.active, speed: Math.round(s.speed || 0) }))
+    .sort((a, b) => a.start - b.start)
+  if (segs.length <= max) return segs
+  const out = []
+  const per = Math.ceil(segs.length / max)
+  for (let i = 0; i < segs.length; i += per) {
+    const g = segs.slice(i, i + per)
+    let done = 0
+    let speed = 0
+    let active = false
+    for (const s of g) {
+      done += s.pos - s.start
+      speed += s.speed
+      active ||= s.active
+    }
+    out.push({ start: g[0].start, end: g[g.length - 1].end, pos: g[0].start + done, active, speed })
+  }
+  return out
+}
+
+function validRecord(r) {
+  return r && typeof r === 'object' && typeof r.id === 'string' && r.id && TYPES.includes(r.type)
+}
+
+/**
+ * Fila de transferências.
+ * Eventos: 'transfers' (PublicTransfer[] alterados, ≤ 4×/s), 'removed' (ids), 'batches' (Batch[]), 'stats' (Stats, 2×/s),
+ * 'toast' ({ kind, message }).
+ */
+export class TransferManager extends EventEmitter {
+  /**
+   * @param {object} opts
+   * @param {import('../config.js').Settings} opts.settings
+   * @param {import('../google/oauth.js').AuthManager} [opts.auth]
+   * @param {import('./hasher.js').Hasher} [opts.hasher]
+   * @param {ReturnType<typeof dataPaths>} [opts.paths]
+   * @param {(accountId: string) => object} [opts.driveFactory] DriveClient da conta (um por conta, em cache)
+   * Opções finas (testes): keepAwake, createTask(record, ctx), taskOptions { download, upload },
+   * quotaDelays (ms, cota de download do arquivo), quotaFallbackMs, quotaMaxMs, log.
+   */
+  constructor({ settings, auth = null, hasher = null, paths = dataPaths(), driveFactory, keepAwake, createTask, taskOptions = {}, quotaDelays = QUOTA_DELAYS, quotaFallbackMs = QUOTA_FALLBACK_MS, quotaMaxMs = 24 * HOUR, log } = {}) {
+    super()
+    if (!settings?.get) throw new Error('TransferManager: settings é obrigatório')
+    this.settings = settings
+    this.auth = auth
+    this.hasher = hasher
+    this.paths = paths
+    this.driveFactory = driveFactory || (accountId => new DriveClient(this.auth, accountId))
+    this.keepAwake = keepAwake || new KeepAwake()
+    this.taskOptions = taskOptions
+    this.createTask = createTask || ((record, ctx) => (record.type === 'download' ? new DownloadTask(record, ctx, this.taskOptions.download) : new UploadTask(record, ctx, this.taskOptions.upload)))
+    this.quotaDelays = quotaDelays.length ? [...quotaDelays] : [...QUOTA_DELAYS]
+    this.quotaFallbackMs = quotaFallbackMs
+    this.quotaMaxMs = quotaMaxMs
+    this.log = log || ((...args) => {
+      if (process.env.SOBEDESCE_DEBUG) console.error('[motor]', ...args)
+    })
+
+    /** @type {Map<string, object>} id -> TransferRecord (ordem de inserção = ordem da fila) */
+    this.records = new Map()
+    /** @type {Map<string, object>} id -> Batch */
+    this.batches = new Map()
+    /** @type {Map<string, object>} id -> tarefa viva { record, type, task, ac, after, cleanup, reauthError, promise } */
+    this.entries = new Map()
+    this.busy = new Map() // id -> { promise, record } limpeza em andamento (fora da fila até terminar)
+    this.waitTimers = new Map() // id -> timer da cota
+    this.persisted = new Map() // id -> { uri, bytes } da última vez que pediu gravação
+    this.drives = new Map()
+    this.folderCaches = new Map()
+    this.dirty = new Set()
+    this.removedQueue = []
+    this.batchesDirty = false
+    this.doneBatches = new Set()
+    this.reauthNotified = new Set()
+    this.prioritySeq = 0
+    this.meters = { download: new SpeedMeter(), upload: new SpeedMeter() }
+    const st = settings.get()
+    this.limiters = { download: new BandwidthLimiter(st.bandwidthLimitDown), upload: new BandwidthLimiter(st.bandwidthLimitUp) }
+    this.history = []
+    this.timers = []
+    this.started = false
+    this.closing = false
+    this.closed = false
+    this.ready = null
+    this.shutdownP = null
+
+    this.queueFile = new JsonFile(paths.queue, { version: 1, transfers: [], batches: [] })
+    this.queueFile.serialize = () => ({ version: 1, transfers: [...this.records.values()], batches: [...this.batches.values()] })
+    this.usageFile = new JsonFile(path.join(paths.root, 'usage.json'), { version: 1, accounts: {} })
+    this.usageFile.serialize = data => this.#pruneUsage(data)
+    let lastWarn = 0
+    const warn = what => err => {
+      if (Date.now() - lastWarn < MINUTE) return
+      lastWarn = Date.now()
+      console.warn(`[motor] não consegui gravar ${what}:`, err?.message)
+    }
+    this.queueFile.onError = warn('a fila')
+    this.usageFile.onError = warn('o uso diário')
+
+    this.onSettingsChange = (next, changed = []) => {
+      if (changed.includes('bandwidthLimitDown')) this.limiters.download.setRate(next.bandwidthLimitDown)
+      if (changed.includes('bandwidthLimitUp')) this.limiters.upload.setRate(next.bandwidthLimitUp)
+      this.#schedule()
+    }
+    this.onAccounts = list => this.#accountsChanged(Array.isArray(list) ? list : [])
+  }
+
+  // ─────────── ciclo de vida ───────────
+
+  /** Carrega queue.json: 'running'/'verifying' viram 'queued' (autoResume) ou 'paused'; 'waiting' mantém o retryAt. */
+  init() {
+    this.ready ??= (async () => {
+      let raw = null
+      try {
+        raw = await this.queueFile.load()
+      } catch (err) {
+        console.warn('[motor] não consegui ler a fila:', err?.message)
+      }
+      const autoResume = !!this.settings.get().autoResume
+      let changed = false
+      for (const r of Array.isArray(raw?.transfers) ? raw.transfers : []) {
+        if (!validRecord(r) || this.records.has(r.id)) continue
+        if (!STATUSES.has(r.status)) {
+          r.status = 'paused'
+          changed = true
+        }
+        if (r.status === 'running' || r.status === 'verifying') {
+          r.status = autoResume ? 'queued' : 'paused'
+          changed = true
+        }
+        if (r.status === 'waiting' && !Number.isFinite(r.retryAt)) {
+          r.status = 'queued'
+          changed = true
+        }
+        this.records.set(r.id, r)
+        this.persisted.set(r.id, { uri: r.session?.uri ?? null, bytes: r.bytesDone || 0 })
+        if (Number(r.priority) > this.prioritySeq) this.prioritySeq = Number(r.priority)
+      }
+      for (const b of Array.isArray(raw?.batches) ? raw.batches : []) {
+        if (b && typeof b.id === 'string' && !this.batches.has(b.id)) this.batches.set(b.id, b)
+      }
+      // Lote sumido do arquivo (versão antiga): cria um genérico para as linhas não ficarem soltas.
+      for (const r of this.records.values()) {
+        if (r.batchId && !this.batches.has(r.batchId)) {
+          this.batches.set(r.batchId, { id: r.batchId, type: r.type, label: r.type === 'upload' ? 'Envios' : 'Downloads', createdAt: r.createdAt || Date.now(), accountId: r.accountId })
+        }
+      }
+      this.#pruneBatches()
+      try {
+        await this.usageFile.load()
+      } catch {
+        this.usageFile.data = { version: 1, accounts: {} }
+      }
+      if (!this.usageFile.data || typeof this.usageFile.data.accounts !== 'object' || !this.usageFile.data.accounts) this.usageFile.data = { version: 1, accounts: {} }
+
+      this.settings.on?.('change', this.onSettingsChange)
+      this.auth?.on?.('accounts', this.onAccounts)
+      for (const r of this.records.values()) if (r.status === 'waiting') this.#armWait(r)
+      const every = (fn, ms) => {
+        const t = setInterval(() => {
+          try {
+            fn()
+          } catch (err) {
+            this.log('erro no relógio da fila:', err?.message)
+          }
+        }, ms)
+        t.unref?.()
+        this.timers.push(t)
+      }
+      every(() => this.#flushEvents(), TRANSFERS_MS)
+      every(() => {
+        if (this.listenerCount('stats')) this.emit('stats', this.stats())
+      }, STATS_MS)
+      every(() => this.#sampleHistory(), HISTORY_MS)
+      this.started = true
+      if (changed) this.#saveSoon()
+      this.#schedule()
+    })()
+    return this.ready
+  }
+
+  /** Pausa tudo (o status gravado continua 'running' para a próxima abertura retomar), espera as tarefas e grava. */
+  shutdown() {
+    this.shutdownP ??= (async () => {
+      this.closing = true
+      for (const t of this.timers) clearInterval(t)
+      this.timers = []
+      for (const t of this.waitTimers.values()) clearTimeout(t)
+      this.waitTimers.clear()
+      const waits = []
+      for (const e of this.entries.values()) {
+        if (!e.after) e.after = 'shutdown'
+        e.ac.abort()
+        waits.push(e.promise)
+      }
+      for (const b of this.busy.values()) waits.push(b.promise)
+      await this.#waitFor(waits, SHUTDOWN_WAIT_MS)
+      this.settings.off?.('change', this.onSettingsChange)
+      this.auth?.off?.('accounts', this.onAccounts)
+      try {
+        this.keepAwake.stop()
+      } catch {}
+      await this.queueFile.save().catch(err => console.warn('[motor] não consegui gravar a fila:', err?.message))
+      await this.usageFile.save().catch(noop)
+      this.closed = true
+    })()
+    return this.shutdownP
+  }
+
+  // ─────────── consulta ───────────
+
+  snapshot() {
+    return {
+      transfers: [...this.records.values()].map(r => this.#public(r)),
+      batches: [...this.batches.values()],
+      stats: this.stats(),
+    }
+  }
+
+  /** PublicTransfer de um registro (ou null). */
+  get(id) {
+    const r = this.records.get(id)
+    return r ? this.#public(r) : null
+  }
+
+  /** DriveClient da conta (um por conta: o limitador de metadados e os caches são compartilhados). */
+  driveFor(accountId) {
+    let d = this.drives.get(accountId)
+    if (!d) {
+      d = this.driveFactory(accountId)
+      this.drives.set(accountId, d)
+    }
+    return d
+  }
+
+  /** Destinos já reservados por downloads da fila (para o planejador não repetir). */
+  reservedPaths() {
+    return [...this.#downloadClaims().values()].map(r => r.dest.path)
+  }
+
+  /** Destinos em uso: downloads não terminados, tarefas ainda parando e limpezas em andamento (cancelado/removido). */
+  #downloadClaims() {
+    const claimed = new Map()
+    const claim = r => {
+      if (r?.type === 'download' && r.dest?.path) claimed.set(pathKey(r.dest.path), r)
+    }
+    for (const r of this.records.values()) if (!FINISHED.has(r.status)) claim(r)
+    for (const e of this.entries.values()) claim(e.record)
+    for (const b of this.busy.values()) claim(b.record)
+    return claimed
+  }
+
+  idsOfBatch(batchId) {
+    const out = []
+    for (const r of this.records.values()) if (r.batchId === batchId) out.push(r.id)
+    return out
+  }
+
+  stats() {
+    const now = Date.now()
+    const dirs = {
+      download: { speed: this.meters.download.rate(now), active: 0, queued: 0, remaining: 0 },
+      upload: { speed: this.meters.upload.rate(now), active: 0, queued: 0, remaining: 0 },
+    }
+    let count = 0
+    let bytes = 0
+    let doneBytes = 0
+    for (const r of this.records.values()) {
+      const d = dirs[r.type]
+      if (!d) continue
+      if (r.status === 'running' || r.status === 'verifying') d.active++
+      else if (r.status === 'queued') d.queued++
+      if (r.status === 'canceled') continue
+      count++
+      const size = r.size || 0
+      bytes += size
+      const done = r.status === 'completed' || r.status === 'skipped' ? size : Math.min(size, this.#liveBytes(r))
+      doneBytes += done
+      if (!FINISHED.has(r.status) && r.status !== 'failed') d.remaining += Math.max(0, size - done)
+    }
+    // ETA geral: a direção que vai demorar mais (cada uma tem a sua velocidade).
+    let total = null
+    for (const d of Object.values(dirs)) {
+      if (d.remaining <= 0) continue
+      const e = eta(d.remaining, d.speed)
+      if (e != null) total = Math.max(total ?? 0, e)
+    }
+    const pub = d => ({ speed: d.speed, active: d.active, queued: d.queued })
+    return {
+      down: pub(dirs.download),
+      up: pub(dirs.upload),
+      totals: { count, bytes, doneBytes },
+      eta: total,
+      history: this.history.slice(),
+      keepAwake: !!this.keepAwake.active,
+      usage: this.#usageSummary(now),
+    }
+  }
+
+  // ─────────── mudanças ───────────
+
+  /**
+   * Põe registros na fila (grava e agenda). Devolve uma promessa (nunca rejeita) com o que entrou de fato:
+   * download repetido (mesmo arquivo para o mesmo destino) ou envio repetido ainda em andamento fica de fora,
+   * e dois downloads nunca dividem o mesmo arquivo temporário (o segundo vira "nome (2)").
+   * @returns {Promise<{ records: object[], dropped: object[] }>}
+   */
+  add({ batch, records = [] } = {}) {
+    if (this.closing) return Promise.resolve({ records: [], dropped: [...records] })
+    const now = Date.now()
+    const accepted = []
+    const dropped = []
+    // Um temporário ainda sendo apagado (cancelado/removido) também conta: o novo download não pode nascer nele.
+    const claimed = this.#downloadClaims()
+    const uploads = new Set()
+    for (const r of this.records.values()) {
+      if (r.type === 'upload' && !FINISHED.has(r.status) && r.status !== 'failed') uploads.add(this.#uploadKey(r))
+    }
+    for (const r of records) {
+      if (!validRecord(r) || this.records.has(r.id)) {
+        dropped.push(r)
+        continue
+      }
+      if (r.type === 'download' && r.dest?.path) {
+        const key = pathKey(r.dest.path)
+        const other = claimed.get(key)
+        const alive = other && this.records.get(other.id) === other && !FINISHED.has(other.status)
+        if (other) {
+          if (alive && other.source?.fileId && other.source.fileId === r.source?.fileId) {
+            // O mesmo arquivo para o mesmo lugar já está na fila; se tinha falhado, pedir de novo = tentar de novo.
+            if (other.status === 'failed' && !this.entries.has(other.id)) {
+              other.status = 'queued'
+              other.error = null
+              other.attempts = 0
+              other.finishedAt = null
+              if (other.verify?.state === 'mismatch') other.verify = null
+              this.#touch(other)
+            }
+            dropped.push(r)
+            continue
+          }
+          this.#renameDownload(r, claimed)
+        }
+        claimed.set(pathKey(r.dest.path), r)
+      } else if (r.type === 'upload' && r.local?.path) {
+        const key = this.#uploadKey(r)
+        if (uploads.has(key)) {
+          dropped.push(r)
+          continue
+        }
+        uploads.add(key)
+      }
+      if (!STATUSES.has(r.status) || r.status === 'running' || r.status === 'verifying') r.status = 'queued'
+      r.bytesDone ??= 0
+      r.attempts ??= 0
+      r.error ??= null
+      r.retryAt ??= null
+      r.verify ??= null
+      r.note ??= null
+      r.createdAt ??= now
+      r.updatedAt = now
+      r.batchId ??= batch?.id ?? null
+      this.records.set(r.id, r)
+      this.persisted.set(r.id, { uri: r.session?.uri ?? null, bytes: r.bytesDone || 0 })
+      if (r.status === 'waiting') this.#armWait(r)
+      this.dirty.add(r.id)
+      accepted.push(r)
+    }
+    if (accepted.length && batch?.id && !this.batches.has(batch.id)) {
+      this.batches.set(batch.id, { ...batch })
+      this.batchesDirty = true
+    }
+    this.#schedule()
+    return this.#saveNow().then(() => ({ records: accepted, dropped }))
+  }
+
+  /** Pausa (ids ou 'all'). Espera as tarefas pararem (até 5 s). */
+  async pause(ids) {
+    const waits = []
+    for (const r of this.#select(ids)) {
+      const e = this.entries.get(r.id)
+      if (e) {
+        if (!e.after || e.after === 'queued') {
+          e.after = 'paused'
+          e.reauthError = null
+          e.ac.abort()
+        }
+        if (e.after === 'paused') {
+          r.status = 'paused'
+          r.error = null
+          waits.push(e.promise)
+        }
+      } else if (r.status === 'queued' || r.status === 'waiting') {
+        this.#clearWait(r.id)
+        r.status = 'paused'
+        r.retryAt = null
+        r.error = null
+      } else continue
+      this.#touch(r)
+    }
+    this.#saveSoon()
+    await this.#waitFor(waits)
+  }
+
+  /** Retoma (ids ou 'all'). 'all' só mexe no que está pausado; ids explícitos também tiram da espera da cota. */
+  async resume(ids) {
+    const all = ids === 'all'
+    for (const r of this.#select(ids)) {
+      if (r.status !== 'paused' && (all || r.status !== 'waiting')) continue
+      const e = this.entries.get(r.id)
+      if (e && e.after === 'paused') e.after = 'queued'
+      else if (e) continue
+      this.#clearWait(r.id)
+      r.status = 'queued'
+      r.error = null
+      r.retryAt = null
+      this.#touch(r)
+    }
+    this.#saveSoon()
+    this.#schedule()
+  }
+
+  /** Cancela: download apaga o temporário; upload encerra a sessão no Google (melhor esforço). */
+  async cancel(ids) {
+    const waits = []
+    for (const r of this.#select(ids)) {
+      if (FINISHED.has(r.status)) continue
+      const e = this.entries.get(r.id)
+      this.#clearWait(r.id)
+      if (e) {
+        if (e.after === 'removed') continue
+        e.after = 'canceled'
+        e.cleanup = true
+        e.ac.abort()
+        waits.push(e.promise)
+      } else {
+        waits.push(this.#cleanupLater(r))
+      }
+      r.status = 'canceled'
+      r.finishedAt = Date.now()
+      r.error = null
+      r.retryAt = null
+      this.#touch(r)
+    }
+    this.#saveSoon()
+    await this.#waitFor(waits)
+  }
+
+  /** Tenta de novo o que falhou, foi cancelado, está esperando a cota ou pausado. */
+  async retry(ids) {
+    for (const r of this.#select(ids)) {
+      if (!['failed', 'canceled', 'waiting', 'paused'].includes(r.status)) continue
+      const e = this.entries.get(r.id)
+      if (e) {
+        if (e.after === 'removed') continue
+        e.after = 'queued'
+      }
+      this.#clearWait(r.id)
+      r.status = 'queued'
+      r.error = null
+      r.retryAt = null
+      r.attempts = 0
+      r.finishedAt = null
+      if (r.verify?.state === 'mismatch') r.verify = null
+      this.#touch(r)
+    }
+    this.#saveSoon()
+    this.#schedule()
+  }
+
+  /** Tira da lista (abortando se estiver rodando). O que não terminou é limpo como num cancelamento. */
+  async remove(ids) {
+    const waits = []
+    const list = this.#select(ids)
+    for (const r of list) {
+      const e = this.entries.get(r.id)
+      this.#clearWait(r.id)
+      if (e) {
+        e.after = 'removed'
+        e.cleanup = true
+        e.ac.abort()
+        waits.push(e.promise)
+      } else if (!FINISHED.has(r.status)) {
+        waits.push(this.#cleanupLater(r))
+      }
+      this.#forget(r.id)
+    }
+    if (list.length) {
+      this.#pruneBatches()
+      this.#saveSoon()
+    }
+    await this.#waitFor(waits)
+  }
+
+  /** Passa na frente: ganha a maior prioridade da fila (o primeiro id fica na frente dos outros). */
+  async prioritize(ids) {
+    const list = this.#select(ids).filter(r => r.status === 'queued' || r.status === 'paused')
+    if (!list.length) return
+    const base = Math.max(Date.now(), this.prioritySeq + list.length)
+    this.prioritySeq = base
+    list.forEach((r, i) => {
+      r.priority = base - i
+      if (r.status === 'paused') {
+        const e = this.entries.get(r.id)
+        if (e && e.after !== 'paused') return
+        if (e) e.after = 'queued'
+        r.status = 'queued'
+        r.error = null
+      }
+      this.#touch(r)
+    })
+    this.#saveSoon()
+    this.#schedule()
+  }
+
+  pauseBatch(batchId) {
+    return this.pause(this.idsOfBatch(batchId))
+  }
+
+  resumeBatch(batchId) {
+    return this.resume(this.idsOfBatch(batchId))
+  }
+
+  cancelBatch(batchId) {
+    return this.cancel(this.idsOfBatch(batchId))
+  }
+
+  /** Tira da lista o que terminou (concluído, pulado, cancelado). Os arquivos continuam onde estão. */
+  clearFinished() {
+    let n = 0
+    for (const r of [...this.records.values()]) {
+      if (!FINISHED.has(r.status) || this.entries.has(r.id) || this.busy.has(r.id)) continue
+      this.#forget(r.id)
+      n++
+    }
+    if (n) {
+      this.#pruneBatches()
+      this.#saveSoon()
+    }
+  }
+
+  // ─────────── agendamento ───────────
+
+  #limit(type) {
+    const st = this.settings.get()
+    const n = type === 'download' ? st.maxConcurrentDownloads : st.maxConcurrentUploads
+    return Math.max(1, Math.floor(Number(n) || 1))
+  }
+
+  /** a vem antes de b na fila? (prioridade maior, depois mais antigo) */
+  #before(a, b) {
+    const pa = Number(a.priority) || 0
+    const pb = Number(b.priority) || 0
+    if (pa !== pb) return pa > pb
+    return (a.createdAt || 0) < (b.createdAt || 0)
+  }
+
+  #pickNext(type) {
+    let best = null
+    for (const r of this.records.values()) {
+      if (r.type !== type || r.status !== 'queued' || this.entries.has(r.id) || this.busy.has(r.id)) continue
+      if (!best || this.#before(r, best)) best = r
+    }
+    return best
+  }
+
+  #schedule() {
+    if (!this.started || this.closing) return
+    for (const type of TYPES) {
+      const limit = this.#limit(type)
+      // Limite reduzido: os últimos da fila voltam para 'queued' na hora (o progresso fica gravado).
+      const live = [...this.entries.values()].filter(e => e.type === type && !e.after)
+      if (live.length > limit) {
+        live.sort((a, b) => {
+          const va = a.record.status === 'verifying' ? 0 : 1
+          const vb = b.record.status === 'verifying' ? 0 : 1
+          if (va !== vb) return va - vb
+          return this.#before(a.record, b.record) ? -1 : this.#before(b.record, a.record) ? 1 : 0
+        })
+        for (const e of live.slice(limit)) {
+          e.after = 'queued'
+          e.record.status = 'queued'
+          e.ac.abort()
+          this.#touch(e.record)
+        }
+      }
+      let busy = 0
+      for (const e of this.entries.values()) if (e.type === type) busy++
+      while (busy < limit) {
+        const next = this.#pickNext(type)
+        if (!next) break
+        this.#start(next)
+        busy++
+      }
+    }
+    this.#updateKeepAwake()
+  }
+
+  #start(rec) {
+    const ac = new AbortController()
+    const entry = { id: rec.id, record: rec, type: rec.type, task: null, ac, after: null, cleanup: false, reauthError: null, promise: null }
+    this.entries.set(rec.id, entry)
+    const now = Date.now()
+    rec.status = 'running'
+    rec.startedAt ??= now
+    rec.finishedAt = null
+    rec.error = null
+    rec.retryAt = null
+    this.#touch(rec)
+    this.#saveSoon()
+    entry.promise = (async () => {
+      let failure = null
+      try {
+        entry.task = this.createTask(rec, this.#ctxFor(rec))
+        if (ac.signal.aborted) throw Object.assign(new Error('Interrompido.'), { name: 'AbortError' })
+        await entry.task.run(ac.signal)
+      } catch (err) {
+        failure = err ?? new Error('Falha desconhecida.')
+      }
+      await this.#settle(entry, failure)
+    })()
+  }
+
+  #ctxFor(rec) {
+    const ctx = {
+      drive: this.driveFor(rec.accountId),
+      settings: this.settings,
+      limiter: this.limiters[rec.type],
+      hasher: this.hasher,
+      persist: () => this.#persistRecord(rec),
+      onBytes: n => this.#onBytes(rec, n),
+      log: this.log,
+    }
+    if (rec.type === 'upload') {
+      let cache = this.folderCaches.get(rec.accountId)
+      if (!cache) this.folderCaches.set(rec.accountId, (cache = new Map()))
+      ctx.folderCache = cache
+      if (this.taskOptions.upload?.retryBaseMs != null) ctx.retryBaseMs = this.taskOptions.upload.retryBaseMs
+    }
+    return ctx
+  }
+
+  /** Decide o status final quando a tarefa termina de verdade. Nunca rejeita. */
+  async #settle(entry, err) {
+    const rec = entry.record
+    try {
+      // Limpeza (cancelar/remover) só depois de a tarefa soltar o arquivo; e nunca de algo que terminou bem.
+      if (err && entry.cleanup) await this.#cleanup(rec)
+      const live = this.records.get(rec.id) === rec
+      if (this.entries.get(entry.id) === entry) this.entries.delete(entry.id)
+      if (!live) return
+      const now = Date.now()
+      if (!err) {
+        if (rec.status !== 'skipped') rec.status = 'completed'
+        if (rec.size != null && rec.status === 'completed') rec.bytesDone = rec.size
+        rec.finishedAt = now
+        rec.error = null
+        rec.retryAt = null
+        delete rec.quotaHits
+        delete rec.autoRetries
+      } else if (entry.after === 'shutdown') {
+        // Fica como estava: na próxima abertura vira 'queued' (autoResume) ou 'paused'.
+        if (!isAbortError(err)) this.#fail(rec, err)
+        else if (rec.status !== 'verifying') rec.status = 'running'
+      } else if (entry.after) {
+        // Pausa/cancelamento pedidos vencem qualquer erro que tenha acontecido junto.
+        if (entry.after === 'paused') {
+          rec.status = 'paused'
+          rec.error = entry.reauthError ?? null
+        } else if (entry.after === 'queued') {
+          rec.status = 'queued'
+        } else if (entry.after === 'canceled') {
+          rec.status = 'canceled'
+          rec.finishedAt ??= now
+        }
+      } else {
+        this.#fail(rec, err)
+      }
+      this.#touch(rec)
+      this.#saveSoon()
+      if (rec.batchId) this.#checkBatch(rec.batchId)
+    } catch (e) {
+      this.log('erro ao fechar a tarefa', rec?.id, e?.message)
+    } finally {
+      if (this.entries.get(entry.id) === entry) this.entries.delete(entry.id)
+      this.#schedule()
+      this.#updateKeepAwake()
+    }
+  }
+
+  #fail(rec, err) {
+    const { info, error } = errorInfo(err)
+    if (info.kind === 'quota') return this.#wait(rec, info, error)
+    if (info.kind === 'reauth') {
+      rec.status = 'paused'
+      rec.error = error
+      this.#reauthAccount(rec.accountId, error)
+      return
+    }
+    // "Vou tentar de novo" da tarefa (arquivo mudou no Drive, temporário sumiu, MD5 não conferido): volta para a fila.
+    if (info.kind === 'retry' && AUTO_RETRY.has(info.reason)) {
+      const n = Math.max(0, Number(rec.autoRetries) || 0)
+      if (n < MAX_AUTO_RETRIES) {
+        this.log('tentando de novo sozinho', rec.id, info.reason)
+        rec.autoRetries = n + 1
+        rec.status = 'queued'
+        rec.error = null
+        rec.retryAt = null
+        return
+      }
+      error.message = info.reason === 'remoteChanged' ? 'O arquivo continua mudando no Drive. Tente de novo quando ele parar de ser alterado.' : 'Não deu certo depois de várias tentativas. Tente de novo daqui a pouco.'
+    }
+    this.log('falhou', rec.id, info.kind, info.reason, err?.message)
+    rec.status = 'failed'
+    rec.error = error
+    rec.retryAt = null
+  }
+
+  /** Cota do Google: espera e volta sozinho para a fila. */
+  #wait(rec, info, error) {
+    let delay
+    if (info.reason === 'downloadQuotaExceeded') {
+      const hits = Math.max(0, Number(rec.quotaHits) || 0)
+      delay = this.quotaDelays[Math.min(hits, this.quotaDelays.length - 1)]
+      rec.quotaHits = hits + 1
+    } else {
+      delay = info.retryAfterMs ?? this.quotaFallbackMs
+    }
+    delay = Math.max(0, Math.min(delay, this.quotaMaxMs))
+    rec.status = 'waiting'
+    rec.retryAt = Date.now() + delay
+    rec.error = error
+    this.#armWait(rec)
+    // Limite de 750 GB/dia: vale para a conta inteira; os próximos envios dela esperam junto.
+    if (rec.type === 'upload' && info.reason === 'uploadLimitExceeded') {
+      for (const r of this.records.values()) {
+        if (r === rec || r.type !== 'upload' || r.accountId !== rec.accountId || r.status !== 'queued' || this.entries.has(r.id)) continue
+        r.status = 'waiting'
+        r.retryAt = rec.retryAt
+        r.error = { ...error }
+        this.#armWait(r)
+        this.#touch(r)
+      }
+    }
+  }
+
+  #armWait(rec) {
+    this.#clearWait(rec.id)
+    const ms = Math.max(0, (Number(rec.retryAt) || 0) - Date.now())
+    const timer = setTimeout(() => {
+      this.waitTimers.delete(rec.id)
+      if (this.closing || this.records.get(rec.id) !== rec || rec.status !== 'waiting') return
+      if (Number(rec.retryAt) > Date.now()) return this.#armWait(rec) // espera maior que o teto do setTimeout
+      rec.status = 'queued'
+      rec.retryAt = null
+      this.#touch(rec)
+      this.#saveSoon()
+      this.#schedule()
+    }, Math.min(ms, MAX_TIMER_MS))
+    timer.unref?.()
+    this.waitTimers.set(rec.id, timer)
+  }
+
+  #clearWait(id) {
+    const t = this.waitTimers.get(id)
+    if (t) clearTimeout(t)
+    this.waitTimers.delete(id)
+  }
+
+  /** Conta precisa reconectar: pausa tudo dela com o aviso (uma vez). */
+  #reauthAccount(accountId, error, { toast = true } = {}) {
+    for (const r of this.records.values()) {
+      if (String(r.accountId) !== String(accountId)) continue
+      const e = this.entries.get(r.id)
+      if (e) {
+        if (e.after) continue
+        e.after = 'paused'
+        e.reauthError = { ...error }
+        e.ac.abort()
+      } else if (r.status === 'queued' || r.status === 'waiting') {
+        this.#clearWait(r.id)
+        r.retryAt = null
+      } else continue // pausado à mão continua como o usuário deixou
+      r.status = 'paused'
+      r.error = { ...error }
+      this.#touch(r)
+    }
+    this.#saveSoon()
+    if (!this.reauthNotified.has(accountId)) {
+      this.reauthNotified.add(accountId)
+      if (toast) this.emit('toast', { kind: 'error', message: error.message })
+    }
+  }
+
+  #accountsChanged(list) {
+    const ok = new Set(list.filter(a => a?.status === 'ok').map(a => String(a.id)))
+    const known = new Set(list.map(a => String(a?.id)))
+    for (const id of [...this.drives.keys()]) {
+      if (!known.has(id)) {
+        this.drives.delete(id)
+        this.folderCaches.delete(id)
+      }
+    }
+    // Conta removida do app: o que é dela para já (e volta sozinho se a mesma conta for conectada de novo).
+    const gone = new Set()
+    for (const r of this.records.values()) {
+      if (!known.has(String(r.accountId)) && ['running', 'verifying', 'queued', 'waiting'].includes(r.status)) gone.add(String(r.accountId))
+    }
+    for (const id of gone) {
+      const error = { message: 'Esta conta foi removida do SOBEDESCE. Conecte a conta de novo para continuar.', reason: 'accountNotFound', kind: 'reauth', at: Date.now() }
+      this.#reauthAccount(id, error, { toast: false })
+    }
+    for (const id of [...this.reauthNotified]) if (ok.has(id)) this.reauthNotified.delete(id)
+    let changed = false
+    for (const r of this.records.values()) {
+      if (r.status !== 'paused' || r.error?.kind !== 'reauth' || !ok.has(String(r.accountId)) || this.entries.has(r.id)) continue
+      r.status = 'queued'
+      r.error = null
+      this.#touch(r)
+      changed = true
+    }
+    if (changed) {
+      this.#saveSoon()
+      this.#schedule()
+    }
+  }
+
+  // ─────────── limpeza ───────────
+
+  /** Limpeza de um registro que não está rodando: fica fora da fila até terminar. */
+  #cleanupLater(rec) {
+    const prev = this.busy.get(rec.id)?.promise
+    const slot = { record: rec, promise: null }
+    slot.promise = (async () => {
+      if (prev) await prev
+      await this.#cleanup(rec)
+    })()
+      .catch(err => this.log('limpeza falhou', rec.id, err?.message))
+      .finally(() => {
+        if (this.busy.get(rec.id) === slot) this.busy.delete(rec.id)
+        this.#schedule()
+      })
+    this.busy.set(rec.id, slot)
+    return slot.promise
+  }
+
+  async #cleanup(rec) {
+    if (rec.type === 'download') {
+      const temp = rec.dest?.tempPath || (rec.dest?.path ? rec.dest.path + PART_SUFFIX : null)
+      // Só apaga o nosso temporário (nunca um arquivo do usuário, nem com registro estranho).
+      if (temp && String(temp).endsWith(PART_SUFFIX)) await fs.rm(temp, { force: true }).catch(err => this.log('não apaguei o temporário', err?.code))
+      rec.segments = null
+      rec.bytesDone = 0
+      if (rec.verify?.state !== 'ok') rec.verify = null
+      if (this.records.get(rec.id) === rec) this.#persistRecord(rec)
+    } else if (rec.type === 'upload') {
+      const uri = rec.session?.uri
+      rec.session = null
+      rec.bytesDone = 0
+      // Tira a URI do disco já (é credencial), antes de falar com o Google.
+      if (this.records.get(rec.id) === rec) this.#persistRecord(rec)
+      if (uri) await this.#deleteSession(rec, uri)
+    }
+  }
+
+  /** DELETE na sessão de upload (o Google responde 499). Melhor esforço: a sessão expira sozinha em 1 semana. */
+  async #deleteSession(rec, uri) {
+    try {
+      let headers = {}
+      try {
+        headers = await this.driveFor(rec.accountId).authHeader()
+      } catch {
+        // sem token dá para encerrar assim mesmo (o Google aceita sem Authorization)
+      }
+      const res = await httpRequest(uri, { method: 'DELETE', headers: { ...headers, 'content-length': '0' }, expect: [200, 204, 404, 410, 499], signal: AbortSignal.timeout(DELETE_TIMEOUT_MS) })
+      await drain(res.body)
+    } catch (err) {
+      this.log('não consegui encerrar a sessão de upload:', err?.status || err?.code || err?.name)
+    }
+  }
+
+  // ─────────── persistência, eventos, contadores ───────────
+
+  #persistRecord(rec) {
+    if (this.closed || this.records.get(rec.id) !== rec) return undefined
+    this.dirty.add(rec.id)
+    const uri = rec.session?.uri ?? null
+    const bytes = Number(rec.bytesDone) || 0
+    const prev = this.persisted.get(rec.id) || { uri: null, bytes: 0 }
+    this.persisted.set(rec.id, { uri, bytes })
+    // URI nova = credencial para retomar; download que voltou para trás = o temporário vai ser recriado.
+    if (uri !== prev.uri || (rec.type === 'download' && bytes < prev.bytes)) return this.#saveNow()
+    this.#saveSoon()
+    return undefined
+  }
+
+  #saveSoon() {
+    if (this.closed) return
+    // Filas enormes (dezenas de milhares de itens) gravam com menos frequência.
+    this.queueFile.saveSoon(Math.max(QUEUE_SAVE_MS, Math.min(10_000, Math.round(this.records.size / 10))))
+  }
+
+  /** Grava agora. A promessa nunca rejeita (o erro vai para o log). */
+  #saveNow() {
+    if (this.closed) return Promise.resolve()
+    return this.queueFile.save().catch(err => this.queueFile.onError?.(err))
+  }
+
+  #touch(rec) {
+    rec.updatedAt = Date.now()
+    if (this.records.get(rec.id) === rec) this.dirty.add(rec.id)
+  }
+
+  #forget(id) {
+    if (!this.records.delete(id)) return
+    this.persisted.delete(id)
+    this.dirty.delete(id)
+    this.removedQueue.push(id)
+  }
+
+  #pruneBatches() {
+    const used = new Set()
+    for (const r of this.records.values()) used.add(r.batchId)
+    for (const id of [...this.batches.keys()]) {
+      if (!used.has(id)) {
+        this.batches.delete(id)
+        this.doneBatches.delete(id)
+        this.batchesDirty = true
+      }
+    }
+  }
+
+  #checkBatch(batchId) {
+    let n = 0
+    let ok = 0
+    let size = 0
+    for (const r of this.records.values()) {
+      if (r.batchId !== batchId || r.status === 'canceled') continue
+      n++
+      if (r.status === 'completed' || r.status === 'skipped') {
+        ok++
+        size += r.size || 0
+      }
+    }
+    const done = n > 0 && ok === n
+    if (!done) {
+      this.doneBatches.delete(batchId)
+      return
+    }
+    if (this.doneBatches.has(batchId)) return
+    this.doneBatches.add(batchId)
+    const b = this.batches.get(batchId)
+    const label = b?.label || (b?.type === 'upload' ? 'Envio' : 'Download')
+    this.emit('toast', { kind: 'success', message: `${label} terminou: ${plural(n, 'arquivo', 'arquivos')}.`, batchId, bytes: size })
+  }
+
+  #flushEvents() {
+    if (this.batchesDirty) {
+      this.batchesDirty = false
+      this.emit('batches', [...this.batches.values()])
+    }
+    if (this.removedQueue.length) this.emit('removed', this.removedQueue.splice(0))
+    // O progresso dos que estão rodando muda o tempo todo (bytes ao vivo, velocidade, segmentos).
+    for (const e of this.entries.values()) if (this.records.get(e.id) === e.record) this.dirty.add(e.id)
+    if (!this.dirty.size) return
+    const list = []
+    for (const id of this.dirty) {
+      const r = this.records.get(id)
+      if (r) list.push(this.#public(r))
+    }
+    this.dirty.clear()
+    if (list.length) this.emit('transfers', list)
+  }
+
+  #sampleHistory() {
+    const now = Date.now()
+    this.history.push({ t: now, down: this.meters.download.rate(now), up: this.meters.upload.rate(now) })
+    if (this.history.length > HISTORY_LEN) this.history.splice(0, this.history.length - HISTORY_LEN)
+    this.#updateKeepAwake()
+  }
+
+  #updateKeepAwake() {
+    try {
+      this.keepAwake.setActive(!this.closing && !!this.settings.get().keepAwake && this.entries.size > 0)
+    } catch {
+      // nunca derruba a fila
+    }
+  }
+
+  #onBytes(rec, n) {
+    if (!(n > 0)) return
+    const now = Date.now()
+    this.meters[rec.type]?.add(n, now)
+    const acc = (this.usageFile.data.accounts[rec.accountId] ??= {})
+    const hour = String(now - (now % HOUR))
+    const b = (acc[hour] ??= { up: 0, down: 0 })
+    if (rec.type === 'upload') b.up += n
+    else b.down += n
+    this.usageFile.saveSoon(USAGE_SAVE_MS)
+  }
+
+  #pruneUsage(data) {
+    const cutoff = Date.now() - USAGE_KEEP_MS
+    for (const [acc, buckets] of Object.entries(data.accounts || {})) {
+      for (const k of Object.keys(buckets)) if (Number(k) + HOUR < cutoff) delete buckets[k]
+      if (!Object.keys(buckets).length) delete data.accounts[acc]
+    }
+    return data
+  }
+
+  #usageSummary(now) {
+    const out = {}
+    const from = now - 24 * HOUR
+    for (const [acc, buckets] of Object.entries(this.usageFile.data?.accounts || {})) {
+      let up = 0
+      let down = 0
+      for (const [k, b] of Object.entries(buckets)) {
+        if (Number(k) + HOUR <= from) continue
+        up += b.up || 0
+        down += b.down || 0
+      }
+      out[acc] = { up24h: up, down24h: down }
+    }
+    return out
+  }
+
+  #liveBytes(rec) {
+    const e = this.entries.get(rec.id)
+    if (e?.task && !e.after && typeof e.task.liveBytes === 'function') {
+      try {
+        return Number(e.task.liveBytes()) || 0
+      } catch {}
+    }
+    return Number(rec.bytesDone) || 0
+  }
+
+  /** Registro → PublicTransfer: sem a sessão (credencial), com velocidade, ETA e segmentos ao vivo. */
+  #public(rec) {
+    const out = {}
+    for (const [k, v] of Object.entries(rec)) {
+      if (k === 'session' || k === 'segments') continue
+      out[k] = v && typeof v === 'object' ? (Array.isArray(v) ? v.slice() : { ...v }) : v
+    }
+    const e = this.entries.get(rec.id)
+    const live = e?.task && !e.after ? e.task : null
+    let speed = 0
+    if (live) {
+      try {
+        speed = Math.round(Number(live.speed()) || 0)
+      } catch {}
+    }
+    const bytesDone = this.#liveBytes(rec)
+    out.bytesDone = rec.size != null ? Math.min(rec.size, bytesDone) : bytesDone
+    out.speed = speed
+    out.eta = speed > 0 && rec.size != null ? eta(rec.size - out.bytesDone, speed) : null
+    if (rec.type === 'download') {
+      let segs = null
+      if (live && typeof live.liveSegments === 'function') {
+        try {
+          segs = live.liveSegments()
+        } catch {}
+      }
+      if (!segs) segs = (rec.segments || []).map(s => ({ ...s, active: false, speed: 0 }))
+      out.segments = segs.length ? capSegments(segs) : null
+      if (rec.status === 'verifying' && live && Number.isFinite(live.verifyBytes)) out.verifyBytes = live.verifyBytes
+    }
+    return out
+  }
+
+  // ─────────── apoio ───────────
+
+  #select(ids) {
+    if (ids === 'all') return [...this.records.values()]
+    const list = Array.isArray(ids) ? ids : ids != null ? [ids] : []
+    const out = []
+    const seen = new Set()
+    for (const id of list) {
+      if (typeof id !== 'string' || seen.has(id)) continue
+      seen.add(id)
+      const r = this.records.get(id)
+      if (r) out.push(r)
+    }
+    return out
+  }
+
+  #uploadKey(r) {
+    const t = r.target || {}
+    return [r.accountId, pathKey(r.local?.path || ''), t.rootId || 'root', toNFC(t.relDir || '').toLowerCase(), toNFC(r.name || '').toLowerCase()].join('\u0000')
+  }
+
+  /** Dois downloads nunca escrevem no mesmo lugar: o novo vira "nome (2).ext" na mesma pasta. */
+  #renameDownload(r, claimed) {
+    const dir = path.dirname(r.dest.path)
+    const dirKey = pathKey(dir)
+    const taken = new Set()
+    for (const k of claimed.keys()) if (path.dirname(k) === dirKey) taken.add(path.basename(k))
+    const from = path.basename(r.dest.path)
+    const name = uniqueName(from, taken)
+    r.dest.path = path.join(dir, name)
+    r.dest.tempPath = r.dest.path + PART_SUFFIX
+    r.name = name
+    if (typeof r.relPath === 'string' && r.relPath) {
+      const i = r.relPath.lastIndexOf('/')
+      r.relPath = i < 0 ? name : `${r.relPath.slice(0, i)}/${name}`
+    }
+    const note = `Outra transferência já vai gravar "${from}": esta vai como "${name}".`
+    r.note = r.note ? `${r.note} · ${note}` : note
+  }
+
+  async #waitFor(promises, ms = ACTION_WAIT_MS) {
+    const list = promises.filter(Boolean)
+    if (!list.length) return
+    let timer
+    await Promise.race([
+      Promise.allSettled(list),
+      new Promise(resolve => {
+        timer = setTimeout(resolve, ms)
+        timer.unref?.()
+      }),
+    ])
+    clearTimeout(timer)
+  }
+}
