@@ -108,6 +108,13 @@ export const DEFAULT_SETTINGS = Object.freeze({
   brawThumbnails: true,
   /** "Gerar miniaturas" (tela Drive): a última pasta do computador escolhida para achar os originais ('' = nenhuma). */
   rawThumbLocalDir: '',
+  /**
+   * Prévia leve: ao terminar de subir um vídeo pesado, gera uma cópia H.264 em 1080p e sobe em Proxy/<nome>.mp4,
+   * ao lado do original, para a prévia tocar fluida no celular, no app e no site. O original não muda.
+   */
+  previaLeve: true,
+  /** "Gerar prévias" (tela Drive): a última pasta do computador escolhida para achar os originais ('' = nenhuma). */
+  previaLocalDir: '',
   /** Sem receber/enviar nenhum byte por esse tempo, a conexão é refeita. */
   stallTimeoutMs: 30_000,
   /** Refaz conexões que ficaram muito mais lentas que as outras (o Google às vezes estrangula uma conexão). */
@@ -178,6 +185,7 @@ const OPTIONAL_STRINGS = {
   mobileFolderId: v => /^[\w.-]{0,200}$/.test(v),
   mobileFolderName: v => v.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(v),
   rawThumbLocalDir: v => v.length <= 4096 && !/[\u0000-\u001f\u007f]/.test(v),
+  previaLocalDir: v => v.length <= 4096 && !/[\u0000-\u001f\u007f]/.test(v),
   mobileWebUrl: v => v === '' || (v.length <= 2048 && isWebUrl(v)),
   webClientId: v => v === '' || /^[A-Za-z0-9][\w.-]*\.apps\.googleusercontent\.com$/.test(v),
 }

@@ -15,6 +15,7 @@ import { MeterHero } from './meter.js'
 import { SequenceBar, Timeline } from './timeline.js'
 import { contaUrl, isCloudAccount } from '../lib/cloud.js'
 import { navigate } from '../lib/router.js'
+import { PreviaLine } from './previa.js'
 
 /** "Conectar de novo" certo para a conta: OAuth deste computador, o site (Drive da conta) ou entrar na conta. */
 function ReauthLink({ t }) {
@@ -141,6 +142,7 @@ const TransferRow = memo(function TransferRow({ t, platform }) {
       </div>
       <${Timeline} t=${t} size="sm" />
       ${message}
+      <${PreviaLine} t=${t} />
     </div>
     <div class="trow-nums">${numbers}</div>
     <div class="trow-eta" title=${running ? 'Tempo restante' : undefined}>

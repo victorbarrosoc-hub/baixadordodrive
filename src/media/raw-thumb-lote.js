@@ -48,8 +48,9 @@ function badRequest(message) {
 /**
  * Varre `dir` atrás de RAW (.braw/.r3d). Não segue links simbólicos e pula pastas já vistas (dev+inode), ocultas
  * e de sistema. Devolve { byName: Map<nameKey, Array<{ path, size }>>, files, dirs, truncated, skipped }.
+ * `accept(name)` troca o filtro de arquivos (o "Gerar prévias" procura vídeos).
  */
-export async function indexLocalRaw(dir, { signal, limits = LOTE_LIMITS, onProgress } = {}) {
+export async function indexLocalRaw(dir, { signal, limits = LOTE_LIMITS, onProgress, accept = isRawThumbCandidate } = {}) {
   const lim = { ...LOTE_LIMITS, ...limits }
   let st
   try {
@@ -90,7 +91,7 @@ export async function indexLocalRaw(dir, { signal, limits = LOTE_LIMITS, onProgr
               continue
             }
             next.push(path.join(abs, name))
-          } else if (d.isFile() && !name.startsWith('._') && isRawThumbCandidate(name)) {
+          } else if (d.isFile() && !name.startsWith('._') && accept(name)) {
             raws.push(name)
           }
         }

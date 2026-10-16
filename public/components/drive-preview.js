@@ -3,6 +3,8 @@
 // normal do motor (rápido, retomável). ←/→ passam pelos arquivos da pasta; Esc fecha.
 // Formato que o Chromium não toca (BRAW, R3D, MXF, ProRes…): procura o proxy da câmera e toca ele; sem proxy,
 // mostra a miniatura grande e "Este formato não toca na prévia".
+// Vídeo grande (> 30 MB, qualquer codec): procura antes a cópia leve (Proxy/<nome>.mp4, gerada pelo app ou pela
+// câmera) e toca ela, fluida como no Drive; "Original" no canto troca para o arquivo de verdade no mesmo ponto.
 import { html, useEffect, useLayoutEffect, useRef, useState } from '/vendor/preact-htm.js'
 import { bytes, extOf, fullDate, relTime } from '../lib/format.js'
 import { cx } from '../lib/ui.js'
@@ -11,6 +13,7 @@ import { copyText } from '../lib/mobile.js'
 import { openExternal } from '../lib/desktop.js'
 import { driveFileUrl } from '../lib/actions.js'
 import { clipTime, findProxy, fullImage, knownProxy, previewKind, proxyWorth, streamUrl, thumbUrl, tryPlayAudio, tryPlayVideo } from '../lib/media.js'
+import { isPreviaItem } from './previa.js'
 import { Icon } from './icons.js'
 import { Button, IconButton, Spinner, FileIcon } from './common.js'
 
@@ -241,16 +244,23 @@ function playerKeys(e, a, { onFullscreen } = {}) {
   return false
 }
 
-function VideoPlayer({ src, poster, onFail, keysRef, badge }) {
+function VideoPlayer({ src, poster, onFail, keysRef, badge, startAt = 0, timeRef }) {
   const vref = useRef(null)
   const box = useRef(null)
   const [st, a] = useMedia(vref, { onFail })
+  if (timeRef) timeRef.current = st.time
   const [full, setFull] = useState(false)
   const [idle, setIdle] = useState(false)
   const timer = useRef(0)
 
   useEffect(() => {
     const v = vref.current
+    // Trocou entre a prévia leve e o original: continua do mesmo ponto.
+    if (v && startAt > 0) {
+      const go = () => (v.currentTime = Math.min(startAt, Number.isFinite(v.duration) ? v.duration : startAt))
+      if (v.readyState >= 1) go()
+      else v.addEventListener('loadedmetadata', go, { once: true })
+    }
     v?.play().catch(() => {}) // abriu por clique ou tecla: o navegador deixa tocar com som
     const onFs = () => setFull(document.fullscreenElement === box.current)
     document.addEventListener('fullscreenchange', onFs)
@@ -386,20 +396,59 @@ function Other({ item, poster, title, text, actions }) {
 
 // ─────────── conteúdo de um item ───────────
 
-/** Escolhe o que mostrar: original, proxy (procura quando o original não toca) ou "não toca". */
+/** Acima disso (bytes) a prévia procura antes a cópia leve, mesmo que o original toque. */
+const LITE_MIN = 30e6
+
+/** Botões "Prévia leve | Original" no canto do player (o selo diz se é a nossa cópia ou o proxy da câmera). */
+function LiteSwitch({ proxy, on, canOriginal, onPick }) {
+  const label = isPreviaItem(proxy) ? 'Prévia leve' : 'Proxy'
+  return html`<div class="lite-switch" role="group" aria-label="O que tocar" onClick=${(e) => e.stopPropagation()} onDblClick=${(e) => e.stopPropagation()}>
+    <button type="button" class=${cx(on && 'is-on')} aria-pressed=${on ? 'true' : 'false'} onClick=${() => !on && onPick(true)} title=${isPreviaItem(proxy) ? 'Cópia leve em 1080p (pasta Proxy): toca fluida' : 'Proxy da câmera: toca fluido'}>${label}</button>
+    ${canOriginal ? html`<button type="button" class=${cx(!on && 'is-on')} aria-pressed=${!on ? 'true' : 'false'} onClick=${() => on && onPick(false)} title="Tocar o arquivo original (pesado: pode travar pela rede)">Original</button>` : null}
+  </div>`
+}
+
+/** Escolhe o que mostrar: cópia leve, original, proxy (procura quando o original não toca) ou "não toca". */
 function Content({ accountId, item, keysRef, onDownload }) {
   const kind = previewKind(item)
   const ext = extOf(item.name).toUpperCase()
   const original = streamUrl(accountId, item)
   // Pesado: taxa (tamanho/duração) alta demais para tocar pela rede, ou travou tocando. O Drive toca uma cópia leve.
   const [heavy, setHeavy] = useState(() => kind === 'video' && mbpsOf(item) > HEAVY_MBPS)
-  const [mode, setMode] = useState(() => {
+  const known = knownProxy(accountId, item.id)
+  // Vídeo grande: a cópia leve primeiro ('lite-look' procura; 'lite' toca). Sem cópia, segue as regras de antes.
+  const wantsLite = kind === 'video' && Number(item.size || 0) > LITE_MIN && !isPreviaItem(item)
+  const baseMode = () => {
     if (kind === 'video') return tryPlayVideo(item) && !(mbpsOf(item) > HEAVY_MBPS) ? 'play' : 'proxy'
     if (kind === 'audio') return tryPlayAudio(item) ? 'play' : 'fail'
     return 'show'
-  })
-  const [proxy, setProxy] = useState(() => knownProxy(accountId, item.id) ?? undefined)
+  }
+  const [mode, setMode] = useState(() => (wantsLite ? (known ? 'lite' : known === null ? baseMode() : 'lite-look') : baseMode()))
+  const [proxy, setProxy] = useState(() => known ?? undefined)
   const [forced, setForced] = useState(false)
+  const at = useRef(0) // onde o player estava (para trocar entre leve e original no mesmo ponto)
+  const [startAt, setStartAt] = useState(0)
+  const pick = (lite) => {
+    setStartAt(at.current || 0)
+    if (lite) setMode('lite')
+    else {
+      setForced(true)
+      setMode('play')
+    }
+  }
+
+  useEffect(() => {
+    if (mode !== 'lite-look') return undefined
+    let alive = true
+    findProxy(accountId, item).then((p) => {
+      if (!alive) return
+      setProxy(p)
+      setMode(p ? 'lite' : baseMode())
+    })
+    return () => {
+      alive = false
+    }
+  }, [mode])
 
   useEffect(() => {
     if (mode !== 'proxy') return undefined
@@ -421,12 +470,33 @@ function Content({ accountId, item, keysRef, onDownload }) {
   const bigPoster = thumbUrl(accountId, item, 1600) || (proxy ? thumbUrl(accountId, proxy, 1600) : null)
   keysRef.current = null
 
+  if (kind === 'video' && mode === 'lite' && proxy) {
+    return html`<${VideoPlayer}
+      key=${'l' + proxy.id}
+      src=${streamUrl(accountId, proxy)}
+      poster=${thumbUrl(accountId, item, 1280) || thumbUrl(accountId, proxy, 1280)}
+      keysRef=${keysRef}
+      startAt=${startAt}
+      timeRef=${at}
+      onFail=${(why) => why !== 'stall' && setMode(baseMode())}
+      badge=${html`<${LiteSwitch} proxy=${proxy} on=${true} canOriginal=${tryPlayVideo(item)} onPick=${pick} />`}
+    />`
+  }
+  if (kind === 'video' && mode === 'lite-look') {
+    return html`<div class="pother has-poster">
+      ${bigPoster ? html`<img class="pother-poster" src=${bigPoster} alt="" />` : html`<${FileIcon} name=${item.name} mimeType=${item.mimeType} size=${112} />`}
+      <div class="pother-text"><span class="pwait"><${Spinner} size=${14} /> Procurando a prévia leve…</span></div>
+    </div>`
+  }
   if (kind === 'video' && mode === 'play') {
     return html`<${VideoPlayer}
       key=${'o' + item.id}
       src=${original}
       poster=${thumbUrl(accountId, item, 1280)}
       keysRef=${keysRef}
+      startAt=${startAt}
+      timeRef=${at}
+      badge=${wantsLite && proxy ? html`<${LiteSwitch} proxy=${proxy} on=${false} canOriginal=${true} onPick=${pick} />` : null}
       onFail=${(why) => {
         if (why === 'stall') {
           if (forced) return
@@ -443,7 +513,9 @@ function Content({ accountId, item, keysRef, onDownload }) {
       poster=${thumbUrl(accountId, proxy, 1280) || thumbUrl(accountId, item, 1280)}
       keysRef=${keysRef}
       onFail=${(why) => why !== 'stall' && setMode('fail')}
-      badge=${html`<div class="proxy-note"><span class="proxy-tag">Proxy</span><span>Prévia em baixa resolução. O Baixar traz o original.</span></div>`}
+      badge=${isPreviaItem(proxy)
+        ? html`<div class="proxy-note"><span class="proxy-tag is-previa">Prévia leve</span><span>Cópia leve em 1080p. O Baixar traz o original.</span></div>`
+        : html`<div class="proxy-note"><span class="proxy-tag">Proxy</span><span>Prévia em baixa resolução. O Baixar traz o original.</span></div>`}
     />`
   }
   if (kind === 'video' && mode === 'proxy') {

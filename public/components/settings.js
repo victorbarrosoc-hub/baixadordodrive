@@ -15,6 +15,7 @@ import { useLocalRoots } from './local-picker.js'
 import { CloudAccountRows } from './cloud.js'
 import { buildLabel, checkUpdate, downloadUpdate, installHint, installUpdate, updateProgress, updating } from '../lib/versao.js'
 import { UpdateBar } from './versao.js'
+import { PreviaRow } from './previa.js'
 
 const MiB = 1048576
 const CHUNKS = [
@@ -538,6 +539,7 @@ export function SettingsScreen() {
           />
         </${Row}>
         <${RawThumbRow} d=${d} set=${set} />
+        <${PreviaRow} d=${d} set=${set} />
         <${Row} label="Mostrar arquivos ocultos" desc="No seletor de arquivos do computador.">
           <${Switch} label="Mostrar arquivos ocultos" checked=${d.showHiddenFiles} onChange=${(v) => set('showHiddenFiles', v, { now: true })} />
         </${Row}>

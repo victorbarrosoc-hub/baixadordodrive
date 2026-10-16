@@ -15,6 +15,7 @@ import { newId } from '../util/ids.js'
 import { isAbortError } from '../util/backoff.js'
 import { qrSvg, shortcutSteps } from '../mobile/qr.js'
 import { gerarMiniaturasLote, resumoLote } from '../media/raw-thumb-lote.js'
+import { registerPrevias } from './previas.js'
 
 const BODY_LIMIT = 1024 * 1024
 const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba a conexão
@@ -428,6 +429,8 @@ export function createApi(ctx) {
       rawThumbs: thumbJobs.view(),
       // Aviso de versão nova (src/version.js): build deste app, o mais novo conhecido e se mostra o aviso.
       versao: ctx.versao?.status() ?? null,
+      // "Gerar prévias": o lote atual (ou o último).
+      previas: previas.view(),
     }
   }
 
@@ -456,6 +459,9 @@ export function createApi(ctx) {
     const acc = account(job.accountId || job.result.accountId || body.accountId)
     return { job, acc }
   }
+
+  // Prévia leve (src/server/previas.js): /api/previas, /api/previas/pular e o lote /api/previas/lote.
+  const previas = registerPrevias({ route, ctx, account, HttpProblem, toProblem })
 
   const stringList = (v, max = 10_000) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, max) : null)
 
@@ -885,6 +891,7 @@ export function createApi(ctx) {
     close: () => {
       jobs.close()
       thumbJobs.close()
+      previas.close()
     },
   }
 }

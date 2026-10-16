@@ -26,7 +26,7 @@ export const GOOGLE_EXPORTS = Object.freeze({
 
 /** Campos extras para navegar e ver a prévia (miniatura, dimensões, dono). Não entram nas varreduras grandes. */
 export const MEDIA_FIELDS =
-  'hasThumbnail,thumbnailLink,iconLink,webViewLink,owners(displayName,emailAddress),' +
+  'hasThumbnail,thumbnailLink,iconLink,webViewLink,owners(displayName,emailAddress),appProperties,' +
   'videoMediaMetadata(width,height,durationMillis),' +
   'imageMediaMetadata(width,height,rotation,time,cameraMake,cameraModel,exposureTime,aperture,isoSpeed,focalLength)'
 export const BROWSE_FIELDS = `${FILE_FIELDS},${MEDIA_FIELDS}`
@@ -94,6 +94,8 @@ function mediaInfo(f) {
   if (!f || (f.hasThumbnail === undefined && f.thumbnailLink === undefined && !f.videoMediaMetadata && !f.imageMediaMetadata && !f.owners && !f.webViewLink)) return {}
   const out = { hasThumbnail: Boolean(f.hasThumbnail && f.thumbnailLink), thumbnailLink: f.thumbnailLink ?? null }
   if (f.iconLink) out.iconLink = f.iconLink
+  // Marcas do app (a prévia leve: { sobedesce: 'previa', original }). Só as nossas: o Drive devolve só as deste app.
+  if (f.appProperties && typeof f.appProperties === 'object') out.appProperties = { ...f.appProperties }
   if (f.webViewLink) out.webViewLink = f.webViewLink
   const owner = Array.isArray(f.owners) ? f.owners[0] : null
   if (owner) out.owner = { name: owner.displayName ?? null, email: owner.emailAddress ?? null }

@@ -23,6 +23,7 @@ import { DownloadTask } from './download.js'
 import { UploadTask } from './upload.js'
 import { KeepAwake } from './power.js'
 import { RawThumbnailer } from '../media/raw-thumb.js'
+import { GeradorPrevias, PREVIA_PENDENTE } from '../media/previa-fila.js'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -121,9 +122,10 @@ export class TransferManager extends EventEmitter {
    * @param {(accountId: string) => object} [opts.driveFactory] DriveClient da conta (um por conta, em cache)
    * Opções finas (testes): keepAwake, createTask(record, ctx), taskOptions { download, upload },
    * quotaDelays (ms, cota de download do arquivo), quotaFallbackMs, quotaMaxMs, networkDelays (ms, rede fora do ar), log,
-   * thumbnailer (miniatura de .braw: RawThumbnailer; null desliga).
+   * thumbnailer (miniatura de .braw: RawThumbnailer; null desliga), previas (prévia leve dos vídeos: GeradorPrevias;
+   * null desliga).
    */
-  constructor({ settings, auth = null, hasher = null, paths = dataPaths(), driveFactory, keepAwake, createTask, taskOptions = {}, quotaDelays = QUOTA_DELAYS, quotaFallbackMs = QUOTA_FALLBACK_MS, quotaMaxMs = 24 * HOUR, networkDelays = NETWORK_DELAYS, log, thumbnailer } = {}) {
+  constructor({ settings, auth = null, hasher = null, paths = dataPaths(), driveFactory, keepAwake, createTask, taskOptions = {}, quotaDelays = QUOTA_DELAYS, quotaFallbackMs = QUOTA_FALLBACK_MS, quotaMaxMs = 24 * HOUR, networkDelays = NETWORK_DELAYS, log, thumbnailer, previas } = {}) {
     super()
     if (!settings?.get) throw new Error('TransferManager: settings é obrigatório')
     this.settings = settings
@@ -146,6 +148,13 @@ export class TransferManager extends EventEmitter {
     this.thumbnailer =
       thumbnailer === undefined ? new RawThumbnailer({ settings, log: (...a) => this.log(...a), onResult: (rec, ok) => this.#thumbResult(rec, ok) }) : thumbnailer
     if (this.thumbnailer && !this.thumbnailer.onResult) this.thumbnailer.onResult = (rec, ok) => this.#thumbResult(rec, ok)
+    // Prévia leve dos vídeos: depois do envio, uma cópia H.264 1080p em Proxy/ (media/previa-fila.js). Também nunca
+    // muda o status da transferência; o andamento fica em `record.previa`.
+    this.previas =
+      previas === undefined
+        ? new GeradorPrevias({ settings, log: (...a) => this.log(...a), onChange: (rec, o) => this.#previaChanged(rec, o) })
+        : previas
+    if (this.previas && !this.previas.onChange) this.previas.onChange = (rec, o) => this.#previaChanged(rec, o)
 
     /** @type {Map<string, object>} id -> TransferRecord (ordem de inserção = ordem da fila) */
     this.records = new Map()
@@ -167,6 +176,7 @@ export class TransferManager extends EventEmitter {
     this.meters = { download: new SpeedMeter(), upload: new SpeedMeter() }
     const st = settings.get()
     this.limiters = { download: new BandwidthLimiter(st.bandwidthLimitDown), upload: new BandwidthLimiter(st.bandwidthLimitUp) }
+    if (this.previas && !this.previas.limiter) this.previas.limiter = this.limiters.upload
     this.history = []
     this.timers = []
     this.started = false
@@ -269,6 +279,7 @@ export class TransferManager extends EventEmitter {
       this.started = true
       if (changed) this.#saveSoon()
       this.#schedule()
+      this.#restorePrevias()
     })()
     return this.ready
   }
@@ -290,6 +301,7 @@ export class TransferManager extends EventEmitter {
       for (const b of this.busy.values()) waits.push(b.promise)
       await this.#waitFor(waits, SHUTDOWN_WAIT_MS)
       await this.thumbnailer?.close().catch(noop)
+      await this.previas?.close().catch(noop)
       this.settings.off?.('change', this.onSettingsChange)
       this.auth?.off?.('accounts', this.onAccounts)
       try {
@@ -478,6 +490,7 @@ export class TransferManager extends EventEmitter {
 
   /** Pausa (ids ou 'all'). Espera as tarefas pararem (até 5 s). */
   async pause(ids) {
+    if (ids === 'all') this.#previaCall(p => p.pause())
     const waits = []
     for (const r of this.#select(ids)) {
       const e = this.entries.get(r.id)
@@ -507,6 +520,7 @@ export class TransferManager extends EventEmitter {
   /** Retoma (ids ou 'all'). 'all' só mexe no que está pausado; ids explícitos também tiram da espera da cota. */
   async resume(ids) {
     const all = ids === 'all'
+    if (all) this.#previaCall(p => p.resume())
     for (const r of this.#select(ids)) {
       if (r.status !== 'paused' && (all || r.status !== 'waiting')) continue
       const e = this.entries.get(r.id)
@@ -765,6 +779,8 @@ export class TransferManager extends EventEmitter {
         delete rec.netWaits
         delete rec.netWaitBytes
         if (rec.type === 'upload' && rec.status === 'completed' && rec.target?.fileId) this.#thumb('attach', rec)
+        // "Já estava no Drive" também ganha a prévia leve (se ainda não tem): reenviar a pasta gera as que faltam.
+        if (rec.type === 'upload' && rec.target?.fileId) this.#previa(rec)
       } else if (entry.after === 'shutdown') {
         // Fica como estava: na próxima abertura vira 'queued' (autoResume) ou 'paused'.
         if (!isAbortError(err)) this.#fail(rec, err)
@@ -1079,6 +1095,41 @@ export class TransferManager extends EventEmitter {
     rec.thumbnail = true
     this.#touch(rec)
     this.#saveSoon()
+  }
+
+  /** Prévia leve: nada daqui pode atrapalhar a fila. */
+  #previaCall(fn) {
+    try {
+      if (this.previas) fn(this.previas)
+    } catch (err) {
+      this.log('prévia leve:', err?.message)
+    }
+  }
+
+  #previa(rec) {
+    this.#previaCall(p => p.enqueue(rec, this.driveFor(rec.accountId)))
+  }
+
+  /** Reabriu o app: o que estava na fila da prévia (ou no meio) volta. */
+  #restorePrevias() {
+    if (!this.previas) return
+    for (const r of this.records.values()) {
+      if (r.type !== 'upload' || !PREVIA_PENDENTE.includes(r.previa?.estado)) continue
+      let ok = false
+      this.#previaCall(p => (ok = p.enqueue(r, this.driveFor(r.accountId), { restore: true })))
+      // Desligaram a prévia (ou o registro não serve mais): a linha não fica "na fila" para sempre.
+      if (!ok) {
+        delete r.previa
+        this.#saveSoon()
+      }
+    }
+  }
+
+  #previaChanged(rec, { estado = true } = {}) {
+    if (this.records.get(rec.id) !== rec) return
+    this.#touch(rec)
+    // Progresso só vai para a tela; mudança de fase também vai para o disco.
+    if (estado) this.#saveSoon()
   }
 
   #forget(id) {
