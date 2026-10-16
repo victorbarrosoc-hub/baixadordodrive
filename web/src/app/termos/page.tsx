@@ -37,7 +37,7 @@ export default function TermosPage() {
           ouro: <strong>não apague o original</strong> (o cartão, o disco, a pasta) antes de conferir que a cópia chegou inteira ao destino.
         </p>
         <p>
-          Durante os testes, só e-mails cadastrados conseguem conectar o Google Drive, e o Google pode pedir para conectar de novo a cada 7 dias.
+          A SOBEDESCE ainda não passou pela verificação do Google. Por isso, ao conectar o Drive, o Google mostra um aviso antes de liberar o acesso.
         </p>
       </LegalSection>
 

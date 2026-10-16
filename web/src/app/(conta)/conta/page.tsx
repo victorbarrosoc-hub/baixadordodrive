@@ -52,7 +52,7 @@ export default async function Conta({ searchParams }: Props) {
           </div>
         </Card>
         <p className="mt-3 px-1 text-[13px] leading-relaxed text-pretty text-ink-3">
-          A SOBEDESCE está em teste no Google. Por enquanto, só e-mails liberados pelo Victor conseguem conectar o Drive, e o Google pede para reconectar a cada 7 dias.
+          Na primeira vez, o Google avisa que ainda não verificou a SOBEDESCE. Toque em Avançado e depois em Acessar SOBEDESCE para continuar.
         </p>
       </Secao>
 
