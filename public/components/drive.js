@@ -5,15 +5,18 @@ import { useStore } from '../lib/store.js'
 import { navigate } from '../lib/router.js'
 import { api, attempt } from '../lib/api.js'
 import { bytes, plural, shortPath } from '../lib/format.js'
-import { cx, storage, useDebounced } from '../lib/ui.js'
+import { cx, storage, useDebounced, usePersistentState } from '../lib/ui.js'
 import { announceBatch, driveFolderUrl, uploadPaths } from '../lib/actions.js'
 import { promptDialog } from '../lib/modals.js'
 import { pickFolderPath, pickUploadPaths } from '../lib/desktop.js'
 import { FileDrop } from './drop.js'
 import { toast } from '../lib/toasts.js'
 import { Icon } from './icons.js'
-import { Button, IconButton, Spinner } from './common.js'
-import { DriveTable, isOpenable } from './drive-table.js'
+import { Button, IconButton, Segmented, Spinner } from './common.js'
+import { DriveTable, compare, isOpenable } from './drive-table.js'
+import { DriveGrid } from './drive-grid.js'
+import { DrivePreview } from './drive-preview.js'
+import { onProxies, knownProxy, siblingProxies } from '../lib/media.js'
 import { createDriveFolder, useAbout, useDriveFolder, useDriveSearch, useSharedDrives } from './drive-data.js'
 
 /** Fontes: Meu Drive + drives compartilhados, em pílulas. */
@@ -66,7 +69,7 @@ function Quota({ accountId }) {
   </div>`
 }
 
-function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear, busy }) {
+function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear, busy, onPreview }) {
   const files = items.filter((x) => !isOpenable(x))
   const folders = items.length - files.length
   const size = files.reduce((a, x) => a + (x.size || 0), 0)
@@ -88,6 +91,7 @@ function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear,
       <span class="dest-name">${shortPath(destDir, home) || 'Escolher…'}</span>
       <${Icon} name="chevron-updown" size=${12} />
     </button>
+    ${onPreview && files.length ? html`<${Button} icon="eye" onClick=${onPreview} title="Prévia (espaço)">Prévia</${Button}>` : null}
     <${Button} variant="primary" icon="download" onClick=${onDownload} loading=${busy}>Baixar</${Button}>
     <${IconButton} icon="x" label="Limpar seleção" onClick=${onClear} />
   </div>`
@@ -106,13 +110,21 @@ export function DriveScreen({ route }) {
   const [destDir, setDestDir] = useState(null)
   const [home, setHome] = useState('')
   const [busy, setBusy] = useState(false)
+  const [view, setView] = usePersistentState('drive.view', 'list')
+  const [sort, setSort] = usePersistentState('drive.sort', { key: 'name', dir: 'asc' })
+  const [peek, setPeek] = useState(null) // id do item na prévia
+  const [, setProxyTick] = useState(0)
+  useEffect(() => onProxies(() => setProxyTick((n) => n + 1)), [])
 
   const searching = !!q.trim()
   const items = searching ? search.items : data?.items || null
   const folder = data?.folder
   const sourceId = folder?.driveId || (data?.path?.[0]?.id && drives.some((d) => d.id === data.path[0].id) ? data.path[0].id : 'root')
 
-  useEffect(() => setSelected(new Set()), [folderId, q, accountId])
+  useEffect(() => {
+    setSelected(new Set())
+    setPeek(null)
+  }, [folderId, q, accountId])
   // lembra a pasta aberta: soltar arquivos na tela Transferências envia para cá
   useEffect(() => {
     if (folder && accountId) storage.set('drive.last', { accountId, id: folder.id, name: folderLabel(folder, drives), driveId: folder.driveId || null })
@@ -122,6 +134,22 @@ export function DriveScreen({ route }) {
   }, [])
 
   const byId = useMemo(() => new Map((items || []).map((x) => [x.id, x])), [items])
+  const sorted = useMemo(() => (items || []).slice().sort(compare(sort?.key || 'name', sort?.dir || 'asc')), [items, sort])
+  // Arquivos da pasta na ordem da tela (atalho para arquivo vira o próprio arquivo): a prévia anda por eles com ←/→.
+  const peekList = useMemo(
+    () => sorted.filter((x) => !isOpenable(x)).map((x) => (x.isShortcut && x.shortcutTargetId ? { ...x, id: x.shortcutTargetId, mimeType: x.shortcutTargetMimeType || x.mimeType, isShortcut: false, hasThumbnail: false, viaShortcut: x.id } : x)),
+    [sorted],
+  )
+  const peekIndex = peek ? peekList.findIndex((x) => x.id === peek || x.viaShortcut === peek) : -1
+  // Miniatura do proxy de câmera para o original sem miniatura (o que já está na pasta ou já foi achado na prévia).
+  const proxies = (() => {
+    const m = siblingProxies(items)
+    for (const it of items || []) {
+      const p = !it.hasThumbnail && !m.has(it.id) ? knownProxy(accountId, it.id) : null
+      if (p?.hasThumbnail) m.set(it.id, p)
+    }
+    return m
+  })()
   const selItems = [...selected].map((id) => byId.get(id)).filter(Boolean)
   const dest = destDir || settings?.downloadDir || ''
 
@@ -154,6 +182,18 @@ export function DriveScreen({ route }) {
     if (p) setDestDir(p)
   }
 
+  const preview = (it) => {
+    if (!it || isOpenable(it)) return
+    setSelected(new Set([it.id]))
+    setPeek(it.id)
+  }
+
+  const downloadOne = async (it) => {
+    const res = await attempt(api.post('/api/transfers/download', { accountId, items: [it], destDir: dest }))
+    if (res) announceBatch(res, 'na fila')
+    return !!res?.count
+  }
+
   const download = async () => {
     if (!selItems.length) return
     setBusy(true)
@@ -164,6 +204,10 @@ export function DriveScreen({ route }) {
       setSelected(new Set())
     }
   }
+
+  const emptyView = searching
+    ? html`<span>Nada com “${q.trim()}” no nome.</span>`
+    : html`<div class="table-empty"><${Icon} name="folder" size=${22} /><b>Pasta vazia</b><span>Use “Enviar para esta pasta” para mandar arquivos para cá.</span></div>`
 
   const onKeyDownPage = (e) => {
     if (e.key === 'Escape' && selected.size) setSelected(new Set())
@@ -196,28 +240,75 @@ export function DriveScreen({ route }) {
             aria-label="Buscar no Drive"
           />
         </label>
+        <${Segmented}
+          size="sm"
+          class="view-seg"
+          label="Ver como"
+          value=${view}
+          onChange=${setView}
+          options=${[
+            { value: 'list', label: 'Lista', icon: 'list', title: 'Lista' },
+            { value: 'grid', label: 'Miniaturas', icon: 'grid', title: 'Miniaturas' },
+          ]}
+        />
         ${!searching ? html`<${IconButton} icon="refresh" label="Atualizar" onClick=${reload} class=${loading && data ? 'is-spinning' : ''} />` : null}
         ${!searching && folder ? html`<a class="icon-btn" href=${folderId === 'root' ? 'https://drive.google.com/drive/my-drive' : driveFolderUrl(folderId)} target="_blank" rel="noopener" title="Abrir no navegador" aria-label="Abrir no navegador"><${Icon} name="external" /></a>` : null}
         <${Button} icon="folder-plus" onClick=${newFolder} disabled=${searching}>Nova pasta</${Button}>
         <${Button} variant="primary" icon="upload" onClick=${uploadHere} disabled=${searching}>Enviar para esta pasta</${Button}>
       </div>
     </div>
-    <div class="card card-table">
-      <${DriveTable}
-        items=${items}
-        selected=${selected}
-        onSelect=${setSelected}
-        onOpen=${open}
-        loading=${searching ? search.loading : loading}
-        error=${searching ? search.error : error}
-        onRetry=${reload}
-        resetKey=${searching ? 'q:' + q : folderId}
-        empty=${searching
-          ? html`<span>Nada com “${q.trim()}” no nome.</span>`
-          : html`<div class="table-empty"><${Icon} name="folder" size=${22} /><b>Pasta vazia</b><span>Use “Enviar para esta pasta” para mandar arquivos para cá.</span></div>`}
-      />
+    <div class=${cx('card', view === 'grid' ? 'card-grid' : 'card-table')}>
+      ${view === 'grid'
+        ? html`<${DriveGrid}
+            items=${items}
+            sorted=${sorted}
+            selected=${selected}
+            onSelect=${setSelected}
+            onOpen=${open}
+            onPreview=${preview}
+            accountId=${accountId}
+            proxies=${proxies}
+            loading=${searching ? search.loading : loading}
+            error=${searching ? search.error : error}
+            onRetry=${reload}
+            resetKey=${searching ? 'q:' + q : folderId}
+            empty=${emptyView}
+          />`
+        : html`<${DriveTable}
+            items=${items}
+            selected=${selected}
+            onSelect=${setSelected}
+            onOpen=${open}
+            onPreview=${preview}
+            accountId=${accountId}
+            proxies=${proxies}
+            sort=${sort}
+            onSort=${setSort}
+            loading=${searching ? search.loading : loading}
+            error=${searching ? search.error : error}
+            onRetry=${reload}
+            resetKey=${searching ? 'q:' + q : folderId}
+            empty=${emptyView}
+          />`}
     </div>
-    ${selItems.length
+    ${peekIndex >= 0
+      ? html`<${DrivePreview}
+          accountId=${accountId}
+          items=${peekList}
+          index=${peekIndex}
+          onIndex=${(i) => {
+            const it = peekList[i]
+            setPeek(it.id)
+            setSelected(new Set([it.viaShortcut || it.id]))
+          }}
+          onClose=${() => setPeek(null)}
+          onDownload=${downloadOne}
+          dest=${dest}
+          destLabel=${shortPath(dest, home)}
+          onChangeDest=${chooseDest}
+        />`
+      : null}
+    ${selItems.length && peekIndex < 0
       ? html`<${SelectionBar}
           items=${selItems}
           destDir=${dest}
@@ -226,6 +317,7 @@ export function DriveScreen({ route }) {
           onChangeDest=${chooseDest}
           onDownload=${download}
           onClear=${() => setSelected(new Set())}
+          onPreview=${() => preview(selItems.find((x) => !isOpenable(x)))}
         />`
       : null}
   </div>`

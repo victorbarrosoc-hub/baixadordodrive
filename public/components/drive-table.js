@@ -5,10 +5,11 @@ import { bytes, count, fullDate, relTime } from '../lib/format.js'
 import { cx, memo } from '../lib/ui.js'
 import { Icon } from './icons.js'
 import { Checkbox, FileIcon, SkeletonRows, Button } from './common.js'
+import { Thumb } from './drive-thumb.js'
 
 const PAGE = 200
 
-function compare(key, dir) {
+export function compare(key, dir) {
   const m = dir === 'desc' ? -1 : 1
   return (a, b) => {
     if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1
@@ -22,7 +23,7 @@ function compare(key, dir) {
 
 export const isOpenable = (it) => it.isFolder || (it.isShortcut && it.shortcutTargetMimeType === 'application/vnd.google-apps.folder')
 
-const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick, onRowDouble, onCheck, onKey }) {
+const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview }) {
   const folderLike = isOpenable(item)
   const disabled = mode === 'folder' && !folderLike
   return html`<div
@@ -40,13 +41,22 @@ const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick
       ? html`<span class="drow-check" role="gridcell"><${Checkbox} checked=${selected} label=${`Selecionar ${item.name}`} tabIndex=${-1} onChange=${() => onCheck(index)} /></span>`
       : null}
     <span class="drow-name" role="gridcell">
-      <${FileIcon} name=${item.name} mimeType=${item.mimeType} isFolder=${folderLike} size=${28} shortcut=${item.isShortcut} />
+      ${accountId
+        ? html`<${Thumb} accountId=${accountId} item=${item} proxy=${proxy} folderLike=${folderLike} size=${64} iconSize=${28} class="thumb-row" />`
+        : html`<${FileIcon} name=${item.name} mimeType=${item.mimeType} isFolder=${folderLike} size=${28} shortcut=${item.isShortcut} />`}
       <span class="name" title=${item.name}>${item.name}</span>
       ${item.isGoogleDoc ? html`<span class="tag" title="Documento nativo do Google: é exportado (.docx, .xlsx, .pptx) ao baixar">Doc Google</span>` : null}
     </span>
     <span class="drow-size" role="gridcell">${folderLike ? '—' : item.size == null ? '—' : bytes(item.size)}</span>
     <span class="drow-date" role="gridcell" title=${fullDate(item.modifiedTime)}>${item.modifiedTime ? relTime(item.modifiedTime) : '—'}</span>
-    ${folderLike ? html`<span class="drow-go" aria-hidden="true"><${Icon} name="chevron-right" size=${14} /></span>` : html`<span class="drow-go"></span>`}
+    ${folderLike
+      ? html`<span class="drow-go" aria-hidden="true"><${Icon} name="chevron-right" size=${14} /></span>`
+      : onPreview
+        ? html`<button type="button" class="drow-go drow-peek" tabindex="-1" title="Prévia (espaço)" aria-label=${`Prévia de ${item.name}`} onClick=${(e) => {
+            e.stopPropagation()
+            onPreview(index)
+          }}><${Icon} name="eye" size=${15} /></button>`
+        : html`<span class="drow-go"></span>`}
   </div>`
 })
 
@@ -54,8 +64,10 @@ const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick
  * @param {{ items: any[], mode?: 'browse'|'folder', selected: Set<string>, onSelect: (s:Set<string>)=>void,
  *           onOpen: (item)=>void, loading?: boolean, error?: string|null, onRetry?: ()=>void, empty?: any, resetKey?: string }} props
  */
-export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact }) {
-  const [sort, setSort] = useState({ key: 'name', dir: 'asc' })
+export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort }) {
+  const [sortLocal, setSortLocal] = useState({ key: 'name', dir: 'asc' })
+  const sort = sortProp || sortLocal
+  const setSort = onSort || setSortLocal
   const [limit, setLimit] = useState(PAGE)
   const [focus, setFocus] = useState(0)
   const anchor = useRef(null)
@@ -115,6 +127,7 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
   const onRowDouble = (i) => {
     const it = shown[i]
     if (isOpenable(it)) onOpen(it)
+    else if (onPreview && mode !== 'folder') onPreview(it)
   }
 
   const onKey = (e, i) => {
@@ -126,9 +139,12 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (isOpenable(it)) onOpen(it)
+      else if (onPreview && mode !== 'folder') onPreview(it)
     } else if (e.key === ' ') {
       e.preventDefault()
+      // Espaço = prévia (como o Quick Look do Mac); em pastas marca/desmarca
       if (mode === 'folder') onRowClick({}, i)
+      else if (onPreview && !isOpenable(it)) onPreview(it)
       else onCheck(i)
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && mode !== 'folder') {
       e.preventDefault()
@@ -143,7 +159,11 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
 
   // handlers estáveis para as linhas memoizadas (sempre chamam a versão mais nova)
   const live = useRef({})
-  live.current = { onRowClick, onRowDouble, onCheck, onKey }
+  const onPeek = (i) => {
+    setFocus(i)
+    onPreview?.(shown[i])
+  }
+  live.current = { onRowClick, onRowDouble, onCheck, onKey, onPeek }
   const stable = useRef(null)
   if (!stable.current)
     stable.current = {
@@ -151,6 +171,7 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
       onRowDouble: (i) => live.current.onRowDouble(i),
       onCheck: (i) => live.current.onCheck(i),
       onKey: (e, i) => live.current.onKey(e, i),
+      onPeek: (i) => live.current.onPeek(i),
     }
   const h = stable.current
 
@@ -191,6 +212,9 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
         onRowDouble=${h.onRowDouble}
         onCheck=${h.onCheck}
         onKey=${h.onKey}
+        accountId=${accountId}
+        proxy=${proxies?.get(it.id)}
+        onPreview=${onPreview && mode !== 'folder' ? h.onPeek : null}
       />`,
     )}
     ${sorted.length > limit

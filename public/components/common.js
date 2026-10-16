@@ -55,6 +55,8 @@ export function Segmented({ value, options, onChange, size, label, class: klass 
         aria-checked=${o.value === value ? 'true' : 'false'}
         tabindex=${o.value === value ? 0 : -1}
         class=${cx('seg-item', o.value === value && 'is-on')}
+        title=${o.title}
+        aria-label=${o.title}
         onClick=${() => onChange(o.value)}
       >
         ${o.icon ? html`<${Icon} name=${o.icon} size=${14} />` : null}

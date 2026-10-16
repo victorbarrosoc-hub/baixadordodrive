@@ -96,7 +96,8 @@ export function relTime(t, ref = Date.now()) {
   const today = new Date(ref)
   const yesterday = new Date(ref - 86400e3)
   if (d.toDateString() === yesterday.toDateString()) return 'ontem'
-  const days = Math.floor(h / 24)
+  // dias de calendário (30 h atrás pode ser anteontem: "há 2 dias", nunca "há 1 dias")
+  const days = Math.max(2, Math.round((new Date(today).setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400e3))
   if (days < 7) return `há ${days} dias`
   return d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) })
 }
