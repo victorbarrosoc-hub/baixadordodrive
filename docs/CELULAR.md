@@ -85,6 +85,12 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   sempre primeiro), busca por nome no lugar inteiro (o `name contains` do Drive casa o começo das palavras),
   puxar para atualizar e mais páginas ao rolar (60 por vez). Listas já abertas ficam em memória; com mais de 2 min,
   atualizam por trás.
+- **Tamanho das pastas** (`lib/tamanho.js`, `folderSize` em `lib/browse.js`): o Drive não guarda, então o app soma
+  a árvore direto no Google (4 listagens de cada vez, `files(id,mimeType,size)`, 1000 por página, sem lixeira, atalhos
+  não seguidos, Docs do Google contam 0). Abrir uma pasta começa sozinho e mostra “Calculando… 1.234 arquivos · 412 GB”
+  no topo; pronto, “412,3 GB · 1.234 arquivos em 56 pastas” com Recalcular. Mais de 20 mil itens ou 30 s: “…+” e
+  Parar. Na lista, “Calcular” ao lado de cada subpasta (sob pedido; vira “Pasta · 174 GB”). Uma conta por pasta,
+  guardada enquanto a página está aberta; sair da pasta ou da aba esquece as que ainda andavam.
 - **Miniaturas:** `thumbnailLink` com o sufixo trocado pelo tamanho certo (`=sNNN`, em pixels de tela), só quando
   o item chega perto da tela (IntersectionObserver), no máximo 6 ao mesmo tempo, cache em memória. Ordem:
   `<img>` direto sem Referer → se falhar, `fetch` com `Authorization` → `blob:` (e passa a usar esse caminho) →

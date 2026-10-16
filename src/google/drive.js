@@ -7,6 +7,7 @@ import { requestJSON } from '../net/http.js'
 import { abortError, backoffDelay, sleep } from '../util/backoff.js'
 import { joinRel, splitRel, toNFC } from '../util/paths.js'
 import { classifyError } from './errors.js'
+import { SIZE_LIST_FIELDS, walkFolderSize } from './folder-size.js'
 
 export const FOLDER_MIME = 'application/vnd.google-apps.folder'
 export const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut'
@@ -799,6 +800,39 @@ export class DriveClient {
     emit(true)
     items.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0))
     return { root, items }
+  }
+
+  /**
+   * Tamanho da pasta (o Drive não guarda): soma a árvore com listagens mínimas (src/google/folder-size.js).
+   * Atalho para pasta escolhido como raiz é seguido; dentro da árvore, atalhos não são seguidos (contam à parte).
+   * Drive compartilhado: corpora=drive com o driveId da raiz. `onProgress({ bytes, files, folders, docs, shortcuts, pending })`.
+   * Cancelada: AbortError com `err.partial`. Resultado: o mesmo formato, mais `root` ({ id, name, driveId }).
+   */
+  async folderSize(folderId, { signal, onProgress, concurrency = 4 } = {}) {
+    let root = await this.getItem(folderId, { signal })
+    if (root.isShortcut && root.shortcutTargetId && root.shortcutTargetMimeType === FOLDER_MIME) {
+      root = await this.getItem(root.shortcutTargetId, { signal, resourceKey: root.shortcutTargetResourceKey })
+    }
+    const info = { id: folderId === 'root' ? 'root' : root.id, name: root.name, driveId: root.driveId }
+    if (!root.isFolder) {
+      const doc = root.isGoogleDoc ? 1 : 0
+      return { bytes: root.size || 0, files: root.isShortcut ? 0 : 1, folders: 0, docs: doc, shortcuts: root.isShortcut ? 1 : 0, pending: 0, root: info }
+    }
+    const driveId = root.driveId || null
+    const listPage = (id, pageToken, sig) => {
+      const query = {
+        q: this.#childrenQuery(id),
+        fields: SIZE_LIST_FIELDS,
+        pageSize: PAGE_SIZE,
+        includeItemsFromAllDrives: 'true',
+        supportsAllDrives: 'true',
+        pageToken,
+      }
+      if (driveId) Object.assign(query, { corpora: 'drive', driveId })
+      return this.api('GET', 'files', { query, signal: sig })
+    }
+    const out = await walkFolderSize({ listPage, rootId: root.id, signal, onProgress, concurrency })
+    return { ...out, root: info }
   }
 
   async #resolveShortcut(item, signal) {

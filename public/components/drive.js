@@ -20,6 +20,7 @@ import { onProxies, knownProxy, siblingProxies } from '../lib/media.js'
 import { createDriveFolder, useAbout, useDriveFolder, useDriveSearch, useSharedDrives } from './drive-data.js'
 import { hasRawFiles, onRawThumbsDone, openRawThumbs, useRawThumbsRunning } from './raw-thumbs.js'
 import { hasVideoFiles, onPreviasDone, openPrevias, usePreviasRunning } from './previa.js'
+import { FolderSummary, calcSize, focusSize, getSize, sizeId, useSizes } from './drive-tamanho.js'
 
 /** Fontes: Meu Drive + drives compartilhados, em pílulas. */
 export function SourceChips({ drives, current, onPick, vertical }) {
@@ -71,13 +72,19 @@ function Quota({ accountId }) {
   </div>`
 }
 
-function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear, busy, onPreview }) {
+function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear, busy, onPreview, accountId }) {
   const files = items.filter((x) => !isOpenable(x))
-  const folders = items.length - files.length
-  const size = files.reduce((a, x) => a + (x.size || 0), 0)
+  const folderItems = items.filter(isOpenable)
+  const folders = folderItems.length
+  // Pastas com o tamanho já somado entram no total; as outras ficam no botão "Calcular tamanho".
+  const sized = folderItems.map((x) => getSize(accountId, sizeId(x)))
+  const unknown = folderItems.filter((x, i) => sized[i]?.status !== 'done')
+  const calculating = sized.some((v) => v?.status === 'running' || v?.status === 'queued')
+  const size = files.reduce((a, x) => a + (x.size || 0), 0) + sized.reduce((a, v) => a + (v?.status === 'done' ? v.bytes : 0), 0)
   const docs = files.filter((x) => x.isGoogleDoc).length
   const parts = [plural(items.length, 'item', 'itens')]
-  if (size) parts.push(bytes(size))
+  if (size && !unknown.length) parts.push(bytes(size))
+  else if (size) parts.push(`${bytes(size)} + ${unknown.length === 1 ? 'pasta' : 'pastas'}`)
   let hint = ''
   if (folders) hint = `${plural(folders, 'pasta', 'pastas')} com tudo dentro`
   else if (docs) hint = `${plural(docs, 'Doc Google exportado', 'Docs Google exportados')}`
@@ -93,6 +100,9 @@ function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear,
       <span class="dest-name">${shortPath(destDir, home) || 'Escolher…'}</span>
       <${Icon} name="chevron-updown" size=${12} />
     </button>
+    ${unknown.length
+      ? html`<${Button} icon="disk" loading=${calculating} onClick=${() => unknown.forEach((x) => calcSize(accountId, sizeId(x)))} title="Somar tudo o que tem dentro das pastas escolhidas">${calculating ? 'Calculando…' : 'Calcular tamanho'}</${Button}>`
+      : null}
     ${onPreview && files.length ? html`<${Button} icon="eye" onClick=${onPreview} title="Prévia (espaço)">Prévia</${Button}>` : null}
     <${Button} variant="primary" icon="download" onClick=${onDownload} loading=${busy}>Baixar</${Button}>
     <${IconButton} icon="x" label="Limpar seleção" onClick=${onClear} />
@@ -125,6 +135,14 @@ export function DriveScreen({ route }) {
   // "Gerar prévias" terminou: recarrega a pasta (a subpasta Proxy aparece).
   useEffect(() => onPreviasDone((job) => job.progress?.feitos && reloadRef.current()), [])
   const previasRunning = usePreviasRunning()
+  // Tamanho das pastas: só a conta desta pasta (e as pedidas aqui) seguem; sair do Drive esquece as que andavam.
+  useSizes()
+  useEffect(() => {
+    focusSize(accountId, folderId)
+  }, [accountId, folderId])
+  useEffect(() => () => focusSize(null, null), [])
+  const sizeOf = (it) => (accountId && isOpenable(it) ? getSize(accountId, sizeId(it)) : null)
+  const calcFolder = (it) => calcSize(accountId, sizeId(it))
 
   const searching = !!q.trim()
   const items = searching ? search.items : data?.items || null
@@ -277,6 +295,9 @@ export function DriveScreen({ route }) {
         <${Button} variant="primary" icon="upload" onClick=${uploadHere} disabled=${searching}>Enviar para esta pasta</${Button}>
       </div>
     </div>
+    ${!searching && accountId
+      ? html`<${FolderSummary} accountId=${accountId} folderId=${folderId} items=${data?.items || null} ready=${!!folder && !error} />`
+      : null}
     <div class=${cx('card', view === 'grid' ? 'card-grid' : 'card-table')}>
       ${view === 'grid'
         ? html`<${DriveGrid}
@@ -288,6 +309,7 @@ export function DriveScreen({ route }) {
             onPreview=${preview}
             accountId=${accountId}
             proxies=${proxies}
+            sizeOf=${sizeOf}
             loading=${searching ? search.loading : loading}
             error=${searching ? search.error : error}
             onRetry=${reload}
@@ -302,6 +324,8 @@ export function DriveScreen({ route }) {
             onPreview=${preview}
             accountId=${accountId}
             proxies=${proxies}
+            sizeOf=${sizeOf}
+            onCalcSize=${calcFolder}
             sort=${sort}
             onSort=${setSort}
             loading=${searching ? search.loading : loading}
@@ -337,6 +361,7 @@ export function DriveScreen({ route }) {
           onChangeDest=${chooseDest}
           onDownload=${download}
           onClear=${() => setSelected(new Set())}
+          accountId=${accountId}
           onPreview=${() => preview(selItems.find((x) => !isOpenable(x)))}
         />`
       : null}

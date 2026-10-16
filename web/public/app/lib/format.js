@@ -19,11 +19,12 @@ function scale(n) {
 }
 
 /** "1,5 GB", "812 MB". `fixed` mantém sempre uma casa (bom para números que mudam ao vivo). */
-export function bytes(n, { fixed = false } = {}) {
+export function bytes(n, { fixed = false, precise = false } = {}) {
   if (n == null || !Number.isFinite(n)) return '—'
   if (Math.abs(n) < 1000) return `${NF0.format(n)} B`
   const { v, unit } = scale(n)
-  const f = Math.abs(v) >= 100 ? NF0 : fixed ? NF1 : NF01
+  // `precise`: uma casa até nos números grandes ("412,3 GB"), para totais que já pararam de mudar.
+  const f = precise ? NF01 : Math.abs(v) >= 100 ? NF0 : fixed ? NF1 : NF01
   return `${f.format(v)} ${unit}`
 }
 

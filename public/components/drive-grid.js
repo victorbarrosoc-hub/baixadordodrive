@@ -8,13 +8,14 @@ import { Icon } from './icons.js'
 import { Button, Checkbox } from './common.js'
 import { Thumb } from './drive-thumb.js'
 import { isOpenable } from './drive-table.js'
+import { sizeShort } from './drive-tamanho.js'
 
 const PAGE = 120
 
-const Card = memo(function Card({ item, index, selected, focused, accountId, proxy, h }) {
+const Card = memo(function Card({ item, index, selected, focused, accountId, proxy, h, fsize }) {
   const folderLike = isOpenable(item)
   const dur = item.video?.durationMs ? clipTime(item.video.durationMs / 1000) : ''
-  const sub = folderLike ? 'Pasta' : [item.size != null ? bytes(item.size) : null, item.modifiedTime ? relTime(item.modifiedTime) : null].filter(Boolean).join(' · ')
+  const sub = folderLike ? ['Pasta', sizeShort(fsize)].filter(Boolean).join(' · ') : [item.size != null ? bytes(item.size) : null, item.modifiedTime ? relTime(item.modifiedTime) : null].filter(Boolean).join(' · ')
   return html`<div
     class=${cx('gcard', selected && 'is-selected', folderLike && 'is-folder')}
     role="option"
@@ -49,7 +50,7 @@ const Card = memo(function Card({ item, index, selected, focused, accountId, pro
  * @param {{ items: any[]|null, sorted: any[], selected: Set<string>, onSelect, onOpen, onPreview, accountId: string,
  *           loading?: boolean, error?: string|null, onRetry?: ()=>void, empty?: any, resetKey?: string, proxies?: Map }} props
  */
-export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview, accountId, loading, error, onRetry, empty, resetKey, proxies }) {
+export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview, accountId, loading, error, onRetry, empty, resetKey, proxies, sizeOf }) {
   const [limit, setLimit] = useState(PAGE)
   const [focus, setFocus] = useState(0)
   const anchor = useRef(null)
@@ -178,6 +179,7 @@ export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview
           accountId=${accountId}
           proxy=${proxies?.get(it.id)}
           h=${h.current}
+          fsize=${sizeOf && isOpenable(it) ? sizeOf(it) : null}
         />`,
       )}
     </div>

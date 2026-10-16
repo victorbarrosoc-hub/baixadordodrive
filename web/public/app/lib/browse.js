@@ -3,6 +3,7 @@
 import { FOLDER_MIME, driveCall, q } from './drive.js'
 import { extOf, fileKind } from './format.js'
 import { local } from './config.js'
+import { FolderSizes, pageLister, walkFolderSize } from './tamanho.js'
 
 const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut'
 const GAPPS = 'application/vnd.google-apps.'
@@ -198,6 +199,20 @@ export async function listDrives(signal) {
 export function getFile(id, signal) {
   return driveCall(`/files/${encodeURIComponent(id)}`, { query: { supportsAllDrives: true, fields: FILE_FIELDS }, signal })
 }
+
+// ───── tamanho das pastas ─────
+
+/**
+ * Tamanho de uma pasta (o Drive não guarda): soma a árvore com listagens mínimas, 4 de cada vez (lib/tamanho.js).
+ * folder = { id }; `driveId` = drive compartilhado onde ela mora (corpora=drive). Atalhos não são seguidos.
+ * Devolve { bytes, files, folders, docs, shortcuts }; cancelada, rejeita com AbortError e `err.partial`.
+ */
+export function folderSize(folder, { driveId = null, signal, onProgress } = {}) {
+  return walkFolderSize({ listPage: pageLister(driveCall, driveId || folder.driveId || null), rootId: folder.id, signal, onProgress, concurrency: 4 })
+}
+
+/** Contas desta sessão (uma por pasta, guardadas enquanto a página está aberta). */
+export const folderSizes = new FolderSizes({ walk: (folder, opts) => folderSize(folder, opts) })
 
 // ───── proxy de câmera ─────
 //

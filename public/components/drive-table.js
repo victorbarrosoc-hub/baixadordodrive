@@ -6,6 +6,7 @@ import { cx, memo } from '../lib/ui.js'
 import { Icon } from './icons.js'
 import { Checkbox, FileIcon, SkeletonRows, Button } from './common.js'
 import { Thumb } from './drive-thumb.js'
+import { FolderSizeCell } from './drive-tamanho.js'
 
 const PAGE = 200
 
@@ -23,7 +24,7 @@ export function compare(key, dir) {
 
 export const isOpenable = (it) => it.isFolder || (it.isShortcut && it.shortcutTargetMimeType === 'application/vnd.google-apps.folder')
 
-const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview }) {
+const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview, fsize, onCalcSize }) {
   const folderLike = isOpenable(item)
   const disabled = mode === 'folder' && !folderLike
   return html`<div
@@ -47,7 +48,13 @@ const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick
       <span class="name" title=${item.name}>${item.name}</span>
       ${item.isGoogleDoc ? html`<span class="tag" title="Documento nativo do Google: é exportado (.docx, .xlsx, .pptx) ao baixar">Doc Google</span>` : null}
     </span>
-    <span class="drow-size" role="gridcell">${folderLike ? '—' : item.size == null ? '—' : bytes(item.size)}</span>
+    <span class="drow-size" role="gridcell">${folderLike
+      ? onCalcSize || fsize
+        ? html`<${FolderSizeCell} v=${fsize} name=${item.name} onCalc=${onCalcSize ? () => onCalcSize(index) : null} />`
+        : '—'
+      : item.size == null
+        ? '—'
+        : bytes(item.size)}</span>
     <span class="drow-date" role="gridcell" title=${fullDate(item.modifiedTime)}>${item.modifiedTime ? relTime(item.modifiedTime) : '—'}</span>
     ${folderLike
       ? html`<span class="drow-go" aria-hidden="true"><${Icon} name="chevron-right" size=${14} /></span>`
@@ -64,7 +71,7 @@ const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick
  * @param {{ items: any[], mode?: 'browse'|'folder', selected: Set<string>, onSelect: (s:Set<string>)=>void,
  *           onOpen: (item)=>void, loading?: boolean, error?: string|null, onRetry?: ()=>void, empty?: any, resetKey?: string }} props
  */
-export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort }) {
+export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort, sizeOf, onCalcSize }) {
   const [sortLocal, setSortLocal] = useState({ key: 'name', dir: 'asc' })
   const sort = sortProp || sortLocal
   const setSort = onSort || setSortLocal
@@ -163,7 +170,8 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
     setFocus(i)
     onPreview?.(shown[i])
   }
-  live.current = { onRowClick, onRowDouble, onCheck, onKey, onPeek }
+  const onCalc = (i) => onCalcSize?.(shown[i])
+  live.current = { onRowClick, onRowDouble, onCheck, onKey, onPeek, onCalc }
   const stable = useRef(null)
   if (!stable.current)
     stable.current = {
@@ -172,6 +180,7 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
       onCheck: (i) => live.current.onCheck(i),
       onKey: (e, i) => live.current.onKey(e, i),
       onPeek: (i) => live.current.onPeek(i),
+      onCalc: (i) => live.current.onCalc(i),
     }
   const h = stable.current
 
@@ -215,6 +224,8 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
         accountId=${accountId}
         proxy=${proxies?.get(it.id)}
         onPreview=${onPreview && mode !== 'folder' ? h.onPeek : null}
+        fsize=${sizeOf && isOpenable(it) ? sizeOf(it) : null}
+        onCalcSize=${onCalcSize && mode !== 'folder' ? h.onCalc : null}
       />`,
     )}
     ${sorted.length > limit
