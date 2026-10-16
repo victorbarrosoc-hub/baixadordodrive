@@ -22,6 +22,7 @@ let state = {
   app: { name: 'SOBEDESCE', version: '', platform: '' },
   setup: { configured: false, clientIdHint: null },
   accounts: [],
+  cloud: null, // conta SOBEDESCE: { conectado, site, contaUrl, usuario, contas, login: { estado, codigo, url, expiraEm }, erro, aviso }
   activeAccountId: storage.get('account', null),
   settings: null,
   transfers: new Map(), // id -> PublicTransfer (objeto novo só quando muda)
@@ -89,6 +90,7 @@ function applyFull(data) {
     app: data.app || state.app,
     setup: data.setup || state.setup,
     accounts,
+    cloud: data.cloud ?? state.cloud,
     activeAccountId: pickActiveAccount(accounts, state.activeAccountId),
     settings: data.settings || state.settings,
     transfers,
@@ -131,6 +133,10 @@ export function setSetup(setup) {
 
 export function setAccounts(accounts) {
   setState({ accounts, activeAccountId: pickActiveAccount(accounts, state.activeAccountId) })
+}
+
+export function setCloud(cloud) {
+  if (cloud && typeof cloud === 'object') setState({ cloud })
 }
 
 export function setOAuthWait(value) {
@@ -198,6 +204,7 @@ function connect() {
   on('accounts', (d) => setAccounts(asArray(d, 'accounts')))
   on('settings', (d) => setSettings(d?.settings || d))
   on('setup', (d) => setSetup(d?.setup || d))
+  on('cloud', (d) => setCloud(d?.cloud || d))
   on('compare', (d) => d?.jobId && setCompareJob(d.jobId, { status: d.status, progress: d.progress, error: d.error || null }))
   on('toast', (d) => d?.message && toast(d.kind || 'info', d.message))
 }

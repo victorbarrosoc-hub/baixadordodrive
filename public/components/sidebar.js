@@ -78,13 +78,14 @@ function AccountMenu({ accounts, active, onClose }) {
             >
               <${Avatar} name=${a.name} email=${a.email} photoUrl=${a.photoUrl} size=${22} />
               <span class="menu-item-text">${a.email}</span>
+              ${a.source === 'nuvem' ? html`<span class="menu-item-tag" title="Da conta SOBEDESCE"><${Icon} name="cloud" size=${13} /></span>` : null}
               ${a.id === active?.id ? html`<${Icon} name="check" size=${14} />` : null}
               ${a.status === 'reauth' ? html`<${Icon} name="warning" size=${14} class="tone-warning" />` : null}
             </button>`,
           )}`
       : null}
     <div class="menu-sep"></div>
-    <a class="menu-item" role="menuitem" href="/api/auth/start"><${Icon} name="plus" size=${15} /><span class="menu-item-text">Adicionar conta</span></a>
+    <button type="button" class="menu-item" role="menuitem" onClick=${() => { navigate('ajustes'); onClose() }}><${Icon} name="cloud" size=${15} /><span class="menu-item-text">Conta e Drives</span></button>
     <button type="button" class="menu-item" role="menuitem" onClick=${() => { navigate('ajustes'); onClose() }}><${Icon} name="sliders" size=${15} /><span class="menu-item-text">Ajustes</span></button>
   </div>`
 }
@@ -100,7 +101,7 @@ function AccountChip() {
     <button type="button" class=${cx('account-chip', open && 'is-open')} aria-haspopup="menu" aria-expanded=${open ? 'true' : 'false'} onClick=${() => setOpen(!open)}>
       <${Avatar} name=${active.name} email=${active.email} photoUrl=${active.photoUrl} size=${28} />
       <span class="account-text">
-        <b>${active.name || active.email.split('@')[0]}</b>
+        <b>${active.name || (active.email || '').split('@')[0]}</b>
         <span>${active.email}</span>
       </span>
       ${active.status === 'reauth' ? html`<${Icon} name="warning" size=${14} class="tone-warning" />` : html`<${Icon} name="chevron-updown" size=${14} />`}

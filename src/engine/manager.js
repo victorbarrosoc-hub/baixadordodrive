@@ -919,7 +919,10 @@ export class TransferManager extends EventEmitter {
       if (!known.has(String(r.accountId)) && ['running', 'verifying', 'queued', 'waiting'].includes(r.status)) gone.add(String(r.accountId))
     }
     for (const id of gone) {
-      const error = { message: 'Esta conta foi removida do SOBEDESCE. Conecte a conta de novo para continuar.', reason: 'accountNotFound', kind: 'reauth', at: Date.now() }
+      const message = id.startsWith('nuvem:')
+        ? 'Este Drive da conta SOBEDESCE não está mais neste computador. Entre na conta (ou reconecte o Drive no site) para continuar.'
+        : 'Esta conta foi removida do SOBEDESCE. Conecte a conta de novo para continuar.'
+      const error = { message, reason: 'accountNotFound', kind: 'reauth', at: Date.now() }
       this.#reauthAccount(id, error, { toast: false })
     }
     for (const id of [...this.reauthNotified]) if (ok.has(id)) this.reauthNotified.delete(id)

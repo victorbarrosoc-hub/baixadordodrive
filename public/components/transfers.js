@@ -13,6 +13,17 @@ import { Icon } from './icons.js'
 import { Button, EmptyState, FileIcon, IconButton, LinkButton, Pill, Segmented } from './common.js'
 import { MeterHero } from './meter.js'
 import { SequenceBar, Timeline } from './timeline.js'
+import { contaUrl, isCloudAccount } from '../lib/cloud.js'
+import { navigate } from '../lib/router.js'
+
+/** "Conectar de novo" certo para a conta: OAuth deste computador, o site (Drive da conta) ou entrar na conta. */
+function ReauthLink({ t }) {
+  if (!isCloudAccount(t.accountId)) return html`<a class="link" href="/api/auth/start">Conectar de novo</a>`
+  if (t.error?.reason === 'cloudSignedOut' || t.error?.reason === 'accountNotFound') {
+    return html`<button type="button" class="link" onClick=${() => navigate('ajustes')}>Entrar na conta</button>`
+  }
+  return html`<a class="link" href=${contaUrl()} target="_blank" rel="noopener noreferrer">Reconectar no site</a>`
+}
 
 const FILTERS = [
   { value: 'all', label: 'Tudo', test: () => true },
@@ -99,7 +110,7 @@ const TransferRow = memo(function TransferRow({ t, platform }) {
     message = html`<div class="trow-msg is-quiet"><span class="shimmer-text">Verificando integridade…</span></div>`
   } else if (t.status === 'paused' && t.error) {
     message = html`<div class="trow-msg is-warning"><span>${t.error.message}</span>
-      ${t.error.kind === 'reauth' ? html`<a class="link" href="/api/auth/start">Conectar de novo</a>` : null}</div>`
+      ${t.error.kind === 'reauth' ? html`<${ReauthLink} t=${t} />` : null}</div>`
   } else if (t.status === 'waiting' && t.error?.message) {
     message = html`<div class="trow-msg is-quiet"><span>${t.error.message}</span></div>`
   }

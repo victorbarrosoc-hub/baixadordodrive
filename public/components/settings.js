@@ -8,10 +8,11 @@ import { navigate } from '../lib/router.js'
 import { confirmDialog, pickDriveFolder } from '../lib/modals.js'
 import { pickFolderPath, revealLabel, revealPath } from '../lib/desktop.js'
 import { toast } from '../lib/toasts.js'
-import { copyText, extractClientId, normalizeWebUrl, rotateMobileCode, useMobileState } from '../lib/mobile.js'
+import { copyText, rotateMobileCode, useMobileState } from '../lib/mobile.js'
 import { Icon } from './icons.js'
 import { Avatar, Button, LinkButton, Pill, Segmented, Select, Slider, Stepper, Switch } from './common.js'
 import { useLocalRoots } from './local-picker.js'
+import { CloudAccountRows } from './cloud.js'
 
 const MiB = 1048576
 const CHUNKS = [
@@ -23,8 +24,8 @@ const CHUNKS = [
   { value: 0, label: 'Contínuo (recomendado)' },
 ]
 
-function Group({ title, icon, tone, children, foot }) {
-  return html`<section class="sgroup">
+function Group({ title, icon, tone, children, foot, id }) {
+  return html`<section class="sgroup" id=${id}>
     <h2 class="sgroup-title">${icon ? html`<span class=${cx('sgroup-icon', tone && `tone-${tone}`)}><${Icon} name=${icon} size=${14} strokeWidth=${1.8} /></span>` : null}${title}</h2>
     <div class="sgroup-box">${children}</div>
     ${foot ? html`<p class="sgroup-foot">${foot}</p>` : null}
@@ -103,7 +104,7 @@ function MobileGroups({ d, set, accounts, activeId, home, platform }) {
   const confirmed = useStore((s) => s.settings)
   const on = !!d.mobileReceive
   const { state: m, reload, setState } = useMobileState(
-    [confirmed?.mobileReceive, confirmed?.mobilePort, confirmed?.mobileStagingDir, confirmed?.mobileWebUrl, confirmed?.webClientId],
+    [confirmed?.mobileReceive, confirmed?.mobilePort, confirmed?.mobileStagingDir],
     { poll: !!confirmed?.mobileReceive },
   )
   const [rotating, setRotating] = useState(false)
@@ -239,30 +240,14 @@ function MobileGroups({ d, set, accounts, activeId, home, platform }) {
       title="Em qualquer lugar (internet)"
       icon="cloud"
       tone="down"
-      foot="Fora do Wi-Fi, o celular sobe direto pro Google pelo app publicado (Vercel), sem passar por este computador. O ID é de um cliente OAuth do tipo “Aplicativo da Web”, no mesmo projeto do Google Cloud."
+      foot="Fora do Wi-Fi, o celular sobe direto pro Google pelo app do site, com os Drives da sua conta SOBEDESCE. Nada passa por este computador."
     >
-      <${Row} label="Endereço do app do celular" desc="O app do celular no site, ex.: https://sobedesce.vercel.app/app/">
-        <${TextSetting} label="Endereço do app do celular" placeholder="https://…vercel.app" value=${d.mobileWebUrl} clean=${normalizeWebUrl} onCommit=${(v) => set('mobileWebUrl', v, { now: true })} />
-      </${Row}>
-      <${Row} label="ID do cliente Web" desc="Google Auth Platform → Clientes → Aplicativo da Web.">
-        <${TextSetting}
-          label="ID do cliente Web"
-          mono
-          placeholder="1234…apps.googleusercontent.com"
-          value=${d.webClientId}
-          clean=${(v) => (v.trim() ? extractClientId(v) || v.trim() : '')}
-          onCommit=${(v) => set('webClientId', v, { now: true })}
-        />
-      </${Row}>
       ${m?.webQrSvg
         ? html`<div class="srow mqr-row">
-            <${QrBox} svg=${m.webQrSvg} label="QR code do app do celular já configurado" />
+            <${QrBox} svg=${m.webQrSvg} label="QR code do app do celular" />
             <div class="mqr-text">
               <div class="srow-label">Escaneie com o iPhone</div>
-              <div class="srow-desc">
-                Abre o app do celular${d.webClientId ? ' já configurado com o seu ID do cliente' : ''}. Depois é só tocar em “Entrar com Google”.
-                ${d.webClientId ? '' : ' Preencha o ID do cliente acima para ele vir junto no QR.'}
-              </div>
+              <div class="srow-desc">Abre o app do celular. Entre na sua conta SOBEDESCE e escolha o Drive.</div>
               <${CopyField} value=${m.webUrl} />
             </div>
           </div>`
@@ -318,6 +303,7 @@ export function SettingsScreen() {
   const setup = useStore((s) => s.setup)
   const app = useStore((s) => s.app)
   const roots = useLocalRoots()
+  const localAccounts = accounts.filter((a) => a.source !== 'nuvem')
   const [draft, setDraft] = useState(settings || {})
   const pending = useRef({})
   const timer = useRef(null)
@@ -404,6 +390,10 @@ export function SettingsScreen() {
     </header>
 
     <div class="settings">
+      <${Group} id="contas" title="Conta SOBEDESCE" icon="cloud" tone="up" foot="Os arquivos vão direto deste computador para o Google. O site só guarda o acesso aos seus Drives.">
+        <${CloudAccountRows} />
+      </${Group}>
+
       <${Group} title="Velocidade" icon="bolt" tone="down">
         <${Row} label="Downloads ao mesmo tempo" desc="Quantos arquivos baixam juntos.">
           <${Stepper} label="Downloads ao mesmo tempo" value=${d.maxConcurrentDownloads} min=${1} max=${16} onChange=${(v) => set('maxConcurrentDownloads', v)} />
@@ -500,8 +490,8 @@ export function SettingsScreen() {
         </${Row}>
       </${Group}>
 
-      <${Group} title="Contas" icon="user" tone="up">
-        ${accounts.map(
+      <${Group} title="Drives só neste computador" icon="laptop" tone="neutral">
+        ${localAccounts.map(
           (a) => html`<div class="srow account-row">
             <div class="account-id">
               <${Avatar} name=${a.name} email=${a.email} photoUrl=${a.photoUrl} size=${32} />
@@ -517,16 +507,22 @@ export function SettingsScreen() {
           </div>`,
         )}
         <div class="srow">
-          <div class="srow-text"><div class="srow-desc">${accounts.length ? `${plural(accounts.length, 'conta conectada', 'contas conectadas')}. Cada transferência usa a conta de onde veio.` : 'Nenhuma conta conectada.'}</div></div>
-          <div class="srow-control"><${LinkButton} size="sm" icon="plus" href="/api/auth/start">Adicionar conta</${LinkButton}></div>
+          <div class="srow-text"><div class="srow-desc">${localAccounts.length ? `${plural(localAccounts.length, 'Drive conectado', 'Drives conectados')} com a sua chave do Google, guardados só aqui.` : 'Com a sua própria chave do Google, sem passar pela conta. Para quem prefere assim.'}</div></div>
+          <div class="srow-control">
+            ${setup?.configured
+              ? html`<${LinkButton} size="sm" icon="plus" href="/api/auth/start">Conectar um Drive só neste computador</${LinkButton}>`
+              : html`<${Button} size="sm" icon="plus" onClick=${() => navigate('inicio/local')}>Conectar um Drive só neste computador</${Button}>`}
+          </div>
         </div>
       </${Group}>
 
-      <${Group} title="Chave do Google" icon="key" tone="neutral" foot="A chave identifica o seu app no Google. Ela fica só neste computador.">
-        <${Row} label="Cliente OAuth" desc=${setup?.clientIdHint ? html`<span class="mono-path">${setup.clientIdHint}</span>` : 'Nenhuma chave configurada'}>
-          <${Button} size="sm" onClick=${() => navigate('inicio/chave')}>Trocar chave</${Button}>
-        </${Row}>
-      </${Group}>
+      ${setup?.configured || localAccounts.length
+        ? html`<${Group} title="Chave do Google" icon="key" tone="neutral" foot="A chave identifica o seu app no Google. Ela fica só neste computador e só vale para os Drives conectados aqui.">
+            <${Row} label="Cliente OAuth" desc=${setup?.clientIdHint ? html`<span class="mono-path">${setup.clientIdHint}</span>` : 'Nenhuma chave configurada'}>
+              <${Button} size="sm" onClick=${() => navigate('inicio/chave')}>Trocar chave</${Button}>
+            </${Row}>
+          </${Group}>`
+        : null}
 
       <p class="about">${app?.name || 'SOBEDESCE'} ${app?.version ? `· versão ${app.version}` : ''} · tudo roda neste computador, direto com o Google.</p>
     </div>
