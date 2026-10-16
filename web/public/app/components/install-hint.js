@@ -17,7 +17,7 @@ export function InstallHint({ early = false }) {
     <span class="install-icon"><${Icon} name="share" size=${20} /></span>
     <p>
       ${early
-        ? html`<b>Instale antes de configurar.</b> Toque em <b>Compartilhar</b> → <b>Adicionar à Tela de Início</b> — o app instalado tem memória própria.`
+        ? html`<b>Instale antes de entrar.</b> Toque em <b>Compartilhar</b> → <b>Adicionar à Tela de Início</b>. O app instalado guarda o próprio login.`
         : html`<b>Deixe à mão.</b> Toque em <b>Compartilhar</b> → <b>Adicionar à Tela de Início</b>.`}
     </p>
     <button type="button" class="install-x" onClick=${dismiss} aria-label="Fechar dica">

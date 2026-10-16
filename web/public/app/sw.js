@@ -1,7 +1,8 @@
-// Service worker mínimo: guarda a casca do app para abrir sem rede, mas SEMPRE tenta a rede primeiro para
-// html/js/css (atualizações chegam na hora). Nunca intercepta nada fora deste site — em especial
-// googleapis.com e accounts.google.com, por onde passam o login e os arquivos.
-const CACHE = 'sobedesce-shell-v2'
+// Service worker mínimo (escopo /app/): guarda a casca do app para abrir sem rede, mas SEMPRE tenta a rede primeiro
+// para html/js/css (atualizações chegam na hora). Só mexe em /app/*: a conta (/api/*, /entrar, /conta) e o Google
+// (googleapis.com, por onde passam os arquivos) seguem direto, sem SW no meio e sem cache.
+const CACHE = 'sobedesce-app-v1'
+const SCOPE = new URL('./', self.location).pathname // "/app/"
 const SHELL = [
   './',
   './index.html',
@@ -19,14 +20,13 @@ const SHELL = [
   './lib/state.js',
   './lib/uploader.js',
   './lib/wakelock.js',
+  './components/account.js',
   './components/folders.js',
   './components/icons.js',
   './components/install-hint.js',
   './components/main.js',
   './components/queue.js',
   './components/settings.js',
-  './components/setup.js',
-  './components/signin.js',
   './components/ui.js',
   './icons/apple-touch-icon.png',
   './icons/icon-192.png',
@@ -47,7 +47,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('sobedesce-') && k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('sobedesce-app-') && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   )
 })
@@ -56,7 +56,8 @@ self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
   const url = new URL(req.url)
-  if (url.origin !== self.location.origin) return // Google (API, upload, login) passa direto, sem SW no meio
+  if (url.origin !== self.location.origin) return // Google (API e upload) passa direto, sem SW no meio
+  if (!url.pathname.startsWith(SCOPE)) return // conta e resto do site: sempre da rede, nunca guardados
   if (url.search && url.searchParams.has('dev_api')) return
 
   event.respondWith(

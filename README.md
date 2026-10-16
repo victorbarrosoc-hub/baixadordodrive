@@ -115,7 +115,7 @@ Para saber o que já subiu de um projeto:
 
 O celular e o computador precisam estar **na mesma rede Wi-Fi**. Na primeira vez, o macOS pergunta se o SOBEDESCE pode aceitar conexões de entrada: clique em **Permitir**.
 
-**Pela internet (sem o computador, direto do celular para o Google):** publique a pasta `mobile/` no Vercel e configure um cliente "Aplicativo da Web" no Google. Passo a passo em [mobile/README.md](mobile/README.md#publicar-no-vercel-pelo-painel). Depois, em **Ajustes → Celular → Em qualquer lugar**, cole o endereço do site e o ID do cliente Web: aparece um QR que já deixa o celular configurado.
+**Pela internet (sem o computador, direto do celular para o Google):** abra **https://sobedesce.vercel.app/app/** no celular e entre com a sua conta SOBEDESCE. O app usa os Google Drives conectados à conta (em **/conta**), sem login do Google no celular. Detalhes em [docs/CELULAR.md](docs/CELULAR.md).
 
 ---
 
@@ -183,5 +183,5 @@ npm run desktop      # app de desktop (Electron) a partir do código
 
 - **Gerar os instaladores:** o GitHub Actions (`.github/workflows/desktop.yml`) gera o `.dmg` num Mac e o `.exe` num Windows na nuvem. Roda sozinho em pushes na `main`; em outras branches, só quando a mensagem do commit tem **`[build]`**. Os instaladores vão para o Release **SOBEDESCE · versão de teste** (Releases não gastam a cota de artefatos do Actions). Uma tag **`v*`** (ex.: `git tag v0.2.0 && git push --tags`) também publica um **Release** com os instaladores.
 - Localmente: `npm run dist:mac` (precisa de um Mac) e `npm run dist:win`.
-- Arquitetura, contratos e decisões: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Notas verificadas da API do Google: [docs/GOOGLE-NOTES.md](docs/GOOGLE-NOTES.md). App do celular: [mobile/README.md](mobile/README.md).
+- Arquitetura, contratos e decisões: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Notas verificadas da API do Google: [docs/GOOGLE-NOTES.md](docs/GOOGLE-NOTES.md). App do celular: [docs/CELULAR.md](docs/CELULAR.md). Contas SOBEDESCE: [docs/CONTAS.md](docs/CONTAS.md).
 - Variáveis úteis: `SOBEDESCE_HOME` (pasta de dados), `SOBEDESCE_PORT` (porta da interface), `SOBEDESCE_NO_OPEN=1` (não abre o navegador), `SOBEDESCE_DEBUG=1` (log detalhado do motor).

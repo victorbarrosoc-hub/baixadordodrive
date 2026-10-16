@@ -1,14 +1,18 @@
 // Estado global mínimo: um objeto, quem quiser se inscreve. Os componentes leem com useApp(seletor).
 import { useEffect, useReducer, useRef } from '../vendor/preact-htm.js'
-import { getClientId, local } from './config.js'
+import { LAN, local } from './config.js'
 
 const listeners = new Set()
 
 let state = {
-  clientId: getClientId(),
-  screen: null, // null = automático; 'setup' = trocar ID do cliente
-  auth: { status: 'signedOut', error: null, needsTap: false },
-  user: null, // { displayName, emailAddress, photoLink }
+  // status: 'loading' | 'signedOut' | 'noDrive' | 'choose' | 'reconnect' | 'error' | 'signedIn'
+  // issue (com a tela principal aberta): null | 'reconectar' (o Google pediu nova autorização) | 'rede' (sem resposta)
+  auth: { status: LAN ? 'signedIn' : 'loading', issue: null, error: null },
+  account: null, // conta SOBEDESCE { id, email, nome }
+  drives: [], // Google Drives da conta: [{ id, email, nome, fotoUrl, estado: 'ok' | 'reconectar' }]
+  drive: null, // o Drive escolhido neste aparelho (um dos acima)
+  resumeAt: 0, // o Drive voltou depois de "reconectar": retomar o que pausou por isso
+  user: null, // { displayName, emailAddress, photoLink } (do próprio Drive, /about)
   quota: null, // { limit, usage }
   dest: null, // pasta de destino { id, name, driveId, path }
   awake: false, // trava de tela acesa ativa

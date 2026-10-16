@@ -1,8 +1,8 @@
 // Tela principal: destino no topo, o botão grande de escolher arquivos e a fila.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import * as auth from '../lib/auth.js'
-import { DEV, LAN } from '../lib/config.js'
-import { about } from '../lib/drive.js'
+import { ACCOUNT, DEV, LAN } from '../lib/config.js'
+import { about, isRetryable } from '../lib/drive.js'
 import { lanInfo } from '../lib/lan.js'
 import { bytes, initials, plural, speed, timecode } from '../lib/format.js'
 import { MY_DRIVE, folderTrail, getRecents, getState, openSheet, pushRecent, setState, toast, useApp } from '../lib/state.js'
@@ -57,25 +57,25 @@ function useLanAccount() {
   return user
 }
 
+/** Quem é o dono do Drive escolhido e quanto espaço tem (/about, com o token que a conta entrega). */
 function useAccount() {
-  const user = useApp((s) => s.user)
+  const { user, driveId } = useApp((s) => ({ user: s.user, driveId: s.drive?.id }))
   useEffect(() => {
-    if (user || LAN) return
+    if (user || LAN || !driveId) return
     const ctl = new AbortController()
     about(ctl.signal).then(
       (r) => {
+        if (getState().drive?.id !== driveId) return
         const u = r.user || {}
         setState({ user: u, quota: r.storageQuota || null })
-        auth.rememberUser(u.emailAddress)
         engine.setAccount(u.emailAddress)
         if (!getState().dest) setState({ dest: getRecents(u.emailAddress)[0] || MY_DRIVE })
         engine.restore()
       },
       (err) => {
         if (ctl.signal.aborted || err?.signedOut) return
-        if (err?.status === 401 || err?.status === 403) {
-          auth.signOut()
-          setState({ auth: { status: 'signedOut', needsTap: false, error: 'O Google não liberou o acesso ao Drive. Entre de novo.' } })
+        if (err?.status === 401 || (err?.status === 403 && !isRetryable(err))) {
+          auth.needsReconnect('O Google não liberou o acesso a este Drive. Reconecte na sua conta.')
         } else {
           toast('Não consegui falar com o Google. Confira a internet.', { tone: 'error', ms: 4000 })
           setState({ dest: getState().dest || MY_DRIVE })
@@ -83,14 +83,14 @@ function useAccount() {
       },
     )
     return () => ctl.abort()
-  }, [user])
+  }, [user, driveId])
   return user
 }
 
-function Header({ user, sum, items, needsTap }) {
+function Header({ user, sum, items, waiting }) {
   const active = sum.pending + sum.paused > 0
   const allPaused = sum.pending === 0 && sum.paused > 0
-  const label = allPaused ? 'Pausado' : sum.speed > 0 ? speed(sum.speed) : needsTap ? 'Esperando você' : 'Preparando…'
+  const label = allPaused ? 'Pausado' : sum.speed > 0 ? speed(sum.speed) : waiting ? 'Esperando a conta' : 'Preparando…'
   return html`<header class=${cx('topbar', active && 'is-active')}>
     <div class="topbar-row">
       <${Wordmark} size=${24} />
@@ -219,25 +219,47 @@ function LanNotices({ lan, sum }) {
   return null
 }
 
+/** O Google pediu nova autorização para o Drive: os envios pausaram até reconectar na conta. */
+function ReconnectNotice({ drive, message }) {
+  return html`<div class="notice notice-reconnect" role="alert">
+    <${Icon} name="warning" size=${20} />
+    <div>
+      <b>Reconecte o Google Drive</b>
+      <p>${message || `O Google pediu uma nova autorização para ${drive?.email || 'este Drive'}.`} Os envios pausaram e continuam sozinhos quando você voltar.</p>
+      <a class="btn btn-primary btn-sm" href=${ACCOUNT.manage}><span>Abrir minha conta</span></a>
+    </div>
+  </div>`
+}
+
 export function MainScreen() {
   const user = LAN ? useLanAccount() : useAccount()
-  // Com o login restaurado da aba, o GIS ainda não carregou: carrega já, para o toque na pílula
-  // "continuar conectado" poder abrir o popup na hora (sem await dentro do toque).
+  const { dest, issue, authError, drive, resumeAt, awake, lan } = useApp((s) => ({
+    dest: s.dest,
+    issue: s.auth.issue,
+    authError: s.auth.error,
+    drive: s.drive,
+    resumeAt: s.resumeAt,
+    awake: s.awake,
+    lan: s.lan,
+  }))
+  // Reconectado na conta: continua o que pausou por isso.
   useEffect(() => {
-    if (!DEV && !LAN) auth.prepare(getState().clientId).catch(() => {})
-  }, [])
-  const { dest, needsTap, awake, lan } = useApp((s) => ({ dest: s.dest, needsTap: s.auth.needsTap, awake: s.awake, lan: s.lan }))
+    if (resumeAt && engine.resumeAuthPaused()) toast('Drive reconectado. Os envios continuam', { tone: 'success' })
+  }, [resumeAt])
   useEngine()
   const items = engine.items
   const sum = summarize(items)
   const hasFinished = sum.finished > 0
   const running = sum.running > 0
 
-  return html`<div class=${cx('screen', 'main', needsTap && 'has-tap-pill')}>
-    <${Header} user=${user} sum=${sum} items=${items} needsTap=${needsTap} />
+  const waiting = issue === 'rede'
+  const reconnect = issue === 'reconectar'
+  return html`<div class=${cx('screen', 'main', waiting && 'has-tap-pill')}>
+    <${Header} user=${user} sum=${sum} items=${items} waiting=${waiting} />
     <main class="main-body">
       <${Destination} dest=${dest} />
-      <${Picker} dest=${lan?.noAccount ? null : dest} account=${user?.emailAddress} />
+      ${reconnect ? html`<${ReconnectNotice} drive=${drive} message=${authError} />` : null}
+      <${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} />
       ${running ? html`<${AwakeNote} awake=${awake} />` : null}
       ${LAN ? html`<${LanNotices} lan=${lan} sum=${sum} />` : null}
 
@@ -270,7 +292,7 @@ export function MainScreen() {
               ${hasFinished ? html`<button type="button" class="link-btn" onClick=${() => engine.clearFinished()}>Limpar concluídos</button>` : null}
             </div>
             <ul class="group rows">
-              ${items.map((it) => html`<${QueueRow} key=${it.id} it=${it} waitingTap=${needsTap} />`)}
+              ${items.map((it) => html`<${QueueRow} key=${it.id} it=${it} waiting=${waiting} />`)}
             </ul>
           </section>`
         : html`<${Empty} />`}
@@ -282,11 +304,11 @@ export function MainScreen() {
       </p>
     </main>
 
-    ${needsTap
-      ? html`<button type="button" class="tap-pill" onClick=${() => auth.tapRefresh()}>
+    ${waiting
+      ? html`<div class="tap-pill" role="status">
           <span class="tap-pill-dot" aria-hidden="true"></span>
-          <span>Toque para continuar conectado</span>
-        </button>`
+          <span>Sem resposta da conta. Tentando de novo</span>
+        </div>`
       : null}
     <${InstallHint} />
   </div>`

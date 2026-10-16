@@ -94,7 +94,7 @@ function partOf(done, total) {
   return ua === ub ? `${a.split(' ')[0]} de ${b}` : `${a} de ${b}`
 }
 
-function Meta({ it, waitingTap }) {
+function Meta({ it, waiting }) {
   const done = it.offset + it.inflight
   switch (it.status) {
     case 'running': {
@@ -105,11 +105,11 @@ function Meta({ it, waitingTap }) {
     }
     case 'preparing':
       return html`<span class="row-nums">${bytes(it.size)}</span><span class="row-dot" aria-hidden="true">·</span>
-        <span class="row-note">${waitingTap ? 'esperando você continuar conectado' : (it.note || 'um instante…').toLowerCase()}</span>`
+        <span class="row-note">${waiting ? 'esperando a conta' : (it.note || 'um instante…').toLowerCase()}</span>`
     case 'queued':
       return html`<span class="row-nums">${bytes(it.size)}</span><span class="row-dot" aria-hidden="true">·</span><span class="row-note">aguardando a vez</span>`
     case 'paused':
-      return html`<span class="row-nums">${partOf(done, it.size)}</span><span class="row-dot" aria-hidden="true">·</span><span class="row-note">${percent(progressOf(it))}</span>`
+      return html`<span class="row-nums">${partOf(done, it.size)}</span><span class="row-dot" aria-hidden="true">·</span><span class="row-note">${it.authPaused ? 'espera reconectar' : percent(progressOf(it))}</span>`
     case 'needsFile':
       return html`<span class="row-note is-wrap">${percent(progressOf(it))} enviado · escolha o arquivo de novo para continuar</span>`
     case 'done':
@@ -145,7 +145,7 @@ function Meta({ it, waitingTap }) {
   }
 }
 
-export function QueueRow({ it, waitingTap }) {
+export function QueueRow({ it, waiting }) {
   const kind = fileKind(it.name, it.type)
   const st = STATUS[it.status] || STATUS.queued
   return html`<li class=${cx('row', `is-${it.status}`)}>
@@ -160,7 +160,7 @@ export function QueueRow({ it, waitingTap }) {
       </span>
     </button>
     <div class="row-meta">
-      <${Meta} it=${it} waitingTap=${waitingTap} />
+      <${Meta} it=${it} waiting=${waiting} />
     </div>
     ${it.status === 'failed'
       ? html`<div class="row-actions">

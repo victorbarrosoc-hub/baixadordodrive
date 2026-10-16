@@ -60,6 +60,7 @@ src/
   server/app.js          servidor HTTP, segurança, estáticos, SSE
   server/routes.js       rotas da API
 public/                  UI (Preact + htm sem build; vendor servido de node_modules)
+web/                     site com contas SOBEDESCE (Next.js); web/public/app = app do celular em /app/ (docs/CELULAR.md)
 test/mock-drive.js       Google Drive + OAuth falsos (com falhas e limite de banda por conexão)
 scripts/demo.js          sobe o app ligado ao Drive falso, com arquivos de exemplo (sem credenciais);
                          SOBEDESCE_DEMO_HOME troca a pasta do demo (só apaga pasta vazia ou com a marca .sobedesce-demo)
@@ -499,7 +500,7 @@ Recepção do celular (`src/mobile/receiver.js`): o ponto confirmado (`offset`, 
 `mobile-uploads.json`) só avança depois do `fdatasync` do pedaço; o progresso ao vivo fica só na memória (tela de Ajustes).
 
 Empacotamento (`electron-builder.yml`, sem asar): `package.json`, `desktop/`, `src/`, `public/` e a casca do app do celular
-(`mobile/index.html`, `app.*`, `lib/`, `components/`, `vendor/`, `icons/`), que a recepção pelo Wi-Fi serve em `/m/`.
+(`web/public/app/index.html`, `app.*`, `lib/`, `components/`, `vendor/`, `icons/`), que a recepção pelo Wi-Fi serve em `/m/`.
 Sair com transferência ativa sempre pergunta (X da janela no Windows/Linux, ⌘Q no Mac, Arquivo → Sair); confirmado, o motor
 pausa, grava a fila e só então o app fecha.
 

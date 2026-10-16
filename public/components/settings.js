@@ -241,7 +241,7 @@ function MobileGroups({ d, set, accounts, activeId, home, platform }) {
       tone="down"
       foot="Fora do Wi-Fi, o celular sobe direto pro Google pelo app publicado (Vercel), sem passar por este computador. O ID é de um cliente OAuth do tipo “Aplicativo da Web”, no mesmo projeto do Google Cloud."
     >
-      <${Row} label="Endereço do app do celular" desc="Onde você publicou a pasta mobile/, ex.: https://sobedesce.vercel.app">
+      <${Row} label="Endereço do app do celular" desc="O app do celular no site, ex.: https://sobedesce.vercel.app/app/">
         <${TextSetting} label="Endereço do app do celular" placeholder="https://…vercel.app" value=${d.mobileWebUrl} clean=${normalizeWebUrl} onCommit=${(v) => set('mobileWebUrl', v, { now: true })} />
       </${Row}>
       <${Row} label="ID do cliente Web" desc="Google Auth Platform → Clientes → Aplicativo da Web.">

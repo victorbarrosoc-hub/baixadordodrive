@@ -1,9 +1,9 @@
-// Conta e Ajustes: quem está conectado, espaço no Drive, quantos arquivos sobem juntos e o tamanho do pedaço.
+// Conta e Ajustes: qual Drive recebe, espaço nele, a conta SOBEDESCE, quantos arquivos sobem juntos e o tamanho do
+// pedaço.
 import { html, useState } from '../vendor/preact-htm.js'
-import * as auth from '../lib/auth.js'
-import { CHUNK_OPTIONS, CONCURRENCY_OPTIONS, DEV, LAN, VERSION, getSettings, saveSettings } from '../lib/config.js'
+import { ACCOUNT, CHUNK_OPTIONS, CONCURRENCY_OPTIONS, DEV, LAN, VERSION, getSettings, saveSettings } from '../lib/config.js'
 import { bytes } from '../lib/format.js'
-import { closeSheet, setState, useApp } from '../lib/state.js'
+import { closeSheet, openSheet, useApp } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
 import { Icon } from './icons.js'
 import { Segmented, SheetHead, cx } from './ui.js'
@@ -28,25 +28,14 @@ function Storage({ quota }) {
 }
 
 export function SettingsSheet() {
-  const { user, quota, lan } = useApp((s) => ({ user: s.user, quota: s.quota, lan: s.lan }))
+  const { user, quota, lan, account, drives } = useApp((s) => ({ user: s.user, quota: s.quota, lan: s.lan, account: s.account, drives: s.drives }))
   const [settings, setSettings] = useState(getSettings())
-  const [confirmOut, setConfirmOut] = useState(false)
 
   const update = (patch) => {
     const next = { ...settings, ...patch }
     setSettings(next)
     saveSettings(next)
     engine.pump()
-  }
-
-  const signOut = () => {
-    if (engine.hasWork() && !confirmOut) {
-      setConfirmOut(true)
-      return
-    }
-    engine.pauseAll()
-    closeSheet()
-    auth.signOut()
   }
 
   return html`<${SheetHead}
@@ -57,7 +46,7 @@ export function SettingsSheet() {
       <section class="group account">
         <${Avatar} user=${user} size=${48} />
         <div class="account-text">
-          <b>${user?.displayName || 'Conta Google'}</b>
+          <b>${user?.displayName || 'Google Drive'}</b>
           <span class="sub">${user?.emailAddress || ''}</span>
           ${LAN ? html`<span class="sub lan-via"><${Icon} name="wifi" size=${13} /> pelo ${LAN.label} “${lan?.mac || LAN.mac}”</span>` : null}
         </div>
@@ -95,30 +84,20 @@ export function SettingsSheet() {
               acima${lan?.deleteAfterUpload ? ' (e apaga a cópia do computador depois de conferir)' : ''}. A pasta padrão e a conta
               se trocam no computador, em Ajustes → Celular.
             </p>`
-        : html`<h3 class="list-label">Conta</h3>
+        : html`<h3 class="list-label">Conta SOBEDESCE</h3>
       <ul class="group menu">
         <li>
-          <button
-            type="button"
-            class="menu-item"
-            onClick=${() => {
-              closeSheet()
-              setState({ screen: 'setup' })
-            }}
-            disabled=${Boolean(DEV)}
-          >
-            <${Icon} name="key" /><span>Trocar ID do cliente</span><${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="menu-chev" />
+          <button type="button" class="menu-item" onClick=${() => openSheet('drives')}>
+            <${Icon} name="drive" /><span>${drives.length > 1 ? 'Trocar de Google Drive' : 'Google Drive'}</span><${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="menu-chev" />
           </button>
         </li>
         <li>
-          <button type="button" class="menu-item is-danger" onClick=${signOut}>
-            <${Icon} name="logout" /><span>${confirmOut ? 'Sair e pausar os envios' : 'Sair'}</span>
-          </button>
+          <a class="menu-item" href=${ACCOUNT.manage}>
+            <${Icon} name="user" /><span class="menu-text">Minha conta${account?.email ? html`<small>${account.email}</small>` : null}</span><${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="menu-chev" />
+          </a>
         </li>
       </ul>
-      ${confirmOut
-        ? html`<p class="group-foot">Os envios pausam e ficam guardados neste aparelho. Ao entrar de novo, é só escolher os arquivos para continuar.</p>`
-        : null}`}
+      <p class="group-foot">Drives, computadores conectados e sair ficam na sua conta.</p>`}
 
       <p class="foot">
         SOBEDESCE Celular ${VERSION}${DEV ? ' · modo de teste' : LAN ? ' · pelo Wi-Fi' : ''}<br />${LAN

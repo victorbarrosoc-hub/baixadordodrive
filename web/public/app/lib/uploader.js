@@ -11,8 +11,9 @@
 // mas nunca vai para o console nem para a tela.
 //
 // Os PUTs na sessão vão SEM Authorization: a URI da sessão já autoriza (docs do Drive e o mock fiel a eles).
-// Assim um token que vence no meio de um arquivo grande não para o envio — e no iPhone, onde renovar pode
-// exigir um toque, só os passos que precisam mesmo de token (conferir destino, abrir sessão) esperam.
+// Assim um token que vence no meio de um arquivo grande não para o envio — e quando renovar demora (sem rede até o
+// site da conta, ou Drive para reconectar), só os passos que precisam mesmo de token
+// (conferir destino, abrir sessão) esperam.
 // Se mesmo assim o Google responder 401 num PUT, passamos a mandar o token naquela sessão.
 import { LAN, getSettings, local } from './config.js'
 import * as auth from './auth.js'
@@ -317,6 +318,7 @@ class Engine {
 
   resume(it) {
     if (it.status !== 'paused') return
+    it.authPaused = false
     it.status = 'queued'
     it.note = ''
     this.pump()
@@ -329,9 +331,29 @@ class Engine {
 
   resumeAll() {
     this.notice = null
-    for (const it of this.items) if (it.status === 'paused') it.status = 'queued'
+    for (const it of this.items) {
+      if (it.status !== 'paused') continue
+      it.authPaused = false
+      it.status = 'queued'
+    }
     this.pump()
     this.changed(true)
+  }
+
+  /** O Drive voltou (reconectado na conta): continua só o que pausou por falta de acesso. */
+  resumeAuthPaused() {
+    let n = 0
+    for (const it of this.items) {
+      if (it.status !== 'paused' || !it.authPaused) continue
+      it.authPaused = false
+      it.status = 'queued'
+      n++
+    }
+    if (n) {
+      this.pump()
+      this.changed(true)
+    }
+    return n
   }
 
   retry(it) {
@@ -465,8 +487,10 @@ class Engine {
       .catch((err) => {
         if (ctl.aborted) return
         if (err?.signedOut) {
+          // Sem sessão na conta ou Drive para reconectar: pausa e continua quando a conta voltar.
           it.status = 'paused'
           it.note = ''
+          it.authPaused = true
           return
         }
         this._fail(it, err)

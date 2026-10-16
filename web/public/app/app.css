@@ -599,137 +599,6 @@ code {
   color: var(--text-2);
 }
 
-/* ───────────── Configurar ───────────── */
-.screen-brand {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 44px;
-  padding-top: calc(var(--safe-t) + 14px);
-}
-.setup-main {
-  padding-top: 22px;
-  display: flex;
-  flex-direction: column;
-}
-.setup-main .eyebrow {
-  margin-bottom: 8px;
-}
-.setup-main .lead {
-  margin-top: 10px;
-}
-.steps {
-  margin-top: 24px;
-}
-.step {
-  display: grid;
-  grid-template-columns: 28px 1fr auto;
-  align-items: start;
-  gap: 12px;
-  padding: 14px 14px 14px 16px;
-}
-.step + .step {
-  box-shadow: inset 0 0.5px 0 var(--hairline-2);
-}
-.step-wide {
-  grid-template-columns: 28px 1fr;
-}
-.step-num {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  margin-top: -1px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--up) 13%, transparent);
-  color: var(--up-text);
-  font-size: 13.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.step-body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.step-body b {
-  font-size: 15.5px;
-  font-weight: 600;
-  line-height: 1.3;
-}
-.step-body .sub {
-  font-size: 13.5px;
-  line-height: 1.4;
-}
-.step .btn-sm {
-  margin-top: -4px;
-}
-.step .btn-ghost.btn-sm {
-  width: 34px;
-  padding: 0;
-  color: var(--text-3);
-}
-.origin {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 8px 0 4px;
-  padding: 12px 12px 12px 14px;
-  border-radius: 12px;
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-}
-.origin-url {
-  max-width: 100%;
-  font-family: var(--font);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-  user-select: all;
-  -webkit-user-select: all;
-  color: var(--text);
-}
-.origin-copy {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 14px 0 11px;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--hairline-2);
-  color: var(--up-text);
-  font-size: 14.5px;
-  font-weight: 600;
-}
-.origin-copy:active {
-  transform: scale(0.96);
-}
-.origin-copy.is-done {
-  color: var(--ok-text);
-}
-.field-card {
-  margin-top: 16px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.field-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-2);
-  letter-spacing: 0.01em;
-}
 .input {
   width: 100%;
   height: 48px;
@@ -780,33 +649,6 @@ code {
 .form-error .icon {
   margin-top: 1px;
 }
-.callout {
-  display: flex;
-  gap: 12px;
-  margin-top: 16px;
-  padding: 14px 16px;
-  border-radius: var(--r-lg);
-  background: var(--fill);
-}
-.callout-icon {
-  color: var(--text-2);
-  margin-top: 1px;
-}
-.callout b {
-  display: block;
-  font-size: 15px;
-  font-weight: 600;
-}
-.callout p {
-  margin: 3px 0 8px;
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--text-2);
-}
-.callout .link {
-  font-size: 14.5px;
-}
-
 /* ───────────── Entrar ───────────── */
 .signin {
   position: relative;
@@ -853,57 +695,86 @@ code {
   gap: 10px;
   margin-top: 32px;
 }
-.signin-hint {
-  font-size: 14px;
-}
-.disclosure {
-  width: 100%;
-  max-width: 380px;
+/* conta: título de cada passo, lista de Drives e espera */
+.signin-head {
   margin-top: 18px;
-  text-align: center;
+  max-width: 22ch;
+  font-size: 21px;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
-.disclosure.is-open .help-list {
+.signin-head + .signin-lead {
+  margin-top: 8px;
+}
+.signin-spinner {
+  margin-top: 6px;
+}
+.signin .drive-list {
+  width: 100%;
   text-align: left;
 }
-.disclosure-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.signin-more {
   min-height: 44px;
   font-size: 15px;
-  color: var(--text-2);
-  font-weight: 500;
 }
-.disclosure-btn .icon {
-  transition: transform 0.2s var(--ease);
+.signin-foot .sub + .sub {
+  margin-top: -2px;
 }
-.disclosure.is-open .disclosure-btn .icon {
-  transform: rotate(90deg);
+
+.drive-list li + li::before {
+  left: 66px;
 }
-.help-list {
-  list-style: none;
-  margin: 2px 0 0;
-  padding: 14px 16px;
+.drive-item {
+  min-height: 64px;
+  gap: 14px;
+}
+.drive-text {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  box-shadow: var(--shadow-card);
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--text-2);
+  gap: 1px;
 }
-.help-list b {
-  display: block;
-  color: var(--text);
+.drive-text b {
+  font-size: 16px;
   font-weight: 600;
-  margin-bottom: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.help-list code {
-  overflow-wrap: anywhere;
-  color: var(--text);
+.drive-text .sub {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.drive-item .drive-check {
+  margin-left: auto;
+  color: var(--up-text);
+}
+.drive-pill {
+  margin-left: auto;
+  flex: none;
+}
+.drives-more {
+  margin-top: 18px;
+}
+.group-foot.is-warn {
+  color: var(--warn-text);
+}
+.menu-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.menu-text small {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .signin-foot {
   display: flex;
   flex-direction: column;

@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // App do celular: JavaScript puro servido como está (Preact + htm, sem build), com o próprio estilo.
+    "public/app/**",
+    "public/sw.js",
   ]),
 ]);
 
