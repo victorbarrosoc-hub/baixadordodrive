@@ -596,3 +596,20 @@ test('limitador de metadados: no máximo 8 simultâneas, ~20 req/s e recuperaç�
   assert.equal(tiny.active, 1)
   tiny.release()
 })
+
+test('sem conexão nenhuma (conexão recusada): desiste em segundos, não em ~45 s de recuo', async t => {
+  const { mock, drive: base } = await setup(t)
+  const drive = new DriveClient(base.auth, base.accountId, { offlineWindowMs: 1500 })
+  await drive.about() // token já em cache: daqui para frente só a rede importa
+  await mock.close()
+  const t0 = Date.now()
+  await assert.rejects(drive.listChildren('root'), err => {
+    const info = classifyError(err)
+    assert.equal(info.kind, 'retry')
+    assert.equal(info.reason, 'ECONNREFUSED')
+    return true
+  })
+  const took = Date.now() - t0
+  assert.ok(took >= 900, `tentou de novo antes de desistir (${took} ms)`)
+  assert.ok(took < 5000, `demorou ${took} ms`)
+})

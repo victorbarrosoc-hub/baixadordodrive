@@ -160,6 +160,8 @@ async search(text, { signal }): DriveItem[]                       // name contai
 //  - Limitador interno das chamadas de metadados: no máx. 8 simultâneas e ~20 req/s (token bucket);
 //    em 403/429 de limite, reduz pela metade e volta a subir devagar.
 //  - NÃO mandar Accept-Encoding: gzip (undici.request não descompacta).
+//  - Sem conexão nenhuma (ENOTFOUND, EAI_AGAIN, ENETUNREACH, ENETDOWN, EHOSTUNREACH, ECONNREFUSED): repete a cada ~1 s
+//    só por `offlineWindowMs` (8 s) e desiste — a interface não fica girando; as tarefas têm a própria espera longa.
 mediaUrl(fileId): string        // {driveApi}/files/{id}?alt=media&supportsAllDrives=true&acknowledgeAbuse=false
 exportUrl(fileId, mimeType): string
 uploadInitUrl(): string         // {driveUpload}/files?uploadType=resumable&supportsAllDrives=true&fields=…
@@ -353,11 +355,16 @@ Stats = { down: { speed, active, queued }, up: { speed, active, queued }, totals
           eta, history: Array<{ t, down, up }> (últimos 120 s, 1 ponto/s), keepAwake: boolean,
           usage: { [accountId]: { up24h, down24h } } }   // bytes nas últimas 24 h (cota de 750 GB/dia de upload)
 ```
+Gravação da fila: agrupada (`saveSoon`, mais espaçada em filas enormes) e compacta (sem recuo). URI de sessão nova e
+download que voltou para trás pedem gravação "logo" (`#saveUrgent`: em 50 ms–1 s, agrupando pedidos simultâneos;
+`persist()` devolve a promessa). Sessão que terminou (URI → null) não tem pressa.
+
 Livro-razão de uso: a cada byte confirmado, soma no balde da hora atual por conta/direção
 (`usage.json`, guarda 25 h) → `stats.usage` mostra "612 de 750 GB nas últimas 24 h".
 Agendamento: respeita `maxConcurrentDownloads` / `maxConcurrentUploads` (lidos ao vivo), ordem da fila
-(prioridade, depois createdAt). Ao concluir/falhar, agenda o próximo. Erros: 'retry' (estourou tentativas)
-→ 'failed'; 'quota' → 'waiting' com `retryAt` e reagenda sozinho; 'reauth' → 'paused' com erro
+(prioridade, depois createdAt). Ao concluir/falhar, agenda o próximo. Erros: 'retry' (estourou as tentativas da tarefa:
+internet/Google fora do ar) → 'waiting' com `retryAt` crescente (1, 2, 5, 10, 15 min…; recomeça se houve avanço) e
+volta sozinho; depois de 16 esperas seguidas sem avanço → 'failed'; 'quota' → 'waiting' com `retryAt` e reagenda sozinho; 'reauth' → 'paused' com erro
 "Conecte a conta de novo"; 'fatal'/'notfound' → 'failed'. `cancel` de download apaga o `tempPath`;
 de upload faz DELETE na sessão (melhor esforço). Limites de banda e KeepAwake seguem `settings`.
 
@@ -482,6 +489,14 @@ Por isso `src/index.js` precisa:
   redirecionar para a interface.
 
 O protocolo com o processo principal fica em `desktop/engine.js` (`ready` / `fatal` / `shutdown` via `process.parentPort`).
+`src/index.js` sobe o pool de threads do libuv para 16 (`UV_THREADPOOL_SIZE`, antes do primeiro uso; o desktop repassa no
+`fork`): com 4, alguns `fdatasync` longos de downloads a 1–10 Gbps travavam as gravações e a leitura do MD5.
+
+Segurança da janela (`desktop/security.js`, testado sem Electron): toda mensagem da ponte (`ipcMain`) só é atendida se vier
+do quadro principal com a origem do motor; permissões da web negadas (só `clipboard-sanitized-write` para a interface).
+
+Recepção do celular (`src/mobile/receiver.js`): o ponto confirmado (`offset`, que o celular ouve e que vai para
+`mobile-uploads.json`) só avança depois do `fdatasync` do pedaço; o progresso ao vivo fica só na memória (tela de Ajustes).
 
 Empacotamento (`electron-builder.yml`, sem asar): `package.json`, `desktop/`, `src/`, `public/` e a casca do app do celular
 (`mobile/index.html`, `app.*`, `lib/`, `components/`, `vendor/`, `icons/`), que a recepção pelo Wi-Fi serve em `/m/`.

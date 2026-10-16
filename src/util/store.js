@@ -21,13 +21,13 @@ export async function readJSON(file, fallback = null) {
   }
 }
 
-async function writeNow(file, data, mode) {
+async function writeNow(file, data, mode, space) {
   await fs.mkdir(path.dirname(file), { recursive: true })
   const tmp = `${file}.tmp-${crypto.randomBytes(4).toString('hex')}`
   const handle = await fs.open(tmp, 'w', mode)
   try {
     try {
-      await handle.writeFile(JSON.stringify(data, null, 1))
+      await handle.writeFile(space ? JSON.stringify(data, null, space) : JSON.stringify(data))
       await handle.sync()
     } finally {
       await handle.close()
@@ -40,10 +40,13 @@ async function writeNow(file, data, mode) {
   }
 }
 
-/** Grava `data` em `file` de forma atômica. Gravações concorrentes no mesmo arquivo são enfileiradas. */
-export function writeJSONAtomic(file, data, { mode = 0o600 } = {}) {
+/**
+ * Grava `data` em `file` de forma atômica. Gravações concorrentes no mesmo arquivo são enfileiradas.
+ * `space`: recuo do JSON (1 = legível, o padrão; 0 = compacto, para arquivos grandes como a fila).
+ */
+export function writeJSONAtomic(file, data, { mode = 0o600, space = 1 } = {}) {
   const prev = chains.get(file) || Promise.resolve()
-  const next = prev.catch(() => {}).then(() => writeNow(file, data, mode))
+  const next = prev.catch(() => {}).then(() => writeNow(file, data, mode, space))
   chains.set(file, next)
   next.finally(() => {
     if (chains.get(file) === next) chains.delete(file)
@@ -62,6 +65,7 @@ export class JsonFile {
     this.data = structuredClone(defaults)
     this.timer = null
     this.onError = null // (err) => void, chamado se uma gravação agendada falhar
+    this.space = 1 // recuo do JSON gravado (0 = compacto)
   }
 
   async load() {
@@ -77,7 +81,7 @@ export class JsonFile {
       this.timer = null
     }
     const snapshot = typeof this.serialize === 'function' ? this.serialize(this.data) : this.data
-    await writeJSONAtomic(this.path, snapshot)
+    await writeJSONAtomic(this.path, snapshot, { space: this.space })
   }
 
   /** Agenda uma gravação em até `delayMs`. Chamadas repetidas dentro da janela viram uma gravação só. */

@@ -164,12 +164,26 @@ export const MeterHero = memo(function MeterHero({ doneCount, totalCount, canPau
                 : null}`
           : html`<span>Tudo em dia por aqui</span>`}
       </div>
+      <${DailyUpload} usage=${stats.usage} />
       ${stats.keepAwake
         ? html`<span class="hero-awake" title="Enquanto houver transferência, o computador não dorme"><${Icon} name="coffee" size=${14} /> Mantendo o computador acordado</span>`
         : null}
     </div>
   </section>`
 })
+
+const DAILY_UPLOAD = 750e9 // limite do Google por conta, a cada 24 h
+
+/** Quanto a conta em uso já subiu nas últimas 24 h (o Google corta em 750 GB). Só aparece se subiu algo. */
+function DailyUpload({ usage }) {
+  const accountId = useStore((s) => s.activeAccountId)
+  const up = usage?.[accountId]?.up24h || 0
+  if (up < 1e9) return null
+  const near = up >= DAILY_UPLOAD * 0.9
+  return html`<span class=${cx('hero-awake', near && 'is-warn')} title="O Google aceita até 750 GB de upload por conta a cada 24 horas. Passou disso, o SOBEDESCE espera e retoma sozinho.">
+    <${Icon} name="arrow-up" size=${14} /> ${bytes(Math.min(up, DAILY_UPLOAD))} de 750 GB enviados em 24 h
+  </span>`
+}
 
 /** Medidor de nível em "LEDs" para a barra lateral. */
 export function LevelMeter({ dir, speed, max }) {

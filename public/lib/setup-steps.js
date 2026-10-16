@@ -8,7 +8,7 @@ export const SETUP_STEPS = [
     title: 'Crie sua chave de acesso no Google',
     lead:
       'O SOBEDESCE conversa direto com o Google a partir deste computador — nada passa por outros servidores. ' +
-      'Para isso ele usa uma chave sua. Leva uns cinco minutos e é uma vez só.',
+      'Para isso ele usa uma chave sua. Leva uns dez minutos e é uma vez só.',
     checklist: [
       {
         title: 'Crie um projeto',
@@ -24,20 +24,31 @@ export const SETUP_STEPS = [
       },
       {
         title: 'Configure a tela de consentimento',
-        detail: 'Preencha o nome do app (pode ser SOBEDESCE) e o seu e-mail de contato.',
+        detail:
+          'Em Google Auth Platform → Branding, clique em “Começar”. Nome do app: SOBEDESCE; e-mail de suporte: o seu. ' +
+          'Em Público-alvo, escolha “Externo” (ou “Interno”, se o seu e-mail for de um Google Workspace da empresa). Conclua e crie.',
         href: 'https://console.cloud.google.com/auth/branding',
         cta: 'Configurar',
       },
       {
-        title: 'Escolha o público',
+        title: 'Publique o app',
         detail:
-          'Marque “Externo” e adicione seu e-mail como usuário de teste. Depois clique em “Publicar app” — assim o acesso não expira a cada 7 dias.',
+          'Em Público-alvo, adicione seu e-mail em “Usuários de teste” e depois clique em “Publicar app”. ' +
+          'Sem publicar, o Google corta o acesso a cada 7 dias. Quem escolheu “Interno” pula esta etapa.',
         href: 'https://console.cloud.google.com/auth/audience',
-        cta: 'Abrir público',
+        cta: 'Abrir público-alvo',
+      },
+      {
+        title: 'Libere o acesso ao Drive',
+        detail: 'Em Acesso a dados, clique em “Adicionar ou remover escopos”, marque …/auth/drive, clique em “Atualizar” e depois em “Salvar”.',
+        href: 'https://console.cloud.google.com/auth/scopes',
+        cta: 'Abrir acesso a dados',
       },
       {
         title: 'Crie o cliente e baixe o JSON',
-        detail: 'Clique em “Criar cliente”, escolha o tipo “App para computador” e baixe o arquivo JSON.',
+        detail:
+          'Em Clientes, clique em “Criar cliente”, escolha o tipo “App para computador” e crie. ' +
+          'Baixe o JSON na mesma hora: o Google só mostra o segredo uma vez.',
         href: 'https://console.cloud.google.com/auth/clients',
         cta: 'Criar cliente',
       },

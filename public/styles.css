@@ -1533,6 +1533,9 @@ textarea {
   font-size: 12px;
   color: var(--text-3);
 }
+.hero-awake.is-warn {
+  color: var(--warn-text);
+}
 
 /* ───────────── timeline (barra de progresso) ───────────── */
 .tl {

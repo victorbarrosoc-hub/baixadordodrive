@@ -34,6 +34,11 @@ const MAX_CACHED_FOLDERS = 20_000
 const PROGRESS_MS = 200 // walk: no máximo 5 avisos de progresso por segundo
 const ENSURE_TRIES = 6
 const MY_DRIVE_NAME = 'Meu Drive'
+// Sem conexão nenhuma (sem DNS, sem rota, conexão recusada): recuo longo não ajuda e deixava a tela do Drive
+// girando ~45 s antes de dizer "confira a internet". Repete a cada ~1 s só por uma janela curta (pega o Wi-Fi que
+// pisca); quem roda em segundo plano (download/upload) já tem a própria espera longa.
+const OFFLINE_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'ENETDOWN', 'EHOSTUNREACH', 'ECONNREFUSED'])
+const OFFLINE_WINDOW_MS = 8000
 
 const collator = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' })
 
@@ -243,12 +248,13 @@ export class DriveClient {
   /**
    * @param {import('./oauth.js').AuthManager} auth
    * @param {string} accountId
-   * @param {{ maxConcurrent?: number, ratePerSec?: number, retryBaseMs?: number }} [opts] ajustes finos (testes)
+   * @param {{ maxConcurrent?: number, ratePerSec?: number, retryBaseMs?: number, offlineWindowMs?: number }} [opts] ajustes finos (testes)
    */
-  constructor(auth, accountId, { maxConcurrent = 8, ratePerSec = 20, retryBaseMs = 1000 } = {}) {
+  constructor(auth, accountId, { maxConcurrent = 8, ratePerSec = 20, retryBaseMs = 1000, offlineWindowMs = OFFLINE_WINDOW_MS } = {}) {
     this.auth = auth
     this.accountId = accountId
     this.retryBaseMs = retryBaseMs
+    this.offlineWindowMs = offlineWindowMs
     this.limiter = limiterFor(auth, accountId, { maxConcurrent, ratePerSec })
     this.folderCache = new Map() // cache de ensureFolderPath quando quem chama não passa o seu
     this.folders = new Map() // id -> { id, name, parents, driveId, at } (caminhos e driveId para listar)
@@ -277,6 +283,7 @@ export class DriveClient {
     const url = this.#url(pathOrUrl, query)
     let authRetried = false
     let rejected = null
+    let offlineSince = 0
     for (let attempt = 0; ; ) {
       if (signal?.aborted) throw abortError(signal)
       const tokenPromise = rejected
@@ -302,7 +309,13 @@ export class DriveClient {
       }
       if (info.kind !== 'retry' || attempt >= retries) throw failure
       if (isRateLimit(info)) this.limiter.penalize()
-      const wait = Math.min(MAX_RETRY_WAIT_MS, Math.max(backoffDelay(attempt, { base: this.retryBaseMs }), info.retryAfterMs ?? 0))
+      const offline = OFFLINE_CODES.has(info.reason)
+      if (offline) {
+        offlineSince ||= Date.now()
+        if (Date.now() - offlineSince >= this.offlineWindowMs) throw failure
+      } else offlineSince = 0
+      const backoff = offline ? Math.min(1000, this.retryBaseMs) : backoffDelay(attempt, { base: this.retryBaseMs })
+      const wait = Math.min(MAX_RETRY_WAIT_MS, Math.max(backoff, info.retryAfterMs ?? 0))
       attempt++
       await sleep(wait, signal)
     }

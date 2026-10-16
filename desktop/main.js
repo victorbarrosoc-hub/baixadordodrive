@@ -1,8 +1,9 @@
 // Processo principal do app de desktop: sobe o motor, abre a janela e cuida do que é nativo
 // (seletor de pastas, Dock/barra de tarefas, notificações, sair sem perder transferências).
-import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, powerSaveBlocker, shell, utilityProcess } from 'electron'
+import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, powerSaveBlocker, session, shell, utilityProcess } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { allowPermission, trustedSender } from './security.js'
 
 const here = import.meta.dirname
 const isMac = process.platform === 'darwin'
@@ -39,7 +40,8 @@ function startEngine() {
     engine = utilityProcess.fork(path.join(here, 'engine.js'), [], {
       serviceName: 'SOBEDESCE Motor',
       stdio: 'pipe',
-      env: { ...process.env, SOBEDESCE_NO_OPEN: '1', SOBEDESCE_DESKTOP: '1' },
+      // UV_THREADPOOL_SIZE: mais threads de disco para o motor (ver src/index.js).
+      env: { ...process.env, SOBEDESCE_NO_OPEN: '1', SOBEDESCE_DESKTOP: '1', UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || '16' },
     })
     engine.stdout?.pipe(log)
     engine.stderr?.pipe(log)
@@ -88,6 +90,9 @@ async function onEngineCrash(code) {
 
 async function boot() {
   buildMenu()
+  // Nenhuma permissão da web (câmera, microfone, localização…) além de copiar texto, e só para a interface do motor.
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => callback(allowPermission(permission, details?.requestingUrl || wc?.getURL(), engineUrl)))
+  session.defaultSession.setPermissionCheckHandler((wc, permission, requestingOrigin) => allowPermission(permission, requestingOrigin, engineUrl))
   try {
     engineUrl = await startEngine()
   } catch (err) {
@@ -223,6 +228,7 @@ app.on('window-all-closed', () => {
 // ---- Ponte com a interface (preload.cjs) ----
 
 ipcMain.handle('sobedesce:pick-folder', async (event, opts = {}) => {
+  if (!trustedSender(event, engineUrl)) return null
   const owner = BrowserWindow.fromWebContents(event.sender)
   const res = await dialog.showOpenDialog(owner, {
     title: opts.title || 'Escolher pasta',
@@ -234,6 +240,7 @@ ipcMain.handle('sobedesce:pick-folder', async (event, opts = {}) => {
 })
 
 ipcMain.handle('sobedesce:pick-paths', async (event, opts = {}) => {
+  if (!trustedSender(event, engineUrl)) return []
   const owner = BrowserWindow.fromWebContents(event.sender)
   // Só o Mac permite escolher arquivos e pastas no mesmo diálogo.
   const both = isMac && opts.kind !== 'files'
@@ -247,6 +254,7 @@ ipcMain.handle('sobedesce:pick-paths', async (event, opts = {}) => {
 })
 
 ipcMain.on('sobedesce:progress', (event, { fraction, activeCount: count } = {}) => {
+  if (!trustedSender(event, engineUrl)) return
   activeCount = Math.max(0, Number(count) || 0)
   const owner = BrowserWindow.fromWebContents(event.sender)
   const value = typeof fraction === 'number' && Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : -1
@@ -260,16 +268,20 @@ ipcMain.on('sobedesce:progress', (event, { fraction, activeCount: count } = {}) 
   }
 })
 
-ipcMain.on('sobedesce:notify', (_event, { title, body } = {}) => {
+ipcMain.on('sobedesce:notify', (event, { title, body } = {}) => {
+  if (!trustedSender(event, engineUrl)) return
   if (!Notification.isSupported()) return
   const n = new Notification({ title: String(title || 'SOBEDESCE'), body: String(body || ''), silent: false })
   n.on('click', () => showWindow())
   n.show()
 })
 
-ipcMain.handle('sobedesce:open-external', (_event, url) => openExternal(url))
+ipcMain.handle('sobedesce:open-external', (event, url) => {
+  if (trustedSender(event, engineUrl)) openExternal(url)
+})
 
-ipcMain.handle('sobedesce:reveal', (_event, target) => {
+ipcMain.handle('sobedesce:reveal', (event, target) => {
+  if (!trustedSender(event, engineUrl)) return false
   if (typeof target !== 'string' || !path.isAbsolute(target)) return false
   if (fs.existsSync(target)) shell.showItemInFolder(target)
   else if (fs.existsSync(path.dirname(target))) shell.openPath(path.dirname(target))

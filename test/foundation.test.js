@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import util from 'node:util'
 
 import { readJSON, writeJSONAtomic, JsonFile } from '../src/util/store.js'
 import { BandwidthLimiter } from '../src/util/limiter.js'
@@ -425,6 +426,9 @@ describe('google/errors.js classifyError', () => {
   test('mensagem do HttpError não vaza upload_id', () => {
     const err = http(418)
     assert.ok(!err.message.includes('SEGREDO'))
+    // Nem nas propriedades: console.error(err) / util.inspect mostra todas (ex.: log com SOBEDESCE_DEBUG).
+    assert.ok(!err.url.includes('SEGREDO'))
+    assert.ok(!util.inspect(err, { depth: 5 }).includes('SEGREDO'))
   })
 
   test('SobeDesceError já classificado passa direto', () => {
@@ -506,6 +510,16 @@ describe('config.js', () => {
     // Arquivo com valor inválido: volta aos padrões em vez de quebrar.
     await fs.writeFile(file, JSON.stringify({ theme: 'roxo' }))
     assert.deepEqual(await new Settings(file).load(), { ...DEFAULT_SETTINGS })
+  })
+
+  test('Settings: um valor estragado no arquivo não apaga os outros ajustes', async () => {
+    const file = dataPaths().settings
+    await fs.writeFile(file, JSON.stringify({ theme: 'roxo', downloadDir: '/Volumes/RAID/Baixados', maxConcurrentUploads: 7, mobileWebUrl: 'javascript:alert(1)' }))
+    const loaded = await new Settings(file).load()
+    assert.equal(loaded.theme, DEFAULT_SETTINGS.theme)
+    assert.equal(loaded.mobileWebUrl, '')
+    assert.equal(loaded.downloadDir, path.resolve('/Volumes/RAID/Baixados'))
+    assert.equal(loaded.maxConcurrentUploads, 7)
   })
 })
 

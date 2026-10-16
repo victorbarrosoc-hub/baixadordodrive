@@ -562,3 +562,20 @@ test('startApp: sem chave, "conectar" leva para os primeiros passos; trava de in
     await fs.rm(home, { recursive: true, force: true })
   }
 })
+
+test('motor sobe com mais threads de disco (UV_THREADPOOL_SIZE) antes de qualquer uso do pool', async () => {
+  const { execFile } = await import('node:child_process')
+  const entry = new URL('../src/index.js', import.meta.url).href
+  const code = `const before = process.env.UV_THREADPOOL_SIZE ?? ''; await import(${JSON.stringify(entry)}); console.log(JSON.stringify({ before, after: process.env.UV_THREADPOOL_SIZE }))`
+  const env = { ...process.env }
+  delete env.UV_THREADPOOL_SIZE
+  const out = await new Promise((resolve, reject) =>
+    execFile(process.execPath, ['--input-type=module', '-e', code], { env, timeout: 20_000 }, (err, stdout) => (err ? reject(err) : resolve(stdout))),
+  )
+  const { before, after } = JSON.parse(out.trim().split('\n').pop())
+  assert.equal(before, '')
+  assert.ok(Number(after) >= 16, `UV_THREADPOOL_SIZE=${after}`)
+  // O app de desktop repassa o mesmo ajuste ao processo do motor.
+  const main = await fs.readFile(new URL('../desktop/main.js', import.meta.url), 'utf8')
+  assert.match(main, /UV_THREADPOOL_SIZE/)
+})

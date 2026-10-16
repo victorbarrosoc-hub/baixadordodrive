@@ -57,27 +57,55 @@ O SOBEDESCE do computador também serve esta mesma casca em `http://<ip>:4319/m/
 e retoma pelo ponto que o computador confirma. Inteiro no computador, a linha vira “No Mac · subindo pro Drive”.
 Sem service worker e sem manifesto nesse modo. No site publicado nada disso existe.
 
-## Publicar na Vercel
+## Publicar no Vercel pelo painel
 
-| Ajuste do projeto   | Valor                                   |
-| ------------------- | --------------------------------------- |
-| Root Directory      | `mobile`                                |
-| Framework Preset    | **Other**                               |
-| Build Command       | vazio (sem build)                       |
-| Install Command     | vazio                                   |
-| Output Directory    | padrão (`.` — a própria pasta `mobile`) |
-| Variáveis de ambiente | nenhuma                               |
+Sem linha de comando. Precisa de uma conta gratuita no [vercel.com](https://vercel.com) ligada ao GitHub onde está este repositório.
+
+1. No painel do Vercel, clique em **Add New… → Project**.
+2. Em **Import Git Repository**, encontre o repositório do SOBEDESCE e clique em **Import**. (Se ele não aparecer, clique em **Adjust GitHub App Permissions** e libere o repositório.)
+3. Em **Configure Project**:
+   - **Project Name:** o nome vira o endereço (`<nome>.vercel.app`). Ex.: `sobedesce-ana`.
+   - **Framework Preset:** **Other**.
+   - **Root Directory:** clique em **Edit**, escolha a pasta **`mobile`** e confirme.
+   - **Build and Output Settings:** deixe **Build Command** e **Install Command** vazios (ligue o botão **Override** e apague o que estiver escrito, se vier preenchido). **Output Directory** fica o padrão.
+   - **Environment Variables:** nenhuma.
+4. Clique em **Deploy**. Em menos de um minuto aparece "Congratulations". O endereço de produção fica em **Domains**, por exemplo `https://sobedesce-ana.vercel.app`.
+5. Abra esse endereço no computador para conferir: deve aparecer a tela "Ligue o celular ao seu projeto Google".
+
+A cada push na branch principal, o Vercel publica de novo sozinho.
+
+| Ajuste do projeto     | Valor                                   |
+| --------------------- | --------------------------------------- |
+| Root Directory        | `mobile`                                |
+| Framework Preset      | **Other**                               |
+| Build Command         | vazio (sem build)                       |
+| Install Command       | vazio                                   |
+| Output Directory      | padrão (`.` — a própria pasta `mobile`) |
+| Variáveis de ambiente | nenhuma                                 |
 
 O `vercel.json` define CSP, `Referrer-Policy`, `Permissions-Policy`, `X-Content-Type-Options`,
 `Cross-Origin-Opener-Policy: same-origin-allow-popups` (necessário para o popup do Google), `no-cache` em
 `/`, `/index.html` e `/sw.js`, revalidação em js/css e cache de 1 ano em `/icons/*`. O `.vercelignore` deixa
 `README.md` e `dev-server.mjs` fora do deploy.
 
-Depois do primeiro deploy, no Console do Google (mesmo projeto do app do computador):
-**Google Auth Platform → Clientes → Criar cliente → Aplicativo da Web → Origens JavaScript autorizadas:**
-o domínio de produção (ex.: `https://sobedesce.vercel.app`, sem barra no fim). URLs de *preview* da Vercel mudam
-a cada deploy; cada uma precisaria ser adicionada — use o domínio de produção. O usuário precisa estar em
-Público-alvo → Usuários de teste (ou o app publicado), como no app do computador.
+### Configurar a origem no Google (cliente "Aplicativo da Web")
+
+Depois do primeiro deploy, no **mesmo projeto do Google Cloud** do app do computador:
+
+1. **Google Auth Platform → Clientes** (Clients) → **Criar cliente** (Create client).
+2. **Tipo de aplicativo:** **Aplicativo da Web** (Web application). Nome: `SOBEDESCE Celular`.
+3. **Origens JavaScript autorizadas** (Authorized JavaScript origins) → **Adicionar URI**: o domínio de produção,
+   ex.: `https://sobedesce-ana.vercel.app` (**sem barra no fim**, sem caminho).
+4. **URIs de redirecionamento autorizados:** vazio.
+5. **Criar** e copiar o **ID do cliente** (termina em `.apps.googleusercontent.com`). O segredo não é usado.
+
+URLs de *preview* do Vercel mudam a cada deploy; cada uma precisaria ser adicionada — use o domínio de produção.
+A conta precisa estar em **Público-alvo → Usuários de teste** (ou o app publicado), como no app do computador.
+A mudança pode levar alguns minutos para valer; antes disso o Google responde `Erro 400: origin_mismatch`.
+
+Para levar ao celular: no SOBEDESCE do computador, em **Ajustes → Celular → Em qualquer lugar**, cole o endereço
+do Vercel e o ID do cliente Web; o QR que aparece abre o app já configurado. Passo a passo completo do Google em
+[docs/SETUP-GOOGLE.md](../docs/SETUP-GOOGLE.md).
 
 ### Pré-configurar pelo QR code
 

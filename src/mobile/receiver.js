@@ -385,6 +385,7 @@ export class MobileReceiver extends EventEmitter {
     this.records = new Map()
     this.byTransfer = new Map() // id da transferência -> id do recebimento
     this.writers = new Map() // id do recebimento -> { req, done }
+    this.live = new Map() // id do recebimento -> bytes gravados ao vivo (ainda sem fdatasync; só para mostrar)
     this.deleting = new Set()
     this.folderCache = new Map()
     this.server = null
@@ -553,8 +554,8 @@ export class MobileReceiver extends EventEmitter {
     const urls = running ? [host.local && page(host.local), ...ips.map(page)].filter(Boolean) : []
     const dropHost = host.local || ips[0] || null
     const receiving = [...this.records.values()]
-      .filter(r => (r.status === 'receiving' || r.status === 'finishing') && Date.now() - r.updatedAt < 5 * 60_000 && r.offset > 0)
-      .map(r => ({ id: r.id, name: r.name, size: r.size, offset: r.offset }))
+      .filter(r => (r.status === 'receiving' || r.status === 'finishing') && Date.now() - r.updatedAt < 5 * 60_000 && (r.offset > 0 || this.live.get(r.id) > 0))
+      .map(r => ({ id: r.id, name: r.name, size: r.size, offset: Math.max(r.offset, this.live.get(r.id) || 0) }))
     return {
       enabled: !!st.mobileReceive,
       running,
@@ -965,8 +966,10 @@ export class MobileReceiver extends EventEmitter {
   }
 
   /**
-   * Grava o corpo a partir de rec.offset, no máximo `limit` bytes. O ponto avança ao vivo (o que já foi gravado vale
-   * mesmo se a conexão cair no meio) e é sincronizado com o disco antes de ser confirmado/guardado.
+   * Grava o corpo a partir de rec.offset, no máximo `limit` bytes. O que já foi gravado vale mesmo se a conexão cair
+   * no meio, mas rec.offset (o que o celular ouve e o que vai para mobile-uploads.json) só avança DEPOIS do fdatasync:
+   * se o computador desligar, o registro nunca diz que tem no disco um byte que não está lá (o arquivo subiria com
+   * um buraco de zeros, e a conferência de MD5 com o Drive não pegaria: os dois lados teriam o mesmo buraco).
    * @returns {Promise<{ overflow: boolean, error: Error|null }>}
    */
   #receive(rec, req, limit) {
@@ -993,7 +996,7 @@ export class MobileReceiver extends EventEmitter {
           throw err
         }
         pos += data.length
-        rec.offset = pos
+        this.live.set(rec.id, pos)
         rec.updatedAt = Date.now()
       }
       try {
@@ -1021,9 +1024,18 @@ export class MobileReceiver extends EventEmitter {
         if (fh) await flush().catch(() => {})
       } finally {
         if (fh) {
-          await fh.datasync().catch(() => {})
+          let synced = false
+          try {
+            await fh.datasync()
+            synced = true
+          } catch (err) {
+            this.log('não consegui sincronizar o pedaço recebido:', err?.code || err?.message)
+          }
           await fh.close().catch(() => {})
+          // Sem sincronizar, o ponto não avança: o celular manda esse trecho de novo (nunca fica um buraco).
+          if (synced && pos > rec.offset) rec.offset = pos
         }
+        this.live.delete(rec.id)
         if (this.writers.get(rec.id) === writer) this.writers.delete(rec.id)
         this.#saveSoon()
       }

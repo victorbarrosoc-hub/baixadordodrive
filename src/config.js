@@ -192,11 +192,17 @@ export class Settings extends EventEmitter {
 
   async load() {
     const raw = await this.file.load()
-    try {
-      this.current = validateSettings(raw)
-    } catch {
-      this.current = { ...DEFAULT_SETTINGS }
+    // Campo por campo: um valor estragado (editado à mão, versão antiga) volta ao padrão sozinho,
+    // sem levar junto a pasta de downloads, os limites e o resto do que a pessoa ajustou.
+    let next = { ...DEFAULT_SETTINGS }
+    for (const [key, value] of Object.entries(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {})) {
+      try {
+        next = validateSettings({ [key]: value }, next)
+      } catch {
+        // fica o padrão deste campo
+      }
     }
+    this.current = next
     return this.current
   }
 

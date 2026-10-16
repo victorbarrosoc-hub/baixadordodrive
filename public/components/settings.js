@@ -406,7 +406,7 @@ export function SettingsScreen() {
     <div class="settings">
       <${Group} title="Velocidade" icon="bolt" tone="down">
         <${Row} label="Downloads ao mesmo tempo" desc="Quantos arquivos baixam juntos.">
-          <${Stepper} label="Downloads ao mesmo tempo" value=${d.maxConcurrentDownloads} min=${1} max=${8} onChange=${(v) => set('maxConcurrentDownloads', v)} />
+          <${Stepper} label="Downloads ao mesmo tempo" value=${d.maxConcurrentDownloads} min=${1} max=${16} onChange=${(v) => set('maxConcurrentDownloads', v)} />
         </${Row}>
         <${Row} label="Conexões por arquivo" desc="Cada arquivo baixado vem em pedaços paralelos. Entre 8 e 16 costuma encher a banda.">
           <${Slider}
@@ -418,8 +418,8 @@ export function SettingsScreen() {
             format=${(v) => `${v}`}
           />
         </${Row}>
-        <${Row} label="Uploads ao mesmo tempo" desc="O Google recebe um arquivo por vez em cada envio; mais arquivos juntos aproveitam melhor a banda.">
-          <${Stepper} label="Uploads ao mesmo tempo" value=${d.maxConcurrentUploads} min=${1} max=${8} onChange=${(v) => set('maxConcurrentUploads', v)} />
+        <${Row} label="Uploads ao mesmo tempo" desc="O Google recebe cada arquivo a uns 40–100 MB/s; mais arquivos juntos enchem a banda (4 para 1 Gbps, 12–16 para 10 Gbps).">
+          <${Stepper} label="Uploads ao mesmo tempo" value=${d.maxConcurrentUploads} min=${1} max=${16} onChange=${(v) => set('maxConcurrentUploads', v)} />
         </${Row}>
         <${Row} label="Tamanho do pedaço de upload" desc="Contínuo manda o resto do arquivo numa requisição só, como o Google recomenda. Pedaços ajudam em redes que derrubam conexões longas; se cair, continua de onde o Google confirmou.">
           <${Select} label="Tamanho do pedaço de upload" value=${d.uploadChunkSize} options=${chunkOpts} onChange=${(v) => set('uploadChunkSize', Number(v), { now: true })} />

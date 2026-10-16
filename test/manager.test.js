@@ -443,10 +443,54 @@ test('falhas: "retry" anunciado pela tarefa volta sozinho algumas vezes; esgotad
   await waitFor(() => statusOf(m, 'x') === 'failed')
   assert.equal(ctl.count('x'), 4)
   assert.doesNotMatch(m.get('x').error.message, /Vou tentar/)
-  await m.retry(['x'])
-  await waitFor(() => ctl.count('x') === 5)
-  ctl.fail('x', new SobeDesceError('retry', 'A conexão com o Google falhou muitas vezes seguidas. Tente de novo daqui a pouco.', { reason: 'ECONNRESET' }))
-  await waitFor(() => statusOf(m, 'x') === 'failed')
+})
+
+test('internet fora do ar: depois das tentativas da tarefa, espera e volta sozinho (não para a fila inteira)', async t => {
+  const ctl = fakeTasks()
+  const dir = await makeTmpDir()
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const { m } = await makeManager(t, { ctl, settings: { maxConcurrentDownloads: 1 }, networkDelays: [120, 250] })
+  await m.add({ batch: batch('b1'), records: [dl(dir, 'n1'), dl(dir, 'n2')] })
+  const offline = () => new SobeDesceError('retry', 'A conexão com o Google falhou muitas vezes seguidas. Tente de novo daqui a pouco.', { reason: 'ENOTFOUND' })
+  await waitFor(() => ctl.live.has('n1'))
+  const t0 = Date.now()
+  ctl.fail('n1', offline())
+  await waitFor(() => statusOf(m, 'n1') === 'waiting')
+  const w = m.get('n1')
+  assert.equal(w.error.kind, 'retry')
+  assert.match(w.error.message, /Tento de novo sozinho/)
+  assert.ok(w.retryAt >= t0 + 100 && w.retryAt <= Date.now() + 150, `retryAt ${w.retryAt - t0}`)
+  // O próximo da fila segue; o que esperava volta sozinho.
+  await waitFor(() => ctl.live.has('n2'))
+  ctl.finish('n2')
+  await waitFor(() => ctl.count('n1') === 2, { timeoutMs: 3000 })
+  // Segunda queda seguida sem avanço: espera maior.
+  const t1 = Date.now()
+  ctl.fail('n1', offline())
+  await waitFor(() => statusOf(m, 'n1') === 'waiting')
+  assert.ok(m.get('n1').retryAt - t1 >= 230, 'a espera cresce')
+  // "Tentar agora" não espera o relógio.
+  await m.retry(['n1'])
+  await waitFor(() => ctl.count('n1') === 3)
+  ctl.finish('n1')
+  await waitFor(() => statusOf(m, 'n1') === 'completed')
+  assert.equal(m.get('n1').netWaits, undefined)
+})
+
+test('internet fora do ar por horas, sem nenhum avanço: depois de muitas esperas vira failed', async t => {
+  const ctl = fakeTasks()
+  const dir = await makeTmpDir()
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const { m } = await makeManager(t, { ctl, settings: { maxConcurrentDownloads: 1 }, networkDelays: [5] })
+  await m.add({ batch: batch('b1'), records: [dl(dir, 'x')] })
+  for (let i = 1; statusOf(m, 'x') !== 'failed'; i++) {
+    assert.ok(i < 40, 'nunca desistiu')
+    await waitFor(() => (ctl.count('x') === i && ctl.live.has('x')) || statusOf(m, 'x') === 'failed')
+    if (statusOf(m, 'x') === 'failed') break
+    ctl.fail('x', new SobeDesceError('retry', 'A conexão com o Google falhou muitas vezes seguidas. Tente de novo daqui a pouco.', { reason: 'ECONNRESET' }))
+    await waitFor(() => ctl.count('x') > i || statusOf(m, 'x') === 'failed')
+  }
+  assert.equal(ctl.count('x'), 17)
   assert.equal(m.get('x').error.message, 'A conexão com o Google falhou muitas vezes seguidas. Tente de novo daqui a pouco.')
 })
 
@@ -604,6 +648,42 @@ test('fila gravada: reabrir retoma "running" (autoResume) ou pausa; "waiting" ma
   const third = await makeManager(t, { ctl: ctl3, home, keep: true, settings: { autoResume: false } })
   assert.equal(statusOf(third.m, 'u1'), 'paused')
   assert.equal(third.m.get('u1').error, null)
+})
+
+test('milhares de arquivos pequenos subindo: sessões novas não reescrevem a fila inteira a cada arquivo', async t => {
+  const ctl = fakeTasks()
+  const { m, paths } = await makeManager(t, { ctl, settings: { maxConcurrentUploads: 8 } })
+  const N = 120
+  let saves = 0
+  const save = m.queueFile.save.bind(m.queueFile)
+  m.queueFile.save = () => {
+    saves++
+    return save()
+  }
+  // Cada envio: abre sessão (precisa ir para o disco logo), termina (sessão some) e conclui.
+  const seen = new Set()
+  const problems = []
+  ctl.on('start', id => run(id).catch(err => problems.push(err)))
+  const run = async id => {
+    if (seen.has(id)) return
+    seen.add(id)
+    const rec = ctl.tasks.get(id).record
+    const ctx = ctl.ctxs.get(id)
+    rec.session = { uri: `http://127.0.0.1:9/upload?upload_id=${id}`, createdAt: Date.now(), offset: 0 }
+    await ctx.persist()
+    const disk = await readJSON(paths.queue)
+    assert.equal(disk.transfers.find(r => r.id === id).session.uri, rec.session.uri, 'a sessão já está no disco quando persist() resolve')
+    rec.session = null
+    ctx.persist()
+    ctl.finish(id)
+  }
+  await m.add({ batch: batch('b2', 'upload'), records: Array.from({ length: N }, (_, i) => up(`s${i}`)) })
+  saves = 0
+  await waitFor(() => problems.length || [...Array(N).keys()].every(i => statusOf(m, `s${i}`) === 'completed'), { timeoutMs: 20_000 })
+  assert.deepEqual(problems, [])
+  assert.ok(saves < N / 2, `gravou a fila ${saves} vezes para ${N} arquivos`)
+  const text = await fs.readFile(paths.queue, 'utf8')
+  assert.ok(!text.includes('\n '), 'a fila vai compacta para o disco')
 })
 
 test('uso das últimas 24 h por conta (usage.json) e velocidade por direção', async t => {

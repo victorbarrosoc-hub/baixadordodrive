@@ -53,7 +53,8 @@ export class HttpError extends Error {
     this.status = status
     this.body = body
     this.headers = headers
-    this.url = url
+    // A URI da sessão de upload é credencial: o erro pode ir parar num log (util.inspect mostra as propriedades).
+    this.url = redact(url)
     this.method = method
     /** Motivo do Google (ex.: 'userRateLimitExceeded', 'storageQuotaExceeded'), se houver. */
     this.reason = g?.reason || null
@@ -61,7 +62,7 @@ export class HttpError extends Error {
   }
 }
 
-function redact(url) {
+export function redact(url) {
   return String(url).replace(/(upload_id|access_token|key)=[^&]+/g, '$1=…')
 }
 

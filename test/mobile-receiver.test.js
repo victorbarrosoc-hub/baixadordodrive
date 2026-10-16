@@ -248,6 +248,32 @@ test('dois PUTs do mesmo arquivo: o novo derruba o que ficou pendurado e continu
   assert.equal(item.md5, md5(data))
 })
 
+test('o ponto confirmado (resposta e mobile-uploads.json) só inclui bytes que já passaram pelo fdatasync', async () => {
+  const data = crypto.randomBytes(3 * MiB)
+  const { json } = await create({ name: 'queda de energia.mov', size: data.length, folderId: folder.id })
+  const req = http.request({ host: '127.0.0.1', port: app.mobile.port, method: 'PUT', path: `/m/api/uploads/${json.id}`, agent: false, headers: { ...auth({ 'upload-offset': '0' }), 'content-length': data.length } })
+  const done = new Promise(resolve => req.on('response', res => {
+    const chunks = []
+    res.on('data', c => chunks.push(c))
+    res.on('end', () => resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))))
+  }))
+  req.on('error', () => {})
+  // Mais que o grupo de gravação (1 MiB): o computador já gravou parte, mas ainda não sincronizou nem terminou.
+  req.write(data.subarray(0, 2 * MiB))
+  await waitFor(async () => (await app.mobile.status()).receiving.some(r => r.id === json.id && r.offset >= 1 * MiB), { message: 'a tela do computador mostra o progresso ao vivo' })
+  const view = (await mget(`/m/api/uploads/${json.id}`)).json
+  assert.equal(view.offset, 0, 'o ponto confirmado não inclui bytes sem fdatasync')
+  await new Promise(resolve => setTimeout(resolve, 700)) // dá tempo da gravação agrupada do registro
+  const disk = JSON.parse(await fs.readFile(path.join(env.home, 'mobile-uploads.json'), 'utf8'))
+  assert.equal(disk.uploads.find(u => u.id === json.id).offset, 0, 'nem no disco')
+  req.end(data.subarray(2 * MiB))
+  const res = await done
+  assert.equal(res.offset, data.length)
+  assert.equal(res.status, 'received')
+  const { item } = await driveDone(json.id)
+  assert.equal(item.md5, md5(data))
+})
+
 test('Atalho do iPhone: corpo inteiro no POST /m/api/drop, nome por ?name= e extensão pelo tipo', async () => {
   const data = crypto.randomBytes(700 * KiB + 5)
   const r = await raw('POST', `/m/api/drop?t=${code()}&name=${encodeURIComponent('Vídeo do Show')}&folderId=${folder.id}`, { body: data, headers: { 'content-type': 'video/quicktime' } })

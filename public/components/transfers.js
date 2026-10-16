@@ -49,7 +49,8 @@ export function statusInfo(t) {
     case 'paused':
       return { tone: t.error ? 'warning' : 'muted', label: t.error ? 'Pausado · precisa de você' : 'Pausado', icon: 'pause' }
     case 'waiting':
-      return { tone: 'warning', label: 'Aguardando cota', icon: 'clock', sub: t.retryAt ? `retoma às ${clock(t.retryAt)}` : null }
+      // Cota do Google (750 GB/dia, arquivo muito baixado) ou internet fora do ar: nos dois casos volta sozinho.
+      return { tone: 'warning', label: t.error?.kind === 'quota' ? 'Aguardando cota' : 'Sem conexão', icon: 'clock', sub: t.retryAt ? `retoma às ${clock(t.retryAt)}` : null }
     case 'completed':
       return t.verify?.state === 'mismatch'
         ? { tone: 'warning', label: 'Chegou diferente', icon: 'warning' }
@@ -165,7 +166,7 @@ function batchSubline(type, by) {
   if (by.running) parts.push(`${by.running} ${verb}`)
   if (by.verifying) parts.push(`${by.verifying} verificando`)
   if (by.queued) parts.push(`${count(by.queued)} na fila`)
-  if (by.waiting) parts.push(`${by.waiting} aguardando cota`)
+  if (by.waiting) parts.push(`${by.waiting} esperando para retomar`)
   if (by.paused) parts.push(`${count(by.paused)} ${by.paused === 1 ? 'pausado' : 'pausados'}`)
   if (by.failed) parts.push(`${by.failed} com problema`)
   const fin = (by.completed || 0) + (by.skipped || 0)

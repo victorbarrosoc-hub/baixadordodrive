@@ -49,6 +49,11 @@ const QUOTA_FALLBACK_MS = HOUR
 // Falhas 'retry' que a própria tarefa anuncia como "vou tentar de novo": a fila tenta mais algumas vezes sozinha.
 const AUTO_RETRY = new Set(['remoteChanged', 'tempMissing', 'verifyFailed'])
 const MAX_AUTO_RETRIES = 3
+// Rede/Google fora do ar depois de todas as tentativas da tarefa: em vez de "Com problema" (a pessoa volta de manhã e
+// acha a fila inteira parada por 10 minutos sem Wi-Fi), espera e tenta de novo sozinha, com intervalos crescentes.
+// Desiste (failed) só depois de umas 3 horas seguidas sem nenhum avanço.
+export const NETWORK_DELAYS = Object.freeze([MINUTE, 2 * MINUTE, 5 * MINUTE, 10 * MINUTE, 15 * MINUTE])
+const MAX_NETWORK_WAITS = 16
 
 const noop = () => {}
 
@@ -114,9 +119,9 @@ export class TransferManager extends EventEmitter {
    * @param {ReturnType<typeof dataPaths>} [opts.paths]
    * @param {(accountId: string) => object} [opts.driveFactory] DriveClient da conta (um por conta, em cache)
    * Opções finas (testes): keepAwake, createTask(record, ctx), taskOptions { download, upload },
-   * quotaDelays (ms, cota de download do arquivo), quotaFallbackMs, quotaMaxMs, log.
+   * quotaDelays (ms, cota de download do arquivo), quotaFallbackMs, quotaMaxMs, networkDelays (ms, rede fora do ar), log.
    */
-  constructor({ settings, auth = null, hasher = null, paths = dataPaths(), driveFactory, keepAwake, createTask, taskOptions = {}, quotaDelays = QUOTA_DELAYS, quotaFallbackMs = QUOTA_FALLBACK_MS, quotaMaxMs = 24 * HOUR, log } = {}) {
+  constructor({ settings, auth = null, hasher = null, paths = dataPaths(), driveFactory, keepAwake, createTask, taskOptions = {}, quotaDelays = QUOTA_DELAYS, quotaFallbackMs = QUOTA_FALLBACK_MS, quotaMaxMs = 24 * HOUR, networkDelays = NETWORK_DELAYS, log } = {}) {
     super()
     if (!settings?.get) throw new Error('TransferManager: settings é obrigatório')
     this.settings = settings
@@ -130,6 +135,7 @@ export class TransferManager extends EventEmitter {
     this.quotaDelays = quotaDelays.length ? [...quotaDelays] : [...QUOTA_DELAYS]
     this.quotaFallbackMs = quotaFallbackMs
     this.quotaMaxMs = quotaMaxMs
+    this.networkDelays = networkDelays.length ? [...networkDelays] : [...NETWORK_DELAYS]
     this.log = log || ((...args) => {
       if (process.env.SOBEDESCE_DEBUG) console.error('[motor]', ...args)
     })
@@ -164,6 +170,9 @@ export class TransferManager extends EventEmitter {
 
     this.queueFile = new JsonFile(paths.queue, { version: 1, transfers: [], batches: [] })
     this.queueFile.serialize = () => ({ version: 1, transfers: [...this.records.values()], batches: [...this.batches.values()] })
+    // Fila de milhares de itens passa de 10 MB: sem recuo, a gravação fica ~25% menor e mais rápida.
+    this.queueFile.space = 0
+    this.urgentSave = null // gravação "logo" já marcada (várias sessões novas juntas viram uma gravação só)
     this.usageFile = new JsonFile(path.join(paths.root, 'usage.json'), { version: 1, accounts: {} })
     this.usageFile.serialize = data => this.#pruneUsage(data)
     let lastWarn = 0
@@ -539,6 +548,7 @@ export class TransferManager extends EventEmitter {
       r.retryAt = null
       r.attempts = 0
       r.finishedAt = null
+      delete r.netWaits
       if (r.verify?.state === 'mismatch') r.verify = null
       this.#touch(r)
     }
@@ -736,6 +746,8 @@ export class TransferManager extends EventEmitter {
         rec.retryAt = null
         delete rec.quotaHits
         delete rec.autoRetries
+        delete rec.netWaits
+        delete rec.netWaitBytes
       } else if (entry.after === 'shutdown') {
         // Fica como estava: na próxima abertura vira 'queued' (autoResume) ou 'paused'.
         if (!isAbortError(err)) this.#fail(rec, err)
@@ -787,11 +799,33 @@ export class TransferManager extends EventEmitter {
         return
       }
       error.message = info.reason === 'remoteChanged' ? 'O arquivo continua mudando no Drive. Tente de novo quando ele parar de ser alterado.' : 'Não deu certo depois de várias tentativas. Tente de novo daqui a pouco.'
+    } else if (info.kind === 'retry' && this.#networkWait(rec, error)) {
+      return
     }
     this.log('falhou', rec.id, info.kind, info.reason, err?.message)
     rec.status = 'failed'
     rec.error = error
     rec.retryAt = null
+  }
+
+  /**
+   * Internet/Google fora do ar mesmo depois das tentativas da própria tarefa: espera (1, 2, 5, 10, 15 min…) e volta
+   * sozinho. Avançou desde a última espera? A contagem recomeça. false = já esperou demais, vira 'failed'.
+   */
+  #networkWait(rec, error) {
+    const done = Number(rec.bytesDone) || 0
+    let n = Math.max(0, Number(rec.netWaits) || 0)
+    if (done > (Number(rec.netWaitBytes) || 0)) n = 0
+    if (n >= MAX_NETWORK_WAITS) return false
+    const delay = this.networkDelays[Math.min(n, this.networkDelays.length - 1)]
+    rec.netWaits = n + 1
+    rec.netWaitBytes = done
+    rec.status = 'waiting'
+    rec.retryAt = Date.now() + delay
+    rec.error = { ...error, message: 'Sem conexão com o Google por enquanto. Tento de novo sozinho.' }
+    this.log('rede fora do ar: espera', rec.id, delay, error.reason)
+    this.#armWait(rec)
+    return true
   }
 
   /** Cota do Google: espera e volta sozinho para a fila. */
@@ -967,9 +1001,30 @@ export class TransferManager extends EventEmitter {
     const prev = this.persisted.get(rec.id) || { uri: null, bytes: 0 }
     this.persisted.set(rec.id, { uri, bytes })
     // URI nova = credencial para retomar; download que voltou para trás = o temporário vai ser recriado.
-    if (uri !== prev.uri || (rec.type === 'download' && bytes < prev.bytes)) return this.#saveNow()
+    // (Sessão que terminou — URI virou null — não tem pressa: na retomada a consulta ao Google resolve.)
+    if ((uri && uri !== prev.uri) || (rec.type === 'download' && bytes < prev.bytes)) return this.#saveUrgent()
     this.#saveSoon()
     return undefined
+  }
+
+  /**
+   * Gravação "logo": em instantes, agrupando os pedidos que chegarem até lá. Antes era uma gravação da fila inteira
+   * por pedido — com milhares de arquivos pequenos subindo, isso reescrevia megabytes (com fsync) várias vezes por
+   * segundo e travava o motor. A promessa resolve quando o pedido já está no disco.
+   */
+  #saveUrgent() {
+    if (this.closed) return Promise.resolve()
+    if (!this.urgentSave) {
+      const delay = Math.min(1000, Math.max(50, Math.round(this.records.size / 20)))
+      // Sem unref: quem espera esta promessa (ex.: download recriando o temporário) precisa dela resolvida.
+      this.urgentSave = new Promise(resolve => {
+        setTimeout(() => {
+          this.urgentSave = null
+          this.#saveNow().then(resolve)
+        }, delay)
+      })
+    }
+    return this.urgentSave
   }
 
   #saveSoon() {

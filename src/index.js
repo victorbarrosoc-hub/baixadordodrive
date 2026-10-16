@@ -14,6 +14,12 @@ import { startServer, DEFAULT_PORT } from './server/app.js'
 import { MobileReceiver } from './mobile/receiver.js'
 import { closeHttp, requestJSON } from './net/http.js'
 
+// O libuv tem 4 threads para todo o disco (gravações dos downloads, fdatasync dos checkpoints, leitura do MD5,
+// stat/readdir da interface). Com vários arquivos a 1–10 Gbps, alguns fdatasync longos ocupam as 4 e as gravações
+// param atrás deles. Precisa valer antes do primeiro uso do pool: por isso aqui, no carregamento do módulo.
+export const THREADPOOL_SIZE = 16
+if (!(Number(process.env.UV_THREADPOOL_SIZE) >= THREADPOOL_SIZE)) process.env.UV_THREADPOOL_SIZE = String(THREADPOOL_SIZE)
+
 const LOCK_NAME = 'engine.lock'
 const STARTING_GRACE_MS = 60_000 // trava sem URL ainda: outro motor está subindo
 const PROBE_TIMEOUT_MS = 2000
