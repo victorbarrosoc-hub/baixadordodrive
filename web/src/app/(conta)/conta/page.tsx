@@ -6,6 +6,7 @@ import { Moldura, Secao } from "@/components/conta/moldura";
 import { Card } from "@/components/ui/card";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { listarDispositivos } from "@/lib/auth/sessao";
+import { contaComSenha } from "@/lib/auth/contas";
 import { listarContas } from "@/lib/google/contas";
 import { NOME_PLATAFORMA, tempoRelativo } from "@/lib/tempo";
 import { Computadores } from "./computadores";
@@ -21,7 +22,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 export default async function Conta({ searchParams }: Props) {
   const { usuario } = await exigirUsuario("/conta");
   const q = await searchParams;
-  const [contas, dispositivos] = await Promise.all([listarContas(usuario.id), listarDispositivos(usuario.id)]);
+  const [contas, dispositivos, temSenha] = await Promise.all([listarContas(usuario.id), listarDispositivos(usuario.id), contaComSenha(usuario.id)]);
   const erro = typeof q.erro === "string" ? q.erro : undefined;
   const conectou = q.google === "ok";
   const primeiroNome = usuario.nome.split(" ")[0];
@@ -79,9 +80,9 @@ export default async function Conta({ searchParams }: Props) {
         </Card>
       </Secao>
 
-      <Secao titulo="Senha" id="senha" descricao="Ao trocar, os outros aparelhos saem da conta.">
+      <Secao titulo="Senha" id="senha" descricao={temSenha ? "Ao trocar, os outros aparelhos saem da conta." : "Você entra com o Google. Se quiser, crie uma senha para entrar também com o e-mail."}>
         <Card className="px-5 py-6 sm:px-6">
-          <FormSenha />
+          <FormSenha temSenha={temSenha} />
         </Card>
       </Secao>
 
@@ -91,7 +92,7 @@ export default async function Conta({ searchParams }: Props) {
 
       <Secao titulo="Apagar a conta" id="apagar" descricao="Some tudo da SOBEDESCE na hora: a conta, os Drives conectados e os computadores. Os arquivos no Google Drive continuam lá.">
         <Card className="px-5 py-5 ring-err/25 sm:px-6">
-          <ApagarConta email={usuario.email} />
+          <ApagarConta email={usuario.email} temSenha={temSenha} />
         </Card>
       </Secao>
     </Moldura>

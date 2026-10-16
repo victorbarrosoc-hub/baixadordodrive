@@ -29,20 +29,22 @@ export function FormNome({ nome }: { nome: string }) {
   );
 }
 
-export function FormSenha() {
+export function FormSenha({ temSenha }: { temSenha: boolean }) {
   const [estado, acao] = useActionState<EstadoForm, FormData>(acaoTrocarSenha, null);
   const erroDo = (campo: string) => (estado?.campo === campo ? estado.erro : null);
   return (
     <form action={acao} className="grid gap-5" key={estado?.ok ?? "senha"}>
-      <Field label="Senha atual" htmlFor="senhaAtual" error={erroDo("senhaAtual")}>
-        <Input id="senhaAtual" name="senhaAtual" type="password" autoComplete="current-password" required aria-invalid={Boolean(erroDo("senhaAtual"))} />
-      </Field>
-      <Field label="Senha nova" htmlFor="senhaNova" hint={`Pelo menos ${SENHA_MINIMA} caracteres.`} error={erroDo("senhaNova")}>
+      {temSenha ? (
+        <Field label="Senha atual" htmlFor="senhaAtual" error={erroDo("senhaAtual")}>
+          <Input id="senhaAtual" name="senhaAtual" type="password" autoComplete="current-password" required aria-invalid={Boolean(erroDo("senhaAtual"))} />
+        </Field>
+      ) : null}
+      <Field label={temSenha ? "Senha nova" : "Senha"} htmlFor="senhaNova" hint={`Pelo menos ${SENHA_MINIMA} caracteres.`} error={erroDo("senhaNova")}>
         <Input id="senhaNova" name="senhaNova" type="password" autoComplete="new-password" required minLength={SENHA_MINIMA} aria-invalid={Boolean(erroDo("senhaNova"))} />
       </Field>
       <div className="flex flex-wrap items-center gap-4">
-        <Enviar variant="secondary" ocupado="Trocando…">
-          Trocar senha
+        <Enviar variant="secondary" ocupado="Salvando…">
+          {temSenha ? "Trocar senha" : "Criar senha"}
         </Enviar>
         <Retorno estado={estado} />
       </div>

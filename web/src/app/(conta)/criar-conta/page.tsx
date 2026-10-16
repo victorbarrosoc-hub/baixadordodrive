@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { BotaoGoogle } from "@/components/conta/google";
 import { Moldura } from "@/components/conta/moldura";
 import { buttonClasses } from "@/components/ui/button";
 import { usuarioAtual } from "@/lib/auth/atual";
@@ -22,15 +23,26 @@ export default async function CriarConta({ searchParams }: Props) {
     <Moldura
       estreita
       titulo="Criar conta"
-      subtitulo="Uma conta para os seus Drives, no celular e no computador."
+      subtitulo="Entre com o Google e o seu Drive já fica conectado."
       acao={
         <Link href={entrar} className={buttonClasses({ variant: "ghost", size: "sm" })}>
           Entrar
         </Link>
       }
     >
+      <BotaoGoogle modo="entrar" volta={volta} variant="primary" className="w-full">
+        Continuar com Google
+      </BotaoGoogle>
+      <p className="mt-3 text-center text-[13px] leading-relaxed text-pretty text-ink-3">Cria a conta e conecta o Drive num passo só.</p>
+
+      <div className="my-8 flex items-center gap-4 text-[13px] text-ink-3" aria-hidden>
+        <span className="h-px flex-1 bg-line" />
+        ou com e-mail
+        <span className="h-px flex-1 bg-line" />
+      </div>
+
       <FormCriarConta volta={volta} />
-      <p className="mt-6 text-center text-[13px] leading-relaxed text-pretty text-ink-3">Depois de criar, você conecta o Google Drive dentro da conta.</p>
+      <p className="mt-4 text-center text-[13px] leading-relaxed text-pretty text-ink-3">Com e-mail, você conecta o Drive depois, em Sua conta.</p>
       <p className="mt-12 text-center text-[15px] text-ink-2">
         Já tem conta?{" "}
         <Link href={entrar} className="font-medium text-ink underline-offset-4 hover:underline">

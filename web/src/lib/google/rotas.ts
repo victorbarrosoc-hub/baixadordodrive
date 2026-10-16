@@ -4,10 +4,10 @@
  */
 import { autenticar, COOKIE_SESSAO, criarSessao, opcoesCookieSessao } from "@/lib/auth/sessao";
 import { voltaSegura } from "@/lib/auth/volta";
-import { lerCookie, origemDoPedido, redirecionar, serializarCookie } from "@/lib/http";
+import { ipDe, lerCookie, origemDoPedido, redirecionar, serializarCookie } from "@/lib/http";
 import { cookieSeguro } from "@/lib/site";
 import { googleConfigurado, redirectUri } from "./config";
-import { donoDaContaGoogle, vincularConta } from "./contas";
+import { criarContaComGoogle, donoDaContaGoogle, vincularConta } from "./contas";
 import { chaveConfigurada } from "./cripto";
 import { abrirEstado, COOKIE_OAUTH, DURACAO_OAUTH_S, novoState, selarEstado, stateConfere, type ModoGoogle } from "./estado";
 import { escopoTemDrive, perfil, pkce, trocarCodigo, urlDeConsentimento, type PerfilGoogle, type Tokens } from "./oauth";
@@ -96,11 +96,19 @@ export async function callback(req: Request): Promise<Response> {
     return ir(comParametro(volta, "google", "ok"));
   }
 
-  // Entrar com Google: só conta Google já vinculada a uma conta SOBEDESCE.
-  const usuarioId = await donoDaContaGoogle(quem, temDrive ? tokens : { ...tokens, refresh: null });
-  if (!usuarioId) return falhar("google_sem_conta");
+  // Continuar com Google: conta Google já vinculada entra; nova cria a conta SOBEDESCE com este Drive.
+  let usuarioId = await donoDaContaGoogle(quem, temDrive ? tokens : { ...tokens, refresh: null });
+  let criou = false;
+  if (!usuarioId) {
+    if (!temDrive) return falhar("google_sem_drive");
+    if (!tokens.refresh) return falhar("google_erro");
+    const novo = await criarContaComGoogle(quem, { ...tokens, refresh: tokens.refresh }, ipDe(req.headers));
+    if (!novo.ok) return falhar(novo.erro);
+    usuarioId = novo.usuarioId;
+    criou = true;
+  }
   const sessao = await criarSessao(usuarioId, "web");
   const o = opcoesCookieSessao(seguro);
   const cookieSessao = serializarCookie(COOKIE_SESSAO, sessao.token, { maxAge: o.maxAge, path: o.path, secure: o.secure });
-  return ir(volta, [cookieSessao]);
+  return ir(criou ? comParametro(volta, "google", "ok") : volta, [cookieSessao]);
 }

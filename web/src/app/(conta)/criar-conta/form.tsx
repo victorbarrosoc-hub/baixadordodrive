@@ -38,7 +38,7 @@ export function FormCriarConta({ volta }: { volta: string }) {
       <Field label="Senha" htmlFor="senha" hint={`Pelo menos ${SENHA_MINIMA} caracteres. Uma frase vale.`} error={erroDo("senha")}>
         <Input id="senha" name="senha" type="password" autoComplete="new-password" required minLength={SENHA_MINIMA} aria-invalid={Boolean(erroDo("senha"))} />
       </Field>
-      <Enviar size="lg" className="mt-2 w-full" ocupado="Criando…">
+      <Enviar variant="secondary" size="lg" className="mt-2 w-full" ocupado="Criando…">
         Criar conta
       </Enviar>
     </form>

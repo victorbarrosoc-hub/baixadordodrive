@@ -164,9 +164,42 @@ describe("entrar com Google", () => {
     assert.equal((await res.json()).usuario.id, victor.id);
   });
 
-  test("conta Google não vinculada: volta para /entrar explicando", async () => {
-    const r = await fluxo({ modo: "entrar", conta: { sub: "999", email: "novo@exemplo.com", name: "Novo" } });
-    assert.equal(r.destino, "/entrar?erro=google_sem_conta");
+  test("conta Google nova: cria a conta SOBEDESCE com o Drive já conectado", async () => {
+    const r = await fluxo({ modo: "entrar", conta: { sub: "999", email: "Novo@Exemplo.com", name: "Novo Usuário" } });
+    assert.equal(r.destino, "/conta?google=ok");
+    const sessao = cookiesDe(r.res!).get("sd_sessao");
+    assert.ok(sessao);
+    const corpo = await (await eu.GET(pedido("/api/eu", { cookies: { sd_sessao: sessao } }))).json();
+    assert.equal(corpo.usuario.email, "novo@exemplo.com");
+    assert.equal(corpo.usuario.nome, "Novo Usuário");
+    assert.deepEqual(corpo.contas.map((c: { email: string }) => c.email), ["novo@exemplo.com"]);
+    // Entrar de novo pelo Google cai na mesma conta (não cria outra).
+    const deNovo = await fluxo({ modo: "entrar", conta: { sub: "999", email: "novo@exemplo.com", name: "Novo Usuário" } });
+    assert.equal(deNovo.destino, "/conta");
+    const corpo2 = await (await eu.GET(pedido("/api/eu", { cookies: { sd_sessao: cookiesDe(deNovo.res!).get("sd_sessao")! } }))).json();
+    assert.equal(corpo2.usuario.id, corpo.usuario.id);
+    // Sem senha: nenhuma senha entra nessa conta até a pessoa criar uma.
+    const contas = await import("../src/lib/auth/contas");
+    const tentativa = await contas.entrarComSenha({ email: "novo@exemplo.com", senha: "google", ip: "9.9.9.9" });
+    assert.equal(tentativa.ok, false);
+    // Depois ela cria uma senha sem precisar da "atual" e passa a entrar também com o e-mail.
+    assert.equal(await contas.contaComSenha(corpo.usuario.id), false);
+    const criada = await contas.trocarSenha({ usuarioId: corpo.usuario.id, sessaoId: "nenhuma", senhaAtual: "", senhaNova: "uma senha nova longa", ip: "9.9.9.9" });
+    assert.equal(criada.ok, true);
+    assert.equal(await contas.contaComSenha(corpo.usuario.id), true);
+    const comSenha = await contas.entrarComSenha({ email: "novo@exemplo.com", senha: "uma senha nova longa", ip: "9.9.9.9" });
+    assert.equal(comSenha.ok, true);
+  });
+
+  test("conta Google nova com e-mail que já tem conta com senha: não toma a conta", async () => {
+    const r = await fluxo({ modo: "entrar", conta: { sub: "998", email: "victor@exemplo.com", name: "Outro" } });
+    assert.equal(r.destino, "/entrar?erro=google_email_em_uso");
+    assert.equal(cookiesDe(r.res!).get("sd_sessao"), undefined);
+  });
+
+  test("conta Google nova sem permitir o Drive: não cria conta", async () => {
+    const r = await fluxo({ modo: "entrar", conta: { sub: "997", email: "semdrive@exemplo.com", name: "Sem Drive" }, escopo: "openid email profile" });
+    assert.equal(r.destino, "/entrar?erro=google_sem_drive");
     assert.equal(cookiesDe(r.res!).get("sd_sessao"), undefined);
   });
 
