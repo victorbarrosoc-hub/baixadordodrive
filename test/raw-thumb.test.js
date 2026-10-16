@@ -351,7 +351,8 @@ test('setThumbnail grava contentHints.thumbnail (base64 URL-safe) e o Drive pass
 
   const meta = await drive.api('GET', `files/${item.id}`, { query: { fields: 'hasThumbnail,thumbnailLink' } })
   assert.equal(meta.hasThumbnail, true)
-  const served = Buffer.from(await (await fetch(meta.thumbnailLink)).arrayBuffer())
+  // Como no Google, o thumbnailLink só abre com o token da conta.
+  const served = Buffer.from(await (await fetch(meta.thumbnailLink, { headers: await drive.authHeader() })).arrayBuffer())
   assert.ok(served.equals(img))
 
   // Miniatura grande (1,5 MB) passa: o corpo do PATCH chega a ~2 MB em base64.
