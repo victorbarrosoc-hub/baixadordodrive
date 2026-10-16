@@ -304,6 +304,8 @@ export async function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', pub
   on(ctx.manager, 'batches', list => hub.send('batches', list))
   on(ctx.manager, 'toast', t => hub.send('toast', { kind: t.kind, message: t.message }))
   on(ctx.auth, 'accounts', list => hub.send('accounts', list))
+  on(ctx.auth?.cloud, 'status', st => hub.send('cloud', st))
+  on(ctx.auth?.cloud, 'signedOut', ev => hub.send('toast', { kind: 'error', message: ev.message }))
   on(ctx.settings, 'change', s => hub.send('settings', s))
 
   let closing = null

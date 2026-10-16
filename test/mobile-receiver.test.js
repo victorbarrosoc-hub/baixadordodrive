@@ -8,6 +8,7 @@ import fs from 'node:fs/promises'
 import http from 'node:http'
 import path from 'node:path'
 import { startApp } from '../src/index.js'
+import { cloudUrl } from '../src/config.js'
 import { closeHttp } from '../src/net/http.js'
 import { PARTS_DIR } from '../src/mobile/receiver.js'
 import { setupDrive, makeTmpDir, waitFor } from './helpers.js'
@@ -411,13 +412,16 @@ test('GET /api/mobile: endereços com o código, QR em SVG, envio direto, passo 
   assert.equal(m.shortcutSteps.length, 6)
   assert.match(m.shortcutSteps.join(' '), /Obter Conteúdo do URL/)
   assert.match(m.shortcutSteps.join(' '), /POST/)
-  assert.equal(m.webQrSvg, null)
+  // App do celular no site das contas (/app/), sem client_id: o QR existe sem configurar nada.
+  assert.equal(m.webUrl, `${cloudUrl()}/app/`)
+  assert.ok(!m.webUrl.includes('client_id'))
+  assert.match(m.webQrSvg, /^<svg/)
 
-  r = await main('PATCH', '/api/settings', { mobileWebUrl: 'https://sobedesce.vercel.app/', webClientId: '123-abc.apps.googleusercontent.com' })
+  // Ajustes antigos (endereço e ID do cliente Web) não mudam mais o QR.
+  r = await main('PATCH', '/api/settings', { mobileWebUrl: 'https://outro.example/', webClientId: '123-abc.apps.googleusercontent.com' })
   assert.equal(r.status, 200, r.text)
   r = await main('GET', '/api/mobile')
-  assert.equal(r.json.webUrl, 'https://sobedesce.vercel.app/?client_id=123-abc.apps.googleusercontent.com')
-  assert.match(r.json.webQrSvg, /^<svg/)
+  assert.equal(r.json.webUrl, `${cloudUrl()}/app/`)
   // Valores inválidos nos ajustes novos: recusados com mensagem.
   for (const bad of [{ mobileWebUrl: 'javascript:alert(1)' }, { webClientId: 'nada' }, { mobilePort: 'x' }, { mobileFolderId: "a' or 1" }]) {
     const res = await main('PATCH', '/api/settings', bad)

@@ -2,6 +2,7 @@
 import { html, render, useEffect } from '/vendor/preact-htm.js'
 import { start, useStore } from './lib/store.js'
 import { startDesktopIntegration } from './lib/desktop.js'
+import { startCloudWatch } from './lib/cloud.js'
 import { navigate, useRoute } from './lib/router.js'
 import { Wordmark } from './components/icons.js'
 import { Button, Spinner } from './components/common.js'
@@ -54,19 +55,22 @@ function Shell({ route }) {
 function App() {
   const status = useStore((s) => s.status)
   const loadError = useStore((s) => s.loadError)
-  const setup = useStore((s) => s.setup)
   const accounts = useStore((s) => s.accounts)
   const oauthWait = useStore((s) => s.oauthWait)
+  const justSignedIn = useStore((s) => s.cloud?.login?.estado === 'pronto')
   const route = useRoute()
-  const needsSetup = status === 'ready' && (!setup.configured || accounts.length === 0)
+  // Sem nenhum Drive (da conta SOBEDESCE ou só deste computador): Primeiros passos.
+  const needsSetup = status === 'ready' && accounts.length === 0
   const inSetup = needsSetup || route.name === 'inicio'
 
   useEffect(() => {
     if (status !== 'ready') return
-    // instalação pronta e alguém abriu #/inicio sem querer trocar a chave → vai para Transferências
-    if (!needsSetup && route.name === 'inicio' && route.parts[1] !== 'chave') navigate('transferencias', { replace: true })
+    // Já tem Drive e alguém abriu #/inicio sem querer trocar a chave nem conectar um Drive local → Transferências.
+    // Logo depois de entrar na conta, a tela fica para mostrar o "Pronto" (o botão Começar segue).
+    const sub = route.parts[1]
+    if (!needsSetup && route.name === 'inicio' && sub !== 'chave' && sub !== 'local' && !justSignedIn) navigate('transferencias', { replace: true })
     if (needsSetup && route.name !== 'inicio') navigate('inicio', { replace: true })
-  }, [status, needsSetup, route.name, route.parts[1]])
+  }, [status, needsSetup, route.name, route.parts[1], justSignedIn])
 
   useEffect(() => {
     document.title = `${TITLES[inSetup ? 'inicio' : route.name] || 'Transferências'} — SOBEDESCE`
@@ -92,4 +96,5 @@ function App() {
 
 render(html`<${App} />`, document.getElementById('app'))
 startDesktopIntegration()
+startCloudWatch()
 start()

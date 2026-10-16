@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { APP_NAME, APP_VERSION, Settings, dataDir, dataPaths } from './config.js'
 import { AuthManager } from './google/oauth.js'
+import { CloudAuth } from './google/cloud-auth.js'
 import { Hasher } from './engine/hasher.js'
 import { TransferManager } from './engine/manager.js'
 import { startServer, DEFAULT_PORT } from './server/app.js'
@@ -128,13 +129,13 @@ function banner(url, root) {
 /**
  * Sobe tudo: ajustes, contas, MD5, fila e servidor. Usado pelo `npm start`, pelo demo, pelos testes e pelo desktop.
  * @param {{ home?: string, port?: number, open?: boolean, desktop?: boolean, quiet?: boolean,
- *   managerOptions?: object, serverOptions?: object, mobileOptions?: object }} [opts]
- *   `managerOptions`/`serverOptions`/`mobileOptions` (opcionais) vão para o TransferManager/startServer/MobileReceiver
- *   (os testes trocam peças, ex.: mobileOptions { port: 0, host: '127.0.0.1' }).
+ *   managerOptions?: object, serverOptions?: object, mobileOptions?: object, cloudOptions?: object }} [opts]
+ *   `managerOptions`/`serverOptions`/`mobileOptions`/`cloudOptions` (opcionais) vão para o
+ *   TransferManager/startServer/MobileReceiver/CloudAuth (os testes trocam peças, ex.: mobileOptions { port: 0, host: '127.0.0.1' }).
  * @returns {Promise<{ url: string, port: number, manager: TransferManager, auth: AuthManager, settings: Settings,
  *   hasher: Hasher, paths: object, server: object, mobile: MobileReceiver, shutdown(): Promise<void> }>}
  */
-export async function startApp({ home, port, open = true, desktop = false, quiet = false, managerOptions = {}, serverOptions = {}, mobileOptions = {} } = {}) {
+export async function startApp({ home, port, open = true, desktop = false, quiet = false, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {} } = {}) {
   const root = home ? path.resolve(home) : dataDir()
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
   const paths = dataPaths(root)
@@ -145,7 +146,8 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
   try {
     settings = new Settings(paths.settings)
     await settings.load()
-    auth = new AuthManager({ paths })
+    // Conta SOBEDESCE (fluxo de dispositivo): os Drives dela aparecem junto das contas conectadas neste computador.
+    auth = new AuthManager({ paths, cloud: new CloudAuth({ paths, ...cloudOptions }) })
     await auth.init()
     hasher = new Hasher({ cacheFile: paths.hashCache, workers: 2 })
     manager = new TransferManager({ settings, auth, hasher, paths, ...managerOptions })
@@ -161,6 +163,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     await server?.close().catch(() => {})
     await manager?.shutdown().catch(() => {})
     await hasher?.close().catch(() => {})
+    auth?.close()
     await releaseLock(lockFile, token)
     throw err
   }
@@ -180,6 +183,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
       }
       await server.close().catch(() => {})
       await hasher.close().catch(() => {})
+      auth.close()
       await releaseLock(lockFile, token)
     })()
     return stopping

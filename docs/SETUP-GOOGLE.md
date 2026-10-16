@@ -98,20 +98,13 @@ Para conectar outras contas, vá em **Ajustes → Contas → Adicionar conta**. 
 
 ---
 
-## Para o celular pela internet: cliente "Aplicativo da Web"
+## Para o celular pela internet: conta SOBEDESCE
 
-Só é preciso se você publicar o app do celular no Vercel (para subir do celular **sem** passar pelo computador). Para receber do celular pelo Wi-Fi, nada disso é necessário.
-
-1. Publique a pasta `mobile/` no Vercel primeiro e anote o endereço, por exemplo `https://sobedesce-ana.vercel.app` ([passo a passo](../mobile/README.md#publicar-no-vercel-pelo-painel)).
-2. No mesmo projeto do Google Cloud, abra **Google Auth Platform → Clientes** (Clients) → **Criar cliente** (Create client).
-3. **Tipo de aplicativo** (Application type): **Aplicativo da Web** (Web application).
-4. **Nome** (Name): `SOBEDESCE Celular`.
-5. Em **Origens JavaScript autorizadas** (Authorized JavaScript origins), clique em **Adicionar URI** (Add URI) e cole o endereço do Vercel **sem barra no fim**: `https://sobedesce-ana.vercel.app`.
-6. **URIs de redirecionamento autorizados** (Authorized redirect URIs): deixe vazio.
-7. Clique em **Criar** (Create) e copie o **ID do cliente** (Client ID), que termina em `.apps.googleusercontent.com`. O app do celular não usa o segredo.
-8. No SOBEDESCE do computador, em **Ajustes → Celular → Em qualquer lugar**, cole o endereço do Vercel e o ID do cliente Web. Aparece um QR code: aponte a câmera do celular e o app abre já configurado.
-
-A mudança nas origens pode levar alguns minutos para valer. Use sempre o **domínio de produção** do Vercel: os endereços de prévia mudam a cada deploy.
+O app do celular (`https://sobedesce.vercel.app/app/`) não faz mais login no Google: ele entra na conta SOBEDESCE e
+pede ao site o token do Drive conectado à conta. Quem fala com o Google é o servidor do site, com o cliente
+"Aplicativo da Web" oficial (redirect `https://sobedesce.vercel.app/api/google/callback`, variáveis em
+[CONTAS.md](CONTAS.md#2-variáveis-de-ambiente-web)). No celular não há ID do cliente para colar. Para receber do
+celular pelo Wi-Fi, nada disso é necessário.
 
 ---
 
@@ -134,9 +127,6 @@ O JSON é de um cliente "Aplicativo da Web". Para o computador, crie um cliente 
 
 **"O administrador do Google Workspace bloqueou este app"** (`admin_policy_enforced`)
 A empresa restringe apps de terceiros. O administrador pode liberar o ID do cliente em **Admin → Segurança → Controles de API** (Security → API controls).
-
-**"Erro 400: origin_mismatch"** no celular
-O endereço do site no Vercel não está em **Origens JavaScript autorizadas** do cliente Web, ou foi colado com barra no fim. Corrija e espere alguns minutos.
 
 **"Limite diário da API do Google atingido"**
 Raro em uso pessoal. Espere: o SOBEDESCE tenta de novo sozinho.

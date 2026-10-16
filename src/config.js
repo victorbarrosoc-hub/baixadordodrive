@@ -31,6 +31,7 @@ export function dataPaths(root = dataDir()) {
     logs: path.join(root, 'logs'),
     mobile: path.join(root, 'mobile.json'), // código de acesso do celular
     mobileUploads: path.join(root, 'mobile-uploads.json'), // recebimentos do celular (para retomar)
+    cloud: path.join(root, 'cloud.json'), // sessão da conta SOBEDESCE neste computador (token do dispositivo, modo 0600)
   }
 }
 
@@ -50,6 +51,24 @@ export function endpoints() {
 }
 
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive'
+
+export const DEFAULT_CLOUD_URL = 'https://sobedesce.vercel.app'
+
+/**
+ * Endereço do site das contas SOBEDESCE (docs/CONTAS.md). SOBEDESCE_CLOUD_URL troca (testes e demo).
+ * Só https, ou http em 127.0.0.1/localhost: o token do dispositivo nunca viaja sem criptografia pela rede.
+ */
+export function cloudUrl() {
+  const raw = String(process.env.SOBEDESCE_CLOUD_URL || '').trim()
+  if (!raw) return DEFAULT_CLOUD_URL
+  try {
+    const u = new URL(raw)
+    const loopback = u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]'
+    if (u.username || u.password) return DEFAULT_CLOUD_URL
+    if (u.protocol === 'https:' || (u.protocol === 'http:' && loopback)) return u.origin
+  } catch {}
+  return DEFAULT_CLOUD_URL
+}
 
 export const DEFAULT_SETTINGS = Object.freeze({
   /** Pasta padrão para downloads. */
@@ -103,7 +122,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   mobileAccountId: '',
   mobileFolderId: '',
   mobileFolderName: '',
-  /** Endereço do app do celular publicado (Vercel) e o ID do cliente "Aplicativo da Web" (QR que já configura). */
+  /**
+   * Obsoletos: o app do celular agora mora no site das contas (`<SOBEDESCE_CLOUD_URL>/app/`) e não usa client ID.
+   * Ficam aceitos para não estragar ajustes salvos por versões antigas, mas não mudam mais nada.
+   */
   mobileWebUrl: '',
   webClientId: '',
 })
@@ -141,7 +163,7 @@ function isWebUrl(v) {
  * IDs do Google só têm letras, números, '_', '-' e '.' — nada que precise de escape em URL.
  */
 const OPTIONAL_STRINGS = {
-  mobileAccountId: v => /^[\w.-]{0,200}$/.test(v),
+  mobileAccountId: v => /^(nuvem:)?[\w.-]{0,200}$/.test(v), // contas da nuvem: 'nuvem:<id>'
   mobileFolderId: v => /^[\w.-]{0,200}$/.test(v),
   mobileFolderName: v => v.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(v),
   mobileWebUrl: v => v === '' || (v.length <= 2048 && isWebUrl(v)),

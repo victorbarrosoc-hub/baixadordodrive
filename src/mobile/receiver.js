@@ -30,7 +30,8 @@ import { classifyError } from '../google/errors.js'
 import { HttpProblem, baseHeaders, sendJSON, toProblem } from '../server/routes.js'
 import { hostInfo, lanAddresses } from './net.js'
 
-export const MOBILE_DIR = fileURLToPath(new URL('../../mobile/', import.meta.url))
+// A mesma casca do app do celular publicado em /app/ (web/public/app), servida aqui em /m/.
+export const MOBILE_DIR = fileURLToPath(new URL('../../web/public/app/', import.meta.url))
 export const PARTS_DIR = '.sobedesce-recebendo' // oculta dentro da pasta de recebidos (mesmo disco: renomear é instantâneo)
 
 const MiB = 1024 * 1024
