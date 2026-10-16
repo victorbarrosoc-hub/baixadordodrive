@@ -1,10 +1,21 @@
 import type { Metadata, Viewport } from "next";
+import { SITE_DESCRICAO, SITE_NOME, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://sobedesce.vercel.app"),
-  title: { default: "SOBEDESCE", template: "%s · SOBEDESCE" },
-  description: "Transferências rápidas e retomáveis para o Google Drive, feitas para arquivos gigantes de audiovisual.",
+  metadataBase: new URL(SITE_URL),
+  title: { default: SITE_NOME, template: "%s · SOBEDESCE" },
+  description: SITE_DESCRICAO,
+  applicationName: SITE_NOME,
+  openGraph: {
+    type: "website",
+    locale: "pt_BR",
+    siteName: SITE_NOME,
+    title: "SOBEDESCE · Arquivos gigantes no Google Drive",
+    description: SITE_DESCRICAO,
+    url: "/",
+  },
+  twitter: { card: "summary_large_image" },
 };
 
 export const viewport: Viewport = {
