@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 
 /** Cabeçalhos de segurança de todas as respostas. */
@@ -45,6 +46,10 @@ const nextConfig: NextConfig = {
   // O redirecionamento automático de barra do Next levaria /app/ para /app; ele fica desligado e é refeito
   // abaixo, igual ao padrão, para todo o resto do site.
   skipTrailingSlashRedirect: true,
+  // O PGlite (banco local) carrega arquivos próprios em tempo de execução: fica fora do bundle.
+  serverExternalPackages: ["@electric-sql/pglite"],
+  // O repositório tem outro package-lock na raiz (app desktop): a raiz do site é esta pasta.
+  turbopack: { root: fileURLToPath(new URL(".", import.meta.url)) },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

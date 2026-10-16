@@ -6,9 +6,13 @@
  * - Computador: PGlite (Postgres num arquivo) em ./data/pglite. Com `npm run dev`
  *   ele roda como servidor local (scripts/dev.mjs) e o site conecta por SOBEDESCE_LOCAL_DB_URL;
  *   os scripts de banco (migrate, seed) abrem o arquivo direto, com o site parado.
+ * - Testes: SOBEDESCE_PGLITE_DIR=memory:// (ou um diretório temporário) troca o arquivo.
  * Sem "server-only" para os scripts e o drizzle.config poderem usar.
  */
-export const LOCAL_DATABASE_DIR = "./data/pglite";
+export const LOCAL_DATABASE_DIR = process.env.SOBEDESCE_PGLITE_DIR || "./data/pglite";
+
+/** "memory://" (testes): banco em memória, nada no disco. */
+export const LOCAL_DATABASE_IN_MEMORY = LOCAL_DATABASE_DIR.startsWith("memory://");
 
 const isPostgresUrl = (value: string | undefined) => !!value && /^postgres(ql)?:\/\//.test(value);
 

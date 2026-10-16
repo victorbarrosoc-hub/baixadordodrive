@@ -8,7 +8,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePostgres, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { LOCAL_DATABASE_DIR, databaseConfig } from "./config";
+import { LOCAL_DATABASE_DIR, LOCAL_DATABASE_IN_MEMORY, databaseConfig } from "./config";
 import * as schema from "./schema";
 
 export type DB = PostgresJsDatabase<typeof schema>;
@@ -19,7 +19,7 @@ const globalForDb = globalThis as unknown as { sobedesceDb?: DB; sobedescePglite
 function connect(): DB {
   if (!config.server) {
     // Scripts de banco (migrate, seed): abrem o arquivo do PGlite direto.
-    mkdirSync(LOCAL_DATABASE_DIR, { recursive: true });
+    if (!LOCAL_DATABASE_IN_MEMORY) mkdirSync(LOCAL_DATABASE_DIR, { recursive: true });
     const client = globalForDb.sobedescePglite ?? new PGlite(LOCAL_DATABASE_DIR);
     globalForDb.sobedescePglite = client;
     // O PGlite fala o mesmo Postgres: as consultas são as mesmas da produção.

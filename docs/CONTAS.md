@@ -31,7 +31,8 @@ Mudou algo aqui? Avise as outras frentes.
 | `GOOGLE_CLIENT_SECRET` | Segredo do mesmo cliente. |
 | `SOBEDESCE_KEY` | 32 bytes em base64. Cifra AES-256-GCM dos tokens do Google. |
 | `NEXT_PUBLIC_SITE_URL` | Opcional. Padrão `https://sobedesce.vercel.app`. |
-| `SOBEDESCE_GOOGLE_BASE` | Só testes: Google falso. Ignorada se `VERCEL` ou `NODE_ENV=production`, e só aceita 127.0.0.1/localhost. |
+| `SOBEDESCE_GOOGLE_BASE` | Só testes: Google falso. Ignorada se `VERCEL` ou `NODE_ENV=production`, e só aceita 127.0.0.1/localhost. Caminhos usados: `/o/oauth2/v2/auth`, `/token`, `/revoke`, `/v1/userinfo` (o Google falso das contas está em `web/tests/google-falso.mts`). |
+| `SOBEDESCE_PGLITE_DIR` | Só testes/local: onde fica o PGlite (padrão `./data/pglite`; `memory://` = em memória). |
 
 Redirect do Google: `https://sobedesce.vercel.app/api/google/callback`
 (local: `http://localhost:3000/api/google/callback`).
@@ -48,9 +49,12 @@ Redirect do Google: `https://sobedesce.vercel.app/api/google/callback`
   SOBEDESCE), `email`, `nome`, `fotoUrl`, `refreshTokenEnc`, `accessTokenEnc`, `accessExpiraEm`,
   `escopos`, `estado` (`ok` | `reconectar`), `criadoEm`, `atualizadoEm`.
 - `codigosDispositivo`: `id`, `codigo` (único, `ABCD-EFGH`, sem letras ambíguas), `segredoHash`
-  (sha256), `nome`, `plataforma`, `usuarioId` (null até aprovar), `aprovadoEm`, `usadoEm`, `expiraEm` (10 min), `criadoEm`.
+  (sha256, único), `nome`, `plataforma`, `usuarioId` (null até aprovar), `aprovadoEm`, `usadoEm`,
+  `consultadoEm` (última consulta do `/aguardar`, para o 429), `expiraEm` (10 min), `criadoEm`.
 - `tentativas`: limite de tentativas (login por e-mail+IP, criação de conta por IP, código de
-  dispositivo por IP). `chave`, `quando`. Limpeza preguiçosa.
+  dispositivo por IP). `id` (identity), `chave`, `quando`. Limpeza preguiçosa.
+  Regras atuais (`web/src/lib/auth/limite.ts`): login 8 erros/15 min por e-mail+IP e 40/15 min por IP;
+  criar conta 10/h por IP; `/api/dispositivo/iniciar` 30/h por IP; código errado na tela 20/15 min por IP.
 
 Migrações em `web/drizzle/` (`npm run db:generate`). Na Vercel o `vercel-build` aplica antes do build.
 
@@ -59,29 +63,43 @@ Migrações em `web/drizzle/` (`npm run db:generate`). Na Vercel o `vercel-build
 - Web: cookie `sd_sessao` = token aleatório (32 bytes base64url). No banco só o sha256.
   `httpOnly`, `secure` (fora do localhost), `sameSite=lax`, `path=/`, 30 dias.
 - Dispositivo: `Authorization: Bearer sdd_<token>`. Mesma tabela, `tipo=dispositivo`.
-- `web/src/lib/auth/`:
-  - `usuarioAtual()`: lê cookie **ou** Bearer, devolve `{ usuario, sessao } | null`.
-  - `exigirUsuario()`: redireciona para `/entrar?volta=...`.
-- Server Actions e rotas que mudam algo: `exigirUsuario()` primeiro. Rotas com cookie conferem
-  `Origin` (CSRF). Rotas com Bearer não usam cookie.
+- `web/src/lib/auth/atual.ts` (páginas e Server Actions, usa `next/headers`):
+  - `usuarioAtual()`: lê cookie **ou** Bearer, devolve `{ usuario, sessao, via: "cookie" | "bearer" } | null`.
+  - `exigirUsuario(volta)`: redireciona para `/entrar?volta=...`.
+- `web/src/lib/auth/requisicao.ts` (rotas da API, só `Request`):
+  `usuarioDaRequisicao(req)` e `exigirNaApi(req, { mutacao })` (sessão + Origin quando veio do cookie).
+- Com `Authorization` presente, só o Bearer conta (o cookie é ignorado). O token do site não vale como Bearer.
+- Server Actions e rotas que mudam algo: sessão primeiro. Rotas com cookie conferem
+  `Origin` (CSRF: sem Origin, `null` ou de outro site = 403 `origem`). Rotas com Bearer não usam cookie.
+  O navegador manda Origin sozinho em `fetch` POST da mesma origem: a PWA `/app` não precisa fazer nada.
+- `web/src/proxy.ts` regrava o cookie (mais 30 dias) em `/conta`, `/dispositivo` e `/app/*`.
+- Trocar a senha encerra as outras sessões (site e computadores) e mantém a atual.
 
 ## 5. API (JSON, `Cache-Control: no-store`)
 
 Todas aceitam cookie (`sd_sessao`) ou Bearer de dispositivo, salvo onde dito.
 Erro: `{ "erro": "<codigo>", "mensagem": "<texto para a tela>" }` com o status HTTP.
+Códigos comuns: `401 sem_sessao`, `403 origem` (cookie sem Origin do site), `400 entrada` (corpo ruim).
 
 | Método e caminho | Entrada | Saída |
 |---|---|---|
 | `GET /api/eu` | | `200 { usuario: { id, email, nome }, contas: Conta[] }` · `401 { erro: "sem_sessao" }` |
 | `GET /api/drive/contas` | | `200 { contas: Conta[] }` |
-| `POST /api/drive/token` | `{ conta: "<id>", renovar?: boolean }` | `200 { accessToken, expiraEm (ms epoch), email }` · `404 nao_encontrada` · `409 { erro: "reconectar", mensagem }` · `502 google` |
-| `POST /api/dispositivo/iniciar` | `{ nome, plataforma }` (sem sessão) | `200 { codigo, segredo, url, intervalo: 3, expiraEm }` |
-| `POST /api/dispositivo/aguardar` | `{ segredo }` (sem sessão) | `202 { estado: "pendente" }` · `200 { estado: "pronto", token: "sdd_...", usuario }` (uma vez só) · `410 { erro: "expirado" }` · `429 devagar` |
+| `POST /api/drive/token` | `{ conta: "<id>", renovar?: boolean }` | `200 { accessToken, expiraEm (ms epoch), email }` · `404 nao_encontrada` · `409 { erro: "reconectar", mensagem }` · `502 google` · `503 sem_config` |
+| `POST /api/dispositivo/iniciar` | `{ nome, plataforma }` (sem sessão; `plataforma` fora de mac/windows/linux vira null) | `200 { codigo, segredo, url, intervalo: 3, expiraEm }` · `429 devagar` |
+| `POST /api/dispositivo/aguardar` | `{ segredo }` (sem sessão) | `202 { estado: "pendente" }` · `200 { estado: "pronto", token: "sdd_...", usuario }` (uma vez só) · `410 { erro: "expirado" }` (vencido, cancelado, já usado ou segredo desconhecido) · `429 devagar` (menos de 2 s desde a consulta anterior; `Retry-After: 3`) |
 | `POST /api/dispositivo/sair` | Bearer | `204` (revoga a própria sessão) |
 | `GET /api/google/conectar?modo=vincular\|entrar&volta=/conta` | | 302 para o Google (state + PKCE em cookie assinado de 10 min) |
 | `GET /api/google/callback` | | 302 para `volta` com `?google=ok` ou `?erro=<codigo>` |
 
 `Conta = { id, email, nome, fotoUrl, estado: "ok" | "reconectar" }`. Nunca sai token de refresh.
+
+Erros que o callback devolve em `?erro=` (textos em `web/src/components/conta/mensagens.ts`):
+`google_recusado` (access_denied), `google_sem_conta` (entrar com conta Google não vinculada: vai para
+`/entrar`), `google_outra_conta` (a conta Google já é de outro usuário; nada é gravado nem revogado),
+`google_sem_drive` (desmarcou o Drive no consentimento), `google_expirou` (cookie/state vencido ou
+trocado), `google_erro`, `google_config`. "Entrar com Google" também renova os tokens guardados
+(tira o "reconectar"). Vincular de novo a mesma conta Google é o "Reconectar" (mesmo `id`).
 
 `/api/drive/token`: devolve o access token guardado se faltar mais de 5 min para vencer; senão
 renova no Google (uma renovação por vez por conta). `invalid_grant` → `estado=reconectar` e 409.
@@ -98,7 +116,9 @@ renova no Google (uma renovação por vez por conta). `invalid_grant` → `estad
 | `/app` | celular | O envio pelo celular (PWA), usando os Drives da conta. |
 
 Cabeçalho e rodapé do site: `web/src/components/site/` (frente home). As telas de conta usam
-`web/src/components/ui/` (Button, Input, Field, Card).
+`web/src/components/ui/` (Button, Input, Field, Card) e um cabeçalho simples próprio em
+`web/src/components/conta/`. Ficam no grupo `web/src/app/(conta)/`; `/sair` pede um toque (POST),
+um link não derruba a sessão. `/dispositivo` sem `codigo` mostra um campo para digitar o código.
 
 Downloads do desktop: Release `versao-de-teste` do GitHub
 (`https://github.com/victorbarrosoc-hub/baixadordodrive/releases/tag/versao-de-teste`).
