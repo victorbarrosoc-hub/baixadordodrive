@@ -7,7 +7,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { ipDe, origemConfere, origemDoPedido } from "@/lib/http";
-import { cookieSeguro, siteUrl } from "@/lib/site";
+import { cookieSeguro, origensDoSite } from "@/lib/site";
 import { autenticar, COOKIE_SESSAO, opcoesCookieSessao, type Autenticado } from "./sessao";
 import { voltaSegura } from "./volta";
 
@@ -30,7 +30,7 @@ export async function exigirUsuario(volta = "/conta"): Promise<Autenticado> {
  */
 export async function origemDaAcaoConfere(): Promise<boolean> {
   const h = await headers();
-  return origemConfere(h, undefined, siteUrl());
+  return origemConfere(h, undefined, origensDoSite());
 }
 
 /** Grava o cookie da sessão (só em Server Action ou rota). */

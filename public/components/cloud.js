@@ -144,7 +144,7 @@ export function CloudAccountRows() {
     return html`<div class="srow">
       <div class="srow-text">
         <div class="srow-label">Entre para usar os Drives da sua conta</div>
-        <div class="srow-desc">${cloud.aviso || 'Os Drives que você conectou em sobedesce.vercel.app aparecem aqui, sem chave do Google.'}</div>
+        <div class="srow-desc">${cloud.aviso || 'Os Drives que você conectou em sobedesce.com aparecem aqui, sem chave do Google.'}</div>
       </div>
       <div class="srow-control"><${CloudSignIn} /></div>
     </div>`

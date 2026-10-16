@@ -12,11 +12,11 @@ export function pkce(): { verificador: string; desafio: string } {
   return { verificador, desafio };
 }
 
-export function urlDeConsentimento({ state, desafio }: { state: string; desafio: string }): string {
+export function urlDeConsentimento({ state, desafio, origem }: { state: string; desafio: string; origem?: string | null }): string {
   const { clientId } = credenciais();
   const u = new URL(endpoints().auth);
   u.searchParams.set("client_id", clientId);
-  u.searchParams.set("redirect_uri", redirectUri());
+  u.searchParams.set("redirect_uri", redirectUri(origem));
   u.searchParams.set("response_type", "code");
   u.searchParams.set("scope", ESCOPOS);
   u.searchParams.set("access_type", "offline");
@@ -51,7 +51,7 @@ async function postToken(campos: Record<string, string>): Promise<RespostaToken>
 export type Tokens = { refresh: string | null; acesso: string; expiraEm: number; escopo: string };
 
 /** Troca o código do consentimento. `refresh` null = o Google não mandou. */
-export async function trocarCodigo(code: string, verificador: string): Promise<Tokens> {
+export async function trocarCodigo(code: string, verificador: string, origem?: string | null): Promise<Tokens> {
   const { clientId, clientSecret } = credenciais();
   const j = await postToken({
     grant_type: "authorization_code",
@@ -59,7 +59,7 @@ export async function trocarCodigo(code: string, verificador: string): Promise<T
     code_verifier: verificador,
     client_id: clientId,
     client_secret: clientSecret,
-    redirect_uri: redirectUri(),
+    redirect_uri: redirectUri(origem),
   });
   return { refresh: j.refresh_token ?? null, acesso: j.access_token!, expiraEm: Date.now() + (j.expires_in ?? 3600) * 1000, escopo: j.scope ?? "" };
 }

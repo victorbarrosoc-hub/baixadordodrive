@@ -1,6 +1,6 @@
 # SOBEDESCE · instalador para Windows, sem o aviso "O Windows protegeu o computador".
 #
-#   irm https://sobedesce.vercel.app/instalar.ps1 | iex
+#   irm https://sobedesce.com/instalar.ps1 | iex
 #
 # Por que funciona: o aviso (SmartScreen) vem da marca "veio da internet" que o navegador põe no arquivo baixado.
 # O PowerShell não põe (e o script ainda tira com Unblock-File, por garantia).
@@ -20,7 +20,7 @@
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
   } catch {}
 
-  $site = if ($env:SOBEDESCE_SITE) { $env:SOBEDESCE_SITE.TrimEnd('/') } else { 'https://sobedesce.vercel.app' }
+  $site = if ($env:SOBEDESCE_SITE) { $env:SOBEDESCE_SITE.TrimEnd('/') } else { 'https://sobedesce.com' }
   $tmp = $null
 
   function Passo([string]$n, [string]$texto) {

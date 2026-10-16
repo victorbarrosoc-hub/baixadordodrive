@@ -4,7 +4,7 @@ import { api, attempt } from './api.js'
 import { getState, setCloud } from './store.js'
 import { openExternal } from './desktop.js'
 
-export const SITE = 'https://sobedesce.vercel.app'
+export const SITE = 'https://sobedesce.com'
 
 export function siteUrl() {
   return getState().cloud?.site || SITE
@@ -52,7 +52,7 @@ export async function cloudRefresh({ force = false, quiet = false } = {}) {
   return res?.cloud ?? null
 }
 
-/** Voltar para a janela depois de mexer em sobedesce.vercel.app/conta: a lista se atualiza sozinha. */
+/** Voltar para a janela depois de mexer em sobedesce.com/conta: a lista se atualiza sozinha. */
 export function startCloudWatch() {
   const onBack = () => {
     if (document.visibilityState === 'visible') cloudRefresh({ quiet: true })

@@ -68,7 +68,7 @@ export function extractClientId(text) {
   return m ? m[0] : ''
 }
 
-/** "sobedesce.vercel.app" → "https://sobedesce.vercel.app". Vazio continua vazio. */
+/** "sobedesce.com" → "https://sobedesce.com". Vazio continua vazio. */
 export function normalizeWebUrl(text) {
   const t = String(text || '').trim()
   if (!t) return ''

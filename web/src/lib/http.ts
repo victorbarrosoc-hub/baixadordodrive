@@ -106,16 +106,18 @@ export function origemDoPedido(headers: Headers, urlDoPedido?: string): string |
  * CSRF das mutações com cookie: o navegador sempre manda Origin num POST.
  * Sem Origin, com "null" ou de outro site: recusa. Vale a origem do próprio pedido ou a do site oficial.
  */
-export function origemConfere(headers: Headers, urlDoPedido: string | undefined, siteUrl: string): boolean {
+export function origemConfere(headers: Headers, urlDoPedido: string | undefined, siteUrl: string | string[]): boolean {
   const origem = headers.get("origin");
   if (!origem || origem === "null") return false;
   const aceitas = new Set<string>();
   const doPedido = origemDoPedido(headers, urlDoPedido);
   if (doPedido) aceitas.add(doPedido);
-  try {
-    aceitas.add(new URL(siteUrl).origin);
-  } catch {
-    // SITE_URL inválida: só a do pedido vale
+  for (const s of Array.isArray(siteUrl) ? siteUrl : [siteUrl]) {
+    try {
+      aceitas.add(new URL(s).origin);
+    } catch {
+      // SITE_URL inválida: só a do pedido vale
+    }
   }
   return aceitas.has(origem);
 }

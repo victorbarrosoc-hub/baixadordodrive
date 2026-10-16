@@ -29,10 +29,10 @@ const DEFAULT_INTERVAL_S = 3
 const MAX_INTERVAL_MS = 15_000
 const DEFAULT_LOGIN_TTL_MS = 10 * 60_000
 
-export const MSG_RECONNECT = 'Reconecte este Drive em sobedesce.vercel.app/conta'
+export const MSG_RECONNECT = 'Reconecte este Drive em sobedesce.com/conta'
 const MSG_SIGNED_OUT = 'Sua sessão na conta SOBEDESCE terminou. Entre de novo para usar seus Drives.'
 const MSG_NOT_SIGNED_IN = 'Entre na conta SOBEDESCE para usar este Drive.'
-const MSG_GONE = 'Este Drive saiu da sua conta SOBEDESCE. Confira em sobedesce.vercel.app/conta.'
+const MSG_GONE = 'Este Drive saiu da sua conta SOBEDESCE. Confira em sobedesce.com/conta.'
 const MSG_OFFLINE = 'Sem conexão com a conta SOBEDESCE. Tentando de novo…'
 const MSG_SERVER = 'A conta SOBEDESCE não respondeu agora. Tentando de novo…'
 
@@ -312,7 +312,7 @@ export class CloudAuth extends EventEmitter {
     } catch (err) {
       if (isAbortError(err)) throw err
       const t = transient(err)
-      if (t) throw new SobeDesceError('retry', 'Não consegui falar com sobedesce.vercel.app. Confira a internet e tente de novo.', { reason: t.reason })
+      if (t) throw new SobeDesceError('retry', 'Não consegui falar com sobedesce.com. Confira a internet e tente de novo.', { reason: t.reason })
       throw new SobeDesceError('fatal', siteMessage(err, 'O site não deixou começar o login agora. Tente de novo.'), { reason: err?.body?.erro || null, status: err?.status })
     }
     const d = res.data || {}
