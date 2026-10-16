@@ -9,6 +9,8 @@ import { toast } from '../lib/toasts.js'
 import { Icon, Wordmark } from './icons.js'
 import { Button } from './common.js'
 import { OAuthWaiting } from './oauth-wait.js'
+import { CloudDrives, CloudReady, CloudSignIn, confirmCloudLogout } from './cloud.js'
+import { cloudCancel, cloudRefresh } from '../lib/cloud.js'
 
 function Steps({ current, done, onPick }) {
   return html`<ol class="steps" aria-label="Etapas">
@@ -200,7 +202,68 @@ function StepConnect({ step, hint, onChangeKey }) {
   </div>`
 }
 
+/** Boas-vindas: entrar com a conta SOBEDESCE (o caminho principal). A chave própria do Google fica como alternativa. */
+function CloudWelcome() {
+  const cloud = useStore((s) => s.cloud)
+  const setup = useStore((s) => s.setup)
+  const signed = !!cloud?.conectado
+  const contas = cloud?.contas || []
+  const pending = cloud?.login?.estado === 'pendente'
+  const user = cloud?.usuario || {}
+
+  const begin = async () => {
+    await cloudCancel() // limpa o "pronto" do login
+    navigate('transferencias')
+  }
+  const localPath = () => (setup.configured ? (location.href = '/api/auth/start') : navigate('inicio/local'))
+
+  let title = 'Entre na sua conta SOBEDESCE'
+  let lead = 'Os Google Drives da sua conta aparecem aqui, prontos para enviar e baixar. Sem chave do Google, sem configuração.'
+  if (pending) lead = 'Abrimos o navegador. Entre na sua conta e libere este computador com o código abaixo.'
+  if (signed && contas.length) {
+    title = 'Conta conectada'
+    lead = 'Estes Drives já podem enviar e baixar neste computador.'
+  } else if (signed) {
+    title = 'Falta conectar um Drive'
+    lead = 'Sua conta ainda não tem nenhum Google Drive. Conecte um no site e ele aparece aqui sozinho.'
+  }
+
+  return html`<div class="setup">
+    <div class="setup-brand"><${Wordmark} size=${26} /></div>
+    <main class="setup-card card welcome-card">
+      <div class="setup-top"><span class="eyebrow">Primeiros passos</span></div>
+      <h1 class="setup-title">${title}</h1>
+      <p class="setup-lead">${lead}</p>
+      ${signed
+        ? html`<div class="setup-step">
+            ${contas.length ? html`<${CloudReady} />` : null}
+            <div class="sgroup-box welcome-drives"><${CloudDrives} accounts=${contas} /></div>
+            <div class="setup-actions">
+              <span class="sub">Conta ${user.email || user.nome || 'SOBEDESCE'} · <button type="button" class="link" onClick=${confirmCloudLogout}>Sair da conta</button></span>
+              ${contas.length
+                ? html`<${Button} variant="primary" iconRight="arrow-right" onClick=${begin}>Começar</${Button}>`
+                : html`<${Button} icon="refresh" onClick=${() => cloudRefresh({ force: true })}>Atualizar</${Button}>`}
+            </div>
+          </div>`
+        : html`<div class="welcome-signin"><${CloudSignIn} hero /></div>
+            ${pending ? null : html`<div class="welcome-alt">
+              <span class="welcome-or"><span>ou</span></span>
+              <button type="button" class="btn btn-ghost btn-sm" onClick=${localPath}><${Icon} name="laptop" size=${15} /><span>Conectar um Drive só neste computador</span></button>
+              <span class="sub">Com a sua própria chave do Google. Leva uns dez minutos.</span>
+            </div>`}`}
+    </main>
+    <p class="setup-foot">Os arquivos vão direto deste computador para o Google. O site só guarda o acesso aos seus Drives.</p>
+  </div>`
+}
+
 export function SetupScreen({ route }) {
+  const sub = route?.parts[1]
+  if (sub !== 'local' && sub !== 'chave') return html`<${CloudWelcome} />`
+  return html`<${LocalSetup} route=${route} />`
+}
+
+/** Drive só neste computador: criar a chave no Google, colar, conectar (o caminho de antes da conta SOBEDESCE). */
+function LocalSetup({ route }) {
   const setup = useStore((s) => s.setup)
   const accounts = useStore((s) => s.accounts)
   const changingKey = route?.name === 'inicio' && route.parts[1] === 'chave'
@@ -218,12 +281,13 @@ export function SetupScreen({ route }) {
     if (changingKey && accounts.length) navigate('ajustes')
     else setCurrent(2)
   }
+  const back = accounts.length ? { label: 'Voltar para Ajustes', go: () => navigate('ajustes') } : { label: 'Entrar com a conta SOBEDESCE', go: () => navigate('inicio') }
 
   return html`<div class="setup">
     <div class="setup-brand"><${Wordmark} size=${26} /></div>
     <main class="setup-card card">
       <div class="setup-top">
-        <span class="eyebrow">${changingKey && accounts.length ? 'Trocar chave' : 'Primeiros passos'}</span>
+        <span class="eyebrow">${changingKey && accounts.length ? 'Trocar chave' : 'Drive só neste computador'}</span>
         <${Steps} current=${current} done=${done} onPick=${setCurrent} />
       </div>
       <h1 class="setup-title">${step.title}</h1>
@@ -239,6 +303,9 @@ export function SetupScreen({ route }) {
         : null}
       ${current === 2 ? html`<${StepConnect} step=${step} hint=${setup.clientIdHint} onChangeKey=${() => setCurrent(1)} />` : null}
     </main>
-    <p class="setup-foot">Tudo roda neste computador. O SOBEDESCE não tem servidor próprio e não vê seus arquivos.</p>
+    <p class="setup-foot">
+      Com a sua chave, tudo fica neste computador: nenhum servidor vê seus arquivos ou o acesso ao Drive.
+      <button type="button" class="link" onClick=${back.go}><${Icon} name="arrow-left" size=${12} /> ${back.label}</button>
+    </p>
   </div>`
 }

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn as nodeSpawn } from 'node:child_process'
-import { APP_NAME, APP_VERSION, validateSettings } from '../config.js'
+import { APP_NAME, APP_VERSION, cloudUrl, validateSettings } from '../config.js'
 import { classifyError } from '../google/errors.js'
 import { FOLDER_MIME } from '../google/drive.js'
 import { listDir, listRoots, expandHome } from '../local/fsbrowse.js'
@@ -315,6 +315,7 @@ export function createApi(ctx) {
       app: { name: APP_NAME, version: APP_VERSION, platform: process.platform, desktop: !!ctx.desktop },
       setup: ctx.auth.getClientInfo(),
       accounts: ctx.auth.listAccounts(),
+      cloud: ctx.auth.cloud?.status() ?? null,
       settings: ctx.settings.get(),
       transfers: snap.transfers,
       batches: snap.batches,
@@ -384,6 +385,33 @@ export function createApi(ctx) {
       sendHtml(res, 400, loginErrorPage(p?.message || 'Não consegui concluir o login. Tente conectar de novo.', ctx.desktop))
     }
   }, { raw: true })
+
+  // ── conta SOBEDESCE (fluxo de dispositivo; docs/CONTAS.md §7)
+  const cloud = () => {
+    if (!ctx.auth.cloud) throw new HttpProblem(404, 'A conta SOBEDESCE não está disponível nesta versão.')
+    return ctx.auth.cloud
+  }
+
+  route('GET', '/api/cloud', () => ({ cloud: cloud().status() }))
+
+  // Devolve o código e o endereço; a interface abre o navegador (window.sobedesce.openExternal no app, nova aba no navegador).
+  route('POST', '/api/cloud/login', async () => {
+    const c = cloud()
+    try {
+      await c.beginLogin()
+    } catch (err) {
+      // A mensagem já fala do site (não do Google): vai como está.
+      if (err?.name === 'SobeDesceError') throw new HttpProblem(err.kind === 'retry' ? 503 : 502, err.message)
+      throw err
+    }
+    return { cloud: c.status() }
+  })
+
+  route('POST', '/api/cloud/login/cancel', () => ({ cloud: cloud().cancelLogin() }))
+
+  route('POST', '/api/cloud/logout', async () => ({ cloud: await cloud().signOut() }))
+
+  route('POST', '/api/cloud/refresh', async () => ({ cloud: await cloud().refresh({ full: true }) }))
 
   route('DELETE', '/api/accounts/:id', async ({ params }) => {
     account(params.id)
@@ -547,13 +575,9 @@ export function createApi(ctx) {
   // ── celular (recepção pelo Wi-Fi e QR do app publicado)
   const mobileState = async () => {
     const st = ctx.settings.get()
-    let webUrl = null
-    if (st.mobileWebUrl) {
-      // O app do celular lê ?client_id= na primeira abertura e já fica configurado.
-      const u = new URL(st.mobileWebUrl)
-      if (st.webClientId) u.searchParams.set('client_id', st.webClientId)
-      webUrl = u.toString()
-    }
+    // O app do celular agora mora no site das contas (/app/) e usa os Drives da conta SOBEDESCE: sem client_id no QR.
+    const base = ctx.auth?.cloud?.baseUrl || cloudUrl()
+    const webUrl = `${base}/app/`
     const web = { webUrl, webQrSvg: webUrl ? qrSvg(webUrl) : null }
     if (!ctx.mobile) return { available: false, enabled: false, running: false, port: st.mobilePort, urls: [], qrSvg: null, dropUrl: null, shortcutSteps: shortcutSteps(null), ...web }
     const s = await ctx.mobile.status()

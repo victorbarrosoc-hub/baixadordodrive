@@ -6,8 +6,10 @@
 ## Visão geral
 
 SOBEDESCE é um app local: um **motor em Node.js** (roda na máquina do usuário, com acesso ao disco e
-várias conexões TCP) + uma **interface web** servida em `http://127.0.0.1:4317`. Nada passa por
-servidor nosso: o tráfego vai direto da máquina para o Google.
+várias conexões TCP) + uma **interface web** servida em `http://127.0.0.1:4317`. Nenhum byte de arquivo passa
+por servidor nosso: o tráfego vai direto da máquina para o Google. Os Drives vêm de dois lugares: da **conta
+SOBEDESCE** (o site `web/` guarda os refresh tokens e entrega access tokens ao app; ver `docs/CONTAS.md`) ou de
+um OAuth feito **só neste computador** com a chave do próprio usuário.
 
 ```
 navegador (UI Preact+htm)  ──HTTP/SSE──▶  src/server  ──▶  TransferManager ──▶ DownloadTask / UploadTask
@@ -15,6 +17,7 @@ navegador (UI Preact+htm)  ──HTTP/SSE──▶  src/server  ──▶  Trans
                                               ├─▶ Comparator    ├─▶ Hasher (worker)    └─▶ net/http (undici, HTTP/1.1)
                                               ├─▶ local/fs      └─▶ queue.json                    │
                                               └─▶ AuthManager / DriveClient  ──────────────────────▶ Google Drive API
+                                                     └─▶ CloudAuth ──HTTPS──▶ sobedesce.vercel.app (/api/drive/token)
 ```
 
 Por que é rápido:
@@ -45,7 +48,8 @@ src/
   util/paths.js          nomes seguros para o disco local, junção de caminhos relativos
   net/http.js            httpRequest, requestJSON, HttpError, drain, closeHttp     [pronto]
   google/errors.js       classifyError, SobeDesceError, stalledError                   [pronto]
-  google/oauth.js        AuthManager (OAuth loopback + PKCE, multi-conta)
+  google/oauth.js        AuthManager (OAuth loopback + PKCE, multi-conta; junta as contas da nuvem)
+  google/cloud-auth.js   CloudAuth (conta SOBEDESCE: fluxo de dispositivo, Drives da conta, tokens do site)
   google/drive.js        DriveClient (listar, árvore, pastas, metadados)
   engine/hasher.js       Hasher (MD5 em worker thread + cache por caminho/tamanho/mtime)
   engine/hash-worker.js  código do worker
@@ -61,6 +65,7 @@ src/
   server/routes.js       rotas da API
 public/                  UI (Preact + htm sem build; vendor servido de node_modules)
 test/mock-drive.js       Google Drive + OAuth falsos (com falhas e limite de banda por conexão)
+test/mock-cloud.js       site de contas falso (docs/CONTAS.md §5) que emite tokens do Drive falso
 scripts/demo.js          sobe o app ligado ao Drive falso, com arquivos de exemplo (sem credenciais);
                          SOBEDESCE_DEMO_HOME troca a pasta do demo (só apaga pasta vazia ou com a marca .sobedesce-demo)
 ```
@@ -127,6 +132,46 @@ async getAccessToken(accountId, { forceRefresh = false } = {}): string
 async removeAccount(accountId)              // revoga (melhor esforço) e apaga
 // eventos: 'accounts' (lista pública)
 ```
+
+Integração com a conta SOBEDESCE: `new AuthManager({ paths, cloud })`. `listAccounts()` devolve as locais
+(`source: 'local'`) seguidas das da nuvem (`source: 'nuvem'`, id `nuvem:<id>`); `getAccessToken('nuvem:…')` vai para
+`cloud.getAccessToken(<id>)`; `removeAccount('nuvem:…')` recusa (400, "use sobedesce.vercel.app/conta"); o evento
+`accounts` também dispara quando a lista da nuvem muda. `close()` para o relógio da nuvem. Sem `cloud`, id `nuvem:` → 'reauth'.
+O resto do motor (DriveClient, tarefas, fila com `accountId`) não sabe de onde vem a conta.
+
+### google/cloud-auth.js — `CloudAuth extends EventEmitter`
+
+Cliente da conta SOBEDESCE (contrato em `docs/CONTAS.md` §5 e §7). Base `https://sobedesce.vercel.app`, trocada por
+`SOBEDESCE_CLOUD_URL` (só https, ou http em 127.0.0.1/localhost; `cloudUrl()` em `config.js`).
+
+```js
+new CloudAuth({ paths, baseUrl?, deviceName?, platform?, refreshEveryMs = 5 min, retryBaseMs, pollMs? })
+async init()                      // lê cloud.json; com sessão: liga o relógio e atualiza a lista em segundo plano
+listAccounts()                    // [{ id: 'nuvem:<id>', email, name, photoUrl, addedAt: null, status: 'ok'|'reauth', source: 'nuvem' }]
+status(): CloudStatus             // para a interface; nunca leva token nem segredo
+async beginLogin()                // POST /api/dispositivo/iniciar { nome (scutil ComputerName / hostname), plataforma: mac|windows|linux }
+                                  //   e começa a consultar /api/dispositivo/aguardar a cada `intervalo` s (429 → mais devagar,
+                                  //   410 → 'expirado', rede fora → segue tentando até vencer). Pronto → grava a sessão, lê /api/eu.
+cancelLogin()
+async refresh({ full })           // GET /api/drive/contas (full ou sem usuário: GET /api/eu). Sem internet: guarda `erro`, mantém a lista.
+async getAccessToken(contaId, { forceRefresh, rejectedToken })
+    // POST /api/drive/token { conta, renovar? }. Cache em memória até faltar 5 min para `expiraEm`; uma requisição por vez
+    // por conta; forceRefresh (o Google deu 401) → renovar: true (se o cache já tem outro token que não o recusado, usa ele).
+    // 409 reconectar → conta vira 'reauth', SobeDesceError('reauth', 'Reconecte este Drive em sobedesce.vercel.app/conta',
+    // reason 'cloudReconnect'). 404 → 'reauth' (cloudAccountNotFound) e atualiza a lista. Rede/5xx/429 → 'retry' (3 tentativas;
+    // a razão é o código de rede, então o DriveClient aplica a janela de "sem internet").
+    // 401 em qualquer chamada com o token do dispositivo → sessão revogada: apaga cloud.json, esvazia a lista,
+    // status().aviso + evento 'signedOut' (vira toast), erro 'reauth' (reason 'cloudSignedOut').
+async signOut()                   // POST /api/dispositivo/sair (melhor esforço) e apaga cloud.json
+close()
+// eventos: 'accounts' (lista pública), 'status' (CloudStatus), 'signedOut' ({ reason, message })
+CloudStatus = { conectado, site, contaUrl, usuario: { id, email, nome }|null, contas: listAccounts(),
+                login: { estado: 'nenhum'|'pendente'|'pronto'|'expirado'|'erro', codigo?, url?, expiraEm?, mensagem? },
+                atualizadoEm, erro: string|null, aviso: string|null }
+```
+`cloud.json` (modo 0600, gravação atômica): `{ versao, servidor, token: 'sdd_…', usuario, contas, entrouEm, atualizadoEm }`.
+Token de outro `servidor` é ignorado. A lista guardada deixa o app abrir sem internet com as contas da fila no lugar.
+Quando a lista muda (Drive reconectado no site), o `TransferManager` volta para a fila o que estava pausado com 'reauth'.
 
 ### google/drive.js — `DriveClient`
 
@@ -419,11 +464,16 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 
 | Método | Rota | Corpo / query | Resposta |
 |---|---|---|---|
-| GET | `/api/state` | | `{ app:{name,version,platform}, setup:{configured, clientIdHint}, accounts, settings, transfers, batches, stats }` |
+| GET | `/api/state` | | `{ app:{name,version,platform}, setup:{configured, clientIdHint}, accounts, cloud, settings, transfers, batches, stats }` |
 | POST | `/api/setup/credentials` | `{ json }` ou `{ clientId, clientSecret }` | `{ setup }` |
 | GET | `/api/auth/start` | | 302 para o Google (redirect_uri = `http://127.0.0.1:<porta>/oauth/callback`) |
 | GET | `/oauth/callback` | `code, state` | página HTML "Conta conectada" que volta para `/` |
-| DELETE | `/api/accounts/:id` | | `{ accounts }` |
+| DELETE | `/api/accounts/:id` | | `{ accounts }` (conta `nuvem:` → 400) |
+| GET | `/api/cloud` | | `{ cloud: CloudStatus }` |
+| POST | `/api/cloud/login` | | `{ cloud }` com `login.codigo` e `login.url` (a interface abre o navegador) |
+| POST | `/api/cloud/login/cancel` | | `{ cloud }` |
+| POST | `/api/cloud/logout` | | `{ cloud }` |
+| POST | `/api/cloud/refresh` | | `{ cloud }` (relê /api/eu) |
 | GET | `/api/drive/:acc/about` | | `{ about }` |
 | GET | `/api/drive/:acc/drives` | | `{ drives }` |
 | GET | `/api/drive/:acc/list` | `folderId` (padrão `root`) | `{ folder, path, items }` |
@@ -445,16 +495,18 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 
 SSE (`text/event-stream`, `event:` + `data:` JSON, ping a cada 15 s):
 `hello` (= `/api/state`), `transfers` (PublicTransfer[] alterados), `removed` (ids), `batches`,
-`stats`, `accounts`, `settings`, `compare` (`{ jobId, status, progress, error? }`), `toast` (`{ kind, message }`).
+`stats`, `accounts`, `cloud` (CloudStatus), `settings`, `compare` (`{ jobId, status, progress, error? }`), `toast` (`{ kind, message }`).
 
 ### Interface (public/)
 
 Preact + htm sem build (`/vendor/preact-htm.js` = `node_modules/htm/preact/standalone.module.js`).
 Telas: **Transferências** (medidor ao vivo ↓/↑ com gráfico dos últimos 2 min, lotes agrupados,
 barra de progresso que mostra os segmentos como clipes numa timeline de edição, pausar/retomar/cancelar,
-filtros), **Drive** (navegar Meu Drive e drives compartilhados, selecionar e baixar, enviar para a pasta
+filtros), **Primeiros passos** (sem nenhum Drive: "Entrar com a conta SOBEDESCE" — código grande, "Abrir no navegador",
+"Pronto. Seus Drives apareceram aqui." — e, como alternativa, "Conectar um Drive só neste computador", que leva ao
+caminho antigo da chave em `#/inicio/local`), **Drive** (navegar Meu Drive e drives compartilhados, selecionar e baixar, enviar para a pasta
 atual), **Comparar** (pasta local × pasta do Drive, árvore com o que falta por pasta, botão
-"Subir o que falta"), **Ajustes**, e **Primeiros passos** (configurar credenciais Google + conectar conta).
+"Subir o que falta"), **Ajustes**.
 Seletor de pastas/arquivos locais próprio (modal) usando `/api/local/*`.
 
 ### O que a interface espera do servidor (decidido ao construir a UI)
@@ -466,7 +518,13 @@ Seletor de pastas/arquivos locais próprio (modal) usando `/api/local/*`.
   `transfers` mescla por id. Evento opcional `setup` (`{ configured, clientIdHint }`) também é tratado.
 - Status de comparação: `running` → `done` | `error` | `canceled`. A UI também consulta `GET /api/compare/:jobId` a cada 2,5 s.
 - `PublicTransfer.priority` (opcional; maior = primeiro) ordena a fila na UI, depois `createdAt`.
-- Item pausado com `error.kind === 'reauth'` mostra "Conectar de novo" (→ `/api/auth/start`).
+- Item pausado com `error.kind === 'reauth'` mostra "Conectar de novo" (→ `/api/auth/start`); se a conta é `nuvem:`,
+  "Reconectar no site" (→ `<site>/conta`) ou, com a sessão encerrada, "Entrar na conta" (→ Ajustes).
+- Ajustes começam por **Conta SOBEDESCE** (entrar/código, Drives com estado ok/reconectar, "Gerenciar Drives no site",
+  "Atualizar", "Sair da conta") e têm **Drives só neste computador** (as contas locais). Voltar para a janela (focus) pede
+  `/api/cloud/refresh` (no máximo a cada 20 s).
+- Ajustes → Celular → Em qualquer lugar: QR para `<SOBEDESCE_CLOUD_URL>/app/` (o app do celular mora no site e usa a
+  conta SOBEDESCE; sem client ID). Os ajustes antigos `mobileWebUrl`/`webClientId` ainda são aceitos, mas não mudam nada.
 - Limites de banda na UI são MB/s decimais (× 1e6); pedaço de upload em MiB (0 = contínuo).
 - Servir de `public/`: `/favicon.svg`, `/lib/*`, `/components/*`, `/app.js`, `/styles.css`. Sem scripts inline (CSP estrita funciona).
 - Depois do OAuth, o callback leva para `/` (a UI recarrega `/api/state`).

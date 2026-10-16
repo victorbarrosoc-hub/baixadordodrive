@@ -4276,3 +4276,168 @@ button.tree-twisty:hover {
     width: 100%;
   }
 }
+
+/* ───────────── conta SOBEDESCE ───────────── */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+.cloud-signin {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.cloud-signin.is-hero {
+  align-items: center;
+}
+.cloud-problem {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--warn-text);
+  line-height: 1.45;
+}
+.cloud-problem .icon {
+  flex: none;
+}
+.cloud-code-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 24px 22px;
+  border-radius: 18px;
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+  text-align: center;
+}
+.cloud-code-box.is-compact {
+  padding: 20px 18px 16px;
+  gap: 12px;
+  background: transparent;
+  border: 0;
+}
+.cloud-code {
+  display: flex;
+  align-items: baseline;
+  gap: 0.08em;
+  font-family: var(--mono);
+  font-size: 46px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+  padding-left: 0.14em; /* compensa o espaçamento da última letra */
+}
+.cloud-code-box.is-compact .cloud-code {
+  font-size: 34px;
+}
+.cloud-code-dash {
+  color: var(--text-3);
+  font-weight: 400;
+  letter-spacing: 0;
+  margin: 0 0.12em 0 0;
+}
+.cloud-code-hint {
+  margin: 0;
+  max-width: 380px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.cloud-code-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cloud-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.cloud-ready {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.cloud-ready-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--ok);
+  color: #fff;
+  flex: none;
+}
+.srow.cloud-srow {
+  justify-content: center;
+}
+.srow.is-stack.cloud-srow {
+  align-items: center;
+}
+.account-row.is-reauth .avatar {
+  opacity: 0.55;
+}
+.welcome-card .setup-step > .cloud-ready {
+  margin-bottom: 14px;
+}
+.welcome-drives {
+  box-shadow: none;
+}
+.welcome-signin {
+  margin-top: 28px;
+}
+.welcome-alt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 30px;
+}
+.welcome-alt > .sub {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.welcome-or {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.welcome-or::before,
+.welcome-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--hairline);
+}
+.setup-foot .link {
+  margin-left: 6px;
+  color: var(--text-2);
+}
+.menu-item-tag {
+  display: inline-flex;
+  color: var(--text-3);
+}
+@media (max-width: 720px) {
+  .cloud-code {
+    font-size: 34px;
+  }
+}
+.welcome-card .setup-top {
+  margin-bottom: 14px;
+}

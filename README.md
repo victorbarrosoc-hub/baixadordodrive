@@ -9,7 +9,7 @@
 - **Compara uma pasta do computador com uma pasta do Drive** e mostra, pasta por pasta, o que já subiu e o que falta.
 - **Recebe arquivos do celular** pelo Wi-Fi (o iPhone manda para o Mac, e o Mac sobe para o Drive).
 
-Tudo roda no seu computador. Os arquivos vão direto entre a sua máquina e o Google: **não existe servidor no meio**, e ninguém além de você tem acesso à sua conta.
+Os arquivos vão direto entre a sua máquina e o Google: **nenhum byte passa por servidor no meio**. Com a **conta SOBEDESCE**, o site ([sobedesce.vercel.app](https://sobedesce.vercel.app)) só guarda o acesso aos seus Drives; quem preferir pode conectar um Drive só no computador, com a própria chave do Google.
 
 ---
 
@@ -51,9 +51,19 @@ O mesmo `.dmg` funciona em Macs com Apple Silicon (M1, M2, M3, M4…) e com Inte
 
 ---
 
-## Primeiros passos com o Google (uma vez só)
+## Entrar com a conta SOBEDESCE (o jeito simples)
 
-O SOBEDESCE fala com o Google usando uma **chave sua**, criada no Google Cloud (é gratuito). Assim a cota e o acesso ficam só com você. Leva uns dez minutos:
+1. Crie sua conta em [sobedesce.vercel.app](https://sobedesce.vercel.app) e, em **Conta**, clique em **Conectar Google Drive** (dá para conectar vários).
+2. Abra o SOBEDESCE no computador e clique em **Entrar com a conta SOBEDESCE**. Aparece um código (tipo `ABCD-EFGH`) e o navegador abre na página de liberar o computador.
+3. Confira se o código é o mesmo e libere. Pronto: os Drives da conta aparecem no app.
+
+- O computador guarda só um token do aparelho (no arquivo `cloud.json` da pasta de dados, acessível só pelo seu usuário). O acesso ao Google fica no site e o app pede um token de cada vez.
+- Se um Drive pedir **Reconectar** (o Google vence o acesso a cada 7 dias enquanto o app do Google está em modo Teste), reconecte em [sobedesce.vercel.app/conta](https://sobedesce.vercel.app/conta). O que estava na fila com ele fica pausado e continua sozinho quando a lista se atualiza (ao voltar para o app, a cada 5 minutos ou em **Ajustes → Conta SOBEDESCE → Atualizar**).
+- **Sair da conta** (Ajustes) desconecta este computador. Desconectar o computador pelo site também tira os Drives daqui.
+
+## Conectar um Drive só neste computador (opcional, uma vez só)
+
+Quem prefere não usar a conta pode conectar um Drive direto, com uma **chave sua**. Nos Primeiros passos, clique em **Conectar um Drive só neste computador** (ou em Ajustes → Drives só neste computador). A chave é criada no Google Cloud (é gratuito). Assim a cota e o acesso ficam só com você. Leva uns dez minutos:
 
 1. **Crie um projeto** no Google Cloud.
 2. **Ative a Google Drive API.**
@@ -115,7 +125,7 @@ Para saber o que já subiu de um projeto:
 
 O celular e o computador precisam estar **na mesma rede Wi-Fi**. Na primeira vez, o macOS pergunta se o SOBEDESCE pode aceitar conexões de entrada: clique em **Permitir**.
 
-**Pela internet (sem o computador, direto do celular para o Google):** publique a pasta `mobile/` no Vercel e configure um cliente "Aplicativo da Web" no Google. Passo a passo em [mobile/README.md](mobile/README.md#publicar-no-vercel-pelo-painel). Depois, em **Ajustes → Celular → Em qualquer lugar**, cole o endereço do site e o ID do cliente Web: aparece um QR que já deixa o celular configurado.
+**Pela internet (sem o computador, direto do celular para o Google):** o app do celular fica em [sobedesce.vercel.app/app](https://sobedesce.vercel.app/app/) e usa os Drives da sua conta SOBEDESCE. Em **Ajustes → Celular → Em qualquer lugar** há um QR que abre esse endereço no iPhone.
 
 ---
 
@@ -135,9 +145,11 @@ O celular e o computador precisam estar **na mesma rede Wi-Fi**. Na primeira vez
 
 ## Solução de problemas
 
+- **Um Drive da conta aparece com "Reconectar"**: o acesso do Google venceu (modo Teste: a cada 7 dias). Reconecte em [sobedesce.vercel.app/conta](https://sobedesce.vercel.app/conta); a fila continua sozinha.
+- **"Sua sessão na conta SOBEDESCE terminou"**: este computador foi desconectado pelo site. Entre de novo em Ajustes → Conta SOBEDESCE.
 - **"O Google não verificou este app"** ao conectar: esperado. **Avançado → Acessar SOBEDESCE (não seguro)**.
 - **"Erro 403: access_denied"**: o app está em modo Teste e o seu e-mail não está na lista. Adicione em **Público-alvo → Usuários de teste**, ou publique o app.
-- **A conta desconecta toda semana** ("O acesso a esta conta expirou"): o app está em modo Teste. Vá em **Público-alvo → Publicar app** e conecte de novo em Ajustes → Contas.
+- **A conta desconecta toda semana** ("O acesso a esta conta expirou"): o app está em modo Teste. Vá em **Público-alvo → Publicar app** e conecte de novo em Ajustes → Drives só neste computador.
 - **"O Google apagou ou desativou seu cliente OAuth"**: clientes sem uso por 6 meses são apagados. Restaure em Google Auth Platform → Clientes (lixeira) ou crie outro e troque em **Ajustes → Chave do Google → Trocar chave**.
 - **"Sem conexão" / "retoma às 14:32"**: a internet ou o Google caiu. Não precisa fazer nada: o SOBEDESCE tenta de novo sozinho (1, 2, 5, 10, 15 minutos). Para tentar agora, clique em **Tentar agora** na linha.
 - **"Aguardando cota"**: limite de 750 GB/dia de upload, ou um arquivo baixado demais por outras pessoas (o Google bloqueia por algumas horas). Retoma sozinho.
@@ -155,16 +167,18 @@ O celular e o computador precisam estar **na mesma rede Wi-Fi**. Na primeira vez
 Tudo fica numa pasta do seu usuário: **`~/.sobedesce`** no Mac (pasta oculta; no Finder, ⇧⌘. mostra ocultos) e **`C:\Users\<você>\.sobedesce`** no Windows.
 
 - `credentials.json`: a chave do seu cliente Google.
-- `accounts.json`: o acesso às contas conectadas. **Só o seu usuário consegue ler** (permissão 600).
+- `accounts.json`: o acesso aos Drives conectados só neste computador. **Só o seu usuário consegue ler** (permissão 600).
+- `cloud.json`: o token deste computador na conta SOBEDESCE e a última lista de Drives dela (permissão 600; some ao sair da conta).
 - `queue.json`: a fila de transferências e o ponto onde cada uma parou.
 - `settings.json`, `hash-cache.json` (MD5 já calculados), `compares/` (últimas comparações), `usage.json` (uso das últimas 24 h).
 
 **Privacidade:**
 
-- O SOBEDESCE **não tem servidor**. Não coleta nada, não manda estatística, não tem conta própria.
-- O acesso ao seu Drive usa o escopo `drive` (necessário para listar, baixar e subir em qualquer pasta) e fica só neste computador.
+- Os arquivos **nunca passam por servidor nosso**: vão direto do computador para o Google. O app não coleta nada nem manda estatística.
+- Com a conta SOBEDESCE, o site guarda (cifrado) o acesso aos Drives que você vinculou e entrega ao app um token de acesso por vez. Drives conectados só neste computador ficam só aqui.
+- O acesso ao Drive usa o escopo `drive` (necessário para listar, baixar e subir em qualquer pasta).
 - A interface roda em `http://127.0.0.1:4317`, visível só para este computador. A recepção do celular (quando ligada) abre uma porta na rede local, protegida por um código secreto que está no QR. Gerar um código novo derruba o antigo na hora.
-- **Para remover tudo:** em Ajustes → Contas, clique em **Remover** (isso também revoga o acesso no Google) e apague a pasta `.sobedesce`. Para revogar por fora: [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+- **Para remover tudo:** em Ajustes → Conta SOBEDESCE, **Sair da conta**; em Drives só neste computador, **Remover** (isso também revoga o acesso no Google) e apague a pasta `.sobedesce`. Para revogar por fora: [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 
 ---
 

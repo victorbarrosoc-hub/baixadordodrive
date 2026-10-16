@@ -8,6 +8,7 @@ import { readJSON, writeJSONAtomic } from '../util/store.js'
 import { requestJSON, HttpError } from '../net/http.js'
 import { backoffDelay, sleep } from '../util/backoff.js'
 import { classifyError, SobeDesceError } from './errors.js'
+import { CLOUD_PREFIX } from './cloud-auth.js'
 
 const CLIENT_SUFFIX = '.apps.googleusercontent.com'
 const LOGIN_TTL_MS = 15 * 60_000 // o verifier de um login começado vale 15 min
@@ -105,11 +106,22 @@ function normalizeAccount(raw) {
   }
 }
 
+/** Id de conta que vem da conta SOBEDESCE ('nuvem:<id>')? */
+export function isCloudAccountId(id) {
+  return typeof id === 'string' && id.startsWith(CLOUD_PREFIX)
+}
+
 export class AuthManager extends EventEmitter {
-  /** @param {{ paths?: ReturnType<typeof dataPaths> }} [opts] */
-  constructor({ paths = dataPaths() } = {}) {
+  /**
+   * @param {{ paths?: ReturnType<typeof dataPaths>, cloud?: import('./cloud-auth.js').CloudAuth|null }} [opts]
+   *   `cloud`: contas da conta SOBEDESCE. Aparecem junto das locais (ids 'nuvem:<id>', source 'nuvem') e os
+   *   tokens delas vêm do site. Sem `cloud`, só as contas conectadas neste computador.
+   */
+  constructor({ paths = dataPaths(), cloud = null } = {}) {
     super()
     this.paths = paths
+    this.cloud = cloud
+    cloud?.on('accounts', () => this.emit('accounts', this.listAccounts()))
     this.client = null // { clientId, clientSecret }
     this.accounts = [] // com refreshToken: nunca sai daqui sem passar por publicAccount()
     this.tokens = new Map() // accountId -> { token, expiresAt }
@@ -130,7 +142,8 @@ export class AuthManager extends EventEmitter {
       }
       const raw = await readJSON(this.paths.accounts, null)
       const list = Array.isArray(raw?.accounts) ? raw.accounts : []
-      this.accounts = list.filter(a => a && a.id != null && typeof a.refreshToken === 'string' && a.refreshToken).map(normalizeAccount)
+      this.accounts = list.filter(a => a && a.id != null && typeof a.refreshToken === 'string' && a.refreshToken && !isCloudAccountId(String(a.id))).map(normalizeAccount)
+      await this.cloud?.init()
       this.loaded = true
     })().finally(() => {
       this.loading = null
@@ -194,11 +207,18 @@ export class AuthManager extends EventEmitter {
   }
 
   #publicAccount(a) {
-    return { id: a.id, email: a.email, name: a.name, photoUrl: a.photoUrl, addedAt: a.addedAt, consentedAt: a.consentedAt, status: a.status }
+    return { id: a.id, email: a.email, name: a.name, photoUrl: a.photoUrl, addedAt: a.addedAt, consentedAt: a.consentedAt, status: a.status, source: 'local' }
   }
 
+  /** Contas conectadas neste computador e, depois, as da conta SOBEDESCE (se houver). Nunca expõe tokens. */
   listAccounts() {
-    return this.accounts.map(a => this.#publicAccount(a))
+    const local = this.accounts.map(a => this.#publicAccount(a))
+    return this.cloud ? local.concat(this.cloud.listAccounts()) : local
+  }
+
+  /** Para o relógio da conta SOBEDESCE (ao fechar o app). */
+  close() {
+    this.cloud?.close()
   }
 
   async #save() {
@@ -360,6 +380,10 @@ export class AuthManager extends EventEmitter {
    */
   async getAccessToken(accountId, { forceRefresh = false, rejectedToken = null } = {}) {
     await this.#ready()
+    if (isCloudAccountId(String(accountId))) {
+      if (!this.cloud) throw new SobeDesceError('reauth', 'Entre na conta SOBEDESCE para usar este Drive.', { reason: 'cloudSignedOut' })
+      return this.cloud.getAccessToken(String(accountId).slice(CLOUD_PREFIX.length), { forceRefresh, rejectedToken })
+    }
     const account = this.#find(accountId)
     if (!account) throw new SobeDesceError('reauth', 'Esta conta não está mais conectada. Conecte a conta de novo.', { reason: 'accountNotFound' })
     if (account.status === 'reauth') throw this.#reauthError(account)
@@ -433,6 +457,9 @@ export class AuthManager extends EventEmitter {
   /** Revoga (melhor esforço) e apaga a conta. Devolve a lista atualizada. */
   async removeAccount(accountId) {
     await this.#ready()
+    if (isCloudAccountId(String(accountId))) {
+      throw badInput('Este Drive vem da sua conta SOBEDESCE. Para tirar, use sobedesce.vercel.app/conta.')
+    }
     const account = this.#find(accountId)
     if (!account) return this.listAccounts()
     this.accounts = this.accounts.filter(a => a !== account)
