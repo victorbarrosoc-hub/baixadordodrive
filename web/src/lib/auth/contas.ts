@@ -95,7 +95,9 @@ export async function trocarSenha(entrada: {
   const chave = `senha:${entrada.usuarioId}`;
   if (!(await dentroDoLimite(chave, REGRAS.loginEmail))) return { ok: false, erro: "devagar", mensagem: MENSAGEM_LIMITE };
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, entrada.usuarioId) });
-  if (!usuario || !(await conferirSenha(atual, usuario.senhaHash))) {
+  // Conta criada pelo Google não tem senha: a primeira é criada sem pedir a atual (a sessão já prova quem é).
+  const temSenha = Boolean(usuario?.senhaHash.startsWith("scrypt$"));
+  if (!usuario || (temSenha && !(await conferirSenha(atual, usuario.senhaHash)))) {
     await registrarTentativa(chave);
     return { ok: false, erro: "credenciais", campo: "senhaAtual", mensagem: "A senha atual não confere." };
   }
@@ -110,4 +112,10 @@ export async function trocarNome(usuarioId: string, valor: unknown): Promise<{ o
   if (!nome) return { ok: false, erro: "entrada", campo: "nome", mensagem: "O nome não pode ficar vazio." };
   await db.update(usuarios).set({ nome, atualizadoEm: new Date() }).where(eq(usuarios.id, usuarioId));
   return { ok: true, nome };
+}
+
+/** A conta tem senha? (as criadas pelo Google começam sem.) */
+export async function contaComSenha(usuarioId: string): Promise<boolean> {
+  const u = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId), columns: { senhaHash: true } });
+  return Boolean(u?.senhaHash.startsWith("scrypt$"));
 }

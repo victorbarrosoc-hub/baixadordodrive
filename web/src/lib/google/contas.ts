@@ -6,12 +6,13 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { EstadoContaGoogle } from "@/lib/db/schema";
+import { dentroDoLimite, REGRAS, registrarTentativa } from "@/lib/auth/limite";
 import { novoId } from "@/lib/auth/tokens";
 import { abrir, ChaveErrada, selar } from "./cripto";
 import { GoogleError } from "./erros";
 import { renovarAcesso, revogar, type PerfilGoogle, type Tokens } from "./oauth";
 
-const { contasGoogle } = schema;
+const { contasGoogle, usuarios } = schema;
 type Linha = typeof contasGoogle.$inferSelect;
 
 /** Formato público (docs/CONTAS.md §5). Nunca leva token. */
@@ -89,7 +90,41 @@ export async function donoDaContaGoogle(p: PerfilGoogle, tokens: Tokens): Promis
     .update(contasGoogle)
     .set(tokens.refresh ? { ...camposDosTokens(existente.id, tokens, tokens.refresh), ...extras } : extras)
     .where(eq(contasGoogle.id, existente.id));
+  await db.update(usuarios).set({ ultimoLoginEm: new Date() }).where(eq(usuarios.id, existente.usuarioId));
   return existente.usuarioId;
+}
+
+/** Marca de conta criada pelo Google: não é um hash, então nenhuma senha confere até a pessoa criar uma (Esqueci a senha). */
+export const SEM_SENHA = "google";
+
+export type ResultadoCriacao = { ok: true; usuarioId: string } | { ok: false; erro: "google_email_em_uso" | "google_email_nao_verificado" | "google_devagar" };
+
+/**
+ * "Continuar com Google" de quem ainda não tem conta: cria a conta SOBEDESCE com o nome e o e-mail
+ * do Google e já vincula esse Drive. E-mail que já tem conta (criada com senha) não é tomado: a pessoa
+ * entra com a senha e conecta o Drive em Sua conta.
+ */
+export async function criarContaComGoogle(p: PerfilGoogle, tokens: Tokens & { refresh: string }, ip: string): Promise<ResultadoCriacao> {
+  if (!p.emailVerificado) return { ok: false, erro: "google_email_nao_verificado" };
+  const chave = `criar:${ip}`;
+  if (!(await dentroDoLimite(chave, REGRAS.criarConta))) return { ok: false, erro: "google_devagar" };
+  await registrarTentativa(chave);
+
+  const usuarioId = novoId();
+  const nome = (p.nome?.trim() || p.email.split("@")[0]).slice(0, 80);
+  const criado = await db
+    .insert(usuarios)
+    .values({ id: usuarioId, email: p.email, nome, senhaHash: SEM_SENHA, ultimoLoginEm: new Date() })
+    .onConflictDoNothing({ target: usuarios.email })
+    .returning({ id: usuarios.id });
+  if (criado.length === 0) return { ok: false, erro: "google_email_em_uso" };
+  const v = await vincularConta(usuarioId, p, tokens);
+  if (!v.ok) {
+    // Corrida rara: outra aba vinculou esta conta Google a outro usuário no meio do caminho.
+    await db.delete(usuarios).where(eq(usuarios.id, usuarioId));
+    return { ok: false, erro: "google_email_em_uso" };
+  }
+  return { ok: true, usuarioId };
 }
 
 /** Remove a conta: revoga no Google (melhor esforço) e apaga a linha. */

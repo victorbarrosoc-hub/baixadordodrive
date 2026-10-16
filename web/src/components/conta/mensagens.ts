@@ -1,7 +1,9 @@
 /** Textos dos `?erro=` que voltam do Google e do login. Frases curtas, sem alarme. */
 export const ERROS_GOOGLE: Record<string, string> = {
-  google_recusado:
-    "Tudo bem, nada foi conectado. Se o Google disse que o acesso está bloqueado, seu e-mail ainda não foi liberado no teste: fale com o Victor.",
+  google_recusado: "Tudo bem, nada foi conectado.",
+  google_email_em_uso: "Este e-mail já tem uma conta SOBEDESCE. Entre com a senha e conecte o Drive em Sua conta.",
+  google_email_nao_verificado: "O Google não confirmou este e-mail. Use outra conta do Google ou crie a conta com e-mail e senha.",
+  google_devagar: "Muitas contas criadas daqui agora há pouco. Espere alguns minutos e tente de novo.",
   google_outra_conta: "Esta conta do Google já está ligada a outra conta SOBEDESCE. Entre por ela, ou remova o Drive de lá primeiro.",
   google_sem_drive: "Faltou permitir o acesso ao Google Drive na tela do Google. Tente de novo e deixe essa opção marcada.",
   google_expirou: "A conexão com o Google demorou demais. Tente de novo.",

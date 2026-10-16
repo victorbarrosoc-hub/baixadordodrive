@@ -12,7 +12,7 @@ const PALAVRA = "APAGAR";
  * Zona de perigo: abre um diálogo que pede a senha atual e a palavra APAGAR.
  * O botão só libera com a palavra; o servidor confere as duas.
  */
-export function ApagarConta({ email }: { email: string }) {
+export function ApagarConta({ email, temSenha }: { email: string; temSenha: boolean }) {
   const dialogo = useRef<HTMLDialogElement>(null);
   const [aberto, setAberto] = useState(false);
   const [palavra, setPalavra] = useState("");
@@ -60,9 +60,11 @@ export function ApagarConta({ email }: { email: string }) {
             </p>
           ) : null}
 
-          <Field label="Senha atual" htmlFor="apagar-senha" error={estado?.campo === "senha" ? estado.erro : null}>
-            <Input id="apagar-senha" name="senha" type="password" autoComplete="current-password" required aria-invalid={estado?.campo === "senha"} />
-          </Field>
+          {temSenha ? (
+            <Field label="Senha atual" htmlFor="apagar-senha" error={estado?.campo === "senha" ? estado.erro : null}>
+              <Input id="apagar-senha" name="senha" type="password" autoComplete="current-password" required aria-invalid={estado?.campo === "senha"} />
+            </Field>
+          ) : null}
           <Field label={`Para confirmar, digite ${PALAVRA}`} htmlFor="apagar-palavra" error={estado?.campo === "palavra" ? estado.erro : null}>
             <Input
               id="apagar-palavra"

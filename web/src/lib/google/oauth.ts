@@ -86,7 +86,7 @@ export async function revogar(token: string): Promise<void> {
   }
 }
 
-export type PerfilGoogle = { sub: string; email: string; nome: string | null; fotoUrl: string | null };
+export type PerfilGoogle = { sub: string; email: string; nome: string | null; fotoUrl: string | null; emailVerificado: boolean };
 
 /** Quem é a conta (OpenID userinfo). */
 export async function perfil(acesso: string): Promise<PerfilGoogle> {
@@ -96,10 +96,10 @@ export async function perfil(acesso: string): Promise<PerfilGoogle> {
   } catch {
     throw new GoogleError("rede", 0, "userinfo");
   }
-  const j = (await res.json().catch(() => null)) as { sub?: unknown; email?: unknown; name?: unknown; picture?: unknown } | null;
+  const j = (await res.json().catch(() => null)) as { sub?: unknown; email?: unknown; email_verified?: unknown; name?: unknown; picture?: unknown } | null;
   if (!res.ok || !j || typeof j.sub !== "string" || !j.sub || typeof j.email !== "string") throw new GoogleError("google", res.status, "userinfo");
   const foto = typeof j.picture === "string" && /^https:\/\//.test(j.picture) ? j.picture : null;
-  return { sub: j.sub, email: j.email.toLowerCase(), nome: typeof j.name === "string" ? j.name : null, fotoUrl: foto };
+  return { sub: j.sub, email: j.email.toLowerCase(), nome: typeof j.name === "string" ? j.name : null, fotoUrl: foto, emailVerificado: j.email_verified === true };
 }
 
 /** O escopo devolvido tem o Drive completo? (igualdade exata, nunca substring) */
