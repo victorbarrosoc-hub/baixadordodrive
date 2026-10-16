@@ -101,8 +101,13 @@ export function extractClientId(text) {
   return m ? m[0] : null
 }
 
+// ID público (não é segredo) do cliente "SOBEDESCE Celular" do projeto Google do Victor.
+// Vale só no endereço oficial; em outro domínio a tela de configurar continua pedindo o ID.
+const OFFICIAL_HOST = 'sobedesce.vercel.app'
+const OFFICIAL_CLIENT_ID = '235961238964-e87vitlplbrnu5kb3vsfms7tjgt98q4b.apps.googleusercontent.com'
+
 export function getClientId() {
-  return local.get(CLIENT_KEY)
+  return local.get(CLIENT_KEY) || (location.hostname === OFFICIAL_HOST ? OFFICIAL_CLIENT_ID : null)
 }
 
 export function saveClientId(id) {
