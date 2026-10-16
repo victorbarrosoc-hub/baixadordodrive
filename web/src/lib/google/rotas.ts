@@ -110,5 +110,8 @@ export async function callback(req: Request): Promise<Response> {
   const sessao = await criarSessao(usuarioId, "web");
   const o = opcoesCookieSessao(seguro);
   const cookieSessao = serializarCookie(COOKIE_SESSAO, sessao.token, { maxAge: o.maxAge, path: o.path, secure: o.secure });
-  return ir(criou ? comParametro(volta, "google", "ok") : volta, [cookieSessao]);
+  // No celular, quem só entrou (sem pedir outra página) vai direto para o envio.
+  const celular = /iPhone|iPad|iPod|Android|Mobile/i.test(req.headers.get("user-agent") ?? "");
+  const destino = volta === "/conta" && celular ? "/app/" : criou ? comParametro(volta, "google", "ok") : volta;
+  return ir(destino, [cookieSessao]);
 }

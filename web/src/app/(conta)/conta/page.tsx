@@ -6,6 +6,8 @@ import { Moldura, Secao } from "@/components/conta/moldura";
 import { Card } from "@/components/ui/card";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { listarDispositivos } from "@/lib/auth/sessao";
+import { Comecar } from "@/components/conta/comecar";
+import { MenuConta } from "@/components/conta/menu";
 import { contaComSenha } from "@/lib/auth/contas";
 import { listarContas } from "@/lib/google/contas";
 import { NOME_PLATAFORMA, tempoRelativo } from "@/lib/tempo";
@@ -28,7 +30,7 @@ export default async function Conta({ searchParams }: Props) {
   const primeiroNome = usuario.nome.split(" ")[0];
 
   return (
-    <Moldura titulo={`Olá, ${primeiroNome}`} subtitulo="Seus Drives e computadores ficam aqui.">
+    <Moldura titulo={`Olá, ${primeiroNome}`} subtitulo="Seus Drives e computadores ficam aqui." acao={<MenuConta />}>
       {conectou ? (
         <Aviso tom="ok" className="mb-10">
           <p>Google Drive conectado.</p>
@@ -42,6 +44,8 @@ export default async function Conta({ searchParams }: Props) {
           <p>{mensagemDeErro(erro)}</p>
         </Aviso>
       ) : null}
+
+      {contas.some((c) => c.estado === "ok") ? <Comecar /> : null}
 
       <Secao titulo="Google Drive" id="drives" descricao="As contas do Google que a SOBEDESCE usa para enviar e baixar.">
         <Card className="overflow-hidden">
