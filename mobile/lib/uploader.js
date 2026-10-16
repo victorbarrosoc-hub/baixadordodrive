@@ -14,10 +14,11 @@
 // Assim um token que vence no meio de um arquivo grande não para o envio — e no iPhone, onde renovar pode
 // exigir um toque, só os passos que precisam mesmo de token (conferir destino, abrir sessão) esperam.
 // Se mesmo assim o Google responder 401 num PUT, passamos a mandar o token naquela sessão.
-import { getSettings, local } from './config.js'
+import { LAN, getSettings, local } from './config.js'
 import * as auth from './auth.js'
 import { DriveError, backoffMs, createUploadSession, driveErrorFrom, findByName, isRetryable, sleep } from './drive.js'
 import { allRecords, deleteRecord, getRecord, putRecord, sessionKey } from './idb.js'
+import { LAN_MSG, lanDiscard, lanPut, lanStart, lanStatus } from './lan.js'
 import { keepAwake } from './wakelock.js'
 import { bytes } from './format.js'
 
@@ -29,7 +30,10 @@ const MAX_RESTARTS = 3
 const CAP_HITS = 4 // 403 userRateLimitExceeded seguidos = limite diário de 750 GB
 const RANGE_SEEN_KEY = 'sobedesce.rangeVisible'
 
-export const ACTIVE = new Set(['queued', 'preparing', 'running', 'paused'])
+// 'mac' (só no modo Wi-Fi): já chegou inteiro no computador, que está subindo pro Drive.
+export const ACTIVE = new Set(['queued', 'preparing', 'running', 'paused', 'mac'])
+const MAC_POLL_MS = 1500
+const MAC_POLL_MAX = 6 // por rodada: com centenas de arquivos no computador, não dá para perguntar de todos a cada 1,5 s
 const FINISHED = new Set(['done', 'skipped'])
 
 const MSG = {
@@ -37,6 +41,8 @@ const MSG = {
   quota: 'Seu Drive está cheio. Libere espaço e toque em Tentar de novo.',
   cap: 'O Google limita cada conta a 750 GB de envio por dia e esse limite chegou. Libera em até 24 horas; o que já subiu fica guardado.',
   restarts: 'O Google encerrou este envio várias vezes. Toque em Tentar de novo.',
+  lanNetwork: 'A conexão com o computador caiu várias vezes seguidas. Confira o Wi-Fi e toque em Tentar de novo — continua de onde parou.',
+  lanLost: 'O computador não tem mais este envio. Escolha o arquivo de novo.',
 }
 
 class Aborted extends Error {
@@ -106,6 +112,7 @@ function exposedHeader(xhr, name) {
 function messageFor(err) {
   if (!err) return 'Algo deu errado. Toque em Tentar de novo.'
   if (err instanceof UploadError) return err.message
+  if (err.lan) return err.message
   const r = err.reason
   if (r === 'storageQuotaExceeded') return MSG.quota
   if (r === 'userRateLimitExceeded') return MSG.cap
@@ -134,6 +141,7 @@ class Engine {
     this._tickN = 0
     this._hiddenAt = 0
     this._restoredFor = undefined
+    this._macTimer = 0 // modo Wi-Fi: acompanhamento dos que já estão no computador
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => this._onVisibility())
       window.addEventListener('beforeunload', (e) => {
@@ -190,7 +198,10 @@ class Engine {
         continue
       }
       if (rec.account && this.account && rec.account !== this.account) continue
+      if (Boolean(rec.lan) !== Boolean(LAN)) continue
       if (this.items.some((it) => it.key === rec.key)) continue
+      // Modo Wi-Fi: o que já está no computador não precisa do arquivo; só acompanhamos a subida pro Drive.
+      const onMac = rec.lan && rec.phase === 'mac'
       this.items.push({
         ...this._blank(),
         name: rec.name,
@@ -199,11 +210,14 @@ class Engine {
         type: rec.type || '',
         folder: rec.folder,
         key: rec.key,
-        status: 'needsFile',
-        offset: Math.min(rec.acked || 0, rec.size),
+        status: onMac ? 'mac' : 'needsFile',
+        offset: onMac ? rec.size : Math.min(rec.acked || 0, rec.size),
         addedAt: rec.createdAt,
+        lanId: rec.lanId || null,
+        lanMac: onMac,
       })
     }
+    this._watchMac()
     this.changed(true)
   }
 
@@ -231,6 +245,10 @@ class Engine {
       ctl: null,
       _lastBytes: 0,
       _lastAt: 0,
+      // modo Wi-Fi
+      lanId: null, // id do recebimento no computador
+      lanMac: false, // já chegou inteiro no computador
+      drive: null, // { status, bytesDone, size, speed, error, fileId } da subida do computador pro Drive
     }
   }
 
@@ -241,7 +259,8 @@ class Engine {
     let dupes = 0
     for (const file of files) {
       const waiting = this.items.find(
-        (it) => it.status === 'needsFile' && it.name === file.name && it.size === file.size && it.lastModified === file.lastModified,
+        // No Wi-Fi o computador reconhece por nome + tamanho (a Fototeca muda a data a cada escolha).
+        (it) => it.status === 'needsFile' && it.name === file.name && it.size === file.size && (LAN || it.lastModified === file.lastModified),
       )
       if (waiting) {
         waiting.file = file
@@ -279,7 +298,8 @@ class Engine {
     const { concurrency } = getSettings()
     for (const it of this.items) {
       if (this.running.size >= concurrency) break
-      if (it.status === 'queued' && it.file) this._start(it)
+      // Item que já está no computador (Wi-Fi) não precisa do arquivo para "tentar de novo".
+      if (it.status === 'queued' && (it.file || it.lanMac)) this._start(it)
     }
     this._activity()
   }
@@ -337,7 +357,11 @@ class Engine {
   remove(it) {
     if (it.ctl) this._abort(it, 'remove')
     this.items = this.items.filter((x) => x !== it)
-    if (!FINISHED.has(it.status)) {
+    if (LAN) {
+      // Pela metade no computador: ele apaga o pedaço. Já inteiro lá: o computador termina de subir sozinho.
+      if (it.lanId && !it.lanMac && !FINISHED.has(it.status)) lanDiscard(it.lanId)
+      deleteRecord(it.key)
+    } else if (!FINISHED.has(it.status)) {
       // Cancela a sessão no Google (cortesia) e esquece a retomada.
       getRecord(it.key).then((rec) => {
         if (rec?.uri) fetch(rec.uri, { method: 'DELETE' }).catch(() => {})
@@ -470,6 +494,7 @@ class Engine {
   }
 
   async _run(it, ctl) {
+    if (LAN) return this._runLan(it, ctl)
     let rec = await getRecord(it.key)
     if (rec && (Date.now() - rec.createdAt > SESSION_MAX_AGE || rec.size !== it.size)) {
       await deleteRecord(it.key)
@@ -555,7 +580,7 @@ class Engine {
 
   async _waitBeforeRetry(it, ctl, failures) {
     if (navigator.onLine === false) {
-      it.note = 'Sem internet — continuo quando voltar'
+      it.note = LAN ? 'Sem Wi-Fi — continuo quando voltar' : 'Sem internet — continuo quando voltar'
       this.changed()
       await new Promise((resolve, reject) => {
         const done = () => {
@@ -783,6 +808,222 @@ class Engine {
     })
   }
 
+  // ───── modo Wi-Fi: pedaços para o computador, que sobe pro Drive ─────
+  //
+  // POST /m/api/uploads abre (ou acha) o recebimento; cada pedaço vai num PUT com Upload-Offset. O computador é a
+  // fonte da verdade: 409 diz o ponto certo; depois de uma queda, GET devolve quanto chegou e seguimos dali.
+  // Chegou tudo: a linha vira "No Mac · subindo pro Drive" e acompanhamos o envio do computador (sem ocupar vaga).
+
+  async _runLan(it, ctl) {
+    it.note = it.lanMac ? 'Conferindo no computador…' : 'Conectando ao computador…'
+    this.changed()
+    let view = await this._retrying(it, ctl, () => lanStart(it, it.folder, ctl.signal))
+    this._check(ctl)
+    it.lanId = view.id
+    if (view.status === 'received') return this._toMac(it, view)
+    if (view.status === 'failed') throw new UploadError(view.error || 'O computador não conseguiu guardar o arquivo. Toque em Tentar de novo.')
+    if (!it.file) {
+      // Era um item "no computador" mas lá não existe mais inteiro: precisa do arquivo de novo.
+      it.status = 'needsFile'
+      it.lanMac = false
+      it.offset = view.offset
+      it.note = ''
+      return
+    }
+    it.status = 'running'
+    it.offset = view.offset
+    it.note = ''
+    await this._saveLan(it, 'sending')
+    const chunk = getSettings().chunkMiB * MiB
+    let failures = 0
+    let conflicts = 0
+    let lost = 0
+
+    // Depois de uma queda: pergunta ao computador quanto chegou.
+    const resync = async () => {
+      view = await this._retrying(it, ctl, () => lanStatus(it.lanId, ctl.signal))
+      this._check(ctl)
+      it.offset = view.offset
+      it.note = ''
+      return view.status === 'received'
+    }
+
+    for (;;) {
+      this._check(ctl)
+      if (it.offset >= it.size) {
+        if (await resync()) return this._toMac(it, view)
+        if (it.offset >= it.size) throw new UploadError('O computador não confirmou o fim do envio. Toque em Tentar de novo.')
+        continue
+      }
+      const start = it.offset
+      const end = Math.min(start + chunk, it.size)
+      let r
+      try {
+        r = await this._lanChunk(it, ctl, start, end)
+      } catch (err) {
+        if (ctl.aborted) throw new Aborted(ctl.aborted)
+        const wasResync = ctl.resync
+        ctl.resync = false
+        if (!wasResync) {
+          if (++failures > MAX_FAILURES) throw new UploadError(MSG.lanNetwork)
+          await this._waitBeforeRetry(it, ctl, failures)
+        }
+        if (await resync()) return this._toMac(it, view)
+        continue
+      }
+      const j = r.json || {}
+      if (r.status === 200) {
+        failures = 0
+        conflicts = 0
+        it.offset = Number(j.offset) || end
+        await this._saveLan(it, 'sending')
+        if (j.status === 'received') return this._toMac(it, j)
+        continue
+      }
+      if (r.status === 409 && Number.isFinite(j.offset)) {
+        // O computador está em outro ponto (pedaço repetido depois de uma queda): segue de lá.
+        if (++conflicts > 5) throw new UploadError('O computador e o celular não se entenderam sobre o ponto do envio. Toque em Tentar de novo.')
+        if (j.status === 'received' && (await resync())) return this._toMac(it, view)
+        it.offset = j.offset
+        continue
+      }
+      if (r.status === 404) {
+        // O computador esqueceu este recebimento (limpeza ou pasta de dados nova): começa outro.
+        if (++lost > 2) throw new UploadError(MSG.lanLost)
+        await deleteRecord(it.key)
+        view = await this._retrying(it, ctl, () => lanStart(it, it.folder, ctl.signal))
+        it.lanId = view.id
+        it.offset = view.offset
+        if (view.status === 'received') return this._toMac(it, view)
+        continue
+      }
+      if (r.status === 401) throw new UploadError(LAN_MSG.code)
+      // Disco cheio / sem permissão no computador: repetir não resolve; a mensagem dele explica o que fazer.
+      if (r.status === 507) throw new UploadError(j.error || 'O computador não conseguiu gravar o arquivo.')
+      if (r.status === 429 || r.status >= 500) {
+        if (++failures > MAX_FAILURES) throw new UploadError(MSG.lanNetwork)
+        await this._waitBeforeRetry(it, ctl, failures)
+        if (await resync()) return this._toMac(it, view)
+        continue
+      }
+      throw new UploadError(j.error || `O computador recusou o envio (${r.status}). Toque em Tentar de novo.`)
+    }
+  }
+
+  /** Um pedaço para o computador, com progresso e o mesmo detector de travamento do envio para o Google. */
+  async _lanChunk(it, ctl, start, end) {
+    this._check(ctl)
+    let last = performance.now()
+    it.lastProgressAt = Date.now()
+    const watchdog = setInterval(() => {
+      if (performance.now() - last > STALL_MS) ctl.xhr?.abort()
+    }, 5000)
+    try {
+      return await lanPut(it.lanId, start, it.file.slice(start, end, it.type || 'application/octet-stream'), {
+        register: (xhr) => (ctl.xhr = xhr),
+        onProgress: (loaded) => {
+          last = performance.now()
+          it.lastProgressAt = Date.now()
+          it.inflight = Math.min(loaded, end - start)
+        },
+      })
+    } finally {
+      clearInterval(watchdog)
+      ctl.xhr = null
+      it.inflight = 0
+    }
+  }
+
+  _saveLan(it, phase) {
+    return putRecord({
+      key: it.key,
+      lan: true,
+      lanId: it.lanId,
+      phase,
+      acked: it.offset,
+      createdAt: it.addedAt,
+      name: it.name,
+      size: it.size,
+      lastModified: it.lastModified,
+      type: it.type,
+      folder: it.folder,
+      account: this.account,
+    })
+  }
+
+  /** Chegou inteiro no computador: a vaga fica livre e a linha passa a mostrar a subida pro Drive. */
+  async _toMac(it, view) {
+    it.status = 'mac'
+    it.lanMac = true
+    it.lanId = view.id || it.lanId
+    it.offset = it.size
+    it.inflight = 0
+    it.note = ''
+    it.error = null
+    this._applyDrive(it, view.drive)
+    if (it.status === 'mac') await this._saveLan(it, 'mac')
+    this._watchMac()
+  }
+
+  /** Estado do envio do computador pro Drive → estado da linha. */
+  _applyDrive(it, drive) {
+    it.drive = drive || null
+    if (!drive) return
+    if (drive.status === 'completed' || drive.status === 'skipped') {
+      it.status = drive.status === 'completed' ? 'done' : 'skipped'
+      it.fileId = drive.fileId || null
+      it.finishedAt = Date.now()
+      deleteRecord(it.key)
+    } else if (drive.status === 'failed' || drive.status === 'canceled') {
+      it.status = 'failed'
+      it.error = `Chegou no computador, mas não subiu pro Drive: ${drive.error || (drive.status === 'canceled' ? 'cancelado no computador' : 'erro')}.`
+    }
+  }
+
+  /** Acompanha (a cada 1,5 s) os arquivos que já estão no computador até subirem pro Drive. */
+  _watchMac() {
+    if (!LAN || this._macTimer) return
+    const tick = async () => {
+      const all = this.items.filter((it) => it.status === 'mac' && it.lanId)
+      if (!all.length) {
+        this._macTimer = 0
+        return
+      }
+      // Primeiro os que estão subindo agora; depois os que faz mais tempo que não perguntamos.
+      const rank = (it) => (it.drive?.status === 'running' || it.drive?.status === 'verifying' ? 0 : 1)
+      const list = all.sort((a, b) => rank(a) - rank(b) || (a._polledAt || 0) - (b._polledAt || 0)).slice(0, MAC_POLL_MAX)
+      await Promise.all(
+        list.map(async (it) => {
+          it._polledAt = Date.now()
+          try {
+            const view = await lanStatus(it.lanId)
+            if (it.status !== 'mac') return
+            it.note = ''
+            if (view.status === 'received') this._applyDrive(it, view.drive)
+            else if (view.status === 'failed') {
+              it.status = 'failed'
+              it.error = view.error || 'O computador não conseguiu guardar o arquivo.'
+            }
+          } catch (err) {
+            if (it.status !== 'mac') return
+            if (err?.status === 404) {
+              it.status = 'failed'
+              it.error = MSG.lanLost
+              deleteRecord(it.key)
+            } else if (err?.status === 401) {
+              it.note = LAN_MSG.code
+            } else {
+              it.note = 'Sem conexão com o computador agora'
+            }
+          }
+        }),
+      )
+      this.changed()
+      this._macTimer = setTimeout(tick, MAC_POLL_MS)
+    }
+    this._macTimer = setTimeout(tick, 400)
+  }
+
   async _finish(it, json) {
     const size = json && json.size != null ? Number(json.size) : null
     if (size != null && size !== it.size) {
@@ -812,6 +1053,7 @@ export function summarize(items) {
   let paused = 0
   let failed = 0
   let waitingFile = 0
+  let onMac = 0
   for (const it of items) {
     total++
     if (FINISHED.has(it.status)) {
@@ -821,6 +1063,7 @@ export function summarize(items) {
     const left = Math.max(0, it.size - it.offset - it.inflight)
     if (it.status === 'failed') failed++
     else if (it.status === 'needsFile') waitingFile++
+    else if (it.status === 'mac') onMac++ // a parte do celular acabou; o computador termina sozinho
     else {
       remaining += left
       if (it.status === 'paused') paused++
@@ -831,5 +1074,5 @@ export function summarize(items) {
       }
     }
   }
-  return { total, finished, remaining, speed, running, pending, paused, failed, waitingFile, eta: speed > 0 ? remaining / speed : null }
+  return { total, finished, remaining, speed, running, pending, paused, failed, waitingFile, onMac, eta: speed > 0 ? remaining / speed : null }
 }

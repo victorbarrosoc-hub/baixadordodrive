@@ -48,6 +48,15 @@ const { accessToken } = mock.issueTokens()
 console.log(`http://127.0.0.1:4320/?dev_api=${encodeURIComponent(mock.url)}&dev_token=${accessToken}`)
 ```
 
+## Modo Wi-Fi (via computador)
+
+O SOBEDESCE do computador também serve esta mesma casca em `http://<ip>:4319/m/?t=<código>` (Ajustes → Celular,
+`src/mobile/receiver.js`). Lá o `index.html` ganha um `lan-config.js` antes do app, que define
+`window.__SOBEDESCE_LAN__`; com ele (`LAN` em `lib/config.js`) não há login do Google: pastas vêm de
+`/m/api/folders`, o arquivo vai em pedaços (`PUT /m/api/uploads/:id` + `Upload-Offset`, transporte em `lib/lan.js`)
+e retoma pelo ponto que o computador confirma. Inteiro no computador, a linha vira “No Mac · subindo pro Drive”.
+Sem service worker e sem manifesto nesse modo. No site publicado nada disso existe.
+
 ## Publicar na Vercel
 
 | Ajuste do projeto   | Valor                                   |

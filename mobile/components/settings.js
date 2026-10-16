@@ -1,7 +1,7 @@
 // Conta e Ajustes: quem está conectado, espaço no Drive, quantos arquivos sobem juntos e o tamanho do pedaço.
 import { html, useState } from '../vendor/preact-htm.js'
 import * as auth from '../lib/auth.js'
-import { CHUNK_OPTIONS, CONCURRENCY_OPTIONS, DEV, VERSION, getSettings, saveSettings } from '../lib/config.js'
+import { CHUNK_OPTIONS, CONCURRENCY_OPTIONS, DEV, LAN, VERSION, getSettings, saveSettings } from '../lib/config.js'
 import { bytes } from '../lib/format.js'
 import { closeSheet, setState, useApp } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
@@ -28,7 +28,7 @@ function Storage({ quota }) {
 }
 
 export function SettingsSheet() {
-  const { user, quota } = useApp((s) => ({ user: s.user, quota: s.quota }))
+  const { user, quota, lan } = useApp((s) => ({ user: s.user, quota: s.quota, lan: s.lan }))
   const [settings, setSettings] = useState(getSettings())
   const [confirmOut, setConfirmOut] = useState(false)
 
@@ -59,6 +59,7 @@ export function SettingsSheet() {
         <div class="account-text">
           <b>${user?.displayName || 'Conta Google'}</b>
           <span class="sub">${user?.emailAddress || ''}</span>
+          ${LAN ? html`<span class="sub lan-via"><${Icon} name="wifi" size=${13} /> pelo ${LAN.label} “${lan?.mac || LAN.mac}”</span>` : null}
         </div>
       </section>
       ${quota ? html`<section class="group"><${Storage} quota=${quota} /></section>` : null}
@@ -87,7 +88,14 @@ export function SettingsSheet() {
         </div>
       </section>
 
-      <h3 class="list-label">Conta</h3>
+      ${LAN
+        ? html`<h3 class="list-label">Wi-Fi</h3>
+            <p class="group-foot lan-explain">
+              Os arquivos vão deste celular para o ${LAN.label} pela rede local, e o SOBEDESCE de lá sobe pro Drive na conta
+              acima${lan?.deleteAfterUpload ? ' (e apaga a cópia do computador depois de conferir)' : ''}. A pasta padrão e a conta
+              se trocam no computador, em Ajustes → Celular.
+            </p>`
+        : html`<h3 class="list-label">Conta</h3>
       <ul class="group menu">
         <li>
           <button
@@ -110,9 +118,13 @@ export function SettingsSheet() {
       </ul>
       ${confirmOut
         ? html`<p class="group-foot">Os envios pausam e ficam guardados neste aparelho. Ao entrar de novo, é só escolher os arquivos para continuar.</p>`
-        : null}
+        : null}`}
 
-      <p class="foot">SOBEDESCE Celular ${VERSION}${DEV ? ' · modo de teste' : ''}<br />Os arquivos vão direto deste aparelho para o Google.</p>
+      <p class="foot">
+        SOBEDESCE Celular ${VERSION}${DEV ? ' · modo de teste' : LAN ? ' · pelo Wi-Fi' : ''}<br />${LAN
+          ? 'Nada passa pela internet até o computador; de lá, direto pro Google.'
+          : 'Os arquivos vão direto deste aparelho para o Google.'}
+      </p>
     </div>`
 }
 SettingsSheet.label = 'Ajustes'

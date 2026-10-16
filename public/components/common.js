@@ -1,5 +1,5 @@
 // Peças básicas da interface: botões em pílula, controles no estilo macOS, ícones de arquivo, avatar.
-import { html, useEffect, useRef } from '/vendor/preact-htm.js'
+import { html, useEffect, useRef, useState } from '/vendor/preact-htm.js'
 import { Icon } from './icons.js'
 import { cx } from '../lib/ui.js'
 import { fileKind, initials } from '../lib/format.js'
@@ -168,10 +168,19 @@ function hue(str = '') {
   return h
 }
 
+// Fotos que já falharam (sem internet, proxy da empresa, link expirado): não tenta de novo a cada desenho.
+const brokenPhotos = new Set()
+
 export function Avatar({ name, email, photoUrl, size = 28 }) {
   const h = hue(email || name)
-  if (photoUrl) {
-    return html`<img class="avatar" src=${photoUrl} alt="" width=${size} height=${size} style=${`--s:${size}px`} referrerpolicy="no-referrer" />`
+  const [, setBroken] = useState(0)
+  if (photoUrl && !brokenPhotos.has(photoUrl)) {
+    // Se a foto do Google não carregar, ficam as iniciais em vez do ícone de imagem quebrada.
+    const onError = () => {
+      brokenPhotos.add(photoUrl)
+      setBroken((n) => n + 1)
+    }
+    return html`<img class="avatar" src=${photoUrl} alt="" width=${size} height=${size} style=${`--s:${size}px`} referrerpolicy="no-referrer" onError=${onError} />`
   }
   return html`<span class="avatar" style=${`--s:${size}px;--h:${h}`} aria-hidden="true">${initials(name, email)}</span>`
 }

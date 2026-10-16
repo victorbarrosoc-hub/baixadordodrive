@@ -1,6 +1,6 @@
 // Seletor local, no espírito do Finder: lugares à esquerda, barra de caminho editável (dá para colar),
 // lista com tamanhos, "Mostrar ocultos". Modos: 'files' (vários arquivos/pastas) e 'folder' (uma pasta).
-import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
+import { html, useEffect, useLayoutEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { api, withQuery } from '../lib/api.js'
 import { getState } from '../lib/store.js'
 import { bytes, count, fullDate, plural, relTime, tildify, baseName } from '../lib/format.js'
@@ -74,6 +74,7 @@ export function LocalPicker({ mode = 'files', title, subtitle, confirmLabel, ini
   const listRef = useRef(null)
   const seq = useRef(0)
   const editing = useRef(false) // não sobrescreve o que a pessoa está digitando na barra de caminho
+  const pathInput = useRef(null)
 
   const load = async (p, { push = true } = {}) => {
     const my = ++seq.current
@@ -96,6 +97,13 @@ export function LocalPicker({ mode = 'files', title, subtitle, confirmLabel, ini
       if (my === seq.current) setLoading(false)
     }
   }
+
+  // Caminho novo com a barra em foco (ex.: clicou nela para colar enquanto a pasta inicial carregava):
+  // deixa tudo selecionado, senão o que a pessoa colar vai parar depois do caminho antigo.
+  useLayoutEffect(() => {
+    const el = pathInput.current
+    if (el && document.activeElement === el && !editing.current) el.select()
+  }, [pathText])
 
   // primeira pasta: a pedida, senão Downloads/Início
   useEffect(() => {
@@ -263,6 +271,7 @@ export function LocalPicker({ mode = 'files', title, subtitle, confirmLabel, ini
           >
             <${Icon} name="folder" size=${14} />
             <input
+              ref=${pathInput}
               class="path-input"
               type="text"
               value=${pathText}

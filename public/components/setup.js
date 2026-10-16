@@ -1,6 +1,6 @@
 // Primeiros passos: criar a chave no Google, colar a chave, conectar a conta.
 import { html, useEffect, useRef, useState } from '/vendor/preact-htm.js'
-import { useStore, setSetup } from '../lib/store.js'
+import { useStore, setSetup, getState } from '../lib/store.js'
 import { api } from '../lib/api.js'
 import { navigate } from '../lib/router.js'
 import { cx, usePersistentState } from '../lib/ui.js'
@@ -77,6 +77,31 @@ function StepPaste({ step, onDone, onBack, backLabel }) {
     }
   }
 
+  // "Cole a chave" ao pé da letra: ⌘V/Ctrl+V com o conteúdo do JSON (ou o próprio arquivo copiado no Finder/Explorer).
+  useEffect(() => {
+    const onPaste = (e) => {
+      const t = e.target
+      if (t?.closest?.('input, textarea, [contenteditable="true"]')) return // colando no Client ID/secret
+      const file = e.clipboardData?.files?.[0]
+      if (file) {
+        e.preventDefault()
+        return readFile(file)
+      }
+      const text = (e.clipboardData?.getData('text') || '').trim()
+      if (!text) return
+      e.preventDefault()
+      if (text.startsWith('{')) return send({ json: text })
+      if (/\.apps\.googleusercontent\.com$/.test(text)) {
+        setManual(true)
+        setClientId(text)
+        return
+      }
+      setError('Isso não parece a chave. Cole o conteúdo do arquivo JSON baixado do Console (começa com {"installed":…).')
+    }
+    document.addEventListener('paste', onPaste)
+    return () => document.removeEventListener('paste', onPaste)
+  })
+
   const readFile = (file) => {
     if (!file) return
     setFileName(file.name)
@@ -112,6 +137,7 @@ function StepPaste({ step, onDone, onBack, backLabel }) {
       <span class="dropzone-icon"><${Icon} name=${busy ? 'key' : 'drop'} size=${26} /></span>
       <b>${busy ? 'Conferindo a chave…' : fileName && !error ? fileName : step.drop.title}</b>
       <span class="sub">${step.drop.hint}</span>
+      <span class="sub">${step.drop.paste.replace('{key}', getState().app?.platform === 'darwin' ? '⌘V' : 'Ctrl+V')}</span>
       <input ref=${input} type="file" accept=".json,application/json" hidden onChange=${(e) => readFile(e.currentTarget.files?.[0])} />
     </div>
     ${error ? html`<p class="form-error" role="alert"><${Icon} name="warning" size=${14} /> ${error}</p>` : null}

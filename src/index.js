@@ -11,6 +11,7 @@ import { AuthManager } from './google/oauth.js'
 import { Hasher } from './engine/hasher.js'
 import { TransferManager } from './engine/manager.js'
 import { startServer, DEFAULT_PORT } from './server/app.js'
+import { MobileReceiver } from './mobile/receiver.js'
 import { closeHttp, requestJSON } from './net/http.js'
 
 const LOCK_NAME = 'engine.lock'
@@ -121,19 +122,20 @@ function banner(url, root) {
 /**
  * Sobe tudo: ajustes, contas, MD5, fila e servidor. Usado pelo `npm start`, pelo demo, pelos testes e pelo desktop.
  * @param {{ home?: string, port?: number, open?: boolean, desktop?: boolean, quiet?: boolean,
- *   managerOptions?: object, serverOptions?: object }} [opts]
- *   `managerOptions`/`serverOptions` (opcionais) vão para o TransferManager/startServer (os testes trocam peças).
+ *   managerOptions?: object, serverOptions?: object, mobileOptions?: object }} [opts]
+ *   `managerOptions`/`serverOptions`/`mobileOptions` (opcionais) vão para o TransferManager/startServer/MobileReceiver
+ *   (os testes trocam peças, ex.: mobileOptions { port: 0, host: '127.0.0.1' }).
  * @returns {Promise<{ url: string, port: number, manager: TransferManager, auth: AuthManager, settings: Settings,
- *   hasher: Hasher, paths: object, server: object, shutdown(): Promise<void> }>}
+ *   hasher: Hasher, paths: object, server: object, mobile: MobileReceiver, shutdown(): Promise<void> }>}
  */
-export async function startApp({ home, port, open = true, desktop = false, quiet = false, managerOptions = {}, serverOptions = {} } = {}) {
+export async function startApp({ home, port, open = true, desktop = false, quiet = false, managerOptions = {}, serverOptions = {}, mobileOptions = {} } = {}) {
   const root = home ? path.resolve(home) : dataDir()
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
   const paths = dataPaths(root)
   const lockFile = path.join(root, LOCK_NAME)
   const token = await acquireLock(lockFile)
 
-  let settings, auth, hasher, manager, server
+  let settings, auth, hasher, manager, server, mobile
   try {
     settings = new Settings(paths.settings)
     await settings.load()
@@ -142,9 +144,15 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     hasher = new Hasher({ cacheFile: paths.hashCache, workers: 2 })
     manager = new TransferManager({ settings, auth, hasher, paths, ...managerOptions })
     await manager.init()
+    // Recepção do celular pelo Wi-Fi: liga/desliga sozinha conforme o ajuste mobileReceive.
+    mobile = new MobileReceiver({ settings, auth, manager, hasher, paths, ...mobileOptions })
     const wanted = port ?? (Number(process.env.SOBEDESCE_PORT) || DEFAULT_PORT)
-    server = await startServer({ port: wanted, settings, auth, manager, hasher, paths, desktop, ...serverOptions })
+    server = await startServer({ port: wanted, settings, auth, manager, hasher, paths, desktop, mobile, ...serverOptions })
+    // Falhar aqui (porta ocupada, pasta sem permissão) não impede o app de abrir: o erro aparece em Ajustes → Celular.
+    await mobile.init().catch(err => console.warn('[sobedesce] recepção do celular não iniciou:', err?.message))
   } catch (err) {
+    await mobile?.close().catch(() => {})
+    await server?.close().catch(() => {})
     await manager?.shutdown().catch(() => {})
     await hasher?.close().catch(() => {})
     await releaseLock(lockFile, token)
@@ -157,6 +165,8 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
   let stopping = null
   const shutdown = () => {
     stopping ??= (async () => {
+      // Primeiro fecha a porta da rede local (o que já chegou do celular fica gravado para continuar depois).
+      await mobile.close().catch(err => console.warn('[sobedesce] erro ao fechar a recepção do celular:', err?.message))
       try {
         await manager.shutdown()
       } catch (err) {
@@ -168,7 +178,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     })()
     return stopping
   }
-  return { url: server.url, port: server.port, manager, auth, settings, hasher, paths, server, shutdown }
+  return { url: server.url, port: server.port, manager, auth, settings, hasher, paths, server, mobile, shutdown }
 }
 
 async function main() {

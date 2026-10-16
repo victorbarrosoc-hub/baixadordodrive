@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Demo (npm run demo): sobe o SOBEDESCE ligado a um Google Drive falso, com um projeto de audiovisual de exemplo.
-// Não precisa de chave do Google nem de internet. Tudo fica em .sobedesce-dev/demo (apagado a cada início).
+// Não precisa de chave do Google nem de internet. Tudo fica em .sobedesce-dev/demo (apagado a cada início);
+// SOBEDESCE_DEMO_HOME troca a pasta (útil para rodar dois demos ao mesmo tempo, ou em testes ponta a ponta).
 //
 // O Drive falso limita cada conexão a ~6 MB/s (com um pouco de latência): assim dá para ver o download segmentado
 // enchendo a banda com várias conexões, pausar no meio, retomar, e o upload em vários arquivos ao mesmo tempo.
@@ -15,7 +16,10 @@ import { startApp } from '../src/index.js'
 import { closeHttp, dispatcherFor } from '../src/net/http.js'
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
-const HOME = path.join(ROOT, '.sobedesce-dev', 'demo')
+const DEFAULT_HOME = path.join(ROOT, '.sobedesce-dev', 'demo')
+const HOME = process.env.SOBEDESCE_DEMO_HOME ? path.resolve(process.env.SOBEDESCE_DEMO_HOME) : DEFAULT_HOME
+// A pasta do demo é apagada a cada início: só apagamos uma que o próprio demo criou (marca) ou que está vazia.
+const MARKER = '.sobedesce-demo'
 const DOWNLOADS = path.join(HOME, 'Downloads')
 const LOCAL = path.join(HOME, 'Projeto Local')
 const MB = 1_000_000
@@ -159,6 +163,19 @@ async function demoAlreadyRunning() {
   }
 }
 
+async function wipeDemoHome() {
+  let names
+  try {
+    names = await fs.readdir(HOME)
+  } catch (err) {
+    if (err.code === 'ENOENT') return
+    throw err
+  }
+  const ours = HOME === DEFAULT_HOME || names.includes(MARKER) || names.length === 0
+  if (!ours) throw new Error(`${HOME} não é uma pasta do demo (não tem ${MARKER}) e não está vazia; não vou apagar`)
+  await fs.rm(HOME, { recursive: true, force: true })
+}
+
 async function main() {
   const running = await demoAlreadyRunning()
   if (running) {
@@ -167,12 +184,13 @@ async function main() {
     return
   }
   console.log('\n  Preparando o demo (Drive de exemplo, conta conectada e uma pasta local para comparar)…')
-  if (path.basename(HOME) !== 'demo' || path.basename(path.dirname(HOME)) !== '.sobedesce-dev') throw new Error('pasta do demo inesperada')
-  await fs.rm(HOME, { recursive: true, force: true })
+  await wipeDemoHome()
   await fs.mkdir(DOWNLOADS, { recursive: true })
+  await fs.writeFile(path.join(HOME, MARKER), 'Pasta do demo do SOBEDESCE: apagada a cada início.\n')
   await fs.mkdir(LOCAL, { recursive: true })
 
-  const mock = await startMockDrive({ perConnectionBps: 6 * MB, latencyMs: 20, seed: 2026 })
+  // Sem foto de perfil: a do usuário falso apontaria para o Google, e o demo promete que nada sai do computador.
+  const mock = await startMockDrive({ perConnectionBps: 6 * MB, latencyMs: 20, seed: 2026, user: { photoLink: null } })
   mock.applyEnv()
   let app = null
   let stopping = false

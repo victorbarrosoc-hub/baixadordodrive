@@ -1,7 +1,7 @@
 // Service worker mínimo: guarda a casca do app para abrir sem rede, mas SEMPRE tenta a rede primeiro para
 // html/js/css (atualizações chegam na hora). Nunca intercepta nada fora deste site — em especial
 // googleapis.com e accounts.google.com, por onde passam o login e os arquivos.
-const CACHE = 'sobedesce-shell-v1'
+const CACHE = 'sobedesce-shell-v2'
 const SHELL = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const SHELL = [
   './lib/drive.js',
   './lib/format.js',
   './lib/idb.js',
+  './lib/lan.js',
   './lib/platform.js',
   './lib/state.js',
   './lib/uploader.js',

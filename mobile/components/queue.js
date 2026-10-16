@@ -1,6 +1,7 @@
 // Fila de envios: cada arquivo é uma linha com ícone do tipo, nome, uma "timeline" (clipe com playhead, como no
 // app do computador), velocidade, tempo restante em timecode e o estado.
 import { html } from '../vendor/preact-htm.js'
+import { LAN } from '../lib/config.js'
 import { bytes, fileKind, KIND_ICON, percent, speed, timecode } from '../lib/format.js'
 import { closeSheet, folderTrail, openSheet } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
@@ -19,6 +20,8 @@ export const STATUS = {
   done: { label: 'Concluído', tone: 'success' },
   skipped: { label: 'Já estava no Drive', tone: 'success-soft' },
   failed: { label: 'Com problema', tone: 'error' },
+  // Modo Wi-Fi: chegou inteiro no computador, que está subindo pro Drive.
+  mac: { label: `No ${LAN?.label || 'Mac'}`, tone: 'up-soft' },
 }
 
 /** Nome com reticências no MEIO: o fim (extensão) sempre aparece. "A001_C003_08…_RAW.mov" */
@@ -38,14 +41,17 @@ export function driveLink(fileId) {
 
 export function progressOf(it) {
   if (it.status === 'done' || it.status === 'skipped') return 1
+  // No computador: a barra passa a mostrar a subida dele pro Drive.
+  if (it.status === 'mac') return it.drive?.size ? clamp01((it.drive.bytesDone || 0) / it.drive.size) : 0
   return it.size ? clamp01((it.offset + it.inflight) / it.size) : 0
 }
 
 export function Timeline({ it }) {
   const p = progressOf(it)
-  const live = it.status === 'running'
+  const live = it.status === 'running' || (it.status === 'mac' && it.drive?.status === 'running')
   const klass = cx(
     'tl',
+    it.status === 'mac' && 'is-mac',
     it.status === 'paused' && 'is-paused',
     it.status === 'needsFile' && 'is-paused',
     it.status === 'queued' && 'is-queued',
@@ -115,9 +121,25 @@ function Meta({ it, waitingTap }) {
           : null}`
     case 'skipped':
       return html`<span class="row-nums">${bytes(it.size)}</span>
-        <button type="button" class="row-link" onClick=${(e) => (e.stopPropagation(), engine.sendAnyway(it))}>Enviar mesmo assim</button>`
+        ${LAN ? null : html`<button type="button" class="row-link" onClick=${(e) => (e.stopPropagation(), engine.sendAnyway(it))}>Enviar mesmo assim</button>`}`
     case 'failed':
       return html`<span class="row-error">${it.error}</span>`
+    case 'mac': {
+      const where = `No ${LAN?.label || 'Mac'}`
+      if (it.note) return html`<span class="row-note">${where} · ${it.note.toLowerCase()}</span>`
+      const d = it.drive
+      const what =
+        d?.status === 'paused'
+          ? 'pausado no computador'
+          : d?.status === 'waiting'
+            ? 'esperando o limite do Google'
+            : d?.status === 'verifying'
+              ? 'conferindo no Drive'
+              : 'subindo pro Drive'
+      const extra = d?.status === 'running' && d.speed > 0 ? ` · ${speed(d.speed)}` : ''
+      return html`<span class="row-left row-nums">${where} · ${what}${extra}</span>
+        <span class="tc row-tc">${percent(progressOf(it))}</span>`
+    }
     default:
       return null
   }
@@ -177,6 +199,9 @@ export function ItemSheet({ id }) {
     ${it.status === 'needsFile'
       ? html`<p class="item-explain">A página foi recarregada no meio do envio. Escolha este mesmo arquivo de novo que ele continua de onde parou.</p>`
       : null}
+    ${it.status === 'mac'
+      ? html`<p class="item-explain">O arquivo já está inteiro no ${LAN?.label || 'computador'}. O SOBEDESCE de lá está subindo pro Drive — pode fechar esta tela.</p>`
+      : null}
     <ul class="group menu">
       ${it.status === 'running' || it.status === 'queued' || it.status === 'preparing'
         ? html`<li><button type="button" class="menu-item" onClick=${act(() => engine.pause(it))}><${Icon} name="pause" /><span>Pausar este arquivo</span></button></li>`
@@ -190,13 +215,13 @@ export function ItemSheet({ id }) {
       ${(it.status === 'done' || it.status === 'skipped') && it.fileId
         ? html`<li><a class="menu-item" href=${driveLink(it.fileId)} target="_blank" rel="noopener noreferrer"><${Icon} name="external" /><span>Abrir no Drive</span></a></li>`
         : null}
-      ${it.status === 'skipped'
+      ${it.status === 'skipped' && !LAN
         ? html`<li><button type="button" class="menu-item" onClick=${act(() => engine.sendAnyway(it))}><${Icon} name="copy" /><span>Enviar mesmo assim (outra cópia)</span></button></li>`
         : null}
       <li>
-        <button type="button" class=${cx('menu-item', !(it.status === 'done' || it.status === 'skipped') && 'is-danger')} onClick=${act(() => engine.remove(it))}>
-          <${Icon} name=${it.status === 'done' || it.status === 'skipped' ? 'x' : 'trash'} />
-          <span>${it.status === 'done' || it.status === 'skipped' ? 'Tirar da lista' : it.status === 'needsFile' ? 'Descartar este envio' : 'Cancelar este envio'}</span>
+        <button type="button" class=${cx('menu-item', !(it.status === 'done' || it.status === 'skipped' || it.status === 'mac') && 'is-danger')} onClick=${act(() => engine.remove(it))}>
+          <${Icon} name=${it.status === 'done' || it.status === 'skipped' || it.status === 'mac' ? 'x' : 'trash'} />
+          <span>${it.status === 'done' || it.status === 'skipped' || it.status === 'mac' ? 'Tirar da lista' : it.status === 'needsFile' ? 'Descartar este envio' : 'Cancelar este envio'}</span>
         </button>
       </li>
     </ul>

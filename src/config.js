@@ -29,6 +29,8 @@ export function dataPaths(root = dataDir()) {
     hashCache: path.join(root, 'hash-cache.json'),
     compares: path.join(root, 'compares'),
     logs: path.join(root, 'logs'),
+    mobile: path.join(root, 'mobile.json'), // código de acesso do celular
+    mobileUploads: path.join(root, 'mobile-uploads.json'), // recebimentos do celular (para retomar)
   }
 }
 
@@ -87,6 +89,23 @@ export const DEFAULT_SETTINGS = Object.freeze({
   showHiddenFiles: false,
   /** 'system' | 'light' | 'dark' */
   theme: 'system',
+
+  // ── Celular ──
+  /** Recebe arquivos do celular pelo Wi-Fi (segundo servidor, aberto na rede local, protegido por código). */
+  mobileReceive: false,
+  /** Porta fixa: o QR code e o Atalho do iPhone guardam o endereço com ela. */
+  mobilePort: 4319,
+  /** Onde os arquivos do celular ficam no computador antes (e, se quiser, depois) de subir. */
+  mobileStagingDir: path.join(os.homedir(), 'SOBEDESCE Recebidos'),
+  /** Apaga do computador o que veio do celular depois de subir e conferir no Drive. */
+  mobileDeleteAfterUpload: false,
+  /** Conta e pasta padrão do Drive para o que chega do celular ('' = primeira conta / Meu Drive). */
+  mobileAccountId: '',
+  mobileFolderId: '',
+  mobileFolderName: '',
+  /** Endereço do app do celular publicado (Vercel) e o ID do cliente "Aplicativo da Web" (QR que já configura). */
+  mobileWebUrl: '',
+  webClientId: '',
 })
 
 const LIMITS = {
@@ -98,6 +117,7 @@ const LIMITS = {
   bandwidthLimitDown: [0, Number.MAX_SAFE_INTEGER],
   bandwidthLimitUp: [0, Number.MAX_SAFE_INTEGER],
   stallTimeoutMs: [5_000, 600_000],
+  mobilePort: [1024, 65535],
 }
 const ENUMS = {
   downloadConflict: ['skip', 'rename', 'overwrite'],
@@ -105,6 +125,29 @@ const ENUMS = {
   theme: ['system', 'light', 'dark'],
 }
 const CHUNK_ALIGN = 256 * 1024
+
+/** Endereço http(s) completo, sem credenciais embutidas. */
+function isWebUrl(v) {
+  try {
+    const u = new URL(v)
+    return (u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Textos que podem ficar vazios ('' = não definido). Cada um com a sua regra; fora dela = erro.
+ * IDs do Google só têm letras, números, '_', '-' e '.' — nada que precise de escape em URL.
+ */
+const OPTIONAL_STRINGS = {
+  mobileAccountId: v => /^[\w.-]{0,200}$/.test(v),
+  mobileFolderId: v => /^[\w.-]{0,200}$/.test(v),
+  mobileFolderName: v => v.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(v),
+  mobileWebUrl: v => v === '' || (v.length <= 2048 && isWebUrl(v)),
+  webClientId: v => v === '' || /^[A-Za-z0-9][\w.-]*\.apps\.googleusercontent\.com$/.test(v),
+}
+const PATH_STRINGS = new Set(['downloadDir', 'mobileStagingDir'])
 
 /** Valida e normaliza um patch de ajustes. Campos desconhecidos são ignorados. Lança Error com mensagem em PT-BR. */
 export function validateSettings(patch, base = DEFAULT_SETTINGS) {
@@ -124,9 +167,13 @@ export function validateSettings(patch, base = DEFAULT_SETTINGS) {
     } else if (ENUMS[key]) {
       if (!ENUMS[key].includes(value)) throw new Error(`Valor inválido para ${key}`)
       out[key] = value
+    } else if (OPTIONAL_STRINGS[key]) {
+      const v = typeof value === 'string' ? value.trim() : value == null ? '' : null
+      if (v == null || !OPTIONAL_STRINGS[key](v)) throw new Error(`Valor inválido para ${key}`)
+      out[key] = v
     } else if (typeof def === 'string') {
       if (typeof value !== 'string' || !value.trim()) throw new Error(`Valor inválido para ${key}`)
-      out[key] = key === 'downloadDir' ? path.resolve(value.trim()) : value.trim()
+      out[key] = PATH_STRINGS.has(key) ? path.resolve(value.trim()) : value.trim()
     }
   }
   return out

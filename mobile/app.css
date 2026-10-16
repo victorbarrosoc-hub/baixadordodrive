@@ -2242,3 +2242,38 @@ code {
     animation: none;
   }
 }
+
+/* ───────────── modo Wi-Fi (via computador) ───────────── */
+/* Chegou no computador: a parte do celular acabou; a barra mostra a subida dele pro Drive, num tom mais leve. */
+.row-tile.tone-mac {
+  background: color-mix(in srgb, var(--up) 8%, transparent);
+  color: var(--up-text);
+}
+.tl.is-mac .tl-clip::before {
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--up) 10%, transparent) 0 6px, color-mix(in srgb, var(--up) 18%, transparent) 6px 12px);
+}
+.tl.is-mac .tl-fill {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--up) 55%, #fff), color-mix(in srgb, var(--up) 75%, transparent));
+}
+.notice.lan-done {
+  background: color-mix(in srgb, var(--ok) 10%, var(--surface));
+  box-shadow: none;
+}
+.notice.lan-done > .icon {
+  color: var(--ok-text);
+}
+.lan-via {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+.lan-explain {
+  line-height: 1.5;
+}
+.foot > .icon,
+.lan-via > .icon {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 2px;
+}

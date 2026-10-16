@@ -15,6 +15,7 @@ let engine = null // utilityProcess do motor
 let engineUrl = null
 let win = null
 let quitting = false
+let quitConfirmed = false // a pessoa já disse "Sair" com transferências andando (não pergunta duas vezes)
 let activeCount = 0
 let sleepBlocker = null
 
@@ -154,7 +155,10 @@ function createWindow() {
       // No Mac fechar a janela não fecha o app: as transferências continuam (padrão do macOS).
       return
     }
-    if (activeCount > 0 && !confirmQuit()) event.preventDefault()
+    if (activeCount > 0 && !quitConfirmed) {
+      if (!confirmQuit()) return event.preventDefault()
+      quitConfirmed = true
+    }
   })
   win.on('closed', () => {
     win = null
@@ -194,10 +198,12 @@ function openExternal(url) {
 // Sair: pede ao motor para pausar e gravar tudo antes de fechar o processo.
 app.on('before-quit', event => {
   if (quitting) return
-  if (activeCount > 0 && isMac && !confirmQuit()) {
+  // Vale para ⌘Q no Mac e também para Arquivo → Sair no Windows/Linux (que não passa pelo X da janela).
+  if (activeCount > 0 && !quitConfirmed && !confirmQuit()) {
     event.preventDefault()
     return
   }
+  quitConfirmed = true
   quitting = true
   if (!engine) return
   event.preventDefault()

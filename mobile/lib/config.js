@@ -69,6 +69,23 @@ function readDev() {
 
 export const DEV = readDev()
 
+// ───── modo Wi-Fi ("via computador") ─────
+//
+// Servido pelo SOBEDESCE do computador (src/mobile/receiver.js), o index.html carrega antes o lan-config.js, que
+// define window.__SOBEDESCE_LAN__ = { mode: 'lan', code, mac, platform }. Aí não há login do Google no celular: os
+// arquivos vão em pedaços para o computador, que sobe pro Drive. No site publicado isso nunca existe.
+function readLan() {
+  try {
+    const cfg = window.__SOBEDESCE_LAN__
+    if (!cfg || cfg.mode !== 'lan' || typeof cfg.code !== 'string' || !cfg.code) return null
+    return { code: cfg.code, mac: String(cfg.mac || 'computador'), label: cfg.platform === 'win32' ? 'PC' : 'Mac' }
+  } catch {
+    return null
+  }
+}
+
+export const LAN = readLan()
+
 export const ENDPOINTS = DEV
   ? { api: `${DEV.api}/drive/v3`, upload: `${DEV.api}/upload/drive/v3` }
   : { api: 'https://www.googleapis.com/drive/v3', upload: 'https://www.googleapis.com/upload/drive/v3' }

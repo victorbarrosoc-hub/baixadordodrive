@@ -1,6 +1,8 @@
 // Chamadas de metadados do Drive v3 (fetch direto do navegador para o Google, com o token do usuário).
-import { ENDPOINTS } from './config.js'
+// No modo Wi-Fi (LAN) as pastas vêm do computador, que fala com o Google por nós.
+import { ENDPOINTS, LAN } from './config.js'
 import { getToken, invalidate } from './auth.js'
+import { lanDrives, lanFolders } from './lan.js'
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
@@ -109,6 +111,7 @@ export function about(signal) {
 }
 
 export async function listSharedDrives(signal) {
+  if (LAN) return lanDrives(signal)
   const out = []
   let pageToken
   do {
@@ -121,6 +124,7 @@ export async function listSharedDrives(signal) {
 
 /** Só pastas, em ordem de nome. Dentro de drive compartilhado usa corpora=drive. */
 export async function listFolders(parentId, driveId, signal) {
+  if (LAN) return lanFolders(parentId, signal)
   const out = []
   let pageToken
   do {

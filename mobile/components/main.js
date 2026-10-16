@@ -1,8 +1,9 @@
 // Tela principal: destino no topo, o botão grande de escolher arquivos e a fila.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import * as auth from '../lib/auth.js'
-import { DEV } from '../lib/config.js'
+import { DEV, LAN } from '../lib/config.js'
 import { about } from '../lib/drive.js'
+import { lanInfo } from '../lib/lan.js'
 import { bytes, initials, plural, speed, timecode } from '../lib/format.js'
 import { MY_DRIVE, folderTrail, getRecents, getState, openSheet, pushRecent, setState, toast, useApp } from '../lib/state.js'
 import { engine, summarize } from '../lib/uploader.js'
@@ -22,10 +23,44 @@ export function Avatar({ user, size = 32 }) {
   </span>`
 }
 
+/** Modo Wi-Fi: a conta e a pasta padrão vêm do computador (GET /m/api/info). Sem resposta, tenta de novo sozinho. */
+function useLanAccount() {
+  const user = useApp((s) => s.user)
+  const [tries, setTries] = useState(0)
+  useEffect(() => {
+    if (!LAN || user) return
+    const ctl = new AbortController()
+    let timer = 0
+    lanInfo(ctl.signal).then(
+      (info) => {
+        const email = info.account?.email || null
+        setState({
+          user: { displayName: info.account?.name || email || 'Sem conta', emailAddress: email || '' },
+          quota: null,
+          lan: { mac: info.mac?.name || LAN.mac, noAccount: !info.account, deleteAfterUpload: !!info.deleteAfterUpload, error: null, badCode: false },
+        })
+        engine.setAccount(email)
+        if (!getState().dest) setState({ dest: getRecents(email)[0] || info.folder || MY_DRIVE })
+        engine.restore()
+      },
+      (err) => {
+        if (ctl.signal.aborted) return
+        setState({ lan: { ...(getState().lan || {}), error: err.message, badCode: err.status === 401 } })
+        if (err.status !== 401) timer = setTimeout(() => setTries((n) => n + 1), 4000)
+      },
+    )
+    return () => {
+      ctl.abort()
+      clearTimeout(timer)
+    }
+  }, [user, tries])
+  return user
+}
+
 function useAccount() {
   const user = useApp((s) => s.user)
   useEffect(() => {
-    if (user) return
+    if (user || LAN) return
     const ctl = new AbortController()
     about(ctl.signal).then(
       (r) => {
@@ -152,14 +187,46 @@ function Empty() {
   </div>`
 }
 
+function LanNotices({ lan, sum }) {
+  if (!lan) return null
+  if (lan.error) {
+    return html`<div class="notice" role="alert">
+      <${Icon} name="wifi" size=${20} />
+      <div>
+        <b>${lan.badCode ? 'O código de acesso mudou' : 'Não consegui falar com o computador'}</b>
+        <p>${lan.error}</p>
+      </div>
+    </div>`
+  }
+  if (lan.noAccount) {
+    return html`<div class="notice" role="alert">
+      <${Icon} name="warning" size=${20} />
+      <div>
+        <b>Falta uma conta do Google no computador</b>
+        <p>Abra o SOBEDESCE em “${lan.mac}” e conecte a conta do Drive. Depois toque em Escolher arquivos.</p>
+      </div>
+    </div>`
+  }
+  if (sum.onMac && !sum.pending && !sum.paused) {
+    return html`<div class="notice notice-soft lan-done" role="status">
+      <${Icon} name="circle-check" size=${20} />
+      <div>
+        <b>Pode fechar esta tela</b>
+        <p>${sum.onMac === 1 ? 'O arquivo já está' : 'Os arquivos já estão'} no ${LAN.label}. O SOBEDESCE de lá termina de subir pro Drive${lan.deleteAfterUpload ? ' e apaga a cópia do computador' : ''}.</p>
+      </div>
+    </div>`
+  }
+  return null
+}
+
 export function MainScreen() {
-  const user = useAccount()
+  const user = LAN ? useLanAccount() : useAccount()
   // Com o login restaurado da aba, o GIS ainda não carregou: carrega já, para o toque na pílula
   // "continuar conectado" poder abrir o popup na hora (sem await dentro do toque).
   useEffect(() => {
-    if (!DEV) auth.prepare(getState().clientId).catch(() => {})
+    if (!DEV && !LAN) auth.prepare(getState().clientId).catch(() => {})
   }, [])
-  const { dest, needsTap, awake } = useApp((s) => ({ dest: s.dest, needsTap: s.auth.needsTap, awake: s.awake }))
+  const { dest, needsTap, awake, lan } = useApp((s) => ({ dest: s.dest, needsTap: s.auth.needsTap, awake: s.awake, lan: s.lan }))
   useEngine()
   const items = engine.items
   const sum = summarize(items)
@@ -170,8 +237,9 @@ export function MainScreen() {
     <${Header} user=${user} sum=${sum} items=${items} needsTap=${needsTap} />
     <main class="main-body">
       <${Destination} dest=${dest} />
-      <${Picker} dest=${dest} account=${user?.emailAddress} />
+      <${Picker} dest=${lan?.noAccount ? null : dest} account=${user?.emailAddress} />
       ${running ? html`<${AwakeNote} awake=${awake} />` : null}
+      ${LAN ? html`<${LanNotices} lan=${lan} sum=${sum} />` : null}
 
       ${engine.notice
         ? html`<div class="notice" role="alert">
@@ -207,7 +275,11 @@ export function MainScreen() {
           </section>`
         : html`<${Empty} />`}
 
-      <p class="foot">Direto do celular para o Google — nada passa por servidor nosso.</p>
+      <p class="foot">
+        ${LAN
+          ? html`<${Icon} name="wifi" size=${13} /> Pelo Wi-Fi até “${lan?.mac || LAN.mac}”, que sobe pro seu Drive.`
+          : 'Direto do celular para o Google — nada passa por servidor nosso.'}
+      </p>
     </main>
 
     ${needsTap

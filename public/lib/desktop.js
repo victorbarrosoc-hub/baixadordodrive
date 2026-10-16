@@ -166,7 +166,10 @@ export function cancelOAuth() {
 function watchOAuth(state) {
   const w = state.oauthWait
   if (!w) return
-  const fresh = state.accounts.find((a) => !w.before.includes(a.id) || (w.reauth.includes(a.id) && a.status === 'ok'))
+  // conta nova, conta que pedia reconexão, ou a mesma conta autorizada de novo (consentedAt renova a cada login)
+  const fresh = state.accounts.find(
+    (a) => !w.before.includes(a.id) || (w.reauth.includes(a.id) && a.status === 'ok') || (a.status === 'ok' && (a.consentedAt || 0) >= w.since),
+  )
   if (fresh) {
     cancelOAuth()
     toast('success', `Conta conectada: ${fresh.email}`)

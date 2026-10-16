@@ -98,7 +98,7 @@ export function classifyError(err) {
     if (status === 429 || (status === 403 && RETRYABLE_REASONS.has(reason))) {
       return info('retry', reason || 'rateLimitExceeded', 'O Google pediu para ir mais devagar. Tentando de novo…', status, err.retryAfterMs)
     }
-    if (status === 404) return info('notfound', reason, 'Não encontrado no Google Drive.', status)
+    if (status === 404) return info('notfound', reason, 'Não achei no Google Drive: foi apagado, foi para a lixeira ou esta conta perdeu o acesso.', status)
     if (status === 410) return info('notfound', reason, 'A sessão expirou.', status)
     if (status === 408 || status >= 500) return info('retry', reason, `O Google respondeu com erro ${status}. Tentando de novo…`, status, err.retryAfterMs)
     if (status === 403) return info('fatal', reason, err.message || 'Acesso negado pelo Google.', status)

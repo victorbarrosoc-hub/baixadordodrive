@@ -15,6 +15,14 @@ files:
   - desktop/**/*
   - src/**/*
   - public/**/*
+  # A recepção pelo Wi-Fi (src/mobile/receiver.js) serve a casca do app do celular direto desta pasta.
+  - mobile/index.html
+  - mobile/app.css
+  - mobile/app.js
+  - mobile/lib/**/*
+  - mobile/components/**/*
+  - mobile/vendor/**/*
+  - mobile/icons/**/*
   - "!**/*.map"
   - "!**/*.md"
 

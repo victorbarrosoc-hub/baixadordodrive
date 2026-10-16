@@ -72,6 +72,13 @@ function App() {
     document.title = `${TITLES[inSetup ? 'inicio' : route.name] || 'Transferências'} — SOBEDESCE`
   }, [route.name, inSetup])
 
+  // Rotas são por hash e a página inteira rola: sem isso, a tela nova abre na altura em que a anterior estava
+  // (ex.: sair dos Ajustes lá embaixo e cair no meio da lista de Transferências).
+  const routeKey = route.parts.join('/') || route.name
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [routeKey])
+
   if (status !== 'ready') return html`<div class="titlebar" aria-hidden="true"></div><${Splash} error=${status === 'error' ? loadError : null} /><${Toasts} />`
 
   return html`

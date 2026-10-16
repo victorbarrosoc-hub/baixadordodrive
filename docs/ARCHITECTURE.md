@@ -61,7 +61,8 @@ src/
   server/routes.js       rotas da API
 public/                  UI (Preact + htm sem build; vendor servido de node_modules)
 test/mock-drive.js       Google Drive + OAuth falsos (com falhas e limite de banda por conexão)
-scripts/demo.js          sobe o app ligado ao Drive falso, com arquivos de exemplo (sem credenciais)
+scripts/demo.js          sobe o app ligado ao Drive falso, com arquivos de exemplo (sem credenciais);
+                         SOBEDESCE_DEMO_HOME troca a pasta do demo (só apaga pasta vazia ou com a marca .sobedesce-demo)
 ```
 
 ## Convenções
@@ -481,6 +482,11 @@ Por isso `src/index.js` precisa:
   redirecionar para a interface.
 
 O protocolo com o processo principal fica em `desktop/engine.js` (`ready` / `fatal` / `shutdown` via `process.parentPort`).
+
+Empacotamento (`electron-builder.yml`, sem asar): `package.json`, `desktop/`, `src/`, `public/` e a casca do app do celular
+(`mobile/index.html`, `app.*`, `lib/`, `components/`, `vendor/`, `icons/`), que a recepção pelo Wi-Fi serve em `/m/`.
+Sair com transferência ativa sempre pergunta (X da janela no Windows/Linux, ⌘Q no Mac, Arquivo → Sair); confirmado, o motor
+pausa, grava a fila e só então o app fecha.
 
 A janela do Electron carrega a mesma interface; `window.sobedesce` (preload) oferece extras nativos:
 `{ desktop: true, platform, pickFolder({ title, defaultPath }) → string|null,

@@ -23,7 +23,9 @@ parent.on('message', event => {
 })
 
 try {
-  app = await startApp({ open: false, desktop: true })
+  // Sem o aviso de terminal ("aperte Ctrl+C"): aqui a saída vai só para o motor.log.
+  app = await startApp({ open: false, desktop: true, quiet: true })
+  console.log(`[motor] pronto em ${app.url} · dados em ${app.paths.root}`)
   parent.postMessage({ type: 'ready', url: app.url, port: app.port })
 } catch (err) {
   parent.postMessage({ type: 'fatal', code: err.code || null, url: err.url || null, message: err.message })

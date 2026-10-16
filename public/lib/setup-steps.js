@@ -52,6 +52,7 @@ export const SETUP_STEPS = [
     drop: {
       title: 'Solte o arquivo JSON aqui',
       hint: 'ou clique para escolher — costuma estar em Downloads, com um nome tipo client_secret_….json',
+      paste: 'Também dá para copiar o conteúdo do arquivo e colar aqui ({key}).',
     },
     manual: {
       toggle: 'Prefiro colar o Client ID e o secret',

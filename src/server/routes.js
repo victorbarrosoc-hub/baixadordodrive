@@ -13,6 +13,7 @@ import { compareFolders, loadCompare } from '../engine/compare.js'
 import { writeJSONAtomic } from '../util/store.js'
 import { newId } from '../util/ids.js'
 import { isAbortError } from '../util/backoff.js'
+import { qrSvg, shortcutSteps } from '../mobile/qr.js'
 
 const BODY_LIMIT = 1024 * 1024
 const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba a conexão
@@ -541,6 +542,32 @@ export function createApi(ctx) {
     const { job, acc } = await finishedJob(params.jobId, body)
     const plan = planDownloadsFromCompare(job.result, { accountId: acc.id, relDirs: stringList(body.relDirs) })
     return enqueue(plan)
+  })
+
+  // ── celular (recepção pelo Wi-Fi e QR do app publicado)
+  const mobileState = async () => {
+    const st = ctx.settings.get()
+    let webUrl = null
+    if (st.mobileWebUrl) {
+      // O app do celular lê ?client_id= na primeira abertura e já fica configurado.
+      const u = new URL(st.mobileWebUrl)
+      if (st.webClientId) u.searchParams.set('client_id', st.webClientId)
+      webUrl = u.toString()
+    }
+    const web = { webUrl, webQrSvg: webUrl ? qrSvg(webUrl) : null }
+    if (!ctx.mobile) return { available: false, enabled: false, running: false, port: st.mobilePort, urls: [], qrSvg: null, dropUrl: null, shortcutSteps: shortcutSteps(null), ...web }
+    const s = await ctx.mobile.status()
+    return { available: true, ...s, qrSvg: s.qrUrl ? qrSvg(s.qrUrl) : null, shortcutSteps: shortcutSteps(s.dropUrl), ...web }
+  }
+
+  route('GET', '/api/mobile', () => mobileState())
+
+  route('POST', '/api/mobile', async ({ body }) => {
+    if (body.rotate === true) {
+      if (!ctx.mobile) throw new HttpProblem(409, 'A recepção do celular não está disponível.')
+      await ctx.mobile.rotateCode()
+    }
+    return mobileState()
   })
 
   // ── mostrar no Finder/Explorer

@@ -5,9 +5,10 @@ import { api, attempt, enc } from '../lib/api.js'
 import { relTime, tildify, plural } from '../lib/format.js'
 import { cx } from '../lib/ui.js'
 import { navigate } from '../lib/router.js'
-import { confirmDialog } from '../lib/modals.js'
-import { pickFolderPath } from '../lib/desktop.js'
+import { confirmDialog, pickDriveFolder } from '../lib/modals.js'
+import { pickFolderPath, revealLabel, revealPath } from '../lib/desktop.js'
 import { toast } from '../lib/toasts.js'
+import { copyText, extractClientId, normalizeWebUrl, rotateMobileCode, useMobileState } from '../lib/mobile.js'
 import { Icon } from './icons.js'
 import { Avatar, Button, LinkButton, Pill, Segmented, Select, Slider, Stepper, Switch } from './common.js'
 import { useLocalRoots } from './local-picker.js'
@@ -16,10 +17,10 @@ const MiB = 1048576
 const CHUNKS = [
   { value: 64 * MiB, label: '64 MB' },
   { value: 128 * MiB, label: '128 MB' },
-  { value: 256 * MiB, label: '256 MB (recomendado)' },
+  { value: 256 * MiB, label: '256 MB' },
   { value: 512 * MiB, label: '512 MB' },
   { value: 1024 * MiB, label: '1 GB' },
-  { value: 0, label: 'Contínuo (sem pedaços)' },
+  { value: 0, label: 'Contínuo (recomendado)' },
 ]
 
 function Group({ title, icon, tone, children, foot }) {
@@ -40,14 +41,252 @@ function Row({ label, desc, children, stack }) {
   </div>`
 }
 
+// ───── Celular ─────
+
+/** Endereço em fonte mono com botão de copiar. */
+function CopyField({ value, label = 'Copiar' }) {
+  const [done, setDone] = useState(false)
+  const copy = async () => {
+    if (await copyText(value)) {
+      setDone(true)
+      setTimeout(() => setDone(false), 1500)
+    } else toast('error', 'Não consegui copiar. Selecione o endereço e copie à mão.')
+  }
+  return html`<div class="copy-field">
+    <span class="mono-path copy-value" title=${value}>${value}</span>
+    <${Button} size="sm" icon=${done ? 'check' : 'link'} onClick=${copy}>${done ? 'Copiado' : label}</${Button}>
+  </div>`
+}
+
+/** SVG gerado pelo motor (qrcode-generator, só retângulos): seguro para pôr direto. */
+function QrBox({ svg, label }) {
+  return html`<div class="mqr" role="img" aria-label=${label} dangerouslySetInnerHTML=${{ __html: svg }}></div>`
+}
+
+/** Campo de texto salvo ao sair dele (ou Enter); o motor valida e, se recusar, volta ao valor anterior. */
+function TextSetting({ value, onCommit, placeholder, label, mono, clean = (v) => v.trim(), inputmode, bare = false }) {
+  const [text, setText] = useState(value ?? '')
+  const editing = useRef(false)
+  useEffect(() => {
+    if (!editing.current) setText(value ?? '')
+  }, [value])
+  const commit = () => {
+    editing.current = false
+    const v = clean(text)
+    setText(v)
+    if (v !== (value ?? '')) onCommit(v)
+  }
+  return html`<input
+    class=${cx(!bare && 'input', !bare && 'srow-input', mono && 'mono')}
+    type="text"
+    inputmode=${inputmode}
+    value=${text}
+    placeholder=${placeholder}
+    aria-label=${label}
+    spellcheck="false"
+    autocomplete="off"
+    onFocus=${() => (editing.current = true)}
+    onInput=${(e) => setText(e.currentTarget.value)}
+    onBlur=${commit}
+    onKeyDown=${(e) => e.key === 'Enter' && e.currentTarget.blur()}
+  />`
+}
+
+function firewallNote(platform) {
+  if (platform === 'win32') return 'Na primeira vez, o Windows pode pedir para liberar o SOBEDESCE no Firewall: marque “Redes privadas” e permita. Sem isso o celular não acha o computador.'
+  if (platform === 'darwin') return 'Na primeira vez, o macOS pergunta se o SOBEDESCE pode aceitar conexões de entrada: clique em Permitir. Sem isso o celular não acha o Mac.'
+  return 'Se houver firewall, libere a porta abaixo para a rede local. Sem isso o celular não acha o computador.'
+}
+
+/** Ajustes → Celular: recepção pelo Wi-Fi (QR, pastas, código), Atalho do iPhone e o app publicado na internet. */
+function MobileGroups({ d, set, accounts, activeId, home, platform }) {
+  const confirmed = useStore((s) => s.settings)
+  const on = !!d.mobileReceive
+  const { state: m, reload, setState } = useMobileState(
+    [confirmed?.mobileReceive, confirmed?.mobilePort, confirmed?.mobileStagingDir, confirmed?.mobileWebUrl, confirmed?.webClientId],
+    { poll: !!confirmed?.mobileReceive },
+  )
+  const [rotating, setRotating] = useState(false)
+  const account = accounts.find((a) => a.id === d.mobileAccountId) || accounts.find((a) => a.id === activeId) || accounts[0] || null
+  const isMac = platform === 'darwin'
+  const where = isMac ? 'o Mac' : 'o computador'
+  const toWhere = isMac ? 'ao Mac' : 'ao computador'
+
+  const chooseFolder = async () => {
+    if (!account) return toast('error', 'Conecte uma conta do Google primeiro.')
+    const f = await pickDriveFolder({ accountId: account.id, title: 'Pasta padrão para o que vem do celular', confirmLabel: 'Usar esta pasta', initialFolderId: d.mobileFolderId || 'root' })
+    if (!f) return
+    set('mobileAccountId', account.id)
+    set('mobileFolderId', f.id === 'root' ? '' : f.id)
+    set('mobileFolderName', f.id === 'root' ? '' : f.path || f.name, { now: true })
+  }
+  const changeAccount = (id) => {
+    // A pasta é de uma conta: trocou a conta, volta para o Meu Drive dela.
+    set('mobileAccountId', id)
+    set('mobileFolderId', '')
+    set('mobileFolderName', '', { now: true })
+  }
+  const chooseStaging = async () => {
+    const p = await pickFolderPath({ title: 'Pasta de recebidos do celular', defaultPath: d.mobileStagingDir })
+    if (p) set('mobileStagingDir', p, { now: true })
+  }
+  const rotate = async () => {
+    const ok = await confirmDialog({
+      title: 'Gerar um código novo?',
+      message: 'O QR code, os endereços e o Atalho do iPhone de agora param de funcionar. Envios em andamento caem e continuam depois que o celular abrir o QR novo.',
+      confirmLabel: 'Gerar código novo',
+    })
+    if (!ok) return
+    setRotating(true)
+    const r = await attempt(rotateMobileCode())
+    setRotating(false)
+    if (r) {
+      setState(r)
+      toast('success', 'Código novo pronto. Escaneie o QR de novo no celular.')
+    }
+  }
+
+  const folderLabel = d.mobileFolderId ? d.mobileFolderName || 'Pasta escolhida' : 'Meu Drive'
+  return html`
+    <${Group} title="Celular" icon="drop" tone="up" foot=${on ? firewallNote(platform) : 'O iPhone manda os arquivos pela rede local; o SOBEDESCE daqui sobe pro Drive na velocidade do computador.'}>
+      <${Row} label="Receber do celular (mesmo Wi-Fi)" desc=${`O celular abre o SOBEDESCE pelo QR code e manda os arquivos para ${where}, que sobe pro Drive. Se o Wi-Fi cair, continua de onde parou.`}>
+        <${Switch} label="Receber do celular" checked=${on} onChange=${(v) => set('mobileReceive', v, { now: true })} />
+      </${Row}>
+      ${on
+        ? html`
+            ${m?.error ? html`<div class="srow mobile-error" role="alert"><${Icon} name="warning" size=${16} /><span>${m.error}</span></div>` : null}
+            ${m?.running && m.qrSvg
+              ? html`<div class="srow mqr-row">
+                  <${QrBox} svg=${m.qrSvg} label="QR code para abrir o SOBEDESCE no celular" />
+                  <div class="mqr-text">
+                    <div class="srow-label">Aponte a câmera do iPhone</div>
+                    <div class="srow-desc">Abre no Safari já ligado ${toWhere}, sem login do Google no celular. O celular precisa estar no mesmo Wi-Fi.</div>
+                    <${CopyField} value=${m.qrUrl} />
+                    ${m.urls.filter((u) => u !== m.qrUrl).length
+                      ? html`<details class="more-urls">
+                          <summary>Outros endereços</summary>
+                          ${m.urls.filter((u) => u !== m.qrUrl).map((u) => html`<${CopyField} key=${u} value=${u} />`)}
+                        </details>`
+                      : null}
+                    ${m.receiving?.length
+                      ? html`<div class="mrecv" aria-live="polite">
+                          ${m.receiving.map(
+                            (r) => html`<div key=${r.id} class="mrecv-row">
+                              <${Icon} name="arrow-down" size=${13} />
+                              <span class="mrecv-name" title=${r.name}>${r.name}</span>
+                              <span class="mrecv-pct">${r.size ? Math.floor((r.offset / r.size) * 100) : 0}%</span>
+                            </div>`,
+                          )}
+                        </div>`
+                      : null}
+                  </div>
+                </div>`
+              : !m?.error
+                ? html`<div class="srow"><div class="srow-desc">Abrindo a porta para o celular…</div></div>`
+                : null}
+            <${Row} label="Pasta padrão no Drive" desc=${html`${accounts.length > 1 && account ? html`${account.email} · ` : null}<span class="mono-path" title=${folderLabel}>${folderLabel}</span>`}>
+              ${accounts.length > 1
+                ? html`<${Select} label="Conta do Google" value=${account?.id || ''} options=${accounts.map((a) => ({ value: a.id, label: a.email }))} onChange=${changeAccount} />`
+                : null}
+              <${Button} size="sm" onClick=${chooseFolder} disabled=${!account}>Escolher…</${Button}>
+            </${Row}>
+            <${Row} label="Pasta de recebidos neste computador" desc=${html`<span class="mono-path" title=${d.mobileStagingDir}>${tildify(d.mobileStagingDir, home)}</span>`}>
+              ${m?.running ? html`<${Button} size="sm" variant="ghost" onClick=${() => revealPath(d.mobileStagingDir)}>${revealLabel(platform)}</${Button}>` : null}
+              <${Button} size="sm" onClick=${chooseStaging}>Escolher…</${Button}>
+            </${Row}>
+            <${Row} label="Apagar daqui depois de subir" desc="Só depois de o Drive confirmar que o arquivo chegou idêntico (MD5). Desligado, fica uma cópia aqui.">
+              <${Switch} label="Apagar daqui depois de subir" checked=${!!d.mobileDeleteAfterUpload} onChange=${(v) => set('mobileDeleteAfterUpload', v, { now: true })} />
+            </${Row}>
+            <${Row} label="Código de acesso" desc="Só quem tem o código (está no QR) consegue mandar arquivos. Gere outro se o QR vazou.">
+              <${Button} size="sm" icon="refresh" loading=${rotating} onClick=${rotate}>Gerar novo código</${Button}>
+            </${Row}>
+            <${Row} label="Porta" desc="Fica fixa: o QR e o Atalho guardam o endereço com ela. Troque só se outro programa já usa esta.">
+              <label class="num-field">
+                <${TextSetting}
+                  label="Porta da recepção do celular"
+                  bare
+                  inputmode="numeric"
+                  value=${String(d.mobilePort ?? '')}
+                  clean=${(v) => v.replace(/\D/g, '').slice(0, 5)}
+                  onCommit=${(v) => v && set('mobilePort', Number(v), { now: true })}
+                />
+              </label>
+            </${Row}>
+          `
+        : null}
+    </${Group}>
+
+    ${on
+      ? html`<${Group} title="Atalho no menu Compartilhar do iPhone" icon="link" tone="neutral" foot="O Atalho guarda o código de acesso. Se gerar um código novo, cole o endereço novo no Atalho.">
+          <div class="srow is-stack">
+            <div class="srow-text">
+              <div class="srow-label">Endereço de envio direto</div>
+              <div class="srow-desc">Com ele, qualquer app do iPhone manda arquivos para ${where} pelo botão Compartilhar, sem abrir nada.</div>
+            </div>
+            ${m?.dropUrl ? html`<${CopyField} value=${m.dropUrl} />` : html`<div class="srow-desc">Aparece aqui quando a recepção estiver aberta.</div>`}
+            ${m?.dropUrlIp && m.dropUrlIp !== m.dropUrl
+              ? html`<div class="srow-desc">Se o iPhone não achar o computador pelo nome, use o endereço com o IP (muda se o roteador trocar o IP):</div>
+                  <${CopyField} value=${m.dropUrlIp} />`
+              : null}
+          </div>
+          <ol class="msteps">
+            ${(m?.shortcutSteps || []).map((s, i) => html`<li key=${i}>${s}</li>`)}
+          </ol>
+        </${Group}>`
+      : null}
+
+    <${Group}
+      title="Em qualquer lugar (internet)"
+      icon="cloud"
+      tone="down"
+      foot="Fora do Wi-Fi, o celular sobe direto pro Google pelo app publicado (Vercel), sem passar por este computador. O ID é de um cliente OAuth do tipo “Aplicativo da Web”, no mesmo projeto do Google Cloud."
+    >
+      <${Row} label="Endereço do app do celular" desc="Onde você publicou a pasta mobile/, ex.: https://sobedesce.vercel.app">
+        <${TextSetting} label="Endereço do app do celular" placeholder="https://…vercel.app" value=${d.mobileWebUrl} clean=${normalizeWebUrl} onCommit=${(v) => set('mobileWebUrl', v, { now: true })} />
+      </${Row}>
+      <${Row} label="ID do cliente Web" desc="Google Auth Platform → Clientes → Aplicativo da Web.">
+        <${TextSetting}
+          label="ID do cliente Web"
+          mono
+          placeholder="1234…apps.googleusercontent.com"
+          value=${d.webClientId}
+          clean=${(v) => (v.trim() ? extractClientId(v) || v.trim() : '')}
+          onCommit=${(v) => set('webClientId', v, { now: true })}
+        />
+      </${Row}>
+      ${m?.webQrSvg
+        ? html`<div class="srow mqr-row">
+            <${QrBox} svg=${m.webQrSvg} label="QR code do app do celular já configurado" />
+            <div class="mqr-text">
+              <div class="srow-label">Escaneie com o iPhone</div>
+              <div class="srow-desc">
+                Abre o app do celular${d.webClientId ? ' já configurado com o seu ID do cliente' : ''}. Depois é só tocar em “Entrar com Google”.
+                ${d.webClientId ? '' : ' Preencha o ID do cliente acima para ele vir junto no QR.'}
+              </div>
+              <${CopyField} value=${m.webUrl} />
+            </div>
+          </div>`
+        : null}
+    </${Group}>
+  `
+}
+
 function LimitControl({ value, onChange, label }) {
   const on = value > 0
   const mbps = on ? Math.round(value / 1e6) : 50
   const [text, setText] = useState(String(mbps))
-  useEffect(() => setText(String(on ? Math.round(value / 1e6) : 50)), [value])
+  const editing = useRef(false)
+  // valor novo vindo do motor não atropela o que a pessoa está digitando
+  useEffect(() => {
+    if (!editing.current) setText(String(on ? Math.round(value / 1e6) : 50))
+  }, [value])
   const commit = (t) => {
-    const n = Math.max(1, Math.min(100000, Math.round(Number(String(t).replace(',', '.')) || 0)))
-    if (n) onChange(n * 1e6)
+    const raw = Number(String(t).replace(',', '.'))
+    // vazio ou zero volta ao valor atual (desligar é no interruptor), em vez de virar 1 MB/s sem querer
+    if (!String(t).trim() || !Number.isFinite(raw) || raw <= 0) return setText(String(mbps))
+    const n = Math.max(1, Math.min(100000, Math.round(raw)))
+    setText(String(n))
+    if (n * 1e6 !== value) onChange(n * 1e6)
   }
   return html`<div class="limit">
     ${on
@@ -57,8 +296,12 @@ function LimitControl({ value, onChange, label }) {
             inputmode="numeric"
             value=${text}
             aria-label=${`${label} em MB/s`}
+            onFocus=${() => (editing.current = true)}
             onInput=${(e) => setText(e.currentTarget.value.replace(/[^\d,.]/g, ''))}
-            onBlur=${(e) => commit(e.currentTarget.value)}
+            onBlur=${(e) => {
+              editing.current = false
+              commit(e.currentTarget.value)
+            }}
             onKeyDown=${(e) => e.key === 'Enter' && commit(e.currentTarget.value)}
           />
           <span>MB/s</span>
@@ -78,6 +321,8 @@ export function SettingsScreen() {
   const [draft, setDraft] = useState(settings || {})
   const pending = useRef({})
   const timer = useRef(null)
+  const inflight = useRef(Promise.resolve())
+  const savedTimer = useRef(null)
   const [saved, setSaved] = useState(null) // 'saving' | 'saved' | null
 
   // acompanha mudanças vindas do servidor quando não há edição pendente
@@ -87,18 +332,28 @@ export function SettingsScreen() {
 
   useEffect(() => () => flush(), [])
 
-  async function flush() {
+  // Um PATCH por vez: dois em paralelo podem chegar fora de ordem ao motor e o valor antigo venceria
+  // (ex.: ligar o limite de banda e logo digitar outro número).
+  function flush() {
     clearTimeout(timer.current)
+    inflight.current = inflight.current.then(send)
+    return inflight.current
+  }
+
+  async function send() {
     const patch = pending.current
     if (!Object.keys(patch).length) return
     pending.current = {}
+    clearTimeout(savedTimer.current)
     setSaved('saving')
     try {
       const res = await api.patch('/api/settings', patch)
       setSettings(res.settings)
       if (!Object.keys(pending.current).length) setDraft(res.settings)
       setSaved('saved')
-      setTimeout(() => setSaved((s) => (s === 'saved' ? null : s)), 1600)
+      // um timer só: o de um salvamento anterior apagava o "Salvo" do seguinte logo que aparecia
+      clearTimeout(savedTimer.current)
+      savedTimer.current = setTimeout(() => setSaved((s) => (s === 'saved' ? null : s)), 1600)
     } catch (err) {
       toast('error', err.message)
       setSaved(null)
@@ -166,7 +421,7 @@ export function SettingsScreen() {
         <${Row} label="Uploads ao mesmo tempo" desc="O Google recebe um arquivo por vez em cada envio; mais arquivos juntos aproveitam melhor a banda.">
           <${Stepper} label="Uploads ao mesmo tempo" value=${d.maxConcurrentUploads} min=${1} max=${8} onChange=${(v) => set('maxConcurrentUploads', v)} />
         </${Row}>
-        <${Row} label="Tamanho do pedaço de upload" desc="Pedaços maiores param menos entre um e outro. Se a conexão cai, o pedaço recomeça.">
+        <${Row} label="Tamanho do pedaço de upload" desc="Contínuo manda o resto do arquivo numa requisição só, como o Google recomenda. Pedaços ajudam em redes que derrubam conexões longas; se cair, continua de onde o Google confirmou.">
           <${Select} label="Tamanho do pedaço de upload" value=${d.uploadChunkSize} options=${chunkOpts} onChange=${(v) => set('uploadChunkSize', Number(v), { now: true })} />
         </${Row}>
         <${Row} label="Refazer conexões lentas" desc="Às vezes o Google segura uma conexão; o SOBEDESCE reabre as que ficam bem para trás.">
@@ -227,6 +482,8 @@ export function SettingsScreen() {
           <${Switch} label="Mostrar arquivos ocultos" checked=${d.showHiddenFiles} onChange=${(v) => set('showHiddenFiles', v, { now: true })} />
         </${Row}>
       </${Group}>
+
+      <${MobileGroups} d=${d} set=${set} accounts=${accounts} activeId=${activeId} home=${roots?.home} platform=${app?.platform} />
 
       <${Group} title="Aparência" icon="sun" tone="warning">
         <${Row} label="Tema">

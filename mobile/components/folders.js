@@ -1,5 +1,6 @@
 // Escolher a pasta de destino: Recentes (um toque), Meu Drive e drives compartilhados; só pastas; nova pasta.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
+import { LAN } from '../lib/config.js'
 import { createFolder, listFolders, listSharedDrives } from '../lib/drive.js'
 import { closeSheet, folderTrail, getRecents, pushRecent, setState, toast, useApp } from '../lib/state.js'
 import { Icon } from './icons.js'
@@ -55,7 +56,7 @@ function SkeletonRows({ n = 6 }) {
 function ErrorRow({ error, onRetry }) {
   return html`<li class="frow-msg">
     <${Icon} name="warning" size=${20} />
-    <p>${error?.status === 0 ? 'Sem conexão com o Google.' : 'Não consegui abrir esta pasta.'}</p>
+    <p>${error?.lan ? error.message : error?.status === 0 ? 'Sem conexão com o Google.' : 'Não consegui abrir esta pasta.'}</p>
     <${Button} size="sm" variant="secondary" icon="refresh" onClick=${onRetry}>Tentar de novo</${Button}>
   </li>`
 }
@@ -173,7 +174,7 @@ function FolderList({ path, driveId, onEnter, creating, setCreating }) {
       ${list.data && !list.data.length && !creating
         ? html`<li class="frow-msg is-empty">
             <${Icon} name="folder" size=${22} />
-            <p>Nenhuma pasta aqui dentro. Dá para enviar para cá mesmo, ou criar uma nova.</p>
+            <p>${LAN ? 'Nenhuma pasta aqui dentro. Dá para enviar para cá mesmo.' : 'Nenhuma pasta aqui dentro. Dá para enviar para cá mesmo, ou criar uma nova.'}</p>
           </li>`
         : null}
       ${(list.data || []).map((f) => html`<${FolderRow} key=${f.id} name=${f.name} onClick=${() => onEnter(f)} />`)}
@@ -208,7 +209,7 @@ export function FolderSheet() {
   return html`<${SheetHead}
       title="Destino"
       left=${html`<button type="button" class="link-btn" onClick=${closeSheet}>Cancelar</button>`}
-      right=${!atHome
+      right=${!atHome && !LAN
         ? html`<button type="button" class="link-btn" onClick=${() => setCreating(true)} disabled=${creating}>Nova pasta</button>`
         : null}
     />

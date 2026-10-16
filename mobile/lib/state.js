@@ -12,6 +12,7 @@ let state = {
   quota: null, // { limit, usage }
   dest: null, // pasta de destino { id, name, driveId, path }
   awake: false, // trava de tela acesa ativa
+  lan: null, // modo Wi-Fi: { mac, noAccount, deleteAfterUpload, error, badCode }
   sheet: null, // { name, props }
   toasts: [],
 }

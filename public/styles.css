@@ -4152,3 +4152,124 @@ button.tree-twisty:hover {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* ───────────── Ajustes → Celular ───────────── */
+.srow.is-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.srow-input {
+  width: 300px;
+  height: 32px;
+  font-size: 13px;
+}
+.mqr-row {
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 22px;
+  padding: 18px 16px;
+}
+/* O QR fica sempre preto no branco (a câmera lê melhor), mesmo no tema escuro. */
+.mqr {
+  flex: none;
+  width: 196px;
+  height: 196px;
+  padding: 6px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--hairline), var(--shadow-sm);
+}
+.mqr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mqr-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mqr-text .srow-desc {
+  margin-top: 0;
+}
+.copy-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 6px 6px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+}
+.copy-value {
+  flex: 1;
+  color: var(--text);
+  user-select: all;
+}
+.more-urls summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin: 2px 0 6px;
+}
+.more-urls .copy-field + .copy-field {
+  margin-top: 6px;
+}
+.mrecv {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+.mrecv-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--up-text);
+}
+.mrecv-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.mrecv-pct {
+  font-variant-numeric: tabular-nums;
+}
+.mobile-error {
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 0;
+  color: var(--err-text);
+  font-size: 13px;
+  background: color-mix(in srgb, var(--err) 7%, transparent);
+}
+.msteps {
+  margin: 0;
+  padding: 4px 16px 16px 36px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.msteps li + li {
+  margin-top: 6px;
+}
+.msteps li::marker {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 720px) {
+  .mqr-row {
+    flex-direction: column;
+  }
+  .srow-input {
+    width: 100%;
+  }
+}
