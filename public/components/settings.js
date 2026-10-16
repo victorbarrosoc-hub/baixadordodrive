@@ -13,7 +13,8 @@ import { Icon } from './icons.js'
 import { Avatar, Button, LinkButton, Pill, Segmented, Select, Slider, Stepper, Switch } from './common.js'
 import { useLocalRoots } from './local-picker.js'
 import { CloudAccountRows } from './cloud.js'
-import { buildLabel, checkUpdate, downloadUpdate, installHint } from '../lib/versao.js'
+import { buildLabel, checkUpdate, downloadUpdate, installHint, installUpdate, updateProgress, updating } from '../lib/versao.js'
+import { UpdateBar } from './versao.js'
 
 const MiB = 1048576
 const CHUNKS = [
@@ -74,13 +75,15 @@ function RawThumbRow({ d, set }) {
 
 // ───── Versão ─────
 
-/** Build deste app e "Procurar atualização" (o app não se atualiza sozinho: Baixar abre o instalador no navegador). */
+/** Build deste app, "Atualizar" (o app se troca sozinho), "Baixar" (instalador no navegador) e "Procurar atualização". */
 function VersionRow() {
   const v = useStore((s) => s.versao)
   const [checked, setChecked] = useState(false)
   const [busy, setBusy] = useState(false)
   const atual = v?.atual
   const dev = !atual?.build
+  const andando = updating(v)
+  const prog = updateProgress(v?.atualizacao)
   const check = async () => {
     setBusy(true)
     const st = await checkUpdate()
@@ -88,7 +91,9 @@ function VersionRow() {
     if (st) setChecked(true)
   }
   let note = null
-  if (v?.disponivel) note = html`<span class="srow-note is-new">Saiu o build ${v.ultima.build}. ${installHint(v.plataforma)}</span>`
+  if (andando) note = html`<span class="srow-note srow-update"><${UpdateBar} fraction=${prog?.fraction} /><span>${prog?.label}</span></span>`
+  else if (prog?.erro) note = html`<span class="srow-note is-warn">${prog.label}</span>`
+  else if (v?.disponivel) note = html`<span class="srow-note is-new">Saiu o build ${v.ultima.build}. ${installHint(v.plataforma, v.podeAtualizar)}</span>`
   else if (checked && dev) note = html`<span class="srow-note">A versão de desenvolvimento não procura atualização.</span>`
   else if (checked && v?.falhou) note = html`<span class="srow-note is-warn">Não consegui verificar agora. Confira a internet e tente de novo.</span>`
   else if (checked) note = html`<span class="srow-note">Você está na versão mais nova.</span>`
@@ -96,8 +101,13 @@ function VersionRow() {
     label="Versão"
     desc=${html`<span title=${atual?.commit ? `commit ${atual.commit}` : undefined}>${buildLabel(atual)}</span>${note ? html`<br />${note}` : null}`}
   >
-    ${v?.disponivel ? html`<${Button} size="sm" variant="primary" icon="download" onClick=${downloadUpdate}>Baixar</${Button}>` : null}
-    <${Button} size="sm" loading=${busy} onClick=${check}>Procurar atualização</${Button}>
+    ${v?.disponivel && !andando && v.podeAtualizar
+      ? html`<${Button} size="sm" variant="primary" icon="refresh" onClick=${installUpdate}>${prog?.erro ? 'Tentar de novo' : 'Atualizar'}</${Button}>
+          <${Button} size="sm" icon="download" onClick=${downloadUpdate}>Baixar</${Button}>`
+      : v?.disponivel && !andando
+        ? html`<${Button} size="sm" variant="primary" icon="download" onClick=${downloadUpdate}>Baixar</${Button}>`
+        : null}
+    ${andando ? null : html`<${Button} size="sm" loading=${busy} onClick=${check}>Procurar atualização</${Button}>`}
   </${Row}>`
 }
 
@@ -550,7 +560,7 @@ export function SettingsScreen() {
         </${Row}>
       </${Group}>
 
-      <${Group} title="Atualizações" icon="circle-down" tone="down" foot="O SOBEDESCE avisa quando sai uma versão nova. Baixar abre o instalador no navegador; seus ajustes e a fila continuam.">
+      <${Group} title="Atualizações" icon="circle-down" tone="down" foot="O SOBEDESCE avisa quando sai uma versão nova. Atualizar baixa, confere e troca o app sozinho; Baixar abre o instalador no navegador. Seus ajustes e a fila continuam.">
         <${VersionRow} />
       </${Group}>
 

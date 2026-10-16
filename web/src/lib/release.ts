@@ -12,7 +12,8 @@ const TAG = "versao-de-teste";
 const CACHE_MS = 5 * 60_000;
 
 export type Asset = { id: number; name: string; url: string; browser_download_url: string };
-export type Versao = { build: number; commit: string; data: string };
+/** sha256Mac/sha256Windows: SHA-256 de cada instalador (null em versao.json antigo, de antes da conferência). */
+export type Versao = { build: number; commit: string; data: string; sha256Mac: string | null; sha256Windows: string | null };
 
 export const PLATAFORMAS = {
   mac: (n: string) => n.endsWith(".dmg"),
@@ -94,7 +95,9 @@ export async function instalador(plataforma: Plataforma): Promise<Asset | null> 
   return (await assetsDoRelease()).find((a) => PLATAFORMAS[plataforma](a.name)) ?? null;
 }
 
-/** Confere o versao.json: build inteiro positivo, commit em hexadecimal, data ISO. */
+const sha256 = (v: unknown): string | null => (typeof v === "string" && /^[0-9a-f]{64}$/i.test(v) ? v.toLowerCase() : null);
+
+/** Confere o versao.json: build inteiro positivo, commit em hexadecimal, data ISO; SHA-256 dos instaladores se houver. */
 export function lerVersao(bruto: unknown): Versao | null {
   if (!bruto || typeof bruto !== "object") return null;
   const v = bruto as Record<string, unknown>;
@@ -103,7 +106,7 @@ export function lerVersao(bruto: unknown): Versao | null {
   const commit = typeof v.commit === "string" && /^[0-9a-f]{7,40}$/i.test(v.commit) ? v.commit.slice(0, 12).toLowerCase() : null;
   const ms = typeof v.data === "string" ? Date.parse(v.data) : NaN;
   if (!commit || !Number.isFinite(ms)) return null;
-  return { build, commit, data: new Date(ms).toISOString() };
+  return { build, commit, data: new Date(ms).toISOString(), sha256Mac: sha256(v.sha256Mac), sha256Windows: sha256(v.sha256Windows) };
 }
 
 /** O build mais novo publicado (versao.json do Release de teste, guardado por 5 min). Lança se não der. */

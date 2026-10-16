@@ -41,6 +41,14 @@ export const LEGAL_ATUALIZADO_EM = "16 de outubro de 2026";
 export const DOWNLOAD_MAC = "/baixar/mac";
 export const DOWNLOAD_WINDOWS = "/baixar/windows";
 
+/**
+ * Instalar pelo Terminal (Mac) e pelo PowerShell (Windows): public/instalar.sh e public/instalar.ps1.
+ * O arquivo baixado assim não ganha a marca de "veio da internet", então não aparece o aviso de app não verificado.
+ * Sempre o endereço oficial (os scripts baixam dele), também nas prévias.
+ */
+export const INSTALAR_MAC = `curl -fsSL ${SITE_OFICIAL}/instalar.sh | bash`;
+export const INSTALAR_WINDOWS = `irm ${SITE_OFICIAL}/instalar.ps1 | iex`;
+
 export const ROTAS = {
   entrar: "/entrar",
   criarConta: "/criar-conta",

@@ -47,6 +47,14 @@ const appHeaders = [
 ];
 const noCache = [{ key: "Cache-Control", value: "no-cache" }];
 
+// ── /instalar.sh e /instalar.ps1: instaladores de uma linha (curl … | bash e irm … | iex), em public/. ──
+// Texto UTF-8 explícito: sem o charset, o PowerShell 5 lê os acentos errado (e .ps1 viria como binário).
+// Cache curto: uma correção no script chega logo.
+const scriptHeaders = [
+  { key: "Content-Type", value: "text/plain; charset=utf-8" },
+  { key: "Cache-Control", value: "public, max-age=300, must-revalidate" },
+];
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   // O app do celular mora em /app/ (com barra: os arquivos dele são relativos e o service worker vale para /app/).
@@ -66,6 +74,8 @@ const nextConfig: NextConfig = {
       { source: "/app/sw.js", headers: noCache },
       { source: "/app/icons/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
       { source: "/app/manifest.webmanifest", headers: [{ key: "Content-Type", value: "application/manifest+json; charset=utf-8" }] },
+      { source: "/instalar.sh", headers: scriptHeaders },
+      { source: "/instalar.ps1", headers: scriptHeaders },
     ];
   },
   async redirects() {

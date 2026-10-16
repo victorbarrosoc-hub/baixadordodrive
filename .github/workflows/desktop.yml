@@ -44,10 +44,12 @@ jobs:
         include:
           - os: macos-latest
             label: Mac
+            plataforma: mac
             build: npm run dist:mac
             files: dist/*.dmg
           - os: windows-latest
             label: Windows
+            plataforma: windows
             build: npm run dist:win
             files: dist/*.exe
     env:
@@ -62,6 +64,17 @@ jobs:
       # Identidade do build (src/build-info.json vai dentro do app): o aviso "Nova versão do SOBEDESCE" compara com ela.
       - run: node scripts/build-info.mjs
       - run: ${{ matrix.build }}
+      # SHA-256 do instalador (main): o job "versao" junta os dois no versao.json. O app ("Atualizar") e os
+      # instaladores de uma linha do site (/instalar.sh e /instalar.ps1) só instalam se o download bater com ele.
+      - if: github.ref == 'refs/heads/main'
+        run: node scripts/sha256.mjs ${{ matrix.plataforma }} dist sha256
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sha256-${{ matrix.plataforma }}
+          path: sha256/
+          retention-days: 1
+          if-no-files-found: error
       # Os instaladores vão para um Release de teste ("SOBEDESCE · versão de teste"): Releases não usam
       # a cota de armazenamento de artefatos do Actions, que é pequena e enche rápido.
       # Só a main publica ali: é para lá que o aviso "Nova versão" e o /baixar do site mandam as pessoas.
@@ -86,7 +99,8 @@ jobs:
           if-no-files-found: error
 
   # Só depois dos DOIS instaladores no Release (needs espera o Mac e o Windows; se um falhar, este não roda):
-  # sobe o versao.json que o site serve em /baixar/versao e que faz o app mostrar "Nova versão do SOBEDESCE".
+  # sobe o versao.json que o site serve em /baixar/versao e que faz o app mostrar "Nova versão do SOBEDESCE",
+  # com o SHA-256 de cada instalador (sha256Mac/sha256Windows).
   versao:
     name: Avisar versão nova
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -95,7 +109,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: node scripts/build-info.mjs versao.json
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sha256-*
+          path: sha256
+          merge-multiple: true
+      - run: node scripts/build-info.mjs versao.json --sha256 sha256
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: versao-de-teste

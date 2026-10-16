@@ -24,9 +24,21 @@ Os arquivos vão direto entre a sua máquina e o Google: **nenhum byte passa por
 
 ## Instalar no Mac
 
-1. **Baixe o instalador (.dmg)**:
-   - **Releases:** na página do projeto no GitHub, abra **Releases** e baixe o `SOBEDESCE-…-mac-universal.dmg` da versão mais recente.
-   - **Versão de teste:** no GitHub, abra **Releases** → **SOBEDESCE · versão de teste** → baixe `SOBEDESCE-…-mac-universal.dmg`.
+**O jeito mais simples (sem o aviso da Apple):** abra o **Terminal** (⌘ Espaço → "Terminal") e cole:
+
+```bash
+curl -fsSL https://sobedesce.vercel.app/instalar.sh | bash
+```
+
+O comando baixa a versão mais nova, **confere o SHA-256** com o que o site publicou (não bateu, não instala nada),
+fecha o SOBEDESCE se estiver aberto, copia o app para **Aplicativos** (troca o antigo), tira a quarentena e abre o app.
+Só pede a senha do Mac se a pasta Aplicativos exigir. Por que não aparece "A Apple não pôde verificar…": o aviso vem da
+marca que o navegador põe no que baixa, e o `curl` não põe. O script está em `web/public/instalar.sh`; leia antes de
+rodar se quiser.
+
+**Pelo navegador (o jeito manual):**
+
+1. **Baixe o instalador (.dmg)** no site (botão **Mac**) ou no GitHub, em **Releases** → **SOBEDESCE · versão de teste** → `SOBEDESCE-…-mac-universal.dmg`.
 2. **Abra o .dmg e arraste o SOBEDESCE para a pasta Aplicativos.**
 3. **Primeira abertura.** O app ainda não tem assinatura da Apple, então o macOS bloqueia na primeira vez:
    - Tente abrir o SOBEDESCE normalmente e feche o aviso.
@@ -44,14 +56,37 @@ O mesmo `.dmg` funciona em Macs com Apple Silicon (M1, M2, M3, M4…) e com Inte
 
 ## Instalar no Windows
 
-1. **Baixe o instalador (.exe)**: em **Releases** → **SOBEDESCE · versão de teste** (ou uma versão numerada) → `SOBEDESCE-…-windows-setup.exe`.
+**O jeito mais simples (sem o aviso do Windows):** abra o **PowerShell** (menu Iniciar → "PowerShell") e cole:
+
+```powershell
+irm https://sobedesce.vercel.app/instalar.ps1 | iex
+```
+
+O comando baixa a versão mais nova, **confere o SHA-256** (não bateu, não instala nada), fecha o SOBEDESCE se estiver
+aberto, roda o instalador em silêncio (só para o seu usuário, sem senha de administrador) e abre o app. Não aparece
+"O Windows protegeu o computador" porque o arquivo baixado pelo PowerShell não ganha a marca de "veio da internet". O
+script está em `web/public/instalar.ps1`.
+
+**Pelo navegador (o jeito manual):**
+
+1. **Baixe o instalador (.exe)** no site (botão **Windows**) ou no GitHub, em **Releases** → **SOBEDESCE · versão de teste** → `SOBEDESCE-…-windows-setup.exe`.
 2. **Abra o instalador.** Ele instala só para o seu usuário, sem pedir senha de administrador, e cria atalho na Área de Trabalho e no Menu Iniciar.
 3. **Se o Windows mostrar "O Windows protegeu o computador" (SmartScreen):** clique em **Mais informações** → **Executar assim mesmo**. Aparece porque o app não tem certificado pago da Microsoft.
 4. **Firewall:** se for receber arquivos do celular, na primeira vez o Windows pergunta se o SOBEDESCE pode usar a rede. Marque **Redes privadas** e permita.
 
 ### Versão nova
 
-O app não se atualiza sozinho (sem assinatura da Apple, o macOS bloquearia). Quando sai um build novo, aparece **"Nova versão do SOBEDESCE"** na barra lateral: **Baixar** abre o instalador certo no navegador; no Mac, substitua o app em Aplicativos, no Windows, rode o instalador. Seus ajustes, contas e a fila ficam como estão. **Depois** esconde o aviso até sair um build ainda mais novo. Em **Ajustes → Atualizações** aparece o build instalado e o botão **Procurar atualização**.
+Quando sai um build novo, aparece **"Nova versão do SOBEDESCE"** na barra lateral (e em **Ajustes → Atualizações**):
+
+- **Atualizar** (Mac e Windows, app instalado): o próprio app baixa a versão nova, confere o SHA-256, fecha, troca e
+  abre de novo, sem aviso da Apple nem do Windows. Se houver transferências andando, ele pergunta antes: elas pausam e
+  continuam de onde pararam quando o app abrir. No Mac, o app precisa estar numa pasta em que você pode gravar
+  (normalmente **Aplicativos**); aberto direto do `.dmg`, ou se algo der errado, o botão some e fica o **Baixar**.
+- **Baixar** abre o instalador certo no navegador (o jeito manual de cima). Rodar de novo o comando do Terminal ou do
+  PowerShell também atualiza.
+- **Depois** esconde o aviso até sair um build ainda mais novo.
+
+Seus ajustes, contas e a fila ficam como estão. Em **Ajustes → Atualizações** aparece o build instalado e o botão **Procurar atualização**.
 
 ---
 
