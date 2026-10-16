@@ -97,8 +97,10 @@ partir do SVG; se o ícone mudar, renderize de novo nos mesmos tamanhos.
 
 ## Decisões do motor de envio
 
-- **Sessão retomável por arquivo**, pedaços de 8 MiB (ajustável: 4/8/16/32 MiB, sempre múltiplos de 256 KiB),
-  2 arquivos ao mesmo tempo (1–4). `Blob.slice` é preguiçoso: a memória fica baixa mesmo com arquivos de GBs.
+- **Sessão retomável por arquivo**, pedaços de 8 MiB e 2 arquivos ao mesmo tempo. Em Ajustes há uma escolha só,
+  **Sua rede**: “Rede do celular” (padrão: 2 arquivos, 8 MiB) ou “Wi-Fi rápido” (4 arquivos, 16 MiB). Por baixo
+  ficam gravados os mesmos `concurrency`/`chunkMiB` de antes (`sobedesce.settings`); valores antigos com 3 ou mais
+  arquivos juntos aparecem como Wi-Fi rápido. Pedaços sempre múltiplos de 256 KiB. `Blob.slice` é preguiçoso: a memória fica baixa mesmo com arquivos de GBs.
 - **PUTs na sessão vão sem `Authorization`.** A URI da sessão é a credencial (documentação do Drive). Assim um
   token que vence no meio de um arquivo grande não para o envio; só conferir o destino e abrir sessões novas
   esperam o token. Se o Google responder 401 num PUT, aquela sessão passa a mandar o token.
