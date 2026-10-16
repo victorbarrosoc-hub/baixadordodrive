@@ -9,10 +9,11 @@ Mudou algo aqui? Avise as outras frentes.
 
 ## 1. Decisões do Victor
 
-- Público: **equipe e convidados**. O app do Google fica em modo **Teste** (até 100 e-mails
-  cadastrados à mão no Google Cloud). Escopo **Drive completo**
-  (`https://www.googleapis.com/auth/drive`). No modo Teste o refresh token do Google vence em
-  **7 dias**: a tela precisa lidar bem com "reconectar".
+- Público: o app do Google está **publicado sem verificação** (projeto `zro-site-511809`, o
+  mesmo da ZRO): qualquer conta Google conecta, depois do aviso "O Google não verificou este app",
+  com limite de cerca de 100 usuários até verificar. Escopo **Drive completo**
+  (`https://www.googleapis.com/auth/drive`). O refresh token não vence mais em 7 dias, mas a tela
+  continua lidando bem com "reconectar" (senha trocada, acesso removido).
 - Login: **conta própria da SOBEDESCE** (e-mail + senha). Dentro da conta, **"Conectar Google
   Drive"** vincula uma ou mais contas Google. Depois de vinculada, a conta Google também serve
   para **entrar** ("Entrar com Google").
