@@ -100,3 +100,19 @@ export const tentativas = pgTable(
   },
   (t) => [index("tentativas_chave_quando_idx").on(t.chave, t.quando)],
 );
+
+/** "Esqueci a senha": link de uso único, 1 hora. Só o sha256 do token. */
+export const redefinicoesSenha = pgTable(
+  "redefinicoes_senha",
+  {
+    id: text().primaryKey(),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    tokenHash: text().notNull().unique(),
+    expiraEm: quando().notNull(),
+    usadoEm: quando(),
+    criadoEm: agora(),
+  },
+  (t) => [index("redefinicoes_senha_usuario_idx").on(t.usuarioId)],
+);

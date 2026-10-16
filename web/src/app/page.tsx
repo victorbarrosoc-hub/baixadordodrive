@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AvisoContaApagada } from "@/components/conta/aviso-conta-apagada";
 import { AccountsSection } from "@/components/home/accounts-section";
 import { CompareSection } from "@/components/home/compare-section";
 import { DownloadsSection } from "@/components/home/downloads-section";
@@ -25,6 +26,7 @@ export default function Home() {
     // data-plat é marcado pelo PlatformScript antes da primeira pintura (por isso o suppressHydrationWarning).
     <div data-plat="outro" className="group/plat" suppressHydrationWarning>
       <PlatformScript />
+      <AvisoContaApagada />
       <SiteHeader />
       <MotionProvider>
         <main>

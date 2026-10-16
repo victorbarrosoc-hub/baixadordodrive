@@ -1,0 +1,89 @@
+/**
+ * "Esqueci a senha": pedir (resposta sempre igual) → e-mail com link de 1 hora e uso único
+ * → senha nova, todas as sessões antigas encerradas e uma sessão nova.
+ */
+import { and, eq, gt, isNull } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
+import { emailDisponivel, enviarEmail } from "@/lib/email/enviar";
+import { emailEsqueciSenha } from "@/lib/email/modelos";
+import { emailValido, normalizarEmail, type Entrou, type Falha } from "./contas";
+import { dentroDoLimite, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "./limite";
+import { hashSenha, SENHA_MAXIMA, SENHA_MINIMA } from "./senha";
+import { criarSessao } from "./sessao";
+import { hashToken, novoId, novoToken } from "./tokens";
+
+const { redefinicoesSenha, sessoes, usuarios } = schema;
+
+export const VALIDADE_LINK_MS = 60 * 60_000;
+export const MENSAGEM_PEDIDO = "Se existir uma conta com este e-mail, mandamos um link para criar uma senha nova. Confira a caixa de entrada e o spam.";
+export const MENSAGEM_INDISPONIVEL = "O envio de e-mail ainda não está ligado. Fale com o Victor para trocar a senha.";
+
+/** Agenda trabalho depois da resposta (Next: `after`); nos testes roda na hora. */
+export type Depois = (tarefa: () => Promise<unknown>) => void;
+export const naHora: Depois = (t) => void t();
+
+/**
+ * Pede o link. A resposta é a mesma com ou sem conta; o e-mail sai depois da resposta
+ * (`depois`), para o tempo de resposta também não contar se a conta existe.
+ */
+export async function pedirRedefinicao(entrada: { email: unknown; ip: string; depois: Depois }): Promise<{ ok: true; mensagem: string } | Falha> {
+  if (!emailDisponivel()) return { ok: false, erro: "indisponivel", mensagem: MENSAGEM_INDISPONIVEL };
+  const email = normalizarEmail(entrada.email);
+  if (!emailValido(email)) return { ok: false, erro: "entrada", campo: "email", mensagem: "Confira o e-mail." };
+  const chaveEmail = `esqueci:${email}`;
+  const chaveIp = `esqueci-ip:${entrada.ip}`;
+  const [porEmail, porIp] = await Promise.all([dentroDoLimite(chaveEmail, REGRAS.esqueciEmail), dentroDoLimite(chaveIp, REGRAS.esqueciIp)]);
+  if (!porEmail || !porIp) return { ok: false, erro: "devagar", mensagem: MENSAGEM_LIMITE };
+  await registrarTentativa(chaveEmail, chaveIp);
+
+  entrada.depois(async () => {
+    const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.email, email), columns: { id: true, nome: true, email: true } });
+    if (!usuario) return;
+    const token = novoToken();
+    await db.insert(redefinicoesSenha).values({ id: novoId(), usuarioId: usuario.id, tokenHash: hashToken(token), expiraEm: new Date(Date.now() + VALIDADE_LINK_MS) });
+    await enviarEmail(emailEsqueciSenha(usuario.email, usuario.nome, token));
+  });
+  return { ok: true, mensagem: MENSAGEM_PEDIDO };
+}
+
+const FORMATO = /^[A-Za-z0-9_-]{43}$/;
+
+/** O link ainda vale? (para a tela mostrar o formulário ou "link vencido") */
+export async function linkValido(token: unknown): Promise<boolean> {
+  if (typeof token !== "string" || !FORMATO.test(token)) return false;
+  const r = await db.query.redefinicoesSenha.findFirst({
+    where: and(eq(redefinicoesSenha.tokenHash, hashToken(token)), isNull(redefinicoesSenha.usadoEm), gt(redefinicoesSenha.expiraEm, new Date())),
+    columns: { id: true },
+  });
+  return Boolean(r);
+}
+
+export const MENSAGEM_LINK_VENCIDO = "Este link venceu ou já foi usado. Peça outro em Esqueci a senha.";
+
+/** Usa o link: grava a senha, encerra todas as sessões (site e computadores) e abre uma sessão nova. */
+export async function redefinirSenha(entrada: { token: unknown; senha: unknown }): Promise<Entrou | Falha> {
+  const senha = typeof entrada.senha === "string" ? entrada.senha : "";
+  if (senha.length < SENHA_MINIMA) return { ok: false, erro: "entrada", campo: "senha", mensagem: `A senha precisa de pelo menos ${SENHA_MINIMA} caracteres.` };
+  if (senha.length > SENHA_MAXIMA) return { ok: false, erro: "entrada", campo: "senha", mensagem: "Senha longa demais." };
+  if (typeof entrada.token !== "string" || !FORMATO.test(entrada.token)) return { ok: false, erro: "link", mensagem: MENSAGEM_LINK_VENCIDO };
+
+  const agora = new Date();
+  const usado = await db
+    .update(redefinicoesSenha)
+    .set({ usadoEm: agora })
+    .where(and(eq(redefinicoesSenha.tokenHash, hashToken(entrada.token)), isNull(redefinicoesSenha.usadoEm), gt(redefinicoesSenha.expiraEm, agora)))
+    .returning({ usuarioId: redefinicoesSenha.usuarioId });
+  if (usado.length === 0) return { ok: false, erro: "link", mensagem: MENSAGEM_LINK_VENCIDO };
+  const { usuarioId } = usado[0];
+
+  const senhaHash = await hashSenha(senha);
+  await db.update(usuarios).set({ senhaHash, atualizadoEm: agora, ultimoLoginEm: agora }).where(eq(usuarios.id, usuarioId));
+  await db.update(sessoes).set({ revogadaEm: agora }).where(and(eq(sessoes.usuarioId, usuarioId), isNull(sessoes.revogadaEm)));
+  // Os outros links pendentes deste usuário também deixam de valer.
+  await db.update(redefinicoesSenha).set({ usadoEm: agora }).where(and(eq(redefinicoesSenha.usuarioId, usuarioId), isNull(redefinicoesSenha.usadoEm)));
+
+  const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId), columns: { id: true, email: true, nome: true } });
+  if (!usuario) return { ok: false, erro: "link", mensagem: MENSAGEM_LINK_VENCIDO };
+  const sessao = await criarSessao(usuario.id, "web");
+  return { ok: true, usuario, token: sessao.token, expiraEm: sessao.expiraEm };
+}

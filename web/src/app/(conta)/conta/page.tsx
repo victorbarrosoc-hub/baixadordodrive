@@ -11,6 +11,7 @@ import { NOME_PLATAFORMA, tempoRelativo } from "@/lib/tempo";
 import { Computadores } from "./computadores";
 import { Drives } from "./drives";
 import { FormNome, FormSenha } from "./forms";
+import { ApagarConta } from "./apagar";
 import { BotaoSair } from "./sair";
 
 export const metadata: Metadata = { title: "Sua conta" };
@@ -30,6 +31,10 @@ export default async function Conta({ searchParams }: Props) {
       {conectou ? (
         <Aviso tom="ok" className="mb-10">
           <p>Google Drive conectado.</p>
+        </Aviso>
+      ) : q.senha === "nova" ? (
+        <Aviso tom="ok" className="mb-10">
+          <p>Senha nova salva. Os outros aparelhos saíram da conta.</p>
         </Aviso>
       ) : mensagemDeErro(erro) ? (
         <Aviso tom={erro === "google_recusado" ? "info" : "erro"} className="mb-10">
@@ -83,6 +88,12 @@ export default async function Conta({ searchParams }: Props) {
       <div className="mt-14 flex justify-center">
         <BotaoSair />
       </div>
+
+      <Secao titulo="Apagar a conta" id="apagar" descricao="Some tudo da SOBEDESCE na hora: a conta, os Drives conectados e os computadores. Os arquivos no Google Drive continuam lá.">
+        <Card className="px-5 py-5 ring-err/25 sm:px-6">
+          <ApagarConta email={usuario.email} />
+        </Card>
+      </Secao>
     </Moldura>
   );
 }

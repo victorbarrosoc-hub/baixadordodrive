@@ -7,8 +7,10 @@
  */
 import { randomBytes } from "node:crypto";
 import { iniciarGoogleFalso, type ContaFalsa } from "./google-falso.mjs";
+import { iniciarResendFalso } from "./resend-falso.mjs";
 
 export const SITE = "http://localhost:3000";
+export const CHAVE_RESEND = "re_teste_123";
 export const CLIENTE = { clientId: "sobedesce-teste.apps.googleusercontent.com", clientSecret: "GOCSPX-sobedesce-teste" };
 
 export const CONTA_ANA: ContaFalsa = { sub: "111", email: "ana@exemplo.com", name: "Ana Montadora", picture: "https://lh3.googleusercontent.com/a/ana" };
@@ -16,6 +18,7 @@ export const CONTA_BETO: ContaFalsa = { sub: "222", email: "beto@exemplo.com", n
 
 export async function prepararAmbiente() {
   const google = await iniciarGoogleFalso(CLIENTE);
+  const resend = await iniciarResendFalso(CHAVE_RESEND);
   for (const k of ["DATABASE_URL", "POSTGRES_URL", "VERCEL", "SOBEDESCE_LOCAL_DB_URL"]) delete process.env[k];
   Object.assign(process.env, {
     SOBEDESCE_PGLITE_DIR: "memory://",
@@ -24,14 +27,19 @@ export async function prepararAmbiente() {
     GOOGLE_CLIENT_SECRET: CLIENTE.clientSecret,
     SOBEDESCE_GOOGLE_BASE: google.url,
     SOBEDESCE_KEY: randomBytes(32).toString("base64"),
+    RESEND_API_KEY: CHAVE_RESEND,
+    SOBEDESCE_RESEND_BASE: resend.url,
+    EMAIL_REMETENTE: "SOBEDESCE <nao-responda@exemplo.com>",
   });
   const banco = await import("../src/lib/db/client");
   await banco.runMigrations();
   return {
     google,
+    resend,
     banco,
     async fechar() {
       await google.fechar();
+      await resend.fechar();
       await banco.closeDatabase();
     },
   };

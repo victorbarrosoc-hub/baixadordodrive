@@ -12,7 +12,7 @@ import { novoId } from "./tokens";
 
 const { usuarios } = schema;
 
-export type Falha = { ok: false; erro: string; mensagem: string; campo?: "nome" | "email" | "senha" | "senhaAtual" | "senhaNova" };
+export type Falha = { ok: false; erro: string; mensagem: string; campo?: "nome" | "email" | "senha" | "senhaAtual" | "senhaNova" | "palavra" };
 export type Entrou = { ok: true; usuario: UsuarioPublico; token: string; expiraEm: Date };
 
 export const MENSAGEM_LOGIN = "E-mail ou senha não conferem.";

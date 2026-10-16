@@ -8,6 +8,13 @@
       "when": 1792148438194,
       "tag": "0000_contas",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792150364572,
+      "tag": "0001_redefinir_senha",
+      "breakpoints": true
     }
   ]
 }

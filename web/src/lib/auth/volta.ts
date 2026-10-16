@@ -13,7 +13,7 @@ export function voltaSegura(valor: unknown, padrao = "/conta"): string {
     const u = new URL(v, base);
     if (u.origin !== base) return padrao;
     // Voltar para o próprio login ou para o sair daria volta em círculo.
-    if (["/entrar", "/criar-conta", "/sair"].includes(u.pathname)) return padrao;
+    if (["/entrar", "/criar-conta", "/sair", "/esqueci-a-senha", "/nova-senha"].includes(u.pathname)) return padrao;
     return u.pathname + u.search + u.hash;
   } catch {
     return padrao;

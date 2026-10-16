@@ -6,12 +6,16 @@
 import { refresh } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { apagarCookieSessao, gravarCookieSessao, ipAtual, origemDaAcaoConfere, usuarioAtual } from "@/lib/auth/atual";
+import { apagarConta } from "@/lib/auth/apagar";
 import { criarConta, entrarComSenha, trocarNome, trocarSenha } from "@/lib/auth/contas";
 import { dentroDoLimite, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "@/lib/auth/limite";
 import { COOKIE_SESSAO, revogarDispositivo, revogarPorToken } from "@/lib/auth/sessao";
+import { pedirRedefinicao, redefinirSenha } from "@/lib/auth/redefinir";
 import { voltaSegura } from "@/lib/auth/volta";
 import { aprovar, buscarPedido, cancelar, normalizarCodigo } from "@/lib/dispositivo";
+import { avisarComputadorConectado } from "@/lib/email/avisos";
 import { removerConta } from "@/lib/google/contas";
 
 export type EstadoForm = {
@@ -106,11 +110,14 @@ export async function acaoLiberarComputador(_: EstadoForm, fd: FormData): Promis
   const codigo = normalizarCodigo(texto(fd, "codigo"));
   const chave = `disp-codigo:${await ipAtual()}`;
   if (!(await dentroDoLimite(chave, REGRAS.dispositivoCodigo))) return { erro: MENSAGEM_LIMITE };
-  if (!codigo || !(await buscarPedido(codigo))) {
+  const pedido = codigo ? await buscarPedido(codigo) : null;
+  if (!codigo || !pedido) {
     await registrarTentativa(chave);
     return { erro: "Este código venceu ou já foi usado. No computador, peça um novo." };
   }
   if (!(await aprovar(codigo, atual.usuario.id))) return { erro: "Este computador já foi liberado ou o código venceu." };
+  const usuarioId = atual.usuario.id;
+  after(() => avisarComputadorConectado(usuarioId, { nome: pedido.nome, plataforma: pedido.plataforma }));
   return { ok: "liberado" };
 }
 
@@ -120,4 +127,28 @@ export async function acaoRecusarComputador(_: EstadoForm, fd: FormData): Promis
   const codigo = normalizarCodigo(texto(fd, "codigo"));
   if (codigo) await cancelar(codigo);
   return { ok: "recusado" };
+}
+
+export async function acaoEsqueciSenha(_: EstadoForm, fd: FormData): Promise<EstadoForm> {
+  if (!(await origemDaAcaoConfere())) return RECUSADO;
+  const r = await pedirRedefinicao({ email: texto(fd, "email"), ip: await ipAtual(), depois: (t) => after(t) });
+  if (!r.ok) return { erro: r.mensagem, campo: r.campo, valores: { email: texto(fd, "email") } };
+  return { ok: r.mensagem };
+}
+
+export async function acaoNovaSenha(_: EstadoForm, fd: FormData): Promise<EstadoForm> {
+  if (!(await origemDaAcaoConfere())) return RECUSADO;
+  const r = await redefinirSenha({ token: texto(fd, "token"), senha: texto(fd, "senha") });
+  if (!r.ok) return { erro: r.mensagem, campo: r.campo };
+  await gravarCookieSessao(r.token);
+  redirect("/conta?senha=nova");
+}
+
+export async function acaoApagarConta(_: EstadoForm, fd: FormData): Promise<EstadoForm> {
+  const atual = await sessaoDoSite();
+  if (!atual) return RECUSADO;
+  const r = await apagarConta({ usuarioId: atual.usuario.id, senha: texto(fd, "senha"), palavra: texto(fd, "palavra"), depois: (t) => after(t) });
+  if (!r.ok) return { erro: r.mensagem, campo: r.campo };
+  await apagarCookieSessao();
+  redirect("/?conta=apagada");
 }
