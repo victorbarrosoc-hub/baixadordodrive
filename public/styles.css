@@ -5178,6 +5178,12 @@ button.tree-twisty:hover {
 }
 
 /* sem prévia / formato que não toca */
+.pother-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
 .pother {
   position: absolute;
   inset: 0;
