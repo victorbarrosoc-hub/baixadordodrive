@@ -13,6 +13,7 @@ import { UpdateCard } from './versao.js'
 const NAV = [
   { id: 'transferencias', label: 'Transferências', icon: 'transfers' },
   { id: 'drive', label: 'Drive', icon: 'cloud' },
+  { id: 'referencias', label: 'Referências', icon: 'bookmark' },
   { id: 'comparar', label: 'Comparar', icon: 'compare' },
   { id: 'ajustes', label: 'Ajustes', icon: 'sliders' },
 ]
@@ -22,6 +23,14 @@ function NavBadge() {
   const n = useMemo(() => activeCount(transfers), [transfers])
   if (!n) return null
   return html`<span class="nav-badge" aria-label=${`${n} em andamento`}>${n > 999 ? '999+' : count(n)}</span>`
+}
+
+/** Referências sendo salvas agora (downloads do yt-dlp e envios). */
+function RefBadge() {
+  const ref = useStore((s) => s.referencias)
+  const n = useMemo(() => (ref?.trabalhos || []).filter((t) => ['na_fila', 'baixando', 'enviando', 'concluindo'].includes(t.fase)).length, [ref])
+  if (!n) return null
+  return html`<span class="nav-badge" aria-label=${`${n} salvando`}>${count(n)}</span>`
 }
 
 function Meters() {
@@ -119,6 +128,7 @@ export function Sidebar({ current }) {
           <${Icon} name=${n.icon} size=${17} />
           <span>${n.label}</span>
           ${n.id === 'transferencias' ? html`<${NavBadge} />` : null}
+          ${n.id === 'referencias' ? html`<${RefBadge} />` : null}
         </a>`,
       )}
     </nav>

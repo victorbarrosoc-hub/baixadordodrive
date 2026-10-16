@@ -67,6 +67,8 @@ src/
   server/previas.js      rotas /api/previas* e o lote (SSE 'previas')
   local/fsbrowse.js      raízes (Início, Mesa, discos externos) e listagem de pastas
   local/scan.js          varredura recursiva local
+  referencias/           Referências (vídeos/fotos salvos nas coleções do Drive): plataformas, metadados, cookies,
+                         yt-dlp (rodar, atualizar, achar), cliente da API do site e o serviço (ver "Referências")
   server/app.js          servidor HTTP, segurança, estáticos, SSE
   server/routes.js       rotas da API
   version.js             VersionChecker (aviso de versão nova: pergunta ao site /baixar/versao)
@@ -579,6 +581,107 @@ Empacotamento: `scripts/ffmpeg-baixar.mjs` (CI, job `app`) baixa FFmpeg 9.0.2 (m
 copia `build/ffmpeg/${os}-${arch}` para `<Resources>/ffmpeg` (fora de app/) e `build/ffmpeg-licencas` (GPL v3, LEIAME
 com as fontes). No Mac universal o `@electron/universal` junta os dois ffmpeg com `lipo` (por isso cada pasta só tem o
 executável). Windows arm64 sai sem ffmpeg próprio (usa o do sistema, se houver).
+
+### referencias/ — Referências (contrato com o site em `docs/REFERENCIAS.md`, frente web)
+
+Vídeos e fotos de referência salvos em `SOBEDESCE Referências/<Coleção>/` no Drive de uma conta SOBEDESCE (`nuvem:<id>`).
+O site guarda coleções e a fila do celular; o computador é quem baixa (yt-dlp) e sobe.
+
+```
+salvar(link) ─▶ fila local (2 downloads por vez) ─▶ yt-dlp numa pasta só dele (<dados>/referencias/tmp/<job>)
+            ─▶ arquivo final em <dados>/referencias/envios/<job>/ ─▶ registro de upload normal no TransferManager
+               (Transferências, retomável; `conflict: 'skip'`, `target.meta` = descrição + appProperties na criação,
+                `referencia: { jobId }`, lote `quiet`) ─▶ miniatura do yt-dlp por contentHints ─▶ "Salvo em <Coleção>"
+fila do celular: a cada 30 s (e no foco da tela) GET fila?status=pendente → POST pegar (409 = outro computador)
+               → mesmo caminho → PATCH pronto {driveFileId} | erro {erro}; PATCH baixando a cada 5 min (sinal de vida)
+```
+
+- `plataformas.js`: `detectar(url) → { plataforma, nome, salvavel }` (tabela de padrões de reel/post/watch/shorts/
+  video/pin/status por site), `dominiosDeCookies(url)` (só os do site do vídeo), `limparUrl` (tira rastreio). Usado também
+  pelo processo principal do Electron (botão "Salvar referência" e menu de contexto).
+- `metadados.js`: nome `<Autor> - <Título curto> (<Plataforma>).<ext>` (sem `\/:*?"<>|`, até 120 caracteres; repetido =
+  `uniqueName` do envio), `appProperties` (`sobedesce=referencia`, `plataforma`, `autor`, `titulo`, `fonte`, `fila`; cada
+  chave + valor ≤ 124 bytes UTF-8, cortado sem partir caractere; `fonte` perde a query antes de ser cortada) e a descrição
+  do §4 do contrato (1ª linha = link completo, `Título/Autor/Plataforma/Salvo em`, linha em branco, legenda, `Nota: …`).
+  `lerReferencia(item)` lê de volta para a tela.
+- `cookies.js`: cookies do Electron → Netscape (`#HttpOnly_`, hostOnly = FALSE), arquivo `cookies.txt` 0600 numa pasta 0700
+  aberto com `wx`, apagado assim que o yt-dlp termina (sucesso, erro, cancelamento).
+- `ytdlp.js`: `montarArgs` (`--ignore-config --no-playlist --newline`, formato
+  `bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/b[height<=1080]/b`
+  com ffmpeg (`--ffmpeg-location`, `--merge-output-format mp4`, `--convert-thumbnails jpg`); sem ffmpeg só progressivos
+  `b[height<=1080][ext=mp4]/b[ext=mp4]/…`; `--write-info-json --write-thumbnail`, `-P <pasta>`, `--max-filesize 4G`,
+  `--progress-template "download:SDPROG …"`, `--cookies`, `--js-runtimes node:<Node do app>` e o link depois de `--`).
+  O YouTube exige um interpretador de JavaScript: o app passa o próprio executável com `ELECTRON_RUN_AS_NODE=1`
+  (no `npm start`, o Node). `Progresso` soma as partes (vídeo + áudio) e marca "juntando"; `classificarErro` transforma o
+  stderr em frase curta (login, privado/removido, sem vídeo, não suportado, limite, recusado, rede, região, formato…).
+  `baixarVideo` mata a árvore inteira (grupo de processos no Mac/Linux, `taskkill /T` no Windows) em cancelamento, tempo
+  limite (30 min) e travamento (3 min sem saída).
+- `binarios.js`: onde está o yt-dlp (`SOBEDESCE_YTDLP`, `<Resources>/yt-dlp/` + `versao.txt`, `build/yt-dlp/<mac|win-x64…>`,
+  Homebrew/PATH) e o ffmpeg (`ffmpegCandidates` da prévia leve).
+- `ytdlp-update.js` (`YtdlpUpdater`): ao ligar as Referências e no máximo uma vez por dia, descobre a última versão pelo
+  redirecionamento de `github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS` (sem a API e o limite dela), lê o
+  `SHA2-256SUMS` daquele Release, baixa o arquivo da máquina (`yt-dlp_macos` universal, `yt-dlp.exe`, `yt-dlp_arm64.exe`)
+  para `<dados>/yt-dlp/<versão>/`, confere o SHA-256 (diferente = apaga, nunca roda), só então testa `--version` e grava
+  `estado.json`. `resolver()` prefere o atualizado quando é mais novo que o do app e reconfere o hash dele a cada abertura
+  (arquivo trocado no disco = apagado, volta o do app). Falha de rede = tenta na próxima abertura.
+- `api.js` (`ReferenciasApi`): as rotas do site com o Bearer do computador (`CloudAuth.request`), erros com `codigo`
+  (`sem_sessao`, `plano` — 403 com `motivo: 'plano'` —, `nao_encontrada`, `ocupado`, `entrada`, `rede`, `servidor`),
+  repetição em rede/5xx/429 só no que é idempotente (GET, PATCH, DELETE, pegar). `link`: `true/false` viram `ligar/desligar`.
+- `service.js` (`ReferenciasService`): estado em `<dados>/referencias.json` (trabalhos ativos + os 80 últimos).
+  Fases `na_fila → baixando → enviando → concluindo → pronto | erro | cancelado`. Ao abrir: `tmp/` é apagada, download
+  pela metade recomeça, envio continua (o registro está na fila de transferências). Cancelar para o yt-dlp ou o envio e
+  apaga temporários; item da fila do celular cancelado vira erro "Cancelado no computador". `status()` vai pelo SSE
+  `referencias`: `{ ativo, motivo: null|'sem_conta'|'plano', navegador, trabalhos, versoes, ytdlp }` (`versoes[colecao]`
+  muda quando algo termina: a tela relê a coleção). 403 plano pausa a fila por 1 h. Cookies: `setCookieProvider(fn)`
+  (o app de desktop pede ao processo principal; sem ele, o yt-dlp roda sem login).
+
+Rotas locais (`src/server/referencias.js`, entrada validada; erros do site viram 401/403/404/409/502 com a frase dele):
+
+| Método | Rota | Corpo / query | Resposta |
+|---|---|---|---|
+| GET | `/api/referencias` | | `{ referencias: status }` |
+| GET | `/api/referencias/detectar` | `url` | `{ url (limpa) \| null, plataforma, nome, salvavel }` |
+| GET / POST | `/api/referencias/colecoes` | `forcar=1` / `{ nome, contaId? }` | `{ raiz, colecoes }` / `{ colecao }` |
+| PATCH / DELETE | `/api/referencias/colecoes/:id` | `{ nome?, link?: true\|false\|'ligar'\|'desligar'\|'trocar' }` / `{ apagarNoDrive? }` | `{ colecao }` / `{}` |
+| GET | `/api/referencias/colecoes/:id/itens` | `forcar=1`, `fila=0` | `{ colecao, accountId, itens: DriveItem + { createdTime, referencia }, pendentes }` |
+| POST | `/api/referencias/salvar` | `{ url, colecaoId, nota?, origem? }` | `{ trabalho }` |
+| POST | `/api/referencias/salvar-imagem` | `{ imagemUrl (https ou data:image), paginaUrl?, titulo?, colecaoId, nota? }` | `{ trabalho }` |
+| POST / DELETE | `/api/referencias/trabalhos/:id/cancelar`, `…/tentar` / `/api/referencias/trabalhos/:id` | | `{}` / `{ trabalho }` |
+| POST | `/api/referencias/fila/consultar` · `/api/referencias/fila/:id/tentar` · DELETE `/api/referencias/fila/:id` | | `{}` |
+| POST | `/api/referencias/ytdlp/verificar` | | `{ ytdlp }` |
+
+Interface: tela **Referências** (`public/components/referencias.js`, rota `#/referencias[/<colecao>]`), janela/painel
+"Salvar referência" (`referencias-salvar.js`, o mesmo nos dois lugares) e o aviso de primeiro uso (ajuste
+`referenciasAvisoVisto`). A prévia é a `DrivePreview` da tela Drive com o bloco `extra` (origem).
+
+**Navegador de referências** (`desktop/navegador.js`, só no app): `BaseWindow` com duas `WebContentsView`:
+- **barra** = `${motor}/navegador.html` (sessão padrão, preload `preload-navegador.cjs` com `navegador.{ir, acao, painel,
+  estado, aoEstado, aoSalvar, abrirFora}`); ocupa a janela toda e a página fica por cima, abaixo da barra (56 px) e à
+  esquerda do painel (380 px). Canais `navegador:*` só respondem à própria barra, com `trustedSender`.
+- **página** = sessão `persist:navegador` (cookies do Instagram etc. ficam só ali), `sandbox`, `contextIsolation`, sem
+  preload, sem Node. `webRequest.onBeforeRequest` cancela qualquer requisição para loopback (`127.0.0.0/8`, `::1`,
+  `localhost`, `0.0.0.0`, formas numéricas) e esquemas que não são http(s)/ws(s)/data/blob: a página nunca alcança o motor
+  nem a recepção do celular. Navegação só http(s) fora de loopback (`will-navigate`, `will-redirect`, quadros), pop-ups
+  abrem na mesma view, downloads cancelados (`will-download`), permissões negadas (só `fullscreen`), `<webview>` negado,
+  agente sem "Electron/…". `did-navigate(-in-page)` (SPA) atualiza a barra; `detectar` acende "Salvar referência".
+  Menu de contexto: "Salvar imagem como referência" (o motor baixa a imagem com os cookies daquele host e o Referer da
+  página), "Salvar link como referência", "Salvar esta página…", copiar, abrir no navegador do sistema.
+- Cookies para o yt-dlp: o motor (utilityProcess) manda `{ type: 'cookies-pedido', id, dominios }`; o processo principal
+  responde só com os cookies desses domínios (`dominiosValidos`: nomes simples, nada de loopback; até 6), em 5 s ou vazio.
+- A janela principal abre o navegador por `window.sobedesce.abrirNavegador(url?)` (canal `sobedesce:abrir-navegador`).
+
+**Empacotamento:** `scripts/ytdlp-baixar.mjs` (CI, antes do `dist:*`) baixa a versão fixa (`VERSAO`, SHA-256 do
+`SHA2-256SUMS` daquele Release) para `build/yt-dlp/mac/` (universal) e `build/yt-dlp/win-x64|win-arm64/`, com
+`versao.txt`; `electron-builder.yml` põe em `<Resources>/yt-dlp/` (fora do `app/`) por `mac.extraResources` e
+`win.extraResources`; no Mac o binário já é universal (o `@electron/universal` pula o lipo; `x64ArchFiles` cobre o caso).
+**Licenças:** yt-dlp é Unlicense (domínio público); os executáveis levam Python (PSF) e bibliotecas permissivas.
+**Uso:** referência pessoal; baixar de plataformas pode contrariar os termos de uso delas, e a responsabilidade é de quem
+salva (o app avisa no primeiro uso e no painel do navegador).
+
+O que só dá para conferir num Mac/Windows de verdade: a janela do navegador (WebContentsView, layout, menu de contexto,
+login do Instagram/Google dentro dela), o yt-dlp empacotado rodando com `--js-runtimes node:<Electron>` +
+`ELECTRON_RUN_AS_NODE=1` (fusível RunAsNode ligado), o `x64ArchFiles`/universal no `dist:mac`, o `taskkill /T` e a troca
+do yt-dlp atualizado no Windows (antivírus).
 
 ### engine/compare.js
 

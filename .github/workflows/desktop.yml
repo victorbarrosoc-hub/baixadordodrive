@@ -63,6 +63,9 @@ jobs:
       - run: npm ci
       # Identidade do build (src/build-info.json vai dentro do app): o aviso "Nova versão do SOBEDESCE" compara com ela.
       - run: node scripts/build-info.mjs
+      # yt-dlp das Referências (versão fixa, conferida pelo SHA-256 do Release) em build/yt-dlp/; o electron-builder põe
+      # em Resources/yt-dlp. Depois de instalado, o app mantém o yt-dlp em dia sozinho (src/referencias/ytdlp-update.js).
+      - run: node scripts/ytdlp-baixar.mjs
       # ffmpeg da prévia leve (versões fixas, conferidas por SHA-256) em build/ffmpeg/; o electron-builder põe em Resources/ffmpeg.
       - run: node scripts/ffmpeg-baixar.mjs
       - run: ${{ matrix.build }}
