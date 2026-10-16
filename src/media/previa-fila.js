@@ -9,7 +9,10 @@
 //  - O estado fica no próprio registro (vai para queue.json): o que estava na fila ou no meio volta depois de reabrir.
 import fsp from 'node:fs/promises'
 import os from 'node:os'
+import path from 'node:path'
 import { UploadTask } from '../engine/upload.js'
+import { DownloadTask } from '../engine/download.js'
+import { PART_SUFFIX, safeLocalName } from '../util/paths.js'
 import { FOLDER_MIME, escapeQueryValue, toDriveItem } from '../google/drive.js'
 import { abortError, isAbortError } from '../util/backoff.js'
 import { newId } from '../util/ids.js'
@@ -19,6 +22,19 @@ import { PREVIA_MARCA, PREVIA_PASTA, detectarMotor, gerarPrevia, isProxyDirName,
 export const PREVIA_PENDENTE = Object.freeze(['fila', 'analisando', 'gerando', 'enviando', 'pausada'])
 const PROXY_FIELDS = 'files(id,name,mimeType,size,parents,appProperties,capabilities(canDownload))'
 const MOTOR_TTL_MS = 10 * 60_000 // "sem conversor" é conferido de novo depois disso (instalou o ffmpeg)
+
+/** Espaço livre (bytes) no disco de `dir`, ou null. */
+export async function espacoLivre(dir = os.tmpdir()) {
+  try {
+    const s = await fsp.statfs(dir)
+    return Number(s.bavail) * Number(s.bsize)
+  } catch {
+    return null
+  }
+}
+
+/** Folga que sobra no disco depois de baixar um original para gerar o proxy (a cópia e o sistema precisam de espaço). */
+export const FOLGA_BAIXAR = 1024 ** 3
 
 /** É a nossa cópia leve? (appProperties.sobedesce === 'previa') */
 export const isPrevia = item => item?.appProperties?.sobedesce === PREVIA_MARCA
@@ -73,19 +89,23 @@ function waitAbortable(p, signal) {
 export class GeradorPrevias {
   /**
    * @param {object} opts
-   * @param {{ get(): object }} [opts.settings] `previaLeve` (padrão ligado) lido a cada uso
+   * @param {{ get(): object }} [opts.settings] `proxyAoEnviar` (padrão de quem não escolheu) lido a cada uso
    * @param {Function} [opts.detect] troca o detectarMotor (testes)
    * @param {Function} [opts.gerar] troca o gerarPrevia (testes)
    * @param {(record, ctx) => { run(signal): Promise<void> }} [opts.createUpload] troca o UploadTask (testes)
    * @param {object} [opts.limiter] limitador de banda de envio (o mesmo dos envios)
    * @param {(record, { estado: boolean }) => void} [opts.onChange] o registro mudou (estado = mudou de fase)
    */
-  constructor({ settings = null, log = () => {}, detect = detectarMotor, gerar = gerarPrevia, createUpload, limiter = null, onChange = null, tmpRoot = os.tmpdir(), retryBaseMs, selfCheck = true } = {}) {
+  constructor({ settings = null, log = () => {}, detect = detectarMotor, gerar = gerarPrevia, createUpload, createDownload = null, downloadOptions, limiter = null, downloadLimiter = null, onChange = null, tmpRoot = os.tmpdir(), retryBaseMs, selfCheck = true, espaco = espacoLivre } = {}) {
     this.settings = settings
     this.log = log
     this.detect = detect
     this.gerar = gerar
     this.createUpload = createUpload || ((rec, ctx) => new UploadTask(rec, ctx))
+    this.createDownload = createDownload
+    this.downloadOptions = downloadOptions
+    this.downloadLimiter = downloadLimiter
+    this.espaco = espaco
     this.limiter = limiter
     this.onChange = onChange
     this.tmpRoot = tmpRoot
@@ -103,14 +123,26 @@ export class GeradorPrevias {
     this.folderCache = new Map()
   }
 
-  enabled() {
+  /** Padrão para quem não escolheu (envios antigos, celular, Comparar): só 'nunca' desliga. */
+  padrao() {
     const s = this.settings?.get?.()
-    return s ? s.previaLeve !== false : true
+    return s ? s.proxyAoEnviar !== 'nunca' : true
   }
 
-  /** Vale cópia leve para este envio? (vídeo pela extensão; RAW fica de fora) */
+  /** Este envio quer proxy? A escolha do envio/arquivo (`record.proxy`) vale; sem ela, o ajuste. */
+  quer(record) {
+    return typeof record?.proxy === 'boolean' ? record.proxy : this.padrao()
+  }
+
+  /** Vídeo que pode ter proxy (pela extensão; RAW fica de fora). */
+  elegivel(record) {
+    // Referências (vídeos salvos de redes sociais) não ganham proxy.
+    return !!(record && record.type === 'upload' && !record.referencia && record.local?.path && isVideoName(record.name || record.local.path))
+  }
+
+  /** Vale cópia leve para este envio? */
   wants(record) {
-    return !!(record && record.type === 'upload' && record.local?.path && !this.closing && this.enabled() && isVideoName(record.name || record.local.path))
+    return !this.closing && this.elegivel(record) && this.quer(record)
   }
 
   /** O que o computador tem para converter (em cache; "sem conversor" é conferido de novo a cada 10 min). */
@@ -150,13 +182,17 @@ export class GeradorPrevias {
     return this.current?.record?.id === rec.id || this.queue.some(j => j.record.id === rec.id)
   }
 
-  /** Põe o envio na fila da prévia (não espera). `restore`: veio da fila gravada (reabriu o app). */
-  enqueue(record, drive, { restore = false } = {}) {
+  /**
+   * Põe o envio na fila da prévia (não espera). `restore`: veio da fila gravada (reabriu o app).
+   * `forcar`: pedido à mão ("Gerar proxy"): gera mesmo que o vídeo já seja leve.
+   */
+  enqueue(record, drive, { restore = false, forcar = false } = {}) {
     if (!this.wants(record) || !drive) return false
     if (!record.target?.fileId || !record.target?.parentId) return false
     if (this.#has(record)) return false
     if (restore && !PREVIA_PENDENTE.includes(record.previa?.estado)) return false
-    this.queue.push({ record, drive })
+    this.queue.push({ record, drive, forcar: forcar || !!record.previa?.forcar })
+    if (forcar) record.previa = { ...(record.previa || {}), forcar: true }
     this.#set(record, { estado: this.paused ? 'pausada' : 'fila' })
     this.#pump()
     return true
@@ -210,7 +246,7 @@ export class GeradorPrevias {
         const rec = job.record
         if (job.ac.signal.aborted || isAbortError(err)) {
           if (job.requeue && !this.closing) {
-            this.queue.unshift({ record: rec, drive: job.drive })
+            this.queue.unshift({ record: rec, drive: job.drive, forcar: job.forcar })
             this.#set(rec, { estado: this.paused ? 'pausada' : 'fila' })
           } else if (this.closing) {
             // Fecha o app: na próxima abertura volta para a fila (o estado gravado continua pendente).
@@ -251,7 +287,7 @@ export class GeradorPrevias {
   async #process(job, signal) {
     const rec = job.record
     const drive = job.drive
-    if (!this.enabled()) {
+    if (!this.quer(rec)) {
       delete rec.previa
       this.onChange?.(rec, { estado: true })
       return
@@ -276,6 +312,7 @@ export class GeradorPrevias {
       driveId: t.driveId,
       originalId: t.fileId,
       pastas: found.pastas,
+      forcar: job.forcar,
       signal,
       onFase: (estado, frac) => this.#set(rec, frac == null ? { estado } : { estado, frac }, rec.previa?.estado !== estado),
     })
@@ -349,12 +386,65 @@ export class GeradorPrevias {
     }
   }
 
+  /**
+   * Baixa o original do Drive para um temporário (o mesmo DownloadTask dos downloads: segmentado, com retomada das
+   * conexões que caem), para gerar o proxy de um vídeo que não está neste computador. Confere o espaço livre antes
+   * (original + folga de 1 GB). Devolve { path, limpar() }; o temporário some em falha ou cancelamento.
+   */
+  async baixarOriginal(drive, item, { signal, onFase, tmpRoot = this.tmpRoot } = {}) {
+    const size = Number(item.size) || 0
+    const livre = await this.espaco(tmpRoot)
+    if (livre != null && livre < size + FOLGA_BAIXAR) {
+      const gb = n => `${(n / 1e9).toFixed(1).replace('.', ',')} GB`
+      throw new Error(`sem espaço para baixar o original (precisa de ${gb(size + FOLGA_BAIXAR)}, livre ${gb(livre)})`)
+    }
+    const dir = await fsp.mkdtemp(path.join(tmpRoot, 'sobedesce-original-'))
+    const limpar = () => fsp.rm(dir, { recursive: true, force: true }).catch(() => {})
+    const dest = path.join(dir, safeLocalName(item.name || 'original'))
+    const rec = {
+      id: newId('org'),
+      type: 'download',
+      status: 'running',
+      name: item.name,
+      size,
+      bytesDone: 0,
+      attempts: 0,
+      verify: null,
+      source: { fileId: item.id, mimeType: item.mimeType || null, md5: item.md5 || null, modifiedTime: item.modifiedTime || null, headRevisionId: item.headRevisionId || null, resourceKey: item.resourceKey || null },
+      dest: { path: dest, tempPath: dest + PART_SUFFIX },
+      segments: null,
+    }
+    let got = 0
+    const ctx = {
+      drive,
+      settings: { get: () => ({ ...(this.settings?.get?.() ?? {}), verifyChecksums: false }) },
+      limiter: this.downloadLimiter ?? null,
+      hasher: null,
+      persist: () => {},
+      onBytes: n => {
+        got += n
+        onFase?.('baixando', size ? Math.min(0.999, got / size) : null)
+      },
+      log: this.log,
+    }
+    try {
+      onFase?.('baixando', 0)
+      const task = this.createDownload ? this.createDownload(rec, ctx) : new DownloadTask(rec, ctx, this.downloadOptions)
+      await task.run(signal)
+      return { path: rec.dest.path, limpar }
+    } catch (err) {
+      await limpar()
+      throw err
+    }
+  }
+
   /** Para os Ajustes e a tela Drive. */
   async status({ refresh = false } = {}) {
     const m = await this.motor({ refresh })
     const cur = this.current?.record
     return {
-      enabled: this.enabled(),
+      enabled: this.padrao(),
+      modo: this.settings?.get?.()?.proxyAoEnviar ?? 'sempre',
       motor: {
         via: m?.via ?? null,
         label: m?.label || '',

@@ -177,6 +177,7 @@ export class TransferManager extends EventEmitter {
     const st = settings.get()
     this.limiters = { download: new BandwidthLimiter(st.bandwidthLimitDown), upload: new BandwidthLimiter(st.bandwidthLimitUp) }
     if (this.previas && !this.previas.limiter) this.previas.limiter = this.limiters.upload
+    if (this.previas && !this.previas.downloadLimiter) this.previas.downloadLimiter = this.limiters.download
     this.history = []
     this.timers = []
     this.started = false
@@ -486,6 +487,30 @@ export class TransferManager extends EventEmitter {
     }
     this.#schedule()
     return this.#saveNow().then(() => ({ records: accepted, dropped }))
+  }
+
+  /**
+   * Proxy (prévia leve) por arquivo. Na fila ou subindo: só muda a escolha (vale quando o envio terminar). Já enviado:
+   * ligar = gerar agora (mesmo que o vídeo seja leve: foi pedido); desligar = para a que está na fila/gerando.
+   * Devolve quantos registros mudaram (só envios de vídeo contam).
+   */
+  setProxy(ids, on) {
+    let n = 0
+    const want = !!on
+    for (const r of this.#select(ids)) {
+      if (!this.previas?.elegivel(r)) continue
+      n++
+      r.proxy = want
+      if (!want) {
+        this.#previaCall(p => p.cancel([r.id]))
+      } else if ((r.status === 'completed' || r.status === 'skipped') && r.target?.fileId) {
+        const st = r.previa?.estado
+        if (st !== 'pronta' && !PREVIA_PENDENTE.includes(st)) this.#previaCall(p => p.enqueue(r, this.driveFor(r.accountId), { forcar: true }))
+      }
+      this.#touch(r)
+    }
+    if (n) this.#saveSoon()
+    return n
   }
 
   /** Pausa (ids ou 'all'). Espera as tarefas pararem (até 5 s). */

@@ -190,7 +190,7 @@ test('falha da prévia não falha o envio; ajuste desligado não gera nada', asy
   assert.ok(logs.some(l => /ficou sem cópia leve/.test(l)))
   assert.equal(childNamed(mock, pasta.id, 'Proxy'), undefined)
 
-  await s.update({ previaLeve: false })
+  await s.update({ proxyAoEnviar: 'nunca' })
   const n = fake.calls.length
   const v2 = await put(dir, 'outro.mov', 80_000)
   const [id2] = await send([v2], pasta.id)
