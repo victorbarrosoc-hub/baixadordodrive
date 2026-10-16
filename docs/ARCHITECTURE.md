@@ -63,7 +63,7 @@ src/
   media/raw-thumb-lote.js "Gerar miniaturas": RAW que já estão no Drive, achados no computador por nome + tamanho
   media/previa.js        prévia leve: leitura (ffmpeg -i), decisão, linha de comando, detecção do ffmpeg/codificador, conversão
   media/previa-fila.js   GeradorPrevias: fila depois do envio (Proxy/<nome>.mp4 + appProperties), vaga única de conversão
-  media/previa-lote.js   "Gerar prévias": vídeos que já estão no Drive, achados no computador por nome + tamanho
+  media/previa-lote.js   "Gerar proxies da pasta" / "Gerar proxy": vídeos que já estão no Drive, achados no computador por nome + tamanho
   server/previas.js      rotas /api/previas* e o lote (SSE 'previas')
   local/fsbrowse.js      raízes (Início, Mesa, discos externos) e listagem de pastas
   local/scan.js          varredura recursiva local
@@ -521,7 +521,16 @@ O Drive toca vídeo pesado fluido porque usa uma cópia leve própria; a API só
 **H.264 High 8 bits 4:2:0, lado maior ≤ 1920 (pares, pixels quadrados), ≈ 5 Mbit/s VBR (teto 7), AAC 128k estéreo (ou
 sem áudio), `+faststart`, GOP 60, rotação aplicada na imagem**, gravada em `Proxy/<nome-base>.mp4` ao lado do original
 (reaproveita uma subpasta `Proxy`/`Proxies` que já exista) com `appProperties { sobedesce: 'previa', original: <id> }`.
-O original nunca é tocado. Ajuste `previaLeve` (padrão ligado; Ajustes → Arquivos); `previaLocalDir` lembra a pasta do lote.
+O original nunca é tocado. Na interface a cópia se chama **proxy** ("Proxy (cópia leve 1080p)"). Ajuste `proxyAoEnviar`
+(`'sempre'` padrão | `'perguntar'` | `'nunca'`; o antigo `previaLeve` é migrado no `Settings.load`: true → sempre, false →
+nunca); `previaLocalDir` lembra a pasta do lote.
+
+Escolha por envio e por arquivo: `record.proxy` (boolean). `POST /api/transfers/upload { proxy }` grava em todos os
+registros do envio; sem ela vale o ajuste na hora de gerar (só `'nunca'` desliga — celular e Comparar não perguntam). A
+interface manda `proxy` sempre: no seletor de pasta do **Enviar** (`DrivePicker proxyChoice`) a chave aparece marcada pelo
+ajuste; em `'perguntar'`, soltar arquivos ou "Enviar para esta pasta" abre a janela `envio` (components/previa.js).
+`TransferManager.setProxy(ids, on)` (`POST /api/transfers/proxy`): na fila/subindo só muda a escolha; envio concluído +
+`on` → `enqueue(..., { forcar: true })` (gera mesmo se for leve); `!on` → `cancel`. Só vídeos contam (`elegivel`).
 
 ```js
 // media/previa.js
@@ -560,19 +569,30 @@ apagado sempre (falha, cancelamento ou `limpar()` depois de subir). Sem espaço 
 - `pause()`/`resume()` seguem o "pausar/retomar tudo" do manager; `cancel(ids)` é o "Pular" da linha; `close()` no
   encerramento deixa o estado como `fila`. Uma conversão por vez no app inteiro (`gerarESubir` do lote usa a mesma vaga).
 - `init()` (chamado por `startApp`): verificação do conversor, uma linha no log (`[motor] prévia leve: ffmpeg 9.0.2 · h264_videotoolbox`).
+- `baixarOriginal(drive, item, { signal, onFase })`: "Baixar do Drive para gerar". Confere o espaço livre (original + 1 GB
+  de folga; senão erro "sem espaço para baixar o original (precisa de X, livre Y)" antes de qualquer byte), baixa com o
+  `DownloadTask` normal (segmentado, conexões refeitas, limitador de downloads, sem MD5) para
+  `os.tmpdir()/sobedesce-original-*/` e devolve `{ path, limpar() }`; falha ou cancelamento apagam o temporário.
 
 "Gerar prévias" (media/previa-lote.js, botão na barra da tela Drive quando a pasta tem vídeo): igual ao "Gerar
 miniaturas" — lista os vídeos (fora das pastas Proxy e das nossas cópias) e os proxies existentes; varre o computador
 (`indexLocalRaw` com `accept: isVideoName`); par por nome + tamanho; `.mp4` pequeno até 1080p pelo Drive conta como leve.
-`refazer` substitui só as cópias marcadas (nova versão do mesmo arquivo); proxy de câmera nunca. Resumo:
-`{ phase, videos, jaTinham, jaLeves, total, aGerar, feitos, semLocal, tamanhoDiferente, falhou, localFiles, localTruncated,
-current, fase, frac, falhas[], semLocalNomes[], tamanhoNomes[], feitosIds[] }`. Um lote por vez (409), SSE `previas`.
+`refazer` substitui só as cópias marcadas (nova versão do mesmo arquivo); proxy de câmera nunca. Opções novas: `somente`
+(ids: "Gerar proxy" de um vídeo, ou os que faltaram), `forcar` (gera mesmo se for leve), `dicas` (fileId → caminho local
+dos envios da fila; vale com o mesmo tamanho; com elas `localDir` é opcional) e `baixar` (sem original no computador:
+`baixarOriginal`, gera e apaga). Resumo: `{ phase, videos, jaTinham, jaLeves, total, aGerar, feitos, semLocal,
+semLocalBytes, semLocalIds[], baixados, tamanhoDiferente, falhou, localFiles, localTruncated, current, fase ('analisando'|
+'baixando'|'gerando'|'enviando'), frac, falhas[], semLocalNomes[], tamanhoNomes[], feitosIds[] }`. Um lote por vez (409),
+SSE `previas`. Na tela Drive: "Gerar proxies da pasta" (barra) e "Gerar proxy" (seleção de um vídeo; `GET
+/api/previas/arquivo` diz se a fila conhece o original, se já tem proxy e o espaço livre). O resumo com `semLocal` oferece
+"Baixar do Drive para gerar" (confirma o tamanho e o espaço livre antes). Selo "Proxy" na lista/grade (`useComProxy`:
+mesmo nome-base na pasta ou dentro da subpasta Proxy/Proxies listada, uma consulta por subpasta).
 
 Prévia (as três): vídeo com mais de 30 MB (qualquer codec) procura a cópia leve antes de tocar e toca ela, com
-**Prévia leve | Original** no canto (troca no mesmo ponto; o selo diz "Proxy" quando é da câmera). Sem cópia, as regras de
+**Proxy | Original** no canto (troca no mesmo ponto). Sem cópia, as regras de
 antes (proxy para o que não toca, aviso de vídeo pesado). Baixar baixa sempre o original. `appProperties` só é visível
-para o mesmo cliente OAuth que gravou: com a conta SOBEDESCE (o mesmo cliente do site e do celular) o selo diz "Prévia
-leve"; com um Drive "só neste computador" a cópia toca igual, só com o selo "Proxy".
+para o mesmo cliente OAuth que gravou (com um Drive "só neste computador" o site e o celular não sabem que a cópia é
+nossa; ela toca igual) — por isso a interface chama tudo de "Proxy" e só a nota embaixo do player muda.
 
 Empacotamento: `scripts/ffmpeg-baixar.mjs` (CI, job `app`) baixa FFmpeg 9.0.2 (martin-riedl.de, arm64 e x64) e 6.1.1
 (gyan.dev via ffmpeg-static, win x64) para `build/ffmpeg/<mac|win>-<arch>/` e confere o SHA-256; o `electron-builder.yml`
@@ -652,7 +672,7 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | GET | `/api/local/roots` | | `{ roots, home, sep }` |
 | GET | `/api/local/list` | `path`, `hidden` | `{ path, parent, entries }` |
 | POST | `/api/transfers/download` | `{ accountId, items: DriveItem[], destDir?, conflict? }` | `{ batch, count, bytes, skipped }` |
-| POST | `/api/transfers/upload` | `{ accountId, paths, destFolderId, driveId?, conflict? }` | `{ batch, count, bytes, skipped }` |
+| POST | `/api/transfers/upload` | `{ accountId, paths, destFolderId, driveId?, conflict?, proxy?: boolean }` | `{ batch, count, bytes, skipped }` |
 | POST | `/api/transfers/action` | `{ action: pause|resume|cancel|retry|remove|prioritize, ids?: string[]|'all', batchId? }` | `{ }` |
 | POST | `/api/transfers/clear` | | `{ }` |
 | GET | `/api/settings` / PATCH `/api/settings` | patch | `{ settings }` |
@@ -661,7 +681,10 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | GET / DELETE | `/api/raw-thumbs/lote/:jobId` | | `{ jobId, status: running|done|canceled|error, progress, error? }` / `{ }` (para o lote) |
 | GET | `/api/previas` | `refresh=1` (refaz a detecção) | `{ previas: { enabled, motor: { via, label, aviso, versao, origem, encoder, hardware }, fila, pausada, atual, last } }` |
 | POST | `/api/previas/pular` | `{ ids: string[] }` | `{ count }` (pula a prévia leve desses envios) |
-| POST | `/api/previas/lote` | `{ accountId, driveFolderId, localDir, recursive?: true, refazer?: false, folderName? }` | `{ jobId }` (SSE `previas`; 400 pasta inválida, 409 já tem um rodando ou sem conversor) |
+| POST | `/api/previas/lote` | `{ accountId, driveFolderId, localDir?, recursive?: true, refazer?: false, somente?: string[], forcar?, baixar?, folderName?, arquivo? }` | `{ jobId }` (SSE `previas`; 400 pasta inválida ou sem pasta/`somente`/`baixar`, 409 já tem um rodando ou sem conversor) |
+| GET | `/api/previas/arquivo` | `accountId, id` | `{ arquivo: { id, name, size, parentId }, proxy: { id, name, nosso }\|null, local: caminho\|null, livre }` |
+| GET | `/api/previas/espaco` | | `{ livre }` (bytes livres onde os originais baixados ficam) |
+| POST | `/api/transfers/proxy` | `{ ids: string[], proxy: boolean }` | `{ count }` (proxy por arquivo; concluído + true = gerar agora) |
 | GET / DELETE | `/api/previas/lote/:jobId` | | como o das miniaturas |
 | POST | `/api/compare` | `{ accountId, localPath, driveFolderId, mode }` | `{ jobId }` (progresso via SSE) |
 | GET | `/api/compare/:jobId` | | `{ status, progress, result?, error? }` |

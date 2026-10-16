@@ -401,9 +401,9 @@ const LITE_MIN = 30e6
 
 /** Botões "Prévia leve | Original" no canto do player (o selo diz se é a nossa cópia ou o proxy da câmera). */
 function LiteSwitch({ proxy, on, canOriginal, onPick }) {
-  const label = isPreviaItem(proxy) ? 'Prévia leve' : 'Proxy'
+  const label = 'Proxy'
   return html`<div class="lite-switch" role="group" aria-label="O que tocar" onClick=${(e) => e.stopPropagation()} onDblClick=${(e) => e.stopPropagation()}>
-    <button type="button" class=${cx(on && 'is-on')} aria-pressed=${on ? 'true' : 'false'} onClick=${() => !on && onPick(true)} title=${isPreviaItem(proxy) ? 'Cópia leve em 1080p (pasta Proxy): toca fluida' : 'Proxy da câmera: toca fluido'}>${label}</button>
+    <button type="button" class=${cx(on && 'is-on')} aria-pressed=${on ? 'true' : 'false'} onClick=${() => !on && onPick(true)} title=${isPreviaItem(proxy) ? 'Proxy (cópia leve 1080p): toca fluido' : 'Proxy da câmera: toca fluido'}>${label}</button>
     ${canOriginal ? html`<button type="button" class=${cx(!on && 'is-on')} aria-pressed=${!on ? 'true' : 'false'} onClick=${() => on && onPick(false)} title="Tocar o arquivo original (pesado: pode travar pela rede)">Original</button>` : null}
   </div>`
 }
@@ -485,7 +485,7 @@ function Content({ accountId, item, keysRef, onDownload }) {
   if (kind === 'video' && mode === 'lite-look') {
     return html`<div class="pother has-poster">
       ${bigPoster ? html`<img class="pother-poster" src=${bigPoster} alt="" />` : html`<${FileIcon} name=${item.name} mimeType=${item.mimeType} size=${112} />`}
-      <div class="pother-text"><span class="pwait"><${Spinner} size=${14} /> Procurando a prévia leve…</span></div>
+      <div class="pother-text"><span class="pwait"><${Spinner} size=${14} /> Procurando o proxy…</span></div>
     </div>`
   }
   if (kind === 'video' && mode === 'play') {
@@ -514,7 +514,7 @@ function Content({ accountId, item, keysRef, onDownload }) {
       keysRef=${keysRef}
       onFail=${(why) => why !== 'stall' && setMode('fail')}
       badge=${isPreviaItem(proxy)
-        ? html`<div class="proxy-note"><span class="proxy-tag is-previa">Prévia leve</span><span>Cópia leve em 1080p. O Baixar traz o original.</span></div>`
+        ? html`<div class="proxy-note"><span class="proxy-tag is-previa">Proxy</span><span>Cópia leve em 1080p. O Baixar traz o original.</span></div>`
         : html`<div class="proxy-note"><span class="proxy-tag">Proxy</span><span>Prévia em baixa resolução. O Baixar traz o original.</span></div>`}
     />`
   }

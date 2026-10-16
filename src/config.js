@@ -109,10 +109,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   /** "Gerar miniaturas" (tela Drive): a última pasta do computador escolhida para achar os originais ('' = nenhuma). */
   rawThumbLocalDir: '',
   /**
-   * Prévia leve: ao terminar de subir um vídeo pesado, gera uma cópia H.264 em 1080p e sobe em Proxy/<nome>.mp4,
-   * ao lado do original, para a prévia tocar fluida no celular, no app e no site. O original não muda.
+   * Proxy (prévia leve) ao enviar: ao terminar de subir um vídeo pesado, gera uma cópia H.264 em 1080p e sobe em
+   * Proxy/<nome>.mp4, ao lado do original, para a prévia tocar fluida no celular, no app e no site. O original não muda.
+   * 'sempre' | 'perguntar' (a tela de envio pergunta; quem não pergunta, como o celular, gera) | 'nunca'.
+   * Cada envio e cada arquivo podem mudar isso (record.proxy). Substitui o antigo `previaLeve` (true → sempre, false → nunca).
    */
-  previaLeve: true,
+  proxyAoEnviar: 'sempre',
   /** "Gerar prévias" (tela Drive): a última pasta do computador escolhida para achar os originais ('' = nenhuma). */
   previaLocalDir: '',
   /** Sem receber/enviar nenhum byte por esse tempo, a conexão é refeita. */
@@ -163,6 +165,7 @@ const ENUMS = {
   downloadConflict: ['skip', 'rename', 'overwrite'],
   uploadConflict: ['skip', 'rename', 'replace'],
   theme: ['system', 'light', 'dark'],
+  proxyAoEnviar: ['sempre', 'perguntar', 'nunca'],
 }
 const CHUNK_ALIGN = 256 * 1024
 
@@ -237,7 +240,11 @@ export class Settings extends EventEmitter {
     // Campo por campo: um valor estragado (editado à mão, versão antiga) volta ao padrão sozinho,
     // sem levar junto a pasta de downloads, os limites e o resto do que a pessoa ajustou.
     let next = { ...DEFAULT_SETTINGS }
-    for (const [key, value] of Object.entries(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {})) {
+    const saved = { ...(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) }
+    // Ajuste antigo (booleano) da prévia leve: vira a escolha de três opções.
+    if (typeof saved.previaLeve === 'boolean' && saved.proxyAoEnviar === undefined) saved.proxyAoEnviar = saved.previaLeve ? 'sempre' : 'nunca'
+    delete saved.previaLeve
+    for (const [key, value] of Object.entries(saved)) {
       try {
         next = validateSettings({ [key]: value }, next)
       } catch {

@@ -11,7 +11,7 @@ import { isOpenable } from './drive-table.js'
 
 const PAGE = 120
 
-const Card = memo(function Card({ item, index, selected, focused, accountId, proxy, h }) {
+const Card = memo(function Card({ item, index, selected, focused, accountId, proxy, h, hasProxy }) {
   const folderLike = isOpenable(item)
   const dur = item.video?.durationMs ? clipTime(item.video.durationMs / 1000) : ''
   const sub = folderLike ? 'Pasta' : [item.size != null ? bytes(item.size) : null, item.modifiedTime ? relTime(item.modifiedTime) : null].filter(Boolean).join(' · ')
@@ -31,6 +31,7 @@ const Card = memo(function Card({ item, index, selected, focused, accountId, pro
       <span class="gcheck"><${Checkbox} checked=${selected} label=${`Selecionar ${item.name}`} tabIndex=${-1} onChange=${() => h.onCheck(index)} /></span>
       ${dur ? html`<span class="gbadge">${dur}</span>` : null}
       ${item.isGoogleDoc ? html`<span class="gbadge gbadge-left">Doc Google</span>` : null}
+      ${hasProxy ? html`<span class="gbadge gbadge-left gbadge-proxy" title="Tem proxy (cópia leve): a prévia toca fluida">Proxy</span>` : null}
       ${!folderLike
         ? html`<button type="button" class="gpeek" tabindex="-1" title="Prévia (espaço)" aria-label=${`Prévia de ${item.name}`} onClick=${(e) => {
             e.stopPropagation()
@@ -49,7 +50,7 @@ const Card = memo(function Card({ item, index, selected, focused, accountId, pro
  * @param {{ items: any[]|null, sorted: any[], selected: Set<string>, onSelect, onOpen, onPreview, accountId: string,
  *           loading?: boolean, error?: string|null, onRetry?: ()=>void, empty?: any, resetKey?: string, proxies?: Map }} props
  */
-export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview, accountId, loading, error, onRetry, empty, resetKey, proxies }) {
+export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview, accountId, loading, error, onRetry, empty, resetKey, proxies, comProxy }) {
   const [limit, setLimit] = useState(PAGE)
   const [focus, setFocus] = useState(0)
   const anchor = useRef(null)
@@ -172,6 +173,7 @@ export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview
         (it, i) => html`<${Card}
           key=${it.id}
           item=${it}
+          hasProxy=${!!comProxy?.has(it.id)}
           index=${i}
           selected=${selected.has(it.id)}
           focused=${i === focus}

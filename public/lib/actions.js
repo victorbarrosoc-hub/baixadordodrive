@@ -1,7 +1,7 @@
 // Ações compartilhadas entre telas (transferências, envio, revelar no Finder).
 import { api, attempt } from './api.js'
 import { toast } from './toasts.js'
-import { confirmDialog, pickDriveFolder } from './modals.js'
+import { confirmDialog, openModal, pickDriveFolder } from './modals.js'
 import { pickUploadPaths, revealPath } from './desktop.js'
 import { getState } from './store.js'
 import { bytes, plural } from './format.js'
@@ -66,10 +66,33 @@ export function announceBatch(res, verb = 'na fila') {
   toast('success', msg, { action: { label: 'Ver transferências', href: '#/transferencias' } })
 }
 
-/** Envia caminhos locais para uma pasta do Drive. */
-export async function uploadPaths({ accountId, paths, destFolderId, driveId }) {
+const VIDEO_EXT = /\.(mp4|mov|m4v|mxf|mkv|avi|mts|m2ts|ts|mpg|mpeg|m2v|wmv|webm|3gp|dv|flv|hevc|h265|h264|vob)$/i
+
+/** A escolha pode ter vídeo? (pasta — sem extensão — conta como "talvez") */
+export function mayHaveVideo(paths) {
+  return (paths || []).some((p) => {
+    const name = String(p).split(/[\\/]/).pop() || ''
+    return VIDEO_EXT.test(name) || !/\.[^.]+$/.test(name)
+  })
+}
+
+/**
+ * Envia caminhos locais para uma pasta do Drive. `proxy` (boolean) é a escolha deste envio; sem ela vale o ajuste
+ * "Proxy ao enviar" — e, em "Perguntar a cada envio", abre a janela de envio com a escolha em destaque.
+ */
+export async function uploadPaths({ accountId, paths, destFolderId, driveId, proxy, destName }) {
   if (!paths?.length) return null
-  const res = await attempt(api.post('/api/transfers/upload', { accountId, paths, destFolderId, ...(driveId ? { driveId } : {}) }))
+  if (typeof proxy !== 'boolean') {
+    const modo = getState().settings?.proxyAoEnviar || 'sempre'
+    if (modo === 'perguntar') {
+      if (mayHaveVideo(paths)) {
+        const r = await openModal('envio', { paths, destName })
+        if (!r) return null
+        proxy = r.proxy
+      }
+    } else proxy = modo === 'sempre'
+  }
+  const res = await attempt(api.post('/api/transfers/upload', { accountId, paths, destFolderId, ...(driveId ? { driveId } : {}), ...(typeof proxy === 'boolean' ? { proxy } : {}) }))
   announceBatch(res, 'para enviar')
   return res
 }
@@ -82,8 +105,9 @@ export async function uploadFlow({ destFolderId, driveId, destName, anchor } = {
   if (!paths?.length) return null
   let dest = destFolderId ? { id: destFolderId, driveId } : null
   if (!dest) {
-    dest = await pickDriveFolder({ accountId: activeAccountId, title: 'Para qual pasta do Drive?', confirmLabel: 'Enviar para cá' })
+    // A escolha do proxy fica visível no próprio seletor de pasta (marcada pelo ajuste).
+    dest = await pickDriveFolder({ accountId: activeAccountId, title: 'Para qual pasta do Drive?', confirmLabel: 'Enviar para cá', proxyChoice: mayHaveVideo(paths) })
     if (!dest) return null
   }
-  return uploadPaths({ accountId: activeAccountId, paths, destFolderId: dest.id, driveId: dest.driveId })
+  return uploadPaths({ accountId: activeAccountId, paths, destFolderId: dest.id, driveId: dest.driveId, destName: destName || dest.name, ...(typeof dest.proxy === 'boolean' ? { proxy: dest.proxy } : {}) })
 }

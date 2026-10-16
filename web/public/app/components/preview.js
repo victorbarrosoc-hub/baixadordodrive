@@ -212,7 +212,7 @@ const FAIL_TEXT = {
 function LiteSwitch({ proxy, on, canOriginal, onPick }) {
   return html`<div class="mp-switch" role="group" aria-label="O que tocar">
     <button type="button" class=${cx(on && 'is-on')} aria-pressed=${on ? 'true' : 'false'} onClick=${(e) => (e.stopPropagation(), !on && onPick(true))}>
-      ${isPrevia(proxy) ? 'Prévia leve' : 'Proxy'}
+      Proxy
     </button>
     ${canOriginal
       ? html`<button type="button" class=${cx(!on && 'is-on')} aria-pressed=${!on ? 'true' : 'false'} onClick=${(e) => (e.stopPropagation(), on && onPick(false))}>Original</button>`
@@ -295,14 +295,14 @@ function MediaStage({ file, kind, siblings, onZoom }) {
           kind="video"
           src=${streamUrl(liteP)}
           poster=${poster || null}
-          title=${`${file.name} (${isPrevia(liteP) ? 'prévia leve' : 'proxy'})`}
+          title=${`${file.name} (proxy)`}
           ratio=${ratio}
           corner=${switcher}
           startAt=${startAt}
           timeRef=${at}
           onFail=${() => setLiteFail(true)}
         />
-        <p class="pv-proxy-note">${isPrevia(liteP) ? 'Cópia leve em 1080p, para tocar sem travar. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
+        <p class="pv-proxy-note">${isPrevia(liteP) ? 'Proxy (cópia leve 1080p), para tocar sem travar. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
       </div>`
     }
     const vm = file.videoMediaMetadata
@@ -335,10 +335,10 @@ function MediaStage({ file, kind, siblings, onZoom }) {
         poster=${poster || proxyPoster || null}
         title=${`${file.name} (proxy)`}
         ratio=${ratio}
-        badge=${isPrevia(proxy) ? 'Prévia leve' : 'Proxy'}
+        badge="Proxy"
         onFail=${() => setProxyFail(true)}
       />
-      <p class="pv-proxy-note">${isPrevia(proxy) ? 'Cópia leve em 1080p. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
+      <p class="pv-proxy-note">${isPrevia(proxy) ? 'Proxy (cópia leve 1080p). O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
     </div>`
   }
   if (kind === 'video' || kind === 'audio') {

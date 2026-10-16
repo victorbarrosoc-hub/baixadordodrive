@@ -7,6 +7,7 @@
 //  3. casa pelo NOME (sem diferenciar maiúsculas, NFC) + TAMANHO;
 //  4. gera e sobe a cópia na mesma vaga das prévias dos envios (GeradorPrevias.gerarESubir: uma conversão por vez).
 // Falha de um arquivo vira "falhou (motivo)" e o lote segue; cancelar para tudo.
+import fs from 'node:fs/promises'
 import { FOLDER_MIME } from '../google/drive.js'
 import { classifyError } from '../google/errors.js'
 import { abortError, isAbortError } from '../util/backoff.js'
@@ -98,6 +99,8 @@ function newSummary() {
     aGerar: 0, // com par no computador
     feitos: 0,
     semLocal: 0,
+    semLocalBytes: 0, // quanto seria preciso baixar do Drive para gerar os que não estão no computador
+    baixados: 0, // originais baixados do Drive para gerar (com `baixar`)
     tamanhoDiferente: 0,
     falhou: 0,
     localFiles: 0,
@@ -107,6 +110,7 @@ function newSummary() {
     frac: null, // andamento do arquivo atual (0–1)
     falhas: [],
     semLocalNomes: [],
+    semLocalIds: [], // ids do Drive (a tela oferece "Baixar do Drive e gerar" só para eles)
     tamanhoNomes: [],
     feitosIds: [], // ids das cópias novas
   }
@@ -117,8 +121,13 @@ function newSummary() {
  * @param {object} o
  * @param {object} o.drive DriveClient
  * @param {import('./previa-fila.js').GeradorPrevias} o.gerador
+ * @param {string} [o.localDir] pasta dos originais no computador (sem ela, só `dicas` e `baixar`)
+ * @param {Map<string, string>} [o.dicas] fileId → caminho local já conhecido (envios da fila), conferido pelo tamanho
+ * @param {string[]} [o.somente] só estes ids do Drive ("Gerar proxy" de um arquivo, ou os que faltaram)
+ * @param {boolean} [o.forcar] gera mesmo que o vídeo seja leve (foi pedido à mão)
+ * @param {boolean} [o.baixar] sem original no computador: baixa do Drive para um temporário, gera e apaga
  */
-export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir, recursive = true, refazer = false, signal, onProgress, limits } = {}) {
+export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir = null, recursive = true, refazer = false, dicas = null, somente = null, forcar = false, baixar = false, signal, onProgress, limits } = {}) {
   if (!drive || !gerador) throw new Error('gerarPreviasLote: drive e gerador são obrigatórios')
   if (signal?.aborted) throw abortError(signal)
   const lim = { ...LOTE_LIMITS, ...limits }
@@ -149,7 +158,9 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
     return g
   }
   const driveP = guard(listDriveVideos(drive, driveFolderId, { recursive, signal: sig }))
-  const localP = guard(indexLocalRaw(localDir, { signal: sig, limits: lim, accept: isVideoName, onProgress: p => ((s.localFiles = p.files), s.phase === 'local' && report()) }))
+  const localP = localDir
+    ? guard(indexLocalRaw(localDir, { signal: sig, limits: lim, accept: isVideoName, onProgress: p => ((s.localFiles = p.files), s.phase === 'local' && report()) }))
+    : Promise.resolve({ byName: new Map(), files: 0, truncated: false })
   let listed
   let local
   try {
@@ -166,7 +177,15 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
   s.localTruncated = local.truncated
 
   const work = []
-  for (const v of listed.videos) {
+  const only = somente?.length ? new Set(somente) : null
+  // Original conhecido pela fila (o envio que subiu ele): vale se ainda existe com o mesmo tamanho.
+  const hinted = async v => {
+    const p = dicas?.get?.(v.id)
+    if (!p) return null
+    const st = await fs.stat(p).catch(() => null)
+    return st?.isFile() && st.size === v.size ? { path: p, size: st.size } : null
+  }
+  for (const v of listed.videos.filter(x => !only || only.has(x.id))) {
     const proxy = listed.proxyOf(v)
     let replaceFileId = null
     if (proxy) {
@@ -175,15 +194,26 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
         continue
       }
       replaceFileId = proxy.id
-    } else if (levePeloDrive(v)) {
+    } else if (!forcar && levePeloDrive(v)) {
       s.jaLeves++
       continue
     }
     s.total++
+    const hint = await hinted(v)
+    if (hint) {
+      work.push({ item: v, local: hint, replaceFileId })
+      continue
+    }
     const list = local.byName.get(nameKey(v.name))
     if (!list?.length) {
+      if (baixar) {
+        work.push({ item: v, local: null, replaceFileId })
+        continue
+      }
       s.semLocal++
+      s.semLocalBytes += v.size || 0
       keep(s.semLocalNomes, v.relPath || v.name)
+      if (s.semLocalIds.length < 5000) s.semLocalIds.push(v.id)
       continue
     }
     const hit = list.find(l => l.size === v.size)
@@ -208,17 +238,29 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
     s.fase = 'analisando'
     s.frac = null
     report()
+    let baixado = null
     try {
+      if (!lf) {
+        baixado = await gerador.baixarOriginal(drive, item, {
+          signal,
+          onFase: (fase, frac) => {
+            s.fase = fase
+            s.frac = frac ?? null
+            report()
+          },
+        })
+        s.baixados++
+      }
       const r = await gerador.gerarESubir({
         drive,
-        localPath: lf.path,
+        localPath: lf ? lf.path : baixado.path,
         name: item.name,
         size: item.size,
         parentId: item.parents?.[0],
         driveId: item.driveId,
         originalId: item.id,
         replaceFileId,
-        forcar: !!replaceFileId,
+        forcar: forcar || !!replaceFileId,
         signal,
         onFase: (fase, frac) => {
           s.fase = fase
@@ -238,6 +280,8 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
       if (signal?.aborted || isAbortError(err)) break
       const info = classifyError(err)
       fail(item, info.kind === 'fatal' && info.status === 403 ? 'o Drive não deixou criar a cópia nesta pasta (sem permissão de edição)' : err?.message || String(err))
+    } finally {
+      await baixado?.limpar()
     }
     report()
   }

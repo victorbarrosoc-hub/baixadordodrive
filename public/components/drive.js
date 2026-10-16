@@ -19,7 +19,7 @@ import { DrivePreview } from './drive-preview.js'
 import { onProxies, knownProxy, siblingProxies } from '../lib/media.js'
 import { createDriveFolder, useAbout, useDriveFolder, useDriveSearch, useSharedDrives } from './drive-data.js'
 import { hasRawFiles, onRawThumbsDone, openRawThumbs, useRawThumbsRunning } from './raw-thumbs.js'
-import { hasVideoFiles, onPreviasDone, openPrevias, usePreviasRunning } from './previa.js'
+import { hasVideoFiles, isVideoName, onPreviasDone, openPrevias, openProxyArquivo, usePreviasRunning, useComProxy } from './previa.js'
 
 /** Fontes: Meu Drive + drives compartilhados, em pílulas. */
 export function SourceChips({ drives, current, onPick, vertical }) {
@@ -71,7 +71,7 @@ function Quota({ accountId }) {
   </div>`
 }
 
-function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear, busy, onPreview }) {
+function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear, busy, onPreview, onProxy }) {
   const files = items.filter((x) => !isOpenable(x))
   const folders = items.length - files.length
   const size = files.reduce((a, x) => a + (x.size || 0), 0)
@@ -94,6 +94,9 @@ function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear,
       <${Icon} name="chevron-updown" size=${12} />
     </button>
     ${onPreview && files.length ? html`<${Button} icon="eye" onClick=${onPreview} title="Prévia (espaço)">Prévia</${Button}>` : null}
+    ${onProxy && items.length === 1 && files.length === 1 && isVideoName(files[0].name)
+      ? html`<${Button} icon="film" onClick=${() => onProxy(files[0])} title="Proxy (cópia leve 1080p) para a prévia tocar fluida">Gerar proxy</${Button}>`
+      : null}
     <${Button} variant="primary" icon="download" onClick=${onDownload} loading=${busy}>Baixar</${Button}>
     <${IconButton} icon="x" label="Limpar seleção" onClick=${onClear} />
   </div>`
@@ -127,6 +130,8 @@ export function DriveScreen({ route }) {
   const previasRunning = usePreviasRunning()
 
   const searching = !!q.trim()
+  // Selo "Proxy" nos vídeos que já têm (mesma pasta ou subpasta Proxy da lista).
+  const comProxy = useComProxy(accountId, searching ? null : data?.items)
   const items = searching ? search.items : data?.items || null
   const folder = data?.folder
   const sourceId = folder?.driveId || (data?.path?.[0]?.id && drives.some((d) => d.id === data.path[0].id) ? data.path[0].id : 'root')
@@ -184,7 +189,7 @@ export function DriveScreen({ route }) {
   const uploadHere = async (e) => {
     const paths = await pickUploadPaths({ title: `Enviar para “${folderLabel(folder, drives)}”`, anchor: e?.currentTarget })
     if (!paths?.length) return
-    await uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null })
+    await uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives) })
   }
 
   const chooseDest = async () => {
@@ -227,7 +232,7 @@ export function DriveScreen({ route }) {
     <${FileDrop}
       label=${folderLabel(folder, drives)}
       enabled=${!!folder && !!accountId}
-      onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null })}
+      onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives) })}
     />
     <header class="page-head">
       <h1>Drive</h1>
@@ -269,8 +274,8 @@ export function DriveScreen({ route }) {
             </button>`
           : null}
         ${!searching && folder && (hasVideoFiles(items, folder) || previasRunning)
-          ? html`<button type="button" class="btn btn-secondary" onClick=${() => openPrevias({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } })} title="Cópia leve em 1080p (pasta Proxy) para a prévia tocar fluida, a partir dos originais no computador">
-              ${previasRunning ? html`<${Spinner} size=${14} />` : html`<${Icon} name="film" size=${16} />`}<span>Gerar prévias</span>
+          ? html`<button type="button" class="btn btn-secondary" onClick=${() => openPrevias({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } })} title="Proxy (cópia leve 1080p, pasta Proxy) dos vídeos desta pasta, para a prévia tocar fluida">
+              ${previasRunning ? html`<${Spinner} size=${14} />` : html`<${Icon} name="film" size=${16} />`}<span>Gerar proxies da pasta</span>
             </button>`
           : null}
         <${Button} icon="folder-plus" onClick=${newFolder} disabled=${searching}>Nova pasta</${Button}>
@@ -288,6 +293,7 @@ export function DriveScreen({ route }) {
             onPreview=${preview}
             accountId=${accountId}
             proxies=${proxies}
+            comProxy=${comProxy}
             loading=${searching ? search.loading : loading}
             error=${searching ? search.error : error}
             onRetry=${reload}
@@ -302,6 +308,7 @@ export function DriveScreen({ route }) {
             onPreview=${preview}
             accountId=${accountId}
             proxies=${proxies}
+            comProxy=${comProxy}
             sort=${sort}
             onSort=${setSort}
             loading=${searching ? search.loading : loading}
@@ -338,6 +345,7 @@ export function DriveScreen({ route }) {
           onDownload=${download}
           onClear=${() => setSelected(new Set())}
           onPreview=${() => preview(selItems.find((x) => !isOpenable(x)))}
+          onProxy=${(item) => openProxyArquivo({ accountId, item })}
         />`
       : null}
   </div>`
