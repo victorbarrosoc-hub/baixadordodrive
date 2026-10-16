@@ -116,6 +116,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   showHiddenFiles: false,
   /** 'system' | 'light' | 'dark' */
   theme: 'system',
+  /** Aviso de versão nova: o build que a pessoa deixou para depois (0 = nenhum). Só um build mais novo avisa de novo. */
+  versaoDispensada: 0,
 
   // ── Celular ──
   /** Recebe arquivos do celular pelo Wi-Fi (segundo servidor, aberto na rede local, protegido por código). */
@@ -148,6 +150,7 @@ const LIMITS = {
   bandwidthLimitUp: [0, Number.MAX_SAFE_INTEGER],
   stallTimeoutMs: [5_000, 600_000],
   mobilePort: [1024, 65535],
+  versaoDispensada: [0, Number.MAX_SAFE_INTEGER],
 }
 const ENUMS = {
   downloadConflict: ['skip', 'rename', 'overwrite'],

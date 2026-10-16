@@ -219,7 +219,7 @@ function listen(server, port, host) {
 
 /**
  * Sobe o servidor em 127.0.0.1 (porta pedida; se ocupada, as 20 seguintes; 0 = qualquer livre).
- * @param {object} opts { port, settings, auth, manager, hasher, paths, desktop, spawn, publicDir, log }
+ * @param {object} opts { port, settings, auth, manager, hasher, paths, desktop, mobile, versao, spawn, publicDir, log }
  * @returns {Promise<{ server, port: number, url: string, hub: EventHub, close(): Promise<void> }>}
  */
 export async function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', publicDir = PUBLIC_DIR, ...opts } = {}) {
@@ -309,6 +309,7 @@ export async function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', pub
   on(ctx.auth?.cloud, 'status', st => hub.send('cloud', st))
   on(ctx.auth?.cloud, 'signedOut', ev => hub.send('toast', { kind: 'error', message: ev.message }))
   on(ctx.settings, 'change', s => hub.send('settings', s))
+  on(ctx.versao, 'status', st => hub.send('versao', st))
 
   let closing = null
   const close = () => {

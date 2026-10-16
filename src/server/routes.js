@@ -402,7 +402,7 @@ function revealCommand(platform, target) {
 }
 
 /**
- * @param {object} ctx { settings, auth, manager, hasher, paths, hub, port, desktop, spawn, platform, log }
+ * @param {object} ctx { settings, auth, manager, hasher, paths, hub, port, desktop, mobile, versao, spawn, platform, log }
  * @returns {{ dispatch(req, res, url): Promise<boolean>, state(): object, close(): void }}
  */
 export function createApi(ctx) {
@@ -426,6 +426,8 @@ export function createApi(ctx) {
       media: ctx.media ? { key: ctx.media.key } : null,
       // "Gerar miniaturas": o lote atual (ou o último), para a interface voltar a mostrar depois de reconectar.
       rawThumbs: thumbJobs.view(),
+      // Aviso de versão nova (src/version.js): build deste app, o mais novo conhecido e se mostra o aviso.
+      versao: ctx.versao?.status() ?? null,
     }
   }
 
@@ -786,6 +788,23 @@ export function createApi(ctx) {
       await ctx.mobile.rotateCode()
     }
     return mobileState()
+  })
+
+  // ── versão nova (o app não se atualiza sozinho: a interface mostra "Baixar"; ver src/version.js)
+  const versao = () => {
+    if (!ctx.versao) throw new HttpProblem(404, 'O aviso de versão nova não está disponível.')
+    return ctx.versao
+  }
+
+  route('GET', '/api/versao', () => ({ versao: versao().status() }))
+
+  route('POST', '/api/versao/verificar', async () => ({ versao: await versao().check() }))
+
+  route('POST', '/api/versao/depois', async ({ body }) => {
+    const v = versao()
+    if (body.build !== undefined && !(Number.isSafeInteger(body.build) && body.build > 0)) throw new HttpProblem(400, 'Versão inválida.')
+    // dismiss() lança Error com status 400/409 e mensagem em PT-BR (toProblem repassa).
+    return { versao: await v.dismiss(body.build) }
   })
 
   // ── mostrar no Finder/Explorer

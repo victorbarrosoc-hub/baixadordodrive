@@ -13,6 +13,7 @@ import { Hasher } from './engine/hasher.js'
 import { TransferManager } from './engine/manager.js'
 import { startServer, DEFAULT_PORT } from './server/app.js'
 import { MobileReceiver } from './mobile/receiver.js'
+import { VersionChecker } from './version.js'
 import { closeHttp, requestJSON } from './net/http.js'
 
 // O libuv tem 4 threads para todo o disco (gravações dos downloads, fdatasync dos checkpoints, leitura do MD5,
@@ -129,20 +130,20 @@ function banner(url, root) {
 /**
  * Sobe tudo: ajustes, contas, MD5, fila e servidor. Usado pelo `npm start`, pelo demo, pelos testes e pelo desktop.
  * @param {{ home?: string, port?: number, open?: boolean, desktop?: boolean, quiet?: boolean,
- *   managerOptions?: object, serverOptions?: object, mobileOptions?: object, cloudOptions?: object }} [opts]
- *   `managerOptions`/`serverOptions`/`mobileOptions`/`cloudOptions` (opcionais) vão para o
- *   TransferManager/startServer/MobileReceiver/CloudAuth (os testes trocam peças, ex.: mobileOptions { port: 0, host: '127.0.0.1' }).
+ *   managerOptions?: object, serverOptions?: object, mobileOptions?: object, cloudOptions?: object, versionOptions?: object }} [opts]
+ *   `managerOptions`/`serverOptions`/`mobileOptions`/`cloudOptions`/`versionOptions` (opcionais) vão para o
+ *   TransferManager/startServer/MobileReceiver/CloudAuth/VersionChecker (os testes trocam peças, ex.: mobileOptions { port: 0, host: '127.0.0.1' }).
  * @returns {Promise<{ url: string, port: number, manager: TransferManager, auth: AuthManager, settings: Settings,
- *   hasher: Hasher, paths: object, server: object, mobile: MobileReceiver, shutdown(): Promise<void> }>}
+ *   hasher: Hasher, paths: object, server: object, mobile: MobileReceiver, versao: VersionChecker, shutdown(): Promise<void> }>}
  */
-export async function startApp({ home, port, open = true, desktop = false, quiet = false, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {} } = {}) {
+export async function startApp({ home, port, open = true, desktop = false, quiet = false, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {}, versionOptions = {} } = {}) {
   const root = home ? path.resolve(home) : dataDir()
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
   const paths = dataPaths(root)
   const lockFile = path.join(root, LOCK_NAME)
   const token = await acquireLock(lockFile)
 
-  let settings, auth, hasher, manager, server, mobile
+  let settings, auth, hasher, manager, server, mobile, versao
   try {
     settings = new Settings(paths.settings)
     await settings.load()
@@ -154,11 +155,14 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     await manager.init()
     // Recepção do celular pelo Wi-Fi: liga/desliga sozinha conforme o ajuste mobileReceive.
     mobile = new MobileReceiver({ settings, auth, manager, hasher, paths, ...mobileOptions })
+    // Aviso de versão nova: pergunta ao mesmo site da conta SOBEDESCE (só nos builds do GitHub Actions; ver src/version.js).
+    versao = new VersionChecker({ settings, baseUrl: auth.cloud?.baseUrl, log: (...a) => console.warn('[sobedesce]', ...a), ...versionOptions })
     const wanted = port ?? (Number(process.env.SOBEDESCE_PORT) || DEFAULT_PORT)
-    server = await startServer({ port: wanted, settings, auth, manager, hasher, paths, desktop, mobile, ...serverOptions })
+    server = await startServer({ port: wanted, settings, auth, manager, hasher, paths, desktop, mobile, versao, ...serverOptions })
     // Falhar aqui (porta ocupada, pasta sem permissão) não impede o app de abrir: o erro aparece em Ajustes → Celular.
     await mobile.init().catch(err => console.warn('[sobedesce] recepção do celular não iniciou:', err?.message))
   } catch (err) {
+    versao?.stop()
     await mobile?.close().catch(() => {})
     await server?.close().catch(() => {})
     await manager?.shutdown().catch(() => {})
@@ -168,12 +172,14 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     throw err
   }
   await updateLock(lockFile, token, { url: server.url, port: server.port })
+  versao.start()
   if (!quiet) banner(server.url, root)
   if (open && !desktop && process.env.SOBEDESCE_NO_OPEN !== '1') openBrowser(server.url)
 
   let stopping = null
   const shutdown = () => {
     stopping ??= (async () => {
+      versao.stop()
       // Primeiro fecha a porta da rede local (o que já chegou do celular fica gravado para continuar depois).
       await mobile.close().catch(err => console.warn('[sobedesce] erro ao fechar a recepção do celular:', err?.message))
       try {
@@ -188,7 +194,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     })()
     return stopping
   }
-  return { url: server.url, port: server.port, manager, auth, settings, hasher, paths, server, mobile, shutdown }
+  return { url: server.url, port: server.port, manager, auth, settings, hasher, paths, server, mobile, versao, shutdown }
 }
 
 async function main() {

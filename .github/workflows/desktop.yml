@@ -1,6 +1,6 @@
 # Gera o app de desktop num Mac e num Windows de verdade (na nuvem do GitHub).
 # Os instaladores ficam em "Releases" → "SOBEDESCE · versão de teste". Uma tag v* (ex.: v0.1.0) também publica um Release.
-# Em branches que não são a main, o app só é gerado quando a mensagem do commit tem [build]
+# Em branches que não são a main, o app só é gerado quando a mensagem do commit tem [build] (e fica como artefato, fora do Release)
 # (o Mac na nuvem consome os minutos gratuitos do GitHub 10× mais rápido).
 name: App de desktop
 
@@ -59,10 +59,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Identidade do build (src/build-info.json vai dentro do app): o aviso "Nova versão do SOBEDESCE" compara com ela.
+      - run: node scripts/build-info.mjs
       - run: ${{ matrix.build }}
       # Os instaladores vão para um Release de teste ("SOBEDESCE · versão de teste"): Releases não usam
       # a cota de armazenamento de artefatos do Actions, que é pequena e enche rápido.
-      - uses: softprops/action-gh-release@v2
+      # Só a main publica ali: é para lá que o aviso "Nova versão" e o /baixar do site mandam as pessoas.
+      - if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: versao-de-teste
           name: SOBEDESCE · versão de teste
@@ -70,7 +74,37 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: ${{ matrix.files }}
           fail_on_unmatched_files: true
-          body: Instaladores gerados automaticamente a partir do último commit com [build]. Sem assinatura da Apple/Microsoft por enquanto (veja o README).
+          body: Instaladores gerados automaticamente a partir do último commit da main. Sem assinatura da Apple/Microsoft por enquanto (veja o README).
+      # Branches com [build] e tags v*: os instaladores ficam como artefato do Actions (por poucos dias); a tag
+      # publica o próprio Release no job "release".
+      - if: github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: instalador-${{ matrix.label }}
+          path: ${{ matrix.files }}
+          retention-days: 5
+          if-no-files-found: error
+
+  # Só depois dos DOIS instaladores no Release (needs espera o Mac e o Windows; se um falhar, este não roda):
+  # sobe o versao.json que o site serve em /baixar/versao e que faz o app mostrar "Nova versão do SOBEDESCE".
+  versao:
+    name: Avisar versão nova
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: app
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/build-info.mjs versao.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: versao-de-teste
+          name: SOBEDESCE · versão de teste
+          prerelease: true
+          target_commitish: ${{ github.sha }}
+          files: versao.json
+          fail_on_unmatched_files: true
+          body: Instaladores gerados automaticamente a partir do último commit da main. Sem assinatura da Apple/Microsoft por enquanto (veja o README).
 
   release:
     name: Publicar release

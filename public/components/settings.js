@@ -13,6 +13,7 @@ import { Icon } from './icons.js'
 import { Avatar, Button, LinkButton, Pill, Segmented, Select, Slider, Stepper, Switch } from './common.js'
 import { useLocalRoots } from './local-picker.js'
 import { CloudAccountRows } from './cloud.js'
+import { buildLabel, checkUpdate, downloadUpdate, installHint } from '../lib/versao.js'
 
 const MiB = 1048576
 const CHUNKS = [
@@ -68,6 +69,35 @@ function RawThumbRow({ d, set }) {
     desc=${html`O Drive não mostra prévia de Blackmagic RAW. Ao terminar o envio, o SOBEDESCE tira um frame e grava como miniatura do arquivo. Precisa do DaVinci Resolve ou do Blackmagic RAW instalado.${note ? html`<br />${note}` : null}`}
   >
     <${Switch} label="Gerar miniatura de BRAW" checked=${on} onChange=${(v) => set('brawThumbnails', v, { now: true })} />
+  </${Row}>`
+}
+
+// ───── Versão ─────
+
+/** Build deste app e "Procurar atualização" (o app não se atualiza sozinho: Baixar abre o instalador no navegador). */
+function VersionRow() {
+  const v = useStore((s) => s.versao)
+  const [checked, setChecked] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const atual = v?.atual
+  const dev = !atual?.build
+  const check = async () => {
+    setBusy(true)
+    const st = await checkUpdate()
+    setBusy(false)
+    if (st) setChecked(true)
+  }
+  let note = null
+  if (v?.disponivel) note = html`<span class="srow-note is-new">Saiu o build ${v.ultima.build}. ${installHint(v.plataforma)}</span>`
+  else if (checked && dev) note = html`<span class="srow-note">A versão de desenvolvimento não procura atualização.</span>`
+  else if (checked && v?.falhou) note = html`<span class="srow-note is-warn">Não consegui verificar agora. Confira a internet e tente de novo.</span>`
+  else if (checked) note = html`<span class="srow-note">Você está na versão mais nova.</span>`
+  return html`<${Row}
+    label="Versão"
+    desc=${html`<span title=${atual?.commit ? `commit ${atual.commit}` : undefined}>${buildLabel(atual)}</span>${note ? html`<br />${note}` : null}`}
+  >
+    ${v?.disponivel ? html`<${Button} size="sm" variant="primary" icon="download" onClick=${downloadUpdate}>Baixar</${Button}>` : null}
+    <${Button} size="sm" loading=${busy} onClick=${check}>Procurar atualização</${Button}>
   </${Row}>`
 }
 
@@ -518,6 +548,10 @@ export function SettingsScreen() {
             ]}
           />
         </${Row}>
+      </${Group}>
+
+      <${Group} title="Atualizações" icon="circle-down" tone="down" foot="O SOBEDESCE avisa quando sai uma versão nova. Baixar abre o instalador no navegador; seus ajustes e a fila continuam.">
+        <${VersionRow} />
       </${Group}>
 
       <${Group} title="Drives só neste computador" icon="laptop" tone="neutral">

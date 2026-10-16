@@ -556,7 +556,7 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 
 | Método | Rota | Corpo / query | Resposta |
 |---|---|---|---|
-| GET | `/api/state` | | `{ app:{name,version,platform}, setup:{configured, clientIdHint}, accounts, cloud, settings, transfers, batches, stats }` |
+| GET | `/api/state` | | `{ app:{name,version,platform}, setup:{configured, clientIdHint}, accounts, cloud, settings, transfers, batches, stats, media, rawThumbs, versao }` |
 | POST | `/api/setup/credentials` | `{ json }` ou `{ clientId, clientSecret }` | `{ setup }` |
 | GET | `/api/auth/start` | | 302 para o Google (redirect_uri = `http://127.0.0.1:<porta>/oauth/callback`) |
 | GET | `/oauth/callback` | `code, state` | página HTML "Conta conectada" que volta para `/` |
@@ -589,11 +589,36 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | POST | `/api/compare/:jobId/upload` | `{ statuses?: ['missing','different'], relDirs?: string[] }` | `{ batch, count, bytes }` |
 | POST | `/api/compare/:jobId/download` | `{ relDirs?: string[] }` | `{ batch, count, bytes }` |
 | POST | `/api/reveal` | `{ path }` | abre no Finder/Explorer |
+| GET | `/api/versao` | | `{ versao: VersionStatus }` |
+| POST | `/api/versao/verificar` | | `{ versao }` (pergunta ao site agora; falha não dá erro, vira `falhou: true`) |
+| POST | `/api/versao/depois` | `{ build? }` (padrão: o mais novo conhecido) | `{ versao }` (grava `versaoDispensada`; 400 build inválido, 409 nenhuma versão conhecida) |
 | GET | `/api/events` | | SSE |
 
 SSE (`text/event-stream`, `event:` + `data:` JSON, ping a cada 15 s):
 `hello` (= `/api/state`), `transfers` (PublicTransfer[] alterados), `removed` (ids), `batches`,
-`stats`, `accounts`, `cloud` (CloudStatus), `settings`, `compare` (`{ jobId, status, progress, error? }`), `toast` (`{ kind, message }`).
+`stats`, `accounts`, `cloud` (CloudStatus), `settings`, `versao` (VersionStatus), `compare` (`{ jobId, status, progress, error? }`), `toast` (`{ kind, message }`).
+
+### version.js — aviso de versão nova (`VersionChecker extends EventEmitter`)
+
+O app não se atualiza sozinho (sem assinatura da Apple). Ele só descobre que há build mais novo e a interface mostra
+"Nova versão do SOBEDESCE" (barra lateral) com **Baixar** (abre `<site>/baixar/mac|windows` no navegador do sistema) e **Depois**.
+
+- **Identidade do build:** `src/build-info.json` `{ build, commit, data }`. No repositório fica `build: 0` (versão de
+  desenvolvimento: nunca pergunta nada ao site). O GitHub Actions roda `node scripts/build-info.mjs` antes do `dist:*`
+  (build = `github.run_number`, commit curto, data do commit) e, só depois dos dois instaladores no Release de teste,
+  o job "Avisar versão nova" (pushes na main) sobe o mesmo JSON como `versao.json`.
+- **Site:** `GET /baixar/versao` (`web/src/app/baixar/versao/route.ts`, código comum com `/baixar/[plataforma]` em
+  `web/src/lib/release.ts`) devolve `{ ok, build, commit, data, mac: '/baixar/mac', windows: '/baixar/windows' }`
+  (cache de 5 min), ou 503 `{ ok: false }`.
+- **Motor:** com build > 0, confere ~10 s depois de abrir e a cada 6 h (tempo limite de 15 s; falha = silêncio). A base é
+  a mesma da conta SOBEDESCE (`cloud.baseUrl`). "Depois" grava o build em `settings.versaoDispensada`; só um build maior avisa de novo.
+  `startApp({ versionOptions })` troca peças nos testes (`buildInfo`, `baseUrl`, `platform`, `fetchJSON`, `firstDelayMs`, `everyMs`).
+
+```
+VersionStatus = { atual: { build, commit, data }, ultima: { build, commit, data } | null,
+  disponivel (build mais novo, mesmo dispensado), nova (disponível e não dispensado: mostra o aviso), dispensada,
+  plataforma: 'mac'|'windows'|null (sem instalador → nunca avisa), baixarUrl, site, verificando, verificadaEm, falhou }
+```
 
 ### Miniaturas e prévia (`src/server/media.js`)
 

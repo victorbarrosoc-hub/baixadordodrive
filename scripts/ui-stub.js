@@ -11,6 +11,7 @@
 //                         /Volumes/Externo SSD) com arquivos esparsos (não ocupam espaço) e mostra
 //                         esse diretório como se fosse a raiz "/" do computador (bom para screenshots)
 //   STUB_PLATFORM=darwin  plataforma informada à interface (darwin | win32 | linux)
+//   STUB_VERSAO=42        aviso de versão nova: o site tem o build 42 e este app é o anterior (sem: build 0, sem aviso)
 //   STUB_DESKTOP=1        simula o app de desktop: injeta uma ponte falsa `window.sobedesce` (seletores nativos
 //                         devolvem caminhos da pasta de demonstração, notify/setProgress/reveal só registram no
 //                         console, openExternal da tela de login conclui o OAuth sozinho depois de 2,5 s)
@@ -37,6 +38,8 @@ const MANY = process.env.STUB_MANY === '1'
 const DEMO_DIR = process.env.STUB_DEMO_DIR ? path.resolve(process.env.STUB_DEMO_DIR) : ''
 const PLATFORM = process.env.STUB_PLATFORM || 'darwin'
 const DESKTOP = process.env.STUB_DESKTOP === '1'
+const VERSAO = Number(process.env.STUB_VERSAO) || 0
+let versaoDispensada = 0
 
 const KB = 1e3
 const MB = 1e6
@@ -666,8 +669,29 @@ function stats() {
   }
 }
 
+/** Mesmo formato do VersionChecker (src/version.js). */
+function versaoStatus() {
+  const plataforma = PLATFORM === 'win32' ? 'windows' : PLATFORM === 'darwin' ? 'mac' : null
+  const disponivel = VERSAO > 1 && !!plataforma
+  const data = '2026-10-15T12:00:00.000Z'
+  return {
+    atual: VERSAO > 1 ? { build: VERSAO - 1, commit: 'abc1234', data: '2026-10-01T12:00:00.000Z' } : { build: 0, commit: '', data: null },
+    ultima: VERSAO > 1 ? { build: VERSAO, commit: 'def5678', data } : null,
+    disponivel,
+    nova: disponivel && VERSAO > versaoDispensada,
+    dispensada: versaoDispensada,
+    plataforma,
+    baixarUrl: plataforma ? `https://sobedesce.vercel.app/baixar/${plataforma}` : null,
+    site: 'https://sobedesce.vercel.app',
+    verificando: false,
+    verificadaEm: VERSAO > 1 ? new Date().toISOString() : null,
+    falhou: false,
+  }
+}
+
 function snapshot() {
   return {
+    versao: versaoStatus(),
     app: { name: 'SOBEDESCE', version: '0.1.0', platform: PLATFORM },
     setup: state.setup,
     accounts: state.accounts,
@@ -1153,6 +1177,15 @@ async function route(req, res, url) {
   }
 
   if (method === 'GET' && pathname === '/api/state') return { ...snapshot() }
+
+  if (method === 'GET' && pathname === '/api/versao') return { versao: versaoStatus() }
+  if (method === 'POST' && pathname === '/api/versao/verificar') return { versao: versaoStatus() }
+  if (method === 'POST' && pathname === '/api/versao/depois') {
+    if (!VERSAO) throw httpError(409, 'Não há versão nova para deixar para depois.')
+    versaoDispensada = VERSAO
+    broadcast('versao', versaoStatus())
+    return { versao: versaoStatus() }
+  }
 
   if (method === 'POST' && pathname === '/api/setup/credentials') {
     const body = await readBody(req)
