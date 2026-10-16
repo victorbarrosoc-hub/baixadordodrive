@@ -65,10 +65,15 @@ src/
   local/scan.js          varredura recursiva local
   server/app.js          servidor HTTP, segurança, estáticos, SSE
   server/routes.js       rotas da API
+  version.js             VersionChecker (aviso de versão nova: pergunta ao site /baixar/versao)
+  updater.js             Updater ("Atualizar": baixa, confere o SHA-256 e troca o app empacotado)
 public/                  UI (Preact + htm sem build; vendor servido de node_modules)
-web/                     site com contas SOBEDESCE (Next.js); web/public/app = app do celular em /app/ (docs/CELULAR.md)
+web/                     site com contas SOBEDESCE (Next.js); web/public/app = app do celular em /app/ (docs/CELULAR.md);
+                         web/public/instalar.sh e instalar.ps1 = instaladores de uma linha (Mac e Windows)
 test/mock-drive.js       Google Drive + OAuth falsos (com falhas e limite de banda por conexão)
 test/mock-cloud.js       site de contas falso (docs/CONTAS.md §5) que emite tokens do Drive falso
+scripts/build-info.mjs   identidade do build (src/build-info.json e o versao.json do Release de teste)
+scripts/sha256.mjs       SHA-256 de um instalador (CI), que vai para o versao.json
 scripts/demo.js          sobe o app ligado ao Drive falso, com arquivos de exemplo (sem credenciais);
                          SOBEDESCE_DEMO_HOME troca a pasta do demo (só apaga pasta vazia ou com a marca .sobedesce-demo)
 ```
@@ -592,6 +597,7 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | GET | `/api/versao` | | `{ versao: VersionStatus }` |
 | POST | `/api/versao/verificar` | | `{ versao }` (pergunta ao site agora; falha não dá erro, vira `falhou: true`) |
 | POST | `/api/versao/depois` | `{ build? }` (padrão: o mais novo conhecido) | `{ versao }` (grava `versaoDispensada`; 400 build inválido, 409 nenhuma versão conhecida) |
+| POST | `/api/versao/atualizar` | `{ pausar? }` | `{ versao }` (começa o "Atualizar" e volta logo; progresso pelo SSE `versao`. 409 com transferências andando sem `pausar: true`, sem versão nova ou sem Updater; 400 `pausar` não booleano) |
 | GET | `/api/events` | | SSE |
 
 SSE (`text/event-stream`, `event:` + `data:` JSON, ping a cada 15 s):
@@ -600,25 +606,76 @@ SSE (`text/event-stream`, `event:` + `data:` JSON, ping a cada 15 s):
 
 ### version.js — aviso de versão nova (`VersionChecker extends EventEmitter`)
 
-O app não se atualiza sozinho (sem assinatura da Apple). Ele só descobre que há build mais novo e a interface mostra
-"Nova versão do SOBEDESCE" (barra lateral) com **Baixar** (abre `<site>/baixar/mac|windows` no navegador do sistema) e **Depois**.
+Descobre que há build mais novo e a interface mostra "Nova versão do SOBEDESCE" (barra lateral e Ajustes →
+Atualizações) com **Atualizar** (app empacotado no Mac/Windows: o motor baixa e troca o app; ver `updater.js` abaixo),
+**Baixar** (abre `<site>/baixar/mac|windows` no navegador do sistema) e **Depois**.
 
 - **Identidade do build:** `src/build-info.json` `{ build, commit, data }`. No repositório fica `build: 0` (versão de
   desenvolvimento: nunca pergunta nada ao site). O GitHub Actions roda `node scripts/build-info.mjs` antes do `dist:*`
-  (build = `github.run_number`, commit curto, data do commit) e, só depois dos dois instaladores no Release de teste,
-  o job "Avisar versão nova" (pushes na main) sobe o mesmo JSON como `versao.json`.
+  (build = `github.run_number`, commit curto, data do commit). Na main, cada job de app calcula o SHA-256 do seu
+  instalador (`node scripts/sha256.mjs mac|windows dist sha256` → artefato `sha256-<plataforma>`, 1 dia) e, só depois dos
+  dois instaladores no Release de teste, o job "Avisar versão nova" junta tudo
+  (`node scripts/build-info.mjs versao.json --sha256 sha256`, falha se faltar um) e sobe como `versao.json`.
 - **Site:** `GET /baixar/versao` (`web/src/app/baixar/versao/route.ts`, código comum com `/baixar/[plataforma]` em
-  `web/src/lib/release.ts`) devolve `{ ok, build, commit, data, mac: '/baixar/mac', windows: '/baixar/windows' }`
-  (cache de 5 min), ou 503 `{ ok: false }`.
+  `web/src/lib/release.ts`) devolve `{ ok, build, commit, data, mac: '/baixar/mac', windows: '/baixar/windows',
+  sha256Mac, sha256Windows }` (cache de 5 min; os `sha256*` são `null` num `versao.json` antigo), ou 503 `{ ok: false }`.
+  `mac`/`windows` continuam textos: apps antigos só leem `build`/`commit`/`data`.
 - **Motor:** com build > 0, confere ~10 s depois de abrir e a cada 6 h (tempo limite de 15 s; falha = silêncio). A base é
   a mesma da conta SOBEDESCE (`cloud.baseUrl`). "Depois" grava o build em `settings.versaoDispensada`; só um build maior avisa de novo.
   `startApp({ versionOptions })` troca peças nos testes (`buildInfo`, `baseUrl`, `platform`, `fetchJSON`, `firstDelayMs`, `everyMs`).
 
 ```
-VersionStatus = { atual: { build, commit, data }, ultima: { build, commit, data } | null,
+VersionStatus = { atual: { build, commit, data }, ultima: { build, commit, data, sha256: { mac, windows } } | null,
   disponivel (build mais novo, mesmo dispensado), nova (disponível e não dispensado: mostra o aviso), dispensada,
-  plataforma: 'mac'|'windows'|null (sem instalador → nunca avisa), baixarUrl, site, verificando, verificadaEm, falhou }
+  plataforma: 'mac'|'windows'|null (sem instalador → nunca avisa), baixarUrl, site, verificando, verificadaEm, falhou,
+  podeAtualizar (há Updater, ele pode instalar este build e o versao.json trouxe o SHA-256 da plataforma),
+  atualizacao: { disponivel, motivo, fase, build, recebido, total, erro, bloqueado } | null }
 ```
+
+### updater.js — "Atualizar" pelo próprio app (`Updater extends EventEmitter`)
+
+Sem assinatura da Apple/Microsoft, o que trava a instalação é a marca de "veio da internet" que o navegador põe no
+arquivo (quarentena do macOS, Mark-of-the-Web do Windows). Arquivo baixado pelo próprio motor não ganha essa marca.
+
+- **Só no app empacotado:** `desktop/main.js` passa `SOBEDESCE_APP_EXE` (`process.execPath`) e `SOBEDESCE_APP_PID` ao motor
+  quando `app.isPackaged`; `desktop/engine.js` cria o `handoff` e `startApp({ updaterOptions })` só monta o Updater com
+  ele. `npm start`, Linux e build 0 ficam só com o Baixar.
+- **Disponível?** Mac: o `.app` (subindo de `process.execPath`) e a pasta dele precisam aceitar gravação; aberto de
+  `/Volumes/…` (o `.dmg`) ou de `…/AppTranslocation/…` não dá (`motivo` diz o que fazer). Windows: a pasta do `.exe`.
+- **Fases:** `baixando` (`downloadTo`: undici com o proxy do sistema, segue o redirecionamento de `/baixar/<plataforma>`
+  para o GitHub, SHA-256 calculado no caminho, para se ficar 60 s sem dados, limite de 2 GiB) → `conferindo` (hash
+  diferente = erro) → `preparando` → `reiniciando` (handoff) | `erro`.
+  - Mac: `hdiutil attach -nobrowse -noautoopen -readonly -mountpoint <tmp>`, `ditto` do `.app` para
+    `.<Nome>-atualizacao.app` ao lado do atual (mesmo disco: a troca é um `mv`), `hdiutil detach` (com `-force` se
+    precisar), `xattr -cr`, e grava `trocar.sh`.
+  - Windows: grava `trocar.ps1` (UTF-8 com BOM) para rodar o instalador NSIS com `/S --updated --force-run`.
+- **Handoff:** o motor manda `{ type: 'update-handoff', script }` ao processo principal, que confere o caminho
+  (`isHandoffScript`: `trocar.sh|ps1` dentro de `<tmp>/sobedesce-atualizacao-*`), roda o script solto
+  (`handoffCommand`: `/bin/sh` ou `powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File`) e, quando ele
+  começou, fecha o app sem perguntar (as transferências pausam no `shutdown` e voltam na próxima abertura).
+- **O script** espera o PID do app sair (até 2 min). Mac: renomeia o app para `.<Nome>-antigo.app`, põe o novo no
+  lugar, `xattr -cr`, apaga o antigo e `open`; se um `mv` falhar, o antigo volta e é aberto. Windows: roda o instalador
+  (espera só ele, não o app que ele abre) e abre `SOBEDESCE.exe` se o instalador não abriu. Falhou → grava
+  `atualizacao-falhou.json` na pasta de dados `{ build, motivo }`; na próxima abertura o Updater lê, apaga e mostra o
+  motivo, com o Atualizar desligado para aquele build.
+- **Erros definitivos** (sem SHA-256, hash diferente, `hdiutil`/`ditto` falhou) desligam o Atualizar daquele build
+  (`bloqueado`): a interface volta para o Baixar. Falha de rede deixa tentar de novo.
+- **Transferências:** a interface pergunta ("Há transferências em andamento. Atualizar agora vai pausá-las.") e manda
+  `pausar: true`; a rota recusa (409) sem isso se `manager.activeCount()` > 0.
+- `updaterOptions` troca as peças nos testes: `platform`, `appExe`, `appPid`, `stateDir`, `tmpRoot`, `handoff`,
+  `download`, `run` (hdiutil/ditto/xattr), `canWrite`, `progressMs`.
+
+### Instaladores de uma linha (site)
+
+`web/public/instalar.sh` (`curl -fsSL <site>/instalar.sh | bash`) e `web/public/instalar.ps1`
+(`irm <site>/instalar.ps1 | iex`), servidos como `text/plain; charset=utf-8` (`web/next.config.ts`). Mesma ideia do
+Updater, pelo Terminal/PowerShell: leem `sha256Mac|sha256Windows` em `/baixar/versao` (sem ele, não instalam), baixam
+`/baixar/<plataforma>`, conferem o SHA-256, fecham o app aberto pelo jeito normal (`osascript quit` / `CloseMainWindow`),
+e instalam: Mac com `hdiutil` + `ditto` para `/Applications` (troca com volta atrás, `sudo` só se a pasta exigir,
+`xattr -cr`, `open`); Windows com o instalador NSIS em `/S --force-run`. O `.sh` roda tudo de uma função `main`
+chamada na última linha; o `.ps1` é um bloco `& { … }` sem `exit` (com `iex`, `exit` fecharia a janela). O site
+mostra os comandos com botão de copiar (`web/src/components/comando.tsx`) na home (cartões Mac e Windows) e na conta
+("No computador"). `SOBEDESCE_SITE` troca o site (teste local).
 
 ### Miniaturas e prévia (`src/server/media.js`)
 

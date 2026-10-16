@@ -18,7 +18,9 @@ let versao: typeof import("../src/app/baixar/versao/route");
 let plataforma: typeof import("../src/app/baixar/[plataforma]/route");
 let release: typeof import("../src/lib/release");
 
-const VERSAO = { build: 57, commit: "abc1234", data: "2026-10-16T12:00:00Z" };
+const SHA_MAC = "a".repeat(64);
+const SHA_WIN = "B".repeat(64);
+const VERSAO = { build: 57, commit: "abc1234", data: "2026-10-16T12:00:00Z", sha256Mac: SHA_MAC, sha256Windows: SHA_WIN };
 
 before(async () => {
   servidor = http.createServer((req, res) => {
@@ -94,7 +96,7 @@ async function pedirVersao() {
 }
 
 describe("/baixar/versao", () => {
-  test("devolve o build publicado, com os links de download e cache curto", async () => {
+  test("devolve o build publicado, com os links de download, o SHA-256 dos instaladores e cache curto", async () => {
     const { res, corpo } = await pedirVersao();
     assert.equal(res.status, 200);
     assert.deepEqual(corpo, {
@@ -104,8 +106,21 @@ describe("/baixar/versao", () => {
       data: "2026-10-16T12:00:00.000Z",
       mac: "/baixar/mac",
       windows: "/baixar/windows",
+      sha256Mac: SHA_MAC,
+      sha256Windows: SHA_WIN.toLowerCase(),
     });
     assert.match(res.headers.get("cache-control") ?? "", /s-maxage=300/);
+  });
+
+  test("versao.json antigo (sem SHA-256) ou com hash estragado: continua valendo, com sha256 null", async () => {
+    arquivos[2].conteudo = JSON.stringify({ build: 57, commit: "abc1234", data: VERSAO.data, sha256Mac: "xyz", sha256Windows: 42 });
+    const { res, corpo } = await pedirVersao();
+    assert.equal(res.status, 200);
+    assert.equal(corpo.build, 57);
+    assert.equal(corpo.mac, "/baixar/mac", "os apps antigos leem mac/windows como texto");
+    assert.equal(corpo.windows, "/baixar/windows");
+    assert.equal(corpo.sha256Mac, null);
+    assert.equal(corpo.sha256Windows, null);
   });
 
   test("guarda por 5 min: o segundo pedido não vai ao GitHub", async () => {

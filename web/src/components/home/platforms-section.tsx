@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { ArrowRight, Download, Laptop, Monitor, Smartphone } from "lucide-react";
+import { Comando } from "@/components/comando";
 import { buttonClasses } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { DOWNLOAD_MAC, DOWNLOAD_WINDOWS, ROTAS } from "@/lib/site";
+import { DOWNLOAD_MAC, DOWNLOAD_WINDOWS, INSTALAR_MAC, INSTALAR_WINDOWS, ROTAS } from "@/lib/site";
 import { Reveal } from "./motion";
 import { Container, SectionHeading } from "./section";
 
@@ -16,6 +17,7 @@ const PLATS = [
     href: DOWNLOAD_MAC,
     label: "Baixar .dmg",
     icon2: Download,
+    terminal: { titulo: "Ou pelo Terminal, sem o aviso da Apple", comando: INSTALAR_MAC, rotulo: "Comando para instalar no Mac pelo Terminal" },
     on: "group-data-[plat=mac]/plat:ring-2 group-data-[plat=mac]/plat:ring-ink",
   },
   {
@@ -26,6 +28,7 @@ const PLATS = [
     href: DOWNLOAD_WINDOWS,
     label: "Baixar .exe",
     icon2: Download,
+    terminal: { titulo: "Ou pelo PowerShell, sem o aviso do Windows", comando: INSTALAR_WINDOWS, rotulo: "Comando para instalar no Windows pelo PowerShell" },
     on: "group-data-[plat=windows]/plat:ring-2 group-data-[plat=windows]/plat:ring-ink",
   },
   {
@@ -36,6 +39,7 @@ const PLATS = [
     href: ROTAS.celular,
     label: "Abrir no celular",
     icon2: ArrowRight,
+    terminal: null,
     on: "group-data-[plat=ios]/plat:ring-2 group-data-[plat=ios]/plat:ring-ink group-data-[plat=android]/plat:ring-2 group-data-[plat=android]/plat:ring-ink",
   },
 ] as const;
@@ -70,14 +74,21 @@ export function PlatformsSection() {
                     {p.label}
                   </a>
                 )}
+                {p.terminal ? (
+                  <div className="grid min-w-0 gap-2">
+                    <p className="text-[13px] text-ink-2">{p.terminal.titulo}:</p>
+                    <Comando comando={p.terminal.comando} rotulo={p.terminal.rotulo} />
+                  </div>
+                ) : null}
               </Reveal>
             );
           })}
         </div>
 
         <p className="mx-auto mt-8 max-w-2xl text-center text-[13px] leading-relaxed text-ink-3">
-          Versão de teste, sem assinatura da Apple e da Microsoft. Na primeira vez, o Mac pede para liberar em Ajustes do Sistema → Privacidade e
-          Segurança, e o Windows em Mais informações → Executar assim mesmo.
+          Versão de teste, sem assinatura da Apple e da Microsoft. Pelo Terminal ou pelo PowerShell, o comando baixa, confere e instala sem aviso.
+          Baixando pelo navegador, na primeira vez o Mac pede para liberar em Ajustes do Sistema → Privacidade e Segurança, e o Windows em Mais
+          informações → Executar assim mesmo.
         </p>
       </Container>
     </section>

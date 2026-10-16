@@ -1,5 +1,5 @@
-// Aviso de versão nova. O app não se atualiza sozinho (sem assinatura da Apple, trocar o app por conta própria seria
-// bloqueado no Mac): ele só descobre que saiu um build mais novo e a interface mostra "Baixar".
+// Aviso de versão nova: descobre que saiu um build mais novo e a interface mostra "Atualizar" (o app empacotado
+// baixa, confere o SHA-256 e se troca sozinho; src/updater.js) ou "Baixar" (abre o instalador no navegador).
 //
 //  - O build deste app vem de src/build-info.json, gravado pelo GitHub Actions (scripts/build-info.mjs).
 //    build 0 = versão de desenvolvimento (npm start, demo, testes): nunca pergunta nada ao site.
@@ -7,6 +7,7 @@
 //    depois dos dois instaladores). Confere ~10 s depois de abrir e a cada 6 h; sem internet ou resposta estranha,
 //    fica quieto e tenta na próxima.
 //  - "Depois" guarda o build dispensado nos ajustes (versaoDispensada): o aviso só volta com um build ainda mais novo.
+//  - O versao.json traz o SHA-256 de cada instalador (sha256Mac/sha256Windows). Sem ele, só o Baixar.
 import fs from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { cloudUrl } from './config.js'
@@ -36,10 +37,13 @@ export function readBuildInfo(file = BUILD_INFO_FILE) {
   }
 }
 
-/** Resposta do site → { build, commit, data }, ou null se não for uma versão de verdade. */
+const hex64 = v => (typeof v === 'string' && /^[0-9a-f]{64}$/i.test(v) ? v.toLowerCase() : null)
+
+/** Resposta do site → { build, commit, data, sha256: { mac, windows } }, ou null se não for uma versão de verdade. */
 export function parseRemote(body) {
   const info = cleanInfo(body)
-  return info && info.build > 0 ? info : null
+  if (!info || info.build <= 0) return null
+  return { ...info, sha256: { mac: hex64(body.sha256Mac), windows: hex64(body.sha256Windows) } }
 }
 
 /**
@@ -48,15 +52,16 @@ export function parseRemote(body) {
  * VersionStatus = { atual: { build, commit, data }, ultima: { build, commit, data } | null,
  *   disponivel (tem build mais novo, mesmo dispensado), nova (disponível e não dispensado: mostra o aviso),
  *   dispensada (build dispensado com "Depois"), plataforma: 'mac'|'windows'|null, baixarUrl, site,
- *   verificando, verificadaEm (ISO da última resposta boa), falhou (a última tentativa não deu certo) }
+ *   verificando, verificadaEm (ISO da última resposta boa), falhou (a última tentativa não deu certo),
+ *   podeAtualizar (o app consegue instalar este build sozinho: "Atualizar"), atualizacao (Updater.status() ou null) }
  */
 export class VersionChecker extends EventEmitter {
   /**
    * @param {{ settings: import('./config.js').Settings, buildInfo?: object, baseUrl?: string, platform?: string,
    *   fetchJSON?: (url: string, opts: { signal: AbortSignal }) => Promise<any>, firstDelayMs?: number,
-   *   everyMs?: number, timeoutMs?: number, log?: Function }} opts
+   *   everyMs?: number, timeoutMs?: number, log?: Function, updater?: import('./updater.js').Updater | null }} opts
    */
-  constructor({ settings, buildInfo, baseUrl, platform = process.platform, fetchJSON, firstDelayMs = FIRST_DELAY_MS, everyMs = EVERY_MS, timeoutMs = TIMEOUT_MS, log = () => {} } = {}) {
+  constructor({ settings, buildInfo, baseUrl, platform = process.platform, fetchJSON, firstDelayMs = FIRST_DELAY_MS, everyMs = EVERY_MS, timeoutMs = TIMEOUT_MS, log = () => {}, updater = null } = {}) {
     super()
     this.settings = settings
     this.atual = cleanInfo(buildInfo) || readBuildInfo()
@@ -77,6 +82,9 @@ export class VersionChecker extends EventEmitter {
       if (changed?.includes('versaoDispensada')) this.#emit()
     }
     settings?.on?.('change', this.onSettings)
+    this.updater = updater
+    this.onUpdater = () => this.#emit()
+    updater?.on('change', this.onUpdater)
   }
 
   /** Versão de desenvolvimento não confere nada. */
@@ -94,6 +102,7 @@ export class VersionChecker extends EventEmitter {
     clearTimeout(this.timer)
     this.timer = null
     this.settings?.off?.('change', this.onSettings)
+    this.updater?.off('change', this.onUpdater)
   }
 
   #schedule(ms) {
@@ -143,12 +152,26 @@ export class VersionChecker extends EventEmitter {
     return this.#emit()
   }
 
+  /**
+   * "Atualizar": o app baixa e instala o build mais novo (src/updater.js). Volta logo; o progresso chega pelo 'status'.
+   * Lança Error com `status` (409) se não der: aí a interface oferece o Baixar.
+   */
+  async update() {
+    const st = this.status()
+    if (!st.disponivel) throw Object.assign(new Error('Não há versão nova para instalar.'), { status: 409 })
+    if (!this.updater) throw Object.assign(new Error('Este app não se atualiza sozinho. Use Baixar.'), { status: 409 })
+    if (!this.updater.ocupado) this.updater.install({ build: this.ultima.build, url: st.baixarUrl, sha256: this.ultima.sha256?.[this.plataforma] })
+    return this.#emit()
+  }
+
   status() {
     const dispensada = Number(this.settings?.get?.().versaoDispensada) || 0
     const disponivel = this.enabled && !!this.ultima && this.ultima.build > this.atual.build && !!this.plataforma
+    const up = this.updater
+    const podeAtualizar = disponivel && !!up && up.podeInstalar(this.ultima.build) && !!this.ultima.sha256?.[this.plataforma]
     return {
       atual: { ...this.atual },
-      ultima: this.ultima ? { ...this.ultima } : null,
+      ultima: this.ultima ? { ...this.ultima, sha256: { ...this.ultima.sha256 } } : null,
       disponivel,
       nova: disponivel && this.ultima.build > dispensada,
       dispensada,
@@ -158,6 +181,8 @@ export class VersionChecker extends EventEmitter {
       verificando: !!this.inflight,
       verificadaEm: this.verificadaEm,
       falhou: this.falhou,
+      podeAtualizar,
+      atualizacao: up && (up.fase || up.ocupado) ? up.status() : null,
     }
   }
 
