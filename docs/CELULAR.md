@@ -132,6 +132,14 @@ Fora do repositório, com Playwright: `next dev`, `/api/eu` e `/api/drive/token`
 token), metadados de vídeo/foto e Compartilhados comigo. Vídeos de verdade gerados com ffmpeg; o Chromium do
 Playwright não tem H.264, então o MP4 do teste é VP9/Opus (no iPhone, H.264/HEVC tocam normalmente).
 
+## Aba Referências
+
+Para quem tem `recursos.referencias` em `/api/eu`, uma terceira aba (contrato em [REFERENCIAS.md](REFERENCIAS.md) §7):
+coleções do site (`/api/referencias/*`, cookie), arquivos de cada pasta lidos do Drive com o token de sempre
+(`lib/referencias.js`), prévia e player da aba Drive (`Preview` aceita `extra` para a origem, o autor e a legenda),
+“Salvar link” para a fila do computador e o `share_target` do Android (`/app/?compartilhar=1`). `/app/#referencias`
+abre direto nela.
+
 ## Modo Wi-Fi (via computador)
 
 O SOBEDESCE do computador serve esta mesma casca (lida de `web/public/app/`) em `http://<ip>:4319/m/?t=<código>`

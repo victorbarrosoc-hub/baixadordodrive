@@ -1,5 +1,5 @@
-// Abas do app (embaixo, como no iOS): Enviar (violeta) e Drive (azul). No modo Wi-Fi não há aba Drive: lá o
-// celular não tem token do Google.
+// Abas do app (embaixo, como no iOS): Enviar (violeta), Drive (azul) e, para quem tem o recurso, Referências.
+// No modo Wi-Fi não há abas: lá o celular não tem token do Google.
 import { html, useRef } from '../vendor/preact-htm.js'
 import { setTab, useApp } from '../lib/state.js'
 import { engine, summarize } from '../lib/uploader.js'
@@ -7,8 +7,9 @@ import { Icon } from './icons.js'
 import { cx, useEngine } from './ui.js'
 import { MainScreen } from './main.js'
 import { DriveScreen } from './browser.js'
+import { RefsScreen } from './referencias.js'
 
-function TabBar({ tab }) {
+function TabBar({ tab, refsOn }) {
   useEngine()
   const sum = summarize(engine.items)
   const busy = sum.pending > 0
@@ -24,17 +25,25 @@ function TabBar({ tab }) {
       <span class="tab-icon"><${Icon} name="drive" size=${24} strokeWidth=${tab === 'drive' ? 2 : 1.7} /></span>
       <span class="tab-label">Drive</span>
     </button>
+    ${refsOn
+      ? html`<button type="button" class=${cx('tab', 'tab-refs', tab === 'refs' && 'is-on')} aria-current=${tab === 'refs' ? 'page' : undefined} onClick=${() => setTab('refs')}>
+          <span class="tab-icon"><${Icon} name="bookmark" size=${24} strokeWidth=${tab === 'refs' ? 2 : 1.7} /></span>
+          <span class="tab-label">Referências</span>
+        </button>`
+      : null}
   </nav>`
 }
 
-/** As duas telas ficam montadas (a do Drive só depois da primeira visita): trocar de aba não perde nada. */
+/** As telas ficam montadas (Drive e Referências só depois da primeira visita): trocar de aba não perde nada. */
 export function Tabs() {
-  const tab = useApp((s) => s.tab)
-  const seen = useRef(false)
-  if (tab === 'drive') seen.current = true
+  const { saved, refsOn } = useApp((s) => ({ saved: s.tab, refsOn: Boolean(s.recursos?.referencias) }))
+  const tab = saved === 'refs' && !refsOn ? 'send' : saved
+  const seen = useRef({})
+  seen.current[tab] = true
   return html`<div class="tabs">
     <div class="tab-pane" hidden=${tab !== 'send'}><${MainScreen} /></div>
-    ${seen.current ? html`<div class="tab-pane" hidden=${tab !== 'drive'}><${DriveScreen} active=${tab === 'drive'} /></div>` : null}
-    <${TabBar} tab=${tab} />
+    ${seen.current.drive ? html`<div class="tab-pane" hidden=${tab !== 'drive'}><${DriveScreen} active=${tab === 'drive'} /></div>` : null}
+    ${seen.current.refs && refsOn ? html`<div class="tab-pane" hidden=${tab !== 'refs'}><${RefsScreen} active=${tab === 'refs'} /></div>` : null}
+    <${TabBar} tab=${tab} refsOn=${refsOn} />
   </div>`
 }

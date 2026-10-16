@@ -83,9 +83,9 @@ async function load() {
   apply(r.json)
 }
 
-function apply({ usuario, contas }) {
+function apply({ usuario, contas, recursos }) {
   const drives = Array.isArray(contas) ? contas : []
-  setState({ account: usuario, drives })
+  setState({ account: usuario, drives, recursos: recursos && typeof recursos === 'object' ? recursos : {} })
   if (!drives.length) {
     forget()
     setState({ drive: null })

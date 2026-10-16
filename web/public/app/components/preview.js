@@ -349,7 +349,7 @@ function BigWarning({ file, onGo, onCancel }) {
 
 // ───── a prévia ─────
 
-export function Preview({ files, index, onIndex, onClose }) {
+export function Preview({ files, index, onIndex, onClose, extra }) {
   const raw = files[index]
   const [resolved, setResolved] = useState(null)
   const file = resolved?.id === target(raw).id ? resolved : target(raw)
@@ -509,6 +509,7 @@ export function Preview({ files, index, onIndex, onClose }) {
         </div>
 
         <section class="pv-info">
+          ${extra ? extra(raw) : null}
           <${Info} file=${file} kind=${kind} />
           <div class="pv-actions">
             <a class="btn btn-secondary pv-act" href=${driveUrl(file)} target="_blank" rel="noopener noreferrer">

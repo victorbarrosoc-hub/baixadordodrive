@@ -17,6 +17,8 @@ import { voltaSegura } from "@/lib/auth/volta";
 import { aprovar, buscarPedido, cancelar, normalizarCodigo } from "@/lib/dispositivo";
 import { avisarComputadorConectado } from "@/lib/email/avisos";
 import { removerConta } from "@/lib/google/contas";
+import { ehAdmin } from "@/lib/admin";
+import { ehPlano, trocarPlano } from "@/lib/recursos";
 
 export type EstadoForm = {
   erro?: string;
@@ -151,4 +153,15 @@ export async function acaoApagarConta(_: EstadoForm, fd: FormData): Promise<Esta
   if (!r.ok) return { erro: r.mensagem, campo: r.campo };
   await apagarCookieSessao();
   redirect("/?conta=apagada");
+}
+
+/** /admin: troca o plano de uma conta (só admin, pelo site, com a origem conferida). */
+export async function acaoTrocarPlano(fd: FormData): Promise<void> {
+  const atual = await sessaoDoSite();
+  if (!atual || !(await ehAdmin(atual.usuario))) return;
+  const usuarioId = texto(fd, "usuarioId");
+  const plano = texto(fd, "plano");
+  if (!usuarioId || !ehPlano(plano)) return;
+  await trocarPlano(usuarioId, plano);
+  refresh();
 }

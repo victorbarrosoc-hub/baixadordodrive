@@ -1,7 +1,7 @@
 /**
  * Limite de tentativas (tabela `tentativas`): conta linhas da chave numa janela de tempo.
  * Chaves: "login:<email>:<ip>", "login-ip:<ip>", "criar:<ip>", "disp-iniciar:<ip>", "disp-codigo:<ip>",
- * "esqueci:<email>", "esqueci-ip:<ip>", "apagar:<usuario>", "senha:<usuario>".
+ * "esqueci:<email>", "esqueci-ip:<ip>", "apagar:<usuario>", "senha:<usuario>", "atalho:<id>", "atalho-ip:<ip>".
  * Limpeza preguiçosa: de vez em quando apaga o que tem mais de um dia.
  */
 import { and, count, eq, gte, lt } from "drizzle-orm";
@@ -19,6 +19,9 @@ export const REGRAS = {
   dispositivoCodigo: { max: 20, janelaMs: 15 * 60_000 },
   esqueciEmail: { max: 3, janelaMs: 60 * 60_000 },
   esqueciIp: { max: 10, janelaMs: 60 * 60_000 },
+  /** Atalho do iPhone: links por chave e chaves erradas por IP. */
+  atalhoUso: { max: 120, janelaMs: 60 * 60_000 },
+  atalhoErro: { max: 20, janelaMs: 15 * 60_000 },
 } satisfies Record<string, Regra>;
 
 /** true = ainda pode tentar. */

@@ -58,6 +58,18 @@ export default function TermosPage() {
         </p>
       </LegalSection>
 
+      <LegalSection title="Referências">
+        <p>
+          As Referências guardam no seu Drive vídeos e fotos de outras pessoas para você estudar e se inspirar. Salve só para referência dos seus projetos e
+          respeite os direitos de quem criou: não publique de novo, não venda e não use como se fosse seu sem autorização. Baixar de cada plataforma também
+          segue as regras dela.
+        </p>
+        <p>
+          O link pra IA de uma coleção abre para qualquer pessoa que tiver o endereço. Ligue só quando quiser compartilhar, e desligue ou troque quando
+          quiser que ele pare de abrir.
+        </p>
+      </LegalSection>
+
       <LegalSection title="O Google Drive">
         <p>
           O uso do Drive continua seguindo os termos e os limites do Google, como o limite de 750 GB de envio por dia em cada conta. Quando o Google recusa

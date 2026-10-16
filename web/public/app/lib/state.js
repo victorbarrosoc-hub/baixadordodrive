@@ -18,7 +18,10 @@ let state = {
   awake: false, // trava de tela acesa ativa
   lan: null, // modo Wi-Fi: { mac, noAccount, deleteAfterUpload, error, badCode }
   sheet: null, // { name, props }
-  tab: 'send', // 'send' (envio) | 'drive' (navegar e baixar; não existe no modo Wi-Fi)
+  tab: 'send', // 'send' (envio) | 'drive' (navegar e baixar) | 'refs' (Referências); no modo Wi-Fi só 'send'
+  recursos: {}, // de /api/eu: { referencias: boolean }
+  refs: { status: 'idle', colecoes: [], fila: [], raiz: null, error: null, at: 0 }, // Referências (lib/referencias.js)
+  refsOpen: null, // id da coleção aberta na aba Referências
   toasts: [],
 }
 
@@ -120,5 +123,8 @@ export function setTab(tab) {
 }
 
 export function savedTab() {
-  return LAN ? 'send' : local.get('sobedesce.tab') === 'drive' ? 'drive' : 'send'
+  if (LAN) return 'send'
+  if (typeof location !== 'undefined' && location.hash === '#referencias') return 'refs'
+  const t = local.get('sobedesce.tab')
+  return t === 'drive' || t === 'refs' ? t : 'send'
 }

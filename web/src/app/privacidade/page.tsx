@@ -58,6 +58,10 @@ export default function PrivacidadePage() {
             (e-mail e endereço IP, com data e hora). Esses registros são apagados depois.
           </li>
           <li>
+            <strong>Referências:</strong> o nome de cada coleção e a pasta dela no seu Drive, os links que você manda para o computador baixar (com a nota,
+            se escrever uma) e, se usar o Atalho do iPhone, só o hash da chave dele. Os vídeos ficam no seu Drive, não com a gente.
+          </li>
+          <li>
             <strong>Senha nova:</strong> quando você usa “Esqueci a senha”, guardamos por uma hora só o hash do link enviado. Depois de usado, ele não vale
             mais.
           </li>
@@ -84,7 +88,11 @@ export default function PrivacidadePage() {
           <li>baixar os arquivos e pastas que você marca;</li>
           <li>enviar os arquivos que você escolhe e criar as pastas de destino;</li>
           <li>comparar uma pasta do computador com uma pasta do Drive, quando você pede;</li>
-          <li>conferir a impressão digital (MD5) de cada arquivo transferido.</li>
+          <li>conferir a impressão digital (MD5) de cada arquivo transferido;</li>
+          <li>
+            nas Referências, criar, renomear e pôr na lixeira as pastas das suas coleções e, quando você liga o link pra IA de uma coleção, ler o nome e a
+            descrição dos arquivos dessa pasta para montar a página do link.
+          </li>
         </LegalList>
         <p>
           Também usamos a identificação da conta Google (e-mail, nome e foto) para mostrar qual Drive está conectado e, se você quiser, para entrar com o
