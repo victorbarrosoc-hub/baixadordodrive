@@ -1,7 +1,7 @@
-// Conta e Ajustes: qual Drive recebe, espaço nele, a conta SOBEDESCE, quantos arquivos sobem juntos e o tamanho do
-// pedaço.
+// Conta e Ajustes: qual Drive recebe, espaço nele, a conta SOBEDESCE e o tipo de rede (que define quantos arquivos
+// sobem juntos e o tamanho do pedaço).
 import { html, useState } from '../vendor/preact-htm.js'
-import { ACCOUNT, CHUNK_OPTIONS, CONCURRENCY_OPTIONS, DEV, LAN, VERSION, getSettings, saveSettings } from '../lib/config.js'
+import { ACCOUNT, DEV, LAN, VERSION, getSettings, saveSettings } from '../lib/config.js'
 import { bytes } from '../lib/format.js'
 import { closeSheet, openSheet, useApp } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
@@ -27,9 +27,18 @@ function Storage({ quota }) {
   </div>`
 }
 
+// Uma escolha só, no lugar de "arquivos ao mesmo tempo" e "tamanho do pedaço": por baixo, os mesmos valores que o
+// motor de envio usa. Quem tinha valores salvos à mão: 3 ou mais arquivos juntos conta como Wi-Fi rápido.
+const NETWORKS = {
+  mobile: { label: 'Rede do celular', help: 'Mais estável no 4G e 5G.', concurrency: 2, chunkMiB: 8 },
+  wifi: { label: 'Wi-Fi rápido', help: 'Mais velocidade em rede boa.', concurrency: 4, chunkMiB: 16 },
+}
+const networkOf = (s) => (s.concurrency >= 3 ? 'wifi' : 'mobile')
+
 export function SettingsSheet() {
   const { user, quota, lan, account, drives } = useApp((s) => ({ user: s.user, quota: s.quota, lan: s.lan, account: s.account, drives: s.drives }))
   const [settings, setSettings] = useState(getSettings())
+  const network = networkOf(settings)
 
   const update = (patch) => {
     const next = { ...settings, ...patch }
@@ -57,22 +66,15 @@ export function SettingsSheet() {
       <section class="group form-group">
         <div class="setting">
           <div class="setting-text">
-            <b>Arquivos ao mesmo tempo</b>
-            <span class="sub">Mais arquivos juntos enchem melhor um Wi-Fi rápido.</span>
-          </div>
-          <${Segmented} label="Arquivos ao mesmo tempo" value=${settings.concurrency} options=${CONCURRENCY_OPTIONS} onChange=${(v) => update({ concurrency: v })} />
-        </div>
-        <div class="setting">
-          <div class="setting-text">
-            <b>Tamanho de cada pedaço</b>
-            <span class="sub">Maior rende mais com rede boa; menor perde menos quando a rede oscila.</span>
+            <b>Sua rede</b>
+            <span class="sub">${NETWORKS[network].help}</span>
           </div>
           <${Segmented}
-            label="Tamanho de cada pedaço"
-            value=${settings.chunkMiB}
-            options=${CHUNK_OPTIONS}
-            format=${(v) => html`${v}<small> MiB</small>`}
-            onChange=${(v) => update({ chunkMiB: v })}
+            label="Sua rede"
+            value=${network}
+            options=${Object.keys(NETWORKS)}
+            format=${(v) => NETWORKS[v].label}
+            onChange=${(v) => update({ concurrency: NETWORKS[v].concurrency, chunkMiB: NETWORKS[v].chunkMiB })}
           />
         </div>
       </section>

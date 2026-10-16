@@ -12,15 +12,22 @@ const securityHeaders = [
 
 // ── /app/: o envio pelo celular (PWA estática em public/app, sem build). ──
 // Fala só com o próprio site (conta e token do Drive) e com www.googleapis.com (API e upload do Drive).
+// Aba Drive: miniaturas vêm de *.googleusercontent.com (direto no <img> ou, se o Google exigir o token, por fetch →
+// blob:). Vídeo, áudio e foto em tamanho real passam pelo service worker em /app/stream/ (mesma origem: 'self').
 // Em desenvolvimento, ?dev_api= aponta o Drive para um Drive falso em 127.0.0.1/localhost.
-const appConnect = ["'self'", "https://www.googleapis.com"];
-if (process.env.NODE_ENV !== "production") appConnect.push("http://127.0.0.1:*", "http://localhost:*");
+const appConnect = ["'self'", "https://www.googleapis.com", "https://*.googleusercontent.com"];
+const appImg = ["'self'", "data:", "blob:", "https://*.googleusercontent.com"];
+if (process.env.NODE_ENV !== "production") {
+  appConnect.push("http://127.0.0.1:*", "http://localhost:*");
+  appImg.push("http://127.0.0.1:*", "http://localhost:*");
+}
 const appCsp = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
   `connect-src ${appConnect.join(" ")}`,
-  "img-src 'self' data: https://*.googleusercontent.com",
+  `img-src ${appImg.join(" ")}`,
+  "media-src 'self'",
   "font-src 'self'",
   "manifest-src 'self'",
   "worker-src 'self'",

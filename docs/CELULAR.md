@@ -1,6 +1,7 @@
 # SOBEDESCE Celular (`/app/`)
 
-App (PWA) para subir arquivos do iPhone/Android **direto para o Google Drive**. Mora no site com contas
+App (PWA) para subir arquivos do iPhone/Android **direto para o Google Drive** e, na aba **Drive**, ver e baixar o
+que já está lá (miniaturas, prévia com player e download). Mora no site com contas
 (`web/`, Next.js) como arquivos estáticos em `web/public/app/`, servidos em **`/app/`**. Sem build: Preact + htm.
 Os bytes vão do aparelho para `www.googleapis.com`; o site só diz quem está logado e entrega o token do Drive.
 
@@ -10,17 +11,21 @@ web/public/app/
   lib/        config (endpoints, modo de teste, endereços da conta, ajustes) · auth (conta SOBEDESCE e token)
               drive (metadados) · uploader (motor de envio retomável) · idb (sessões no IndexedDB)
               lan (envio pelo Wi-Fi via computador) · wakelock · state · format · platform
+              browse (listar, buscar, ordenar, tipos, proxy de câmera) · stream (ponte do token com o SW, miniaturas)
   components/ telas da conta (entrar, conectar Drive, escolher Drive, reconectar), principal e sheets
-              (pasta de destino, ajustes, Drive, arquivo)
+              (pasta de destino, ajustes, Drive, arquivo) · tabs (Enviar · Drive) · browser (aba Drive)
+              thumb (miniatura e glifo) · preview (prévia em tela cheia) · player (vídeo e áudio)
   vendor/preact-htm.js   cópia de node_modules/htm/preact/standalone.module.js (Preact + htm num arquivo só)
   icons/      PNGs gerados a partir de build/icon.svg + favicon.svg
-  sw.js       service worker com escopo /app/ (rede primeiro; nunca toca em /api nem no Google)
+  sw.js       service worker com escopo /app/: casca com rede primeiro (nunca toca em /api) e /app/stream/<id>
+              (prévia e download do Drive com o token; ver "Aba Drive")
   manifest.webmanifest   id, start_url e scope = /app/
 web/public/sw.js         aposenta o service worker antigo (escopo "/") de quem instalou a versão 1
 ```
 
 `web/next.config.ts` cuida do resto: `/app` → `/app/` (redirect), `/app/` → `/app/index.html` (rewrite) e os
-cabeçalhos só de `/app/*` (CSP sem o Google Identity Services: `connect-src 'self' https://www.googleapis.com`,
+cabeçalhos só de `/app/*` (CSP sem o Google Identity Services: `connect-src 'self' https://www.googleapis.com
+https://*.googleusercontent.com`, `img-src 'self' data: blob: https://*.googleusercontent.com`, `media-src 'self'`,
 `no-cache` na casca e no `sw.js`, ícones com cache longo). O redirecionamento automático de barra do Next fica
 desligado (`skipTrailingSlashRedirect`) e é refeito, igual ao padrão, para todo o resto do site.
 
@@ -62,13 +67,70 @@ http://127.0.0.1:3102/app/?dev_api=http://127.0.0.1:<porta-do-mock>
 de desenvolvimento libera `http://127.0.0.1:*`). A conta e o token continuam vindo de `/api/eu` e
 `/api/drive/token`: num teste com Playwright, simule com `page.route` e devolva tokens do Drive falso
 (`mock.issueTokens().accessToken`; `mock.expireAccessTokens()` força o caminho do 401 → `renovar: true`). Nesse
-modo o app expõe `window.__sobedesce` (estado e fila, sem token) e não registra o service worker.
+modo o app expõe `window.__sobedesce` (estado e fila, sem token) e registra o service worker (é ele que faz a prévia e o download da aba Drive).
 
 ```js
 import { startMockDrive } from './test/mock-drive.js'
 const mock = await startMockDrive({ cors: true })
 mock.addFolder('Projetos')
 ```
+
+## Aba Drive (ver e baixar)
+
+Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A aba Drive só existe com conta
+(no modo Wi-Fi não aparece: lá o celular não tem token do Google).
+
+- **Navegar:** Meu Drive, Compartilhados comigo (“Comigo”) e Drives compartilhados (“Drives”); trilha, voltar,
+  grade com miniaturas ou lista (lembra no aparelho), ordem por nome/data/tamanho (tocar de novo inverte; pastas
+  sempre primeiro), busca por nome no lugar inteiro (o `name contains` do Drive casa o começo das palavras),
+  puxar para atualizar e mais páginas ao rolar (60 por vez). Listas já abertas ficam em memória; com mais de 2 min,
+  atualizam por trás.
+- **Miniaturas:** `thumbnailLink` com o sufixo trocado pelo tamanho certo (`=sNNN`, em pixels de tela), só quando
+  o item chega perto da tela (IntersectionObserver), no máximo 6 ao mesmo tempo, cache em memória. Ordem:
+  `<img>` direto sem Referer → se falhar, `fetch` com `Authorization` → `blob:` (e passa a usar esse caminho) →
+  ícone do tipo com a extensão (BRAW, MXF…). **Falta confirmar com o Google de verdade** se o `thumbnailLink`
+  abre sem sessão do Google no Safari e se aceita o token por CORS; o app funciona nos dois casos (no pior, ícones).
+- **Prévia** (tela cheia, arrasta para baixo fecha, para o lado passa de arquivo, Esc/setas no teclado):
+  vídeo e áudio no player próprio (play/pause, barra arrastável com o trecho carregado, tempo, mudo, 1x/1,5x/2x,
+  tela cheia — no iPhone é a do próprio `<video>`), foto grande (miniatura `=s` no tamanho da tela; sem ela, a foto
+  em si até 60 MB) com pinça e toque duplo, e os dados (tamanho, duração, resolução, câmera, data). Formato que o
+  navegador não toca (MXF, BRAW, R3D, ARRI, ProRes que falhar…): miniatura grande + “Este formato não toca no
+  navegador”. Se o `<video>` falha, o app pergunta ao SW o motivo (formato, reconectar, sessão, sem acesso, rede).
+- **Proxy de câmera:** bruto que não toca procura, ao abrir a prévia, um `.mp4`/`.mov`/`.m4v` com o mesmo nome-base
+  na mesma pasta ou numa subpasta irmã `Proxy`/`Proxies` (uma consulta das subpastas por pasta, em cache, e uma
+  `files.list` por nome). Achou: toca o proxy no mesmo player, com o selo “Proxy” e “Prévia em baixa resolução. O
+  Baixar traz o original.” O **Baixar** continua sendo o original. Na grade, bruto sem miniatura usa a do proxy
+  quando ele já é conhecido (mesma pasta na tela ou prévia aberta antes).
+- **Baixar** (no topo, azul), **Abrir no Drive** e **Compartilhar** (Web Share, com o link do Drive). Acima de 1 GB
+  avisa antes: no celular a tela precisa ficar aberta, e no computador o app SOBEDESCE baixa muito mais rápido.
+  Documentos do Google não têm bytes: só “Abrir”.
+
+### Streaming pelo service worker (`/app/stream/<id>?s=<tamanho>&t=<tipo>&n=<nome>[&download=1]`)
+
+`<video>`, `<audio>`, `<img>` e links não mandam `Authorization`. A página aponta para `/app/stream/<id>` e o
+`sw.js` busca `files/<id>?alt=media&supportsAllDrives=true` com `Authorization: Bearer` e o mesmo `Range`,
+devolvendo o corpo em streaming (206 com `Content-Range`, `Accept-Ranges: bytes`, `Cache-Control: no-store`; nada
+vai para o cache). O Safari só toca vídeo se o servidor responder Range com 206. Se o Google não deixar ler o
+`Content-Range` (CORS), o SW refaz pelo pedido + tamanho (`s`). Com `download=1`, `Content-Disposition: attachment`
+com o nome em UTF-8 (RFC 6266); o Baixar é uma navegação para esse endereço (sem o atributo `download`: no Chromium
+o download com `download` + resposta do SW era cancelado).
+
+O token **não fica guardado**: o SW pede à página (`postMessage` com `MessageChannel`, tipo `sd-token`; quem
+responde é `lib/stream.js` com o `getToken()` de sempre) e guarda só na memória dele, que some quando o navegador
+o põe para dormir. 401 do Google → pede de novo mandando o token velho (`stale`), a página invalida e renova. A
+página só pode apontar o SW para `https://www.googleapis.com/drive/v3` (ou, em 127.0.0.1, para um Drive falso em
+loopback). Sem SW no controle (primeira abertura muito rápida, navegador sem SW) a prévia pede para reabrir o app.
+O SW agora também é registrado no modo de teste (`?dev_api=`), porque é ele que faz o streaming.
+
+**Falta testar num iPhone de verdade:** Safari tocando pelo SW (Range/206), download salvando em Arquivos (no app
+da Tela de Início também) e quanto tempo o iOS deixa o SW vivo num download grande.
+
+### Teste automatizado da aba Drive
+
+Fora do repositório, com Playwright: `next dev`, `/api/eu` e `/api/drive/token` por `page.route`, o Drive falso
+(`test/mock-drive.js`, `cors: true`) atrás de um “Google” de teste que acrescenta `thumbnailLink` (algumas só com
+token), metadados de vídeo/foto e Compartilhados comigo. Vídeos de verdade gerados com ffmpeg; o Chromium do
+Playwright não tem H.264, então o MP4 do teste é VP9/Opus (no iPhone, H.264/HEVC tocam normalmente).
 
 ## Modo Wi-Fi (via computador)
 
@@ -97,8 +159,10 @@ partir do SVG; se o ícone mudar, renderize de novo nos mesmos tamanhos.
 
 ## Decisões do motor de envio
 
-- **Sessão retomável por arquivo**, pedaços de 8 MiB (ajustável: 4/8/16/32 MiB, sempre múltiplos de 256 KiB),
-  2 arquivos ao mesmo tempo (1–4). `Blob.slice` é preguiçoso: a memória fica baixa mesmo com arquivos de GBs.
+- **Sessão retomável por arquivo**, pedaços de 8 MiB e 2 arquivos ao mesmo tempo. Em Ajustes há uma escolha só,
+  **Sua rede**: “Rede do celular” (padrão: 2 arquivos, 8 MiB) ou “Wi-Fi rápido” (4 arquivos, 16 MiB). Por baixo
+  ficam gravados os mesmos `concurrency`/`chunkMiB` de antes (`sobedesce.settings`); valores antigos com 3 ou mais
+  arquivos juntos aparecem como Wi-Fi rápido. Pedaços sempre múltiplos de 256 KiB. `Blob.slice` é preguiçoso: a memória fica baixa mesmo com arquivos de GBs.
 - **PUTs na sessão vão sem `Authorization`.** A URI da sessão é a credencial (documentação do Drive). Assim um
   token que vence no meio de um arquivo grande não para o envio; só conferir o destino e abrir sessões novas
   esperam o token. Se o Google responder 401 num PUT, aquela sessão passa a mandar o token.

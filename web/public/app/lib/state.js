@@ -18,6 +18,7 @@ let state = {
   awake: false, // trava de tela acesa ativa
   lan: null, // modo Wi-Fi: { mac, noAccount, deleteAfterUpload, error, badCode }
   sheet: null, // { name, props }
+  tab: 'send', // 'send' (envio) | 'drive' (navegar e baixar; não existe no modo Wi-Fi)
   toasts: [],
 }
 
@@ -100,4 +101,24 @@ export function pushRecent(folder, account) {
 export function folderTrail(folder, { skipLast = false } = {}) {
   const parts = (folder?.path || []).map((p) => p.name)
   return (skipLast ? parts.slice(0, -1) : parts).join(' › ')
+}
+
+// ───── abas ─────
+
+const scrollByTab = {}
+/** Troca de aba guardando a rolagem de cada uma (as duas telas usam a rolagem da página). */
+export function setTab(tab) {
+  const cur = state.tab
+  if (cur === tab) {
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
+  scrollByTab[cur] = window.scrollY
+  setState({ tab })
+  local.set('sobedesce.tab', tab)
+  requestAnimationFrame(() => window.scrollTo(0, scrollByTab[tab] || 0))
+}
+
+export function savedTab() {
+  return LAN ? 'send' : local.get('sobedesce.tab') === 'drive' ? 'drive' : 'send'
 }
