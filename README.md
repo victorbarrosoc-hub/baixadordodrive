@@ -49,6 +49,10 @@ O mesmo `.dmg` funciona em Macs com Apple Silicon (M1, M2, M3, M4…) e com Inte
 3. **Se o Windows mostrar "O Windows protegeu o computador" (SmartScreen):** clique em **Mais informações** → **Executar assim mesmo**. Aparece porque o app não tem certificado pago da Microsoft.
 4. **Firewall:** se for receber arquivos do celular, na primeira vez o Windows pergunta se o SOBEDESCE pode usar a rede. Marque **Redes privadas** e permita.
 
+### Versão nova
+
+O app não se atualiza sozinho (sem assinatura da Apple, o macOS bloquearia). Quando sai um build novo, aparece **"Nova versão do SOBEDESCE"** na barra lateral: **Baixar** abre o instalador certo no navegador; no Mac, substitua o app em Aplicativos, no Windows, rode o instalador. Seus ajustes, contas e a fila ficam como estão. **Depois** esconde o aviso até sair um build ainda mais novo. Em **Ajustes → Atualizações** aparece o build instalado e o botão **Procurar atualização**.
+
 ---
 
 ## Entrar com a conta SOBEDESCE (o jeito simples)

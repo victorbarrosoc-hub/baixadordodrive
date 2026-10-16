@@ -1225,6 +1225,63 @@ textarea {
   animation: pulse 1.2s ease-in-out infinite;
 }
 
+/* Aviso de versão nova (acima dos medidores). Discreto: some com "Depois", não cobre nada. */
+.update-card {
+  padding: 11px 12px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--down) 7%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--down) 26%, var(--hairline));
+  box-shadow: var(--shadow-sm);
+  animation: update-in 0.35s var(--ease);
+}
+.update-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.update-head b {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+}
+.update-mark {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--down);
+  color: #fff;
+}
+.update-card p {
+  margin: 5px 0 10px 26px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.update-busy {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-3);
+}
+.update-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 26px;
+}
+.update-actions .btn-sm {
+  height: 26px;
+  padding: 0 12px;
+}
+@keyframes update-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 .account {
   position: relative;
 }
@@ -3352,6 +3409,10 @@ button.tree-twisty:hover {
 }
 .srow-note.is-warn {
   color: var(--warn-text);
+}
+.srow-note.is-new {
+  color: var(--down-text);
+  font-weight: 500;
 }
 .srow-note a {
   margin-left: 4px;

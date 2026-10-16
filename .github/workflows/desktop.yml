@@ -59,6 +59,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Identidade do build (src/build-info.json vai dentro do app): o aviso "Nova versão do SOBEDESCE" compara com ela.
+      - run: node scripts/build-info.mjs
       - run: ${{ matrix.build }}
       # Os instaladores vão para um Release de teste ("SOBEDESCE · versão de teste"): Releases não usam
       # a cota de armazenamento de artefatos do Actions, que é pequena e enche rápido.
@@ -69,6 +71,27 @@ jobs:
           prerelease: true
           target_commitish: ${{ github.sha }}
           files: ${{ matrix.files }}
+          fail_on_unmatched_files: true
+          body: Instaladores gerados automaticamente a partir do último commit com [build]. Sem assinatura da Apple/Microsoft por enquanto (veja o README).
+
+  # Só depois dos DOIS instaladores no Release (needs espera o Mac e o Windows; se um falhar, este não roda):
+  # sobe o versao.json que o site serve em /baixar/versao e que faz o app mostrar "Nova versão do SOBEDESCE".
+  versao:
+    name: Avisar versão nova
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: app
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/build-info.mjs versao.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: versao-de-teste
+          name: SOBEDESCE · versão de teste
+          prerelease: true
+          target_commitish: ${{ github.sha }}
+          files: versao.json
           fail_on_unmatched_files: true
           body: Instaladores gerados automaticamente a partir do último commit com [build]. Sem assinatura da Apple/Microsoft por enquanto (veja o README).
 

@@ -1,4 +1,4 @@
-// Barra lateral translúcida: marca, navegação (com contador ao vivo), medidores ↓/↑ e a conta.
+// Barra lateral translúcida: marca, navegação (com contador ao vivo), aviso de versão nova, medidores ↓/↑ e a conta.
 import { html, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore, activeCount, setActiveAccount } from '../lib/store.js'
 import { navigate } from '../lib/router.js'
@@ -8,6 +8,7 @@ import { Icon, Wordmark } from './icons.js'
 import { Avatar } from './common.js'
 import { LevelMeter } from './meter.js'
 import { useAbout } from './drive-data.js'
+import { UpdateCard } from './versao.js'
 
 const NAV = [
   { id: 'transferencias', label: 'Transferências', icon: 'transfers' },
@@ -122,6 +123,7 @@ export function Sidebar({ current }) {
       )}
     </nav>
     <div class="sidebar-foot">
+      <${UpdateCard} />
       <${Meters} />
       <${AccountChip} />
     </div>

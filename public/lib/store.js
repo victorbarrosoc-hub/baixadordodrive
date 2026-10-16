@@ -33,6 +33,7 @@ let state = {
   oauthWait: null, // desktop: esperando o login terminar no navegador do sistema
   media: null, // { key } das rotas de miniatura e prévia (src/server/media.js)
   rawThumbs: null, // "Gerar miniaturas": o lote atual ou o último { jobId, status, progress, error, driveFolderId, localDir }
+  versao: null, // aviso de versão nova (src/version.js): { atual, ultima, disponivel, nova, plataforma, baixarUrl, verificando, falhou, … }
 }
 
 const listeners = new Set()
@@ -100,6 +101,7 @@ function applyFull(data) {
     stats: data.stats || EMPTY_STATS,
     media: data.media ?? state.media,
     rawThumbs: data.rawThumbs !== undefined ? data.rawThumbs : state.rawThumbs,
+    versao: data.versao !== undefined ? data.versao : state.versao,
   })
   applyTheme(state.settings?.theme)
 }
@@ -154,6 +156,10 @@ export function setActiveAccount(id) {
 
 export function setRawThumbs(job) {
   setState({ rawThumbs: job || null })
+}
+
+export function setVersao(versao) {
+  if (versao && typeof versao === 'object') setState({ versao })
 }
 
 export function setCompareJob(jobId, info) {
@@ -215,6 +221,7 @@ function connect() {
   on('cloud', (d) => setCloud(d?.cloud || d))
   on('compare', (d) => d?.jobId && setCompareJob(d.jobId, { status: d.status, progress: d.progress, error: d.error || null }))
   on('rawthumbs', (d) => d?.jobId && setRawThumbs(d))
+  on('versao', (d) => setVersao(d?.versao || d))
   on('toast', (d) => d?.message && toast(d.kind || 'info', d.message))
 }
 
