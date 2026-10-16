@@ -44,7 +44,7 @@ export function plataformaValida(valor: unknown): Plataforma | null {
 }
 
 export function nomeDoComputador(valor: unknown): string {
-  const nome = typeof valor === "string" ? valor.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim().slice(0, 80) : "";
+  const nome = typeof valor === "string" ? valor.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) : "";
   return nome || "Computador";
 }
 
