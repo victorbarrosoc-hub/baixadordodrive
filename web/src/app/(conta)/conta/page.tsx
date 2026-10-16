@@ -9,6 +9,7 @@ import { listarDispositivos } from "@/lib/auth/sessao";
 import { Comecar } from "@/components/conta/comecar";
 import { MenuConta } from "@/components/conta/menu";
 import { contaComSenha } from "@/lib/auth/contas";
+import { ehAdmin } from "@/lib/admin";
 import { listarContas } from "@/lib/google/contas";
 import { NOME_PLATAFORMA, tempoRelativo } from "@/lib/tempo";
 import { Computadores } from "./computadores";
@@ -24,13 +25,18 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 export default async function Conta({ searchParams }: Props) {
   const { usuario } = await exigirUsuario("/conta");
   const q = await searchParams;
-  const [contas, dispositivos, temSenha] = await Promise.all([listarContas(usuario.id), listarDispositivos(usuario.id), contaComSenha(usuario.id)]);
+  const [contas, dispositivos, temSenha, admin] = await Promise.all([
+    listarContas(usuario.id),
+    listarDispositivos(usuario.id),
+    contaComSenha(usuario.id),
+    ehAdmin(usuario),
+  ]);
   const erro = typeof q.erro === "string" ? q.erro : undefined;
   const conectou = q.google === "ok";
   const primeiroNome = usuario.nome.split(" ")[0];
 
   return (
-    <Moldura titulo={`Olá, ${primeiroNome}`} subtitulo="Seus Drives e computadores ficam aqui." acao={<MenuConta />}>
+    <Moldura titulo={`Olá, ${primeiroNome}`} subtitulo="Seus Drives e computadores ficam aqui." acao={<MenuConta admin={admin} />}>
       {conectou ? (
         <Aviso tom="ok" className="mb-10">
           <p>Google Drive conectado.</p>
