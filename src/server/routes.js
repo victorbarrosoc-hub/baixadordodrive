@@ -20,6 +20,7 @@ const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba 
 const COMPARE_EVENT_MS = 250 // progresso da comparação: no máximo 4×/s
 const KEEP_JOBS = 10 // comparações guardadas na memória (os resultados ficam no disco)
 const KEEP_COMPARES = 20
+const DRIVE_ID = /^[\w-]{1,200}$/ // ids e resourceKeys do Drive: letras, números, _ e -
 const ACTIONS = ['pause', 'resume', 'cancel', 'retry', 'remove', 'prioritize']
 
 /** Erro que já sabe o status HTTP e a mensagem para o usuário. */
@@ -320,6 +321,8 @@ export function createApi(ctx) {
       transfers: snap.transfers,
       batches: snap.batches,
       stats: snap.stats,
+      // Chave das rotas de mídia (<img>/<video> não mandam cabeçalho): só a interface lê /api/state.
+      media: ctx.media ? { key: ctx.media.key } : null,
     }
   }
 
@@ -440,7 +443,8 @@ export function createApi(ctx) {
       item = await drive.getItem(folderId, { signal, resourceKey: item.shortcutTargetResourceKey || undefined })
     }
     if (!item.isFolder) throw new HttpProblem(400, 'Isso não é uma pasta.')
-    const [crumbs, items] = await Promise.all([drive.getPath(folderId, { signal }), drive.listChildren(folderId, { signal })])
+    const [crumbs, items] = await Promise.all([drive.getPath(folderId, { signal }), drive.listChildren(folderId, { signal, media: true })])
+    ctx.media?.remember(params.acc, items)
     const folder = { ...item }
     if (folderId === 'root') {
       folder.id = 'root'
@@ -453,8 +457,51 @@ export function createApi(ctx) {
     account(params.acc)
     const q = (query.get('q') || '').trim()
     if (!q) return { items: [] }
-    return { items: await ctx.manager.driveFor(params.acc).search(q.slice(0, 200), { signal }) }
+    const items = await ctx.manager.driveFor(params.acc).search(q.slice(0, 200), { signal, media: true })
+    ctx.media?.remember(params.acc, items)
+    return { items }
   })
+
+  // ── miniaturas e prévia (src/server/media.js): chave `k` da interface, conta e id na query
+  const mediaTarget = (req, query) => {
+    if (!ctx.media) throw new HttpProblem(404, 'A prévia não está disponível nesta versão.')
+    ctx.media.check(req, query) // antes de tudo: sem a chave não dá nem para saber se a conta existe
+    const acc = account(query.get('account'))
+    const id = query.get('id') || ''
+    if (!DRIVE_ID.test(id)) throw new HttpProblem(400, 'Arquivo inválido.')
+    const rk = query.get('rk') || ''
+    return { accountId: acc.id, id, resourceKey: DRIVE_ID.test(rk) ? rk : null }
+  }
+
+  route('GET', '/api/drive/thumb', async ({ req, res, query, signal }) => {
+    const t = mediaTarget(req, query)
+    const img = await ctx.media.thumb({ ...t, size: query.get('s'), version: (query.get('v') || '').slice(0, 64), signal })
+    res.writeHead(200, baseHeaders({
+      'content-type': img.type,
+      'content-length': img.buf.length,
+      'cache-control': 'private, max-age=86400',
+      'content-security-policy': "default-src 'none'; sandbox",
+      'x-sobedesce-cache': img.source,
+    }))
+    res.end(img.buf)
+  }, { raw: true })
+
+  // Proxy de câmera para a prévia (arquivo que não toca no Chromium). JSON comum: { proxy: DriveItem|null }.
+  route('GET', '/api/drive/:acc/proxy', async ({ params, query, signal }) => {
+    account(params.acc)
+    if (!ctx.media) return { proxy: null }
+    const id = query.get('id') || ''
+    if (!DRIVE_ID.test(id)) throw new HttpProblem(400, 'Arquivo inválido.')
+    const rk = query.get('rk') || ''
+    return { proxy: await ctx.media.findProxy(params.acc, id, { resourceKey: DRIVE_ID.test(rk) ? rk : null, signal }) }
+  })
+
+  const stream = async ({ req, res, query, signal }) => {
+    const t = mediaTarget(req, query)
+    await ctx.media.stream({ req, res, ...t, signal })
+  }
+  route('GET', '/api/drive/stream', stream, { raw: true })
+  route('HEAD', '/api/drive/stream', stream, { raw: true })
 
   route('POST', '/api/drive/:acc/folders', async ({ params, body, signal }) => {
     account(params.acc)
@@ -531,6 +578,13 @@ export function createApi(ctx) {
 
   // ── ajustes
   route('GET', '/api/settings', () => ({ settings: ctx.settings.get() }))
+
+  // Miniatura de .braw (Ajustes): o que o computador tem para tirar o frame e o último resultado.
+  route('GET', '/api/raw-thumbs', async ({ query }) => {
+    const t = ctx.manager.thumbnailer
+    const rawThumbs = t ? await t.status({ refresh: query.get('refresh') === '1' }) : { supported: false, found: false, via: null, enabled: false, last: null, downloadUrl: null }
+    return { rawThumbs }
+  })
 
   route('PATCH', '/api/settings', async ({ body }) => {
     try {

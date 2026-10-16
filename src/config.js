@@ -32,6 +32,7 @@ export function dataPaths(root = dataDir()) {
     mobile: path.join(root, 'mobile.json'), // código de acesso do celular
     mobileUploads: path.join(root, 'mobile-uploads.json'), // recebimentos do celular (para retomar)
     cloud: path.join(root, 'cloud.json'), // sessão da conta SOBEDESCE neste computador (token do dispositivo, modo 0600)
+    thumbs: path.join(root, 'thumbs'), // miniaturas do Drive já baixadas (cache da tela Drive; pode apagar)
   }
 }
 
@@ -100,6 +101,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   downloadConflict: 'skip',
   /** Upload quando já existe no Drive: 'skip' (pula se igual), 'rename' (sobe cópia), 'replace' (nova versão). */
   uploadConflict: 'skip',
+  /**
+   * Ao terminar de subir um .braw (o Drive não gera miniatura de Blackmagic RAW), tira um frame com o que o
+   * computador tem (Quick Look no Mac, miniatura do Explorer no Windows) e grava como miniatura do arquivo.
+   */
+  brawThumbnails: true,
   /** Sem receber/enviar nenhum byte por esse tempo, a conexão é refeita. */
   stallTimeoutMs: 30_000,
   /** Refaz conexões que ficaram muito mais lentas que as outras (o Google às vezes estrangula uma conexão). */

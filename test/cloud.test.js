@@ -69,7 +69,8 @@ test('fluxo de dispositivo completo: código, aprovação, token guardado com 06
   assert.equal(st.conectado, true)
   assert.equal(st.usuario.email, 'ana@sobedesce.app')
   assert.deepEqual(st.contas.map(c => [c.id, c.status, c.source]), [['nuvem:g1', 'ok', 'nuvem'], ['nuvem:g2', 'ok', 'nuvem']])
-  assert.ok(accountsEvents.length >= 1, 'evento accounts ao entrar')
+  // A lista muda antes de o aviso sair (o app grava em disco entre os dois): espera o aviso.
+  await waitFor(() => accountsEvents.length >= 1, { message: 'evento accounts ao entrar' })
   assert.ok(statuses.some(s => s.login.estado === 'pronto'))
 
   // Arquivo do token: 0600, com o token do dispositivo; nada de token na tela.

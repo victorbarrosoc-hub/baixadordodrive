@@ -31,6 +31,7 @@ let state = {
   compare: {}, // jobId -> { status, progress, error }
   epoch: 0, // conta as cargas completas (hello / /api/state); quem observa transições recomeça a contagem
   oauthWait: null, // desktop: esperando o login terminar no navegador do sistema
+  media: null, // { key } das rotas de miniatura e prévia (src/server/media.js)
 }
 
 const listeners = new Set()
@@ -96,6 +97,7 @@ function applyFull(data) {
     transfers,
     batches: data.batches || [],
     stats: data.stats || EMPTY_STATS,
+    media: data.media ?? state.media,
   })
   applyTheme(state.settings?.theme)
 }

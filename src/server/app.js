@@ -11,6 +11,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { createApi, HttpProblem, baseHeaders, sendJSON } from './routes.js'
+import { MediaService } from './media.js'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 export const PUBLIC_DIR = path.join(ROOT, 'public')
@@ -234,6 +235,7 @@ export async function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', pub
     onEmpty: () => ctx.manager?.off('stats', statsListener),
   })
   ctx.hub = hub
+  ctx.media = opts.media === false ? null : new MediaService(ctx, opts.mediaOptions || {})
   const api = createApi(ctx)
   const vendor = vendorFile()
   const allowed = () => new Set([`127.0.0.1:${ctx.port}`, `localhost:${ctx.port}`])

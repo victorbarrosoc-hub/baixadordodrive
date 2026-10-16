@@ -59,6 +59,7 @@ src/
   engine/manager.js      TransferManager (fila, concorrência, persistência, eventos)
   engine/compare.js      compareFolders (local × Drive)
   engine/power.js        KeepAwake (impede o computador de dormir)
+  media/raw-thumb.js     miniatura de .braw/.r3d: extrairFrame (Quick Look / Explorer / ajudante nativo) e RawThumbnailer
   local/fsbrowse.js      raízes (Início, Mesa, discos externos) e listagem de pastas
   local/scan.js          varredura recursiva local
   server/app.js          servidor HTTP, segurança, estáticos, SSE
@@ -185,8 +186,8 @@ async api(method, pathOrUrl, { query, body, headers, signal, expect, retries = 6
 async authHeader(): { authorization: 'Bearer …' }
 async about(): { user: { email, name, photoUrl, permissionId }, quota: { limit|null, usage, usageInDrive } }
 async listSharedDrives(): Array<{ id, name }>
-async getItem(fileId, { signal }): DriveItem
-async listChildren(folderId, { signal }): DriveItem[]           // pagina tudo (pageSize 1000), trashed=false, ordena pastas primeiro + nome
+async getItem(fileId, { signal, resourceKey, media = false }): DriveItem   // media: também BROWSE_FIELDS (prévia)
+async listChildren(folderId, { signal, media = false }): DriveItem[]  // pagina tudo (pageSize 1000), trashed=false, ordena pastas primeiro + nome
 async getPath(folderId): Array<{ id, name }>                     // breadcrumb da raiz até a pasta (cache)
 async walk(folderId, { signal, onProgress, concurrency = 8 }): { root: DriveItem, items: DriveItem[] }
     // varre a árvore inteira; cada item ganha relPath relativo à pasta (sem o nome da raiz) e relDir.
@@ -197,7 +198,10 @@ async createFolder(name, parentId, { signal }): DriveItem
 async ensureFolderPath(rootId, relDir, { signal, cache }): string
     // cria/acha cada nível de relDir dentro de rootId e devolve o id da última pasta.
     // `cache` (Map) guarda promessas por `${rootId}/${prefixo}` para criação concorrente não duplicar pastas.
-async search(text, { signal }): DriveItem[]                       // name contains, até 200 resultados
+async search(text, { signal, media = false }): DriveItem[]        // name contains, até 200 resultados
+async setThumbnail(fileId, image: Buffer, mimeType = 'image/jpeg', { signal, retries }): { id, hasThumbnail }
+    // PATCH files/{id} com contentHints.thumbnail = { image: base64 URL-safe (RFC 4648 §5, com '='), mimeType }.
+    // PNG/JPEG/GIF até 2 MB (valida antes de chamar). O Drive só usa quando não gera a dele; conteúdo novo derruba.
 // Detalhes obrigatórios (ver docs/GOOGLE-NOTES.md):
 //  - supportsAllDrives=true em TODA chamada files.*; includeItemsFromAllDrives=true em files.list;
 //    pageSize=1000; dentro de drive compartilhado use corpora=drive&driveId=<id>.
@@ -386,7 +390,8 @@ simbólicos; arquivos soltos vão direto em `destFolderId`.
 ### engine/manager.js — `TransferManager extends EventEmitter`
 
 ```js
-new TransferManager({ settings, auth, hasher, paths = dataPaths(), driveFactory = (accountId) => DriveClient })
+new TransferManager({ settings, auth, hasher, paths = dataPaths(), driveFactory = (accountId) => DriveClient,
+                      thumbnailer = new RawThumbnailer({ settings }) })   // null desliga a miniatura de .braw
 async init()                    // carrega queue.json; 'running'/'verifying' viram 'queued' (autoResume) ou 'paused'
 snapshot(): { transfers: PublicTransfer[], batches: Batch[], stats: Stats }
 add({ batch, records }): void   // persiste e agenda
@@ -413,6 +418,66 @@ internet/Google fora do ar) → 'waiting' com `retryAt` crescente (1, 2, 5, 10, 
 volta sozinho; depois de 16 esperas seguidas sem avanço → 'failed'; 'quota' → 'waiting' com `retryAt` e reagenda sozinho; 'reauth' → 'paused' com erro
 "Conecte a conta de novo"; 'fatal'/'notfound' → 'failed'. `cancel` de download apaga o `tempPath`;
 de upload faz DELETE na sessão (melhor esforço). Limites de banda e KeepAwake seguem `settings`.
+
+### media/raw-thumb.js — miniatura de .braw
+
+O Drive não gera miniatura de Blackmagic RAW; a API aceita uma nossa em `contentHints.thumbnail`, que vale no Drive web,
+no app do Drive e no SOBEDESCE. Quando um envio de `.braw` (ou `.r3d`, sem diferenciar maiúsculas) **termina bem**,
+o motor grava um frame como miniatura. Ajuste `brawThumbnails` (padrão ligado; Ajustes → Arquivos).
+
+```js
+isRawThumbCandidate(name): boolean                 // RAW_THUMB_EXTS = ['.braw', '.r3d']
+async extrairFrame(path, { largura = 1280, maxBytes = 1,5 MB, timeoutMs = 20 s, signal, extractors?, log? })
+  : Buffer|null                                    // JPEG (PNG se não houver conversão e couber). NUNCA lança:
+                                                   // null + log(motivo curto). Tempo limite vale para tudo (mata o processo).
+async detectExtractor(): { supported, found, via: 'helper'|'quicklook'|'shell'|null, downloadUrl }   // para os Ajustes
+class RawThumbnailer { prepare(record), attach(record, drive): Promise<boolean>, status(), idle(), close() }
+```
+Extratores (trocáveis; `extractors` aceita qualquer `{ id, label, extract(file, { width, maxBytes, deadline, signal, tmp }) }`):
+1. **Ajudante nativo** `sobedesce-raw-frame` (se existir em `SOBEDESCE_RAW_HELPER` ou `<resources>/raw-frame/`):
+   `--input <braw> --output <jpg> --width <px> --max-bytes <n>` → 0 = imagem gravada, 2 = "não dá" (null), outro = falha.
+   **Ainda não existe no instalador** (ver "O que falta" abaixo).
+2. **Mac**: `qlmanage -t -s 1280 -o <tmp> <arquivo>` (usa a extensão de miniatura registrada para o tipo) e
+   `sips -s format jpeg -s formatOptions 80 -Z 1280` para JPEG; se não couber em 1,5 MB, qualidade 65 e depois 60 a 60 %
+   da largura. Sem `sips`, manda o PNG se couber.
+3. **Windows**: `powershell.exe -EncodedCommand` com C# em `Add-Type` (compila na memória, nada instalado):
+   `SHCreateItemFromParsingName` → `IShellItemImageFactory.GetImage(1280, SIIGBF_THUMBNAILONLY|SIIGBF_BIGGERSIZEOK)` →
+   JPEG (82/68 %, depois 60 %/40 % do tamanho) até caber. THUMBNAILONLY: sem manipulador de miniatura, sai 2 (null),
+   nunca o ícone do tipo. Caminhos entram por variável de ambiente (nada do nome do arquivo no texto do script).
+
+Fluxo no `TransferManager` (opção `thumbnailer`, `null` desliga): ao **começar** um envio candidato, `prepare(record)`
+começa a extração em paralelo (no máximo 2 ao mesmo tempo; cache por caminho+tamanho+mtime); ao **terminar** com
+`completed` e `target.fileId`, `attach(record, drive)` espera o frame e chama `drive.setThumbnail` **em segundo plano**:
+o status da transferência já é 'completed' e nunca muda por causa da miniatura. Gravou → `record.thumbnail = true`.
+Falha (sem extrator, tempo esgotado, imagem grande, Drive recusou) = só uma linha no log. Três falhas seguidas do
+extrator → 10 min sem tentar. O app fechar entre o fim do envio e a gravação perde a miniatura (melhor esforço).
+`GET /api/raw-thumbs` devolve `status()` para os Ajustes ("Não encontramos o Blackmagic RAW neste computador" + link
+para `blackmagicdesign.com/products/blackmagicraw`). A detecção procura o Blackmagic RAW/DaVinci Resolve nas pastas
+padrão (Mac: `/Applications/Blackmagic RAW`, `/Applications/DaVinci Resolve`; Windows: `Program Files\Blackmagic Design\…`)
+e, no Windows, o manipulador de miniatura de `.braw` no registro (`ShellEx\{e357fccd-…}`).
+
+Confiabilidade conhecida (pesquisa de 2026-10):
+- **Mac**: o macOS 15 (Sequoia) deixou de carregar plug-ins `.qlgenerator`; só extensões de app (appex) geram miniatura.
+  Há relatos no fórum da Blackmagic de miniaturas de BRAW sumindo no Finder desde o Sequoia. Onde a extensão da
+  Blackmagic não funciona, o Calibrated QuickLook (grátis, junto do Tin Man) gera miniatura de BRAW/R3D e o
+  `qlmanage` passa a funcionar sozinho. Se o Quick Look não tiver nada, o `.braw` só fica sem miniatura.
+- **Windows**: o manipulador de miniaturas do Blackmagic RAW Player teve regressões (ex.: 1.7 deixou de registrar a
+  DLL; relatos ainda em 2025). Mesma regra: sem miniatura do Explorer, sem miniatura no Drive, sem erro.
+- **ffmpeg não decodifica BRAW** (nem o 6.x nem o master de 2026: só ProRes RAW entrou; o decodificador BRAW ficou em patch).
+
+O que falta para o ajudante nativo (o caminho mais confiável, porque não depende de Quick Look/Explorer):
+1. Código C++ (~200 linhas) a partir do exemplo `ProcessClipCPU` do Blackmagic RAW SDK: carregar a biblioteca
+   **instalada** com `CreateBlackmagicRawFactoryInstanceFromPath` (Mac: o `BlackmagicRawAPI.framework` que vem com o
+   Blackmagic RAW/SDK ou com o DaVinci Resolve; Windows: a pasta do `BlackmagicRawAPI.dll` em
+   `Program Files\Blackmagic Design\…`; os caminhos exatos não estão documentados no manual e precisam ser confirmados
+   numa máquina com eles instalados),
+   decodificar o frame 0 em 1/4 de resolução na CPU, `RGBAU8`, e gravar JPEG (stb_image_write, domínio público).
+2. Headers do SDK no CI: o download do SDK na Blackmagic exige cadastro/aceite; não dá para baixar no workflow sem
+   guardar o instalador num lugar privado (segredo do repositório). Os headers trazem licença permissiva, mas o EULA do
+   SDK proíbe redistribuir o SDK: não versionar headers nem a biblioteca; o ajudante só carrega a que já está instalada.
+3. `electron-builder.yml`: `extraResources` com `raw-frame/sobedesce-raw-frame(.exe)` por plataforma (Mac universal:
+   `lipo` das duas arquiteturas; Windows x64 e arm64).
+4. Testar num Mac e num Windows com DaVinci Resolve/Blackmagic RAW instalados (aqui só há Linux).
 
 ### engine/compare.js
 
@@ -480,6 +545,9 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | GET | `/api/drive/:acc/list` | `folderId` (padrão `root`) | `{ folder, path, items }` |
 | GET | `/api/drive/:acc/search` | `q` | `{ items }` |
 | POST | `/api/drive/:acc/folders` | `{ parentId, name }` | `{ item }` |
+| GET | `/api/drive/:acc/proxy` | `id`, `rk?` | `{ proxy: DriveItem\|null }` (proxy de câmera; ver "Miniaturas e prévia") |
+| GET | `/api/drive/thumb` | `account, id, k, s?, v?, rk?` | imagem (miniatura; `x-sobedesce-cache: memory\|disk\|google`) |
+| GET/HEAD | `/api/drive/stream` | `account, id, k, rk?` + cabeçalho `Range` | bytes do arquivo (200/206/416) |
 | GET | `/api/local/roots` | | `{ roots, home, sep }` |
 | GET | `/api/local/list` | `path`, `hidden` | `{ path, parent, entries }` |
 | POST | `/api/transfers/download` | `{ accountId, items: DriveItem[], destDir?, conflict? }` | `{ batch, count, bytes, skipped }` |
@@ -487,6 +555,7 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | POST | `/api/transfers/action` | `{ action: pause|resume|cancel|retry|remove|prioritize, ids?: string[]|'all', batchId? }` | `{ }` |
 | POST | `/api/transfers/clear` | | `{ }` |
 | GET | `/api/settings` / PATCH `/api/settings` | patch | `{ settings }` |
+| GET | `/api/raw-thumbs` | `refresh=1` (refaz a detecção) | `{ rawThumbs: { supported, found, via, enabled, last, downloadUrl } }` |
 | POST | `/api/compare` | `{ accountId, localPath, driveFolderId, mode }` | `{ jobId }` (progresso via SSE) |
 | GET | `/api/compare/:jobId` | | `{ status, progress, result?, error? }` |
 | POST | `/api/compare/:jobId/upload` | `{ statuses?: ['missing','different'], relDirs?: string[] }` | `{ batch, count, bytes }` |
@@ -497,6 +566,39 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 SSE (`text/event-stream`, `event:` + `data:` JSON, ping a cada 15 s):
 `hello` (= `/api/state`), `transfers` (PublicTransfer[] alterados), `removed` (ids), `batches`,
 `stats`, `accounts`, `cloud` (CloudStatus), `settings`, `compare` (`{ jobId, status, progress, error? }`), `toast` (`{ kind, message }`).
+
+### Miniaturas e prévia (`src/server/media.js`)
+
+- **Chave de mídia**: `<img>` e `<video>` não mandam cabeçalhos, então `/api/drive/thumb` e `/api/drive/stream` exigem
+  `k` = `media.key` de `/api/state` (aleatória a cada abertura do app; só a interface consegue ler o estado). Sem a chave,
+  com chave errada ou com `Sec-Fetch-Site: cross-site|same-site` → 403, antes de olhar conta ou arquivo. As respostas
+  levam `Cross-Origin-Resource-Policy: same-origin`, `nosniff` e `CSP: default-src 'none'; sandbox`; tipo que não é
+  vídeo/áudio/imagem sai como `application/octet-stream` (um HTML do Drive nunca roda com a origem do app).
+- **Listagem**: `/list` e `/search` pedem também `hasThumbnail, thumbnailLink, iconLink, webViewLink, owners,
+  videoMediaMetadata, imageMediaMetadata` (`BROWSE_FIELDS`; as varreduras grandes continuam com `FILE_FIELDS`).
+  O DriveItem ganha, só quando vieram: `hasThumbnail, thumbnailLink, iconLink?, webViewLink?, owner?{name,email},
+  video?{width,height,durationMs}, image?{width,height,camera?,exposureTime?,aperture?,isoSpeed?,focalLength?,time?}`.
+  Os links de miniatura da listagem ficam guardados (30 min) para a rota não consultar o Drive arquivo por arquivo.
+- **`thumb`**: `s` sobe para o próximo de `[64,128,220,320,480,640,960,1280,1600,2000]` e troca o `=s220` do link.
+  Busca com o token da conta (local ou `nuvem:`; o token só vai para hosts do Google ou o da API), no máximo 6 ao mesmo
+  tempo, pedidos iguais simultâneos viram um só. Link vencido (403/404/410) → consulta o arquivo de novo e tenta uma vez.
+  Cache: LRU na memória (24 MB) + `<dados>/thumbs/<sha>.img` (256 MB; poda as menos usadas até 80%). A chave do cache
+  inclui `v` (a interface manda o `modifiedTime`): arquivo novo, miniatura nova. Sem miniatura → 404.
+- **`stream`**: repassa um Range simples (`bytes=a-b|a-|-n`) para `files/<id>?alt=media` e devolve 200/206/416 com
+  `Content-Range`, `Content-Length` e `Accept-Ranges` (o Chromium precisa disso para pular no vídeo). 401 → renova o
+  token uma vez. Quem fecha no meio (pulou na barra, trocou de arquivo) derruba a conexão com o Drive junto.
+- **Proxy de câmera** (`/api/drive/:acc/proxy`): para o que o Chromium não toca (BRAW, R3D, ARI, MXF, ProRes…), procura
+  o mesmo nome-base com `.mp4/.mov/.m4v` na mesma pasta ou numa subpasta irmã `Proxy`/`Proxies` (Blackmagic grava
+  `A001_…_C001.braw` + `Proxy/A001_…_C001.mp4`). Uma consulta pelas subpastas (cache 5 min por pasta) + uma pelo nome
+  (cache 5 min por arquivo); a subpasta Proxy e `.mp4` têm preferência. Só é chamado ao abrir a prévia.
+- **Interface**: tela Drive alterna Lista/Miniaturas (lembrado em `sobedesce.drive.view`); a tabela mostra miniatura de
+  28 px. Prévia (`components/drive-preview.js`) abre com duplo clique, espaço, Enter, o olho da linha ou "Prévia" na
+  barra de seleção: player próprio (barra arrastável, tempo, volume, velocidade, tela cheia, quadro a quadro com
+  Alt ←/→, ±5 s com Shift ←/→), foto com zoom (miniatura `=s2000` na hora, original JPG/PNG/WebP pelo stream),
+  áudio, metadados. ←/→ trocam de arquivo, Esc fecha. "Baixar" no topo cria o download normal do motor
+  (`POST /api/transfers/download` com o destino escolhido). Formato que não toca → procura o proxy (toca com o selo
+  "Proxy"; o Baixar continua trazendo o original) → sem proxy, miniatura grande + "Este formato não toca na prévia".
+  Na grade, original de câmera sem miniatura usa a do proxy que já está na pasta ou que a prévia achou.
 
 ### Interface (public/)
 
@@ -512,6 +614,7 @@ Seletor de pastas/arquivos locais próprio (modal) usando `/api/local/*`.
 
 ### O que a interface espera do servidor (decidido ao construir a UI)
 
+- `/api/state` traz `media: { key }` (chave das rotas de miniatura e stream).
 - `/api/local/list?hidden=1` liga arquivos ocultos (ausente = desligado).
 - `path` em `/api/drive/:acc/list` é o breadcrumb da raiz até a pasta atual, incluindo a atual. Drive compartilhado
   é navegado com `folderId` = id do drive. Upload na raiz manda `destFolderId: 'root'` (+ `driveId` quando for drive compartilhado).

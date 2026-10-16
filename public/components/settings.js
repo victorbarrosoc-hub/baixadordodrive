@@ -42,6 +42,35 @@ function Row({ label, desc, children, stack }) {
   </div>`
 }
 
+// ───── Miniatura de BRAW ─────
+
+/** O Drive não gera miniatura de .braw: o motor tira um frame com o Quick Look (Mac) ou o Explorer (Windows). */
+function RawThumbRow({ d, set }) {
+  const [info, setInfo] = useState(null)
+  useEffect(() => {
+    let live = true
+    api.get('/api/raw-thumbs').then((r) => live && setInfo(r.rawThumbs || null)).catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+  const on = d.brawThumbnails !== false
+  let note = null
+  if (info && on) {
+    if (!info.supported) note = html`<span class="srow-note">Neste sistema ainda não dá para gerar a miniatura.</span>`
+    else if (!info.found)
+      note = html`<span class="srow-note is-warn">Não encontramos o Blackmagic RAW neste computador.
+        <a href=${info.downloadUrl} target="_blank" rel="noopener noreferrer">Baixar o Blackmagic RAW</a></span>`
+    else if (info.last && !info.last.ok) note = html`<span class="srow-note">O último RAW enviado ficou sem miniatura (${info.last.reason}).</span>`
+  }
+  return html`<${Row}
+    label="Gerar miniatura de BRAW"
+    desc=${html`O Drive não mostra prévia de Blackmagic RAW. Ao terminar o envio, o SOBEDESCE tira um frame e grava como miniatura do arquivo. Precisa do DaVinci Resolve ou do Blackmagic RAW instalado.${note ? html`<br />${note}` : null}`}
+  >
+    <${Switch} label="Gerar miniatura de BRAW" checked=${on} onChange=${(v) => set('brawThumbnails', v, { now: true })} />
+  </${Row}>`
+}
+
 // ───── Celular ─────
 
 /** Endereço em fonte mono com botão de copiar. */
@@ -468,6 +497,7 @@ export function SettingsScreen() {
             ]}
           />
         </${Row}>
+        <${RawThumbRow} d=${d} set=${set} />
         <${Row} label="Mostrar arquivos ocultos" desc="No seletor de arquivos do computador.">
           <${Switch} label="Mostrar arquivos ocultos" checked=${d.showHiddenFiles} onChange=${(v) => set('showHiddenFiles', v, { now: true })} />
         </${Row}>
