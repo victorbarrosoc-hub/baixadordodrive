@@ -22,6 +22,8 @@ let state = {
   recursos: {}, // de /api/eu: { referencias: boolean }
   refs: { status: 'idle', colecoes: [], fila: [], raiz: null, error: null, at: 0 }, // Referências (lib/referencias.js)
   refsOpen: null, // id da coleção aberta na aba Referências
+  // "No computador" (lib/computador.js): o andamento das transferências dos computadores da conta
+  pc: { status: 'idle', computadores: [], agora: 0, at: 0, push: null, error: null },
   toasts: [],
 }
 

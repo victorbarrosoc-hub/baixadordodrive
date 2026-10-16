@@ -33,6 +33,7 @@ before(async () => {
     cloudOptions: { ...FAST, baseUrl: site.url },
     managerOptions: { keepAwake, taskOptions: { download: { retryBaseMs: 5, checkpointMs: 200 }, upload: { retryBaseMs: 5 } } },
     serverOptions: { log: () => {} },
+    acompanharOptions: { ativoMs: 150, ociosoMs: 2000, eventoMs: 20, minGapMs: 20, log: () => {} },
   })
   await app.settings.update({ keepAwake: false, connectionsPerDownload: 4, minSegmentSize: MiB })
 })
@@ -174,6 +175,14 @@ test('upload e download de verdade no Drive falso usando uma conta nuvem:', asyn
   assert.equal(by['Brutos_A001.mov'].accountId, 'nuvem:g1')
   assert.equal(await mock.contentMd5(by['Brutos_A001.mov'].target.fileId), m1)
   assert.equal(await mock.contentMd5(by['Som.wav'].target.fileId), m2)
+
+  // Acompanhar pelo celular: o site recebeu o andamento e, no fim, "concluído" com os dois arquivos em "Já passou".
+  await waitFor(() => site.andamento.some(a => a.corpo?.estado === 'concluido' && a.corpo.terminados.some(t => t.nome === 'Som.wav')))
+  assert.equal(app.manager.batches.get(r.json.batch.id).destino, 'Meu Drive') // a pasta de destino, para a lista do celular
+  const fim = site.andamento.findLast(a => a.corpo?.estado === 'concluido').corpo
+  assert.equal(fim.geral.feitos, 2)
+  assert.equal(fim.geral.totalBytes, 3 * MiB + 11 + 600_000)
+  assert.ok(!JSON.stringify(fim).includes(files), 'sem caminhos do computador')
 
   const clip = mock.addFile('Entrega_v3.mov', 'root', { size: 5 * MiB + 3, seed: 73 })
   const dest = path.join(files, 'baixados')

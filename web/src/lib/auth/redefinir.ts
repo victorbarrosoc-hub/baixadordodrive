@@ -79,6 +79,8 @@ export async function redefinirSenha(entrada: { token: unknown; senha: unknown }
   const senhaHash = await hashSenha(senha);
   await db.update(usuarios).set({ senhaHash, atualizadoEm: agora, ultimoLoginEm: agora }).where(eq(usuarios.id, usuarioId));
   await db.update(sessoes).set({ revogadaEm: agora }).where(and(eq(sessoes.usuarioId, usuarioId), isNull(sessoes.revogadaEm)));
+  // O andamento dos computadores (docs/CONTAS.md §9) sai junto com as sessões deles.
+  await db.delete(schema.dispositivoStatus).where(eq(schema.dispositivoStatus.usuarioId, usuarioId));
   // Os outros links pendentes deste usuário também deixam de valer.
   await db.update(redefinicoesSenha).set({ usadoEm: agora }).where(and(eq(redefinicoesSenha.usuarioId, usuarioId), isNull(redefinicoesSenha.usadoEm)));
 

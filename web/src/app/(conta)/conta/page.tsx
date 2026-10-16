@@ -12,6 +12,8 @@ import { contaComSenha } from "@/lib/auth/contas";
 import { ehAdmin } from "@/lib/admin";
 import { podeUsar } from "@/lib/recursos";
 import { EntradaReferencias } from "@/components/conta/referencias";
+import { TransferenciasAgora } from "@/components/conta/transferencias";
+import { listarComputadores } from "@/lib/acompanhar/status";
 import { listarContas } from "@/lib/google/contas";
 import { NOME_PLATAFORMA, tempoRelativo } from "@/lib/tempo";
 import { Computadores } from "./computadores";
@@ -27,12 +29,13 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 export default async function Conta({ searchParams }: Props) {
   const { usuario } = await exigirUsuario("/conta");
   const q = await searchParams;
-  const [contas, dispositivos, temSenha, admin, referencias] = await Promise.all([
+  const [contas, dispositivos, temSenha, admin, referencias, computadores] = await Promise.all([
     listarContas(usuario.id),
     listarDispositivos(usuario.id),
     contaComSenha(usuario.id),
     ehAdmin(usuario),
     podeUsar(usuario, "referencias"),
+    listarComputadores(usuario.id),
   ]);
   const erro = typeof q.erro === "string" ? q.erro : undefined;
   const conectou = q.google === "ok";
@@ -55,6 +58,7 @@ export default async function Conta({ searchParams }: Props) {
       ) : null}
 
       {contas.some((c) => c.estado === "ok") ? <Comecar /> : null}
+      {dispositivos.length ? <TransferenciasAgora computadores={computadores} /> : null}
       {referencias && contas.some((c) => c.estado === "ok") ? <EntradaReferencias /> : null}
 
       <Secao titulo="Google Drive" id="drives" descricao="As contas do Google que a SOBEDESCE usa para enviar e baixar.">

@@ -3,7 +3,8 @@
  * Tabelas definidas em docs/CONTAS.md §3. Depois de mudar: npm run db:generate.
  * Colunas em camelCase aqui, snake_case no banco (casing do Drizzle).
  */
-import { bigint, index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { bigint, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import type { StatusComputador } from "../acompanhar/formato";
 
 /** Data e hora com fuso. `agora()`: obrigatória, padrão now(). */
 const quando = () => timestamp({ withTimezone: true, mode: "date" });
@@ -188,4 +189,47 @@ export const atalhos = pgTable(
     revogadoEm: quando(),
   },
   (t) => [index("atalhos_usuario_idx").on(t.usuarioId)],
+);
+
+// ───── Acompanhar pelo celular (docs/CONTAS.md §9) ─────
+
+/**
+ * O andamento das transferências de cada computador (o app manda a cada ~10 s enquanto algo anda).
+ * Uma linha por sessão de dispositivo: some junto com a sessão (desconectar, trocar a senha, apagar a conta)
+ * e quando fica 7 dias sem notícia.
+ */
+export const dispositivoStatus = pgTable(
+  "dispositivo_status",
+  {
+    sessaoId: text()
+      .primaryKey()
+      .references(() => sessoes.id, { onDelete: "cascade" }),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    snapshot: jsonb().$type<StatusComputador>().notNull(),
+    /** Último aviso no celular: "<rodada>:<estado>". Um fim de lote = um aviso. */
+    avisado: text(),
+    atualizadoEm: agora(),
+  },
+  (t) => [index("dispositivo_status_usuario_idx").on(t.usuarioId), index("dispositivo_status_atualizado_idx").on(t.atualizadoEm)],
+);
+
+/** Inscrições de Web Push do celular ("Avisar no celular quando terminar"). */
+export const pushInscricoes = pgTable(
+  "push_inscricoes",
+  {
+    id: text().primaryKey(),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    /** URL do serviço de push do navegador (Apple, Google, Mozilla, Microsoft). */
+    endpoint: text().notNull().unique(),
+    keys: jsonb().$type<{ p256dh: string; auth: string }>().notNull(),
+    criadoEm: agora(),
+    ultimoEnvioEm: quando(),
+    /** Falhas seguidas (rede, 5xx). 404/410 apagam na hora; muitas falhas seguidas também. */
+    falhas: integer().notNull().default(0),
+  },
+  (t) => [index("push_inscricoes_usuario_idx").on(t.usuarioId)],
 );

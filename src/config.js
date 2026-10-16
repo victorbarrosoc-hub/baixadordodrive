@@ -131,6 +131,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   versaoDispensada: 0,
 
   // ── Celular ──
+  /**
+   * Acompanhar pelo celular: com a conta SOBEDESCE, manda ao site o andamento das transferências deste computador
+   * (nomes dos arquivos e progresso; src/engine/acompanhar.js). O app do celular mostra e avisa quando termina.
+   */
+  acompanharCelular: true,
   /** Recebe arquivos do celular pelo Wi-Fi (segundo servidor, aberto na rede local, protegido por código). */
   mobileReceive: false,
   /** Porta fixa: o QR code e o Atalho do iPhone guardam o endereço com ela. */

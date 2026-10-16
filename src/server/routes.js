@@ -444,6 +444,9 @@ export function createApi(ctx) {
     return acc
   }
 
+  /** Nome de pasta para mostrar (sem controle, até 255). '' → null. */
+  const destName = v => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 255) : '') || null
+
   const enqueue = async plan => {
     const added = plan.records?.length ? await ctx.manager.add({ batch: plan.batch, records: plan.records }) : { records: [] }
     let bytes = 0
@@ -656,6 +659,8 @@ export function createApi(ctx) {
       signal,
       reservedPaths: ctx.manager.reservedPaths(),
     })
+    // Nome da pasta de destino, para o "Acompanhar pelo celular" (src/engine/acompanhar.js).
+    if (plan.batch) plan.batch.destino = path.basename(path.resolve(body.destDir || st.downloadDir)) || null
     return enqueue(plan)
   })
 
@@ -676,6 +681,8 @@ export function createApi(ctx) {
     // Proxy (prévia leve) deste envio: a escolha da tela; sem ela, o ajuste vale na hora de gerar.
     if (body.proxy != null && typeof body.proxy !== 'boolean') throw new HttpProblem(400, 'Pedido inválido.')
     if (typeof body.proxy === 'boolean') for (const r of plan.records || []) r.proxy = body.proxy
+    // Nome da pasta do Drive (a interface conta, quando sabe), para o "Acompanhar pelo celular".
+    if (plan.batch) plan.batch.destino = destName(body.destName) || ((body.destFolderId || 'root') === 'root' && !body.driveId ? 'Meu Drive' : null)
     return enqueue(plan)
   })
 
@@ -778,12 +785,14 @@ export function createApi(ctx) {
   route('POST', '/api/compare/:jobId/upload', async ({ params, body }) => {
     const { job, acc } = await finishedJob(params.jobId, body)
     const plan = planUploadsFromCompare(job.result, { accountId: acc.id, statuses: stringList(body.statuses) || undefined, relDirs: stringList(body.relDirs) })
+    if (plan.batch) plan.batch.destino = destName(job.result.drive?.name)
     return enqueue(plan)
   })
 
   route('POST', '/api/compare/:jobId/download', async ({ params, body }) => {
     const { job, acc } = await finishedJob(params.jobId, body)
     const plan = planDownloadsFromCompare(job.result, { accountId: acc.id, relDirs: stringList(body.relDirs) })
+    if (plan.batch) plan.batch.destino = destName(path.basename(job.result.localPath || ''))
     return enqueue(plan)
   })
 

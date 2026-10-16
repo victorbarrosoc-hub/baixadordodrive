@@ -150,6 +150,30 @@ coleções do site (`/api/referencias/*`, cookie), arquivos de cada pasta lidos 
 “Salvar link” para a fila do computador e o `share_target` do Android (`/app/?compartilhar=1`). `/app/#referencias`
 abre direto nela.
 
+## No computador (acompanhar o que ficou passando no computador)
+
+Contrato em [CONTAS.md](CONTAS.md) §9. `lib/computador.js` lê `GET /api/transferencias` depois de entrar na conta: a
+cada 5 s com a tela à vista quando algum computador está enviando/baixando ou a folha está aberta, a cada 30 s parado,
+nada com a página escondida (volta ao aparecer). A idade da notícia usa o relógio do servidor (`agora`).
+
+- **Cartão** no topo da tela Enviar (`components/computador.js`, `ComputerCard`) quando algum computador tem algo
+  andando/pausado ou terminou nas últimas 24 h: "MacBook de Victor · ● · 62% · 5 de 8 arquivos · faltam ~14 min" com a
+  barra fina (violeta subindo, azul baixando, verde pronto, vermelho erro); "+1" se houver outro.
+- **Folha "No computador"** (`ComputerSheet`, sheet `computador`): por computador, ligado/sem notícia, o total (%,
+  arquivos, bytes, velocidade, quanto falta), "Agora" (cada arquivo com seta ↑/↓, destino, barra e velocidade) e "Já
+  passou" (ok/erro, tamanho, há quanto tempo). Sem notícia há mais de 2 min com algo pela metade: "Sem notícia há
+  12 min — o computador pode estar desligado ou sem internet." (ou "o SOBEDESCE foi fechado", se ele avisou).
+  `/app/#computador` abre direto (link de Sua conta e toque no aviso).
+- **Avisar no celular quando terminar:** chave na folha. Pede a permissão, inscreve pelo `pushManager` do service
+  worker com a chave pública que vem em `/api/transferencias` e manda a inscrição para `POST /api/push/inscricao`
+  (desligar: `DELETE` + `unsubscribe`). Com permissão dada, a inscrição é reenviada a cada abertura. No iPhone, fora da
+  Tela de Início, a chave fica desligada com a dica de instalar (o Safari só deixa pedir notificação no app instalado,
+  iOS 16.4+). O `sw.js` mostra o aviso (`push`) e, no toque (`notificationclick`), foca o app aberto e pede a folha
+  (`postMessage { type: 'sd-computador' }`) ou abre `/app/#computador`.
+
+**Falta testar num iPhone/Android de verdade:** a permissão e o aviso chegando com o app fechado (iPhone com o app na
+Tela de Início), o toque abrindo a folha, e se o iOS mantém a inscrição depois de dias sem abrir o app.
+
 ## Modo Wi-Fi (via computador)
 
 O SOBEDESCE do computador serve esta mesma casca (lida de `web/public/app/`) em `http://<ip>:4319/m/?t=<código>`

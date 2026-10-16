@@ -321,7 +321,7 @@ export function TransfersScreen() {
   const drop = html`<${FileDrop}
     label=${dropDest.name}
     enabled=${!!accountId}
-    onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: dropDest.id, driveId: dropDest.driveId })}
+    onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: dropDest.id, driveId: dropDest.driveId, destName: dropDest.name })}
   />`
 
   if (!data.all.length) {
