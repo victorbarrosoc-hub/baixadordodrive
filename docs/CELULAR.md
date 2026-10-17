@@ -221,6 +221,12 @@ partir do SVG; se o ícone mudar, renderize de novo nos mesmos tamanhos.
   **Sua rede**: “Rede do celular” (padrão: 2 arquivos, 8 MiB) ou “Wi-Fi rápido” (4 arquivos, 16 MiB). Por baixo
   ficam gravados os mesmos `concurrency`/`chunkMiB` de antes (`sobedesce.settings`); valores antigos com 3 ou mais
   arquivos juntos aparecem como Wi-Fi rápido. Pedaços sempre múltiplos de 256 KiB. `Blob.slice` é preguiçoso: a memória fica baixa mesmo com arquivos de GBs.
+- **Rede ruim no set (automático, 2.7.0):** sem `navigator.connection` no Safari do iPhone, o app decide pelo que
+  acontece (`NetWatch` em `lib/uploader.js`). Duas quedas de rede em 5 min (vários arquivos caindo juntos, dentro de
+  15 s, contam como uma) ligam o modo: 1 arquivo por vez (fica andando o que falta menos; os outros voltam para a
+  fila e continuam de onde pararam), pedaço de no máximo 4 MiB (teto por cima do Automático e também de um tamanho
+  fixo de Ajustes, porque é proteção) e os menores primeiro. 10 min sem queda desligam. O medidor mostra “Rede
+  instável: subindo um por vez”.
 - **PUTs na sessão vão sem `Authorization`.** A URI da sessão é a credencial (documentação do Drive). Assim um
   token que vence no meio de um arquivo grande não para o envio; só conferir o destino e abrir sessões novas
   esperam o token. Se o Google responder 401 num PUT, aquela sessão passa a mandar o token.

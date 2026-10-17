@@ -6,7 +6,7 @@ import { about, isRetryable } from '../lib/drive.js'
 import { lanInfo } from '../lib/lan.js'
 import { bytes, initials, plural, speed, timecode } from '../lib/format.js'
 import { MY_DRIVE, folderTrail, getRecents, getState, openSheet, pushRecent, setState, toast, useApp } from '../lib/state.js'
-import { engine, summarize } from '../lib/uploader.js'
+import { NET_MSG, engine, summarize } from '../lib/uploader.js'
 import { Icon, Wordmark } from './icons.js'
 import { Button, cx, useEngine } from './ui.js'
 import { BatchCards, FileName, QueueRow, SequenceBar } from './queue.js'
@@ -120,6 +120,12 @@ function Header({ user, sum, items, waiting, awake }) {
             </button>
           </div>
           <${SequenceBar} items=${items} />
+          ${engine.net.bad && !allPaused
+            ? html`<p class="meter-net" role="status">
+                <${Icon} name="wifi" size=${14} strokeWidth=${2.2} />
+                <span>${NET_MSG}</span>
+              </p>`
+            : null}
           ${sum.running
             ? html`<p class="meter-awake" role="status">
                 <span class="awake-dot" aria-hidden="true"></span>

@@ -53,15 +53,61 @@ export function chunkFor(prev, bytesPerSec) {
   return Math.floor(clamped / GRAIN) * GRAIN
 }
 
+// ───── modo "rede ruim no set" ─────
+//
+// O Safari do iPhone não tem navigator.connection, então a decisão vem do que acontece: 2 quedas em 5 minutos põem o
+// envio no modo de rede instável; 10 minutos sem queda tiram. No modo: 1 arquivo por vez, pedaço de no máximo 4 MiB
+// (cada pedaço confirmado é progresso guardado antes da próxima queda) e os arquivos menores primeiro.
+// O teto de 4 MiB vale por cima do Automático e também de um tamanho fixo escolhido em Ajustes: é proteção.
+// Vários arquivos caindo juntos são uma queda só (NET_MERGE_MS).
+export const NET_DROPS = 2
+export const NET_WINDOW_MS = 5 * 60_000
+export const NET_STABLE_MS = 10 * 60_000
+export const NET_MERGE_MS = 15_000
+export const NET_CHUNK = 4 * MiB
+export const NET_MSG = 'Rede instável: subindo um por vez'
+
+export class NetWatch {
+  constructor() {
+    this.bad = false
+    this.drops = [] // quedas contadas na janela de 5 min
+    this.lastDropAt = 0 // última falha de rede (conta para os 10 min de estabilidade)
+  }
+
+  /** Uma falha de rede. true = acabou de entrar no modo. */
+  drop(now = Date.now()) {
+    this.lastDropAt = now
+    const last = this.drops[this.drops.length - 1]
+    if (last != null && now - last < NET_MERGE_MS) return false
+    this.drops = this.drops.filter((t) => now - t < NET_WINDOW_MS)
+    this.drops.push(now)
+    if (!this.bad && this.drops.length >= NET_DROPS) {
+      this.bad = true
+      return true
+    }
+    return false
+  }
+
+  /** true = acabou de sair do modo (10 min sem queda). */
+  check(now = Date.now()) {
+    if (!this.bad || now - this.lastDropAt < NET_STABLE_MS) return false
+    this.bad = false
+    this.drops = []
+    return true
+  }
+}
+
 /** Quem decide o pedaço de um arquivo: fixo (Ajustes) ou acompanhando a rede. Lê os Ajustes a cada pedaço. */
 class ChunkSizer {
-  constructor() {
+  constructor(net) {
     this.auto = AUTO_MIN
+    this.net = net
   }
 
   get size() {
     const { chunkMiB } = getSettings()
-    return chunkMiB === CHUNK_AUTO ? this.auto : chunkMiB * MiB
+    const size = chunkMiB === CHUNK_AUTO ? this.auto : chunkMiB * MiB
+    return this.net?.bad ? Math.min(size, NET_CHUNK) : size
   }
 
   /** Um pedaço de `bytes` chegou inteiro em `ms`. */
@@ -188,6 +234,7 @@ class Engine {
     this._hiddenAt = 0
     this._restoredFor = undefined
     this._macTimer = 0 // modo Wi-Fi: acompanhamento dos que já estão no computador
+    this.net = new NetWatch() // modo "rede ruim no set"
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => this._onVisibility())
       window.addEventListener('beforeunload', (e) => {
@@ -343,8 +390,11 @@ class Engine {
   // ───── controle ─────
 
   pump() {
-    const { concurrency } = getSettings()
-    for (const it of this.items) {
+    this._netCheck()
+    const concurrency = this.net.bad ? 1 : getSettings().concurrency
+    // Rede instável: o que falta menos primeiro (termina antes da próxima queda).
+    const order = this.net.bad ? [...this.items].sort((a, b) => a.size - a.offset - (b.size - b.offset)) : this.items
+    for (const it of order) {
       if (this.running.size >= concurrency) break
       // Item que já está no computador (Wi-Fi) não precisa do arquivo para "tentar de novo".
       if (it.status === 'queued' && (it.file || it.lanMac)) this._start(it)
@@ -450,6 +500,30 @@ class Engine {
     return this.items.some((it) => it.status === 'queued' || it.status === 'preparing' || it.status === 'running')
   }
 
+  // ───── rede instável ─────
+
+  /** Uma queda de rede num envio (não conta pausa, remoção nem a volta do segundo plano). */
+  _netDrop() {
+    if (!this.net.drop()) return
+    // Entrou no modo: fica só um arquivo andando (o que falta menos); os outros voltam para a fila e continuam
+    // de onde pararam quando chegar a vez deles (a sessão e o que o Google confirmou ficam guardados).
+    const running = [...this.running].filter((it) => it.ctl && (it.status === 'running' || it.status === 'preparing'))
+    running.sort((a, b) => a.size - a.offset - (b.size - b.offset))
+    for (const it of running.slice(1)) {
+      this._abort(it, 'netmode')
+      it.status = 'queued'
+      it.note = ''
+    }
+    this.changed(true)
+  }
+
+  /** 10 min sem queda: sai do modo e volta a encher as vagas. */
+  _netCheck() {
+    if (!this.net.check()) return false
+    this.changed(true)
+    return true
+  }
+
   _abort(it, reason) {
     const ctl = it.ctl
     if (!ctl) return
@@ -493,6 +567,7 @@ class Engine {
       it._lastBytes = done
     }
     if (++this._tickN % 60 === 0) auth.ensureFresh()
+    if (this._tickN % 4 === 0 && this.net.bad && this._netCheck()) this.pump()
     this.changed()
   }
 
@@ -689,7 +764,7 @@ class Engine {
 
   async _loop(it, first, ctl) {
     let session = first
-    const sizer = new ChunkSizer()
+    const sizer = new ChunkSizer(this.net)
     let failures = 0
     let restarts = 0
     let capHits = 0
@@ -734,6 +809,8 @@ class Engine {
         const wasResync = ctl.resync
         ctl.resync = false
         if (!wasResync) {
+          this._netDrop()
+          this._check(ctl) // o modo pode ter devolvido este arquivo para a fila
           if (++failures > MAX_FAILURES) throw new UploadError(MSG.network)
           await this._waitBeforeRetry(it, ctl, failures)
         } else {
@@ -811,7 +888,9 @@ class Engine {
       } catch (err) {
         if (ctl.aborted) throw new Aborted(ctl.aborted)
         if (err?.signedOut) throw err
+        if (!ctl.resync) this._netDrop()
         ctl.resync = false
+        this._check(ctl)
         if (++failures > MAX_FAILURES) throw new UploadError(MSG.network)
         await this._waitBeforeRetry(it, ctl, failures)
         continue
@@ -910,7 +989,7 @@ class Engine {
     it.offset = view.offset
     it.note = ''
     await this._saveLan(it, 'sending')
-    const sizer = new ChunkSizer()
+    const sizer = new ChunkSizer(this.net)
     let failures = 0
     let conflicts = 0
     let lost = 0
@@ -944,6 +1023,8 @@ class Engine {
         const wasResync = ctl.resync
         ctl.resync = false
         if (!wasResync) {
+          this._netDrop()
+          this._check(ctl)
           if (++failures > MAX_FAILURES) throw new UploadError(MSG.lanNetwork)
           await this._waitBeforeRetry(it, ctl, failures)
         }
