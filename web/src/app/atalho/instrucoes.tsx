@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { Comando } from "@/components/comando";
+import { TelaAcao, TelaFolha, TelaNovo, TelaPost, TelaUsar } from "./telas";
 
 const FORMATO = /^sda_[A-Za-z0-9_-]{43}$/;
 
@@ -52,19 +53,25 @@ export function Instrucoes({ endpoint }: { endpoint: string }) {
         </div>
       )}
 
-      <ol className="grid gap-8">
+      <p className="-mb-4 text-[13px] leading-relaxed text-ink-3">
+        As telas abaixo são desenhos do app Atalhos para guiar cada passo. Dependendo da versão do iOS, um nome ou outro pode mudar um pouco.
+      </p>
+      <ol className="grid gap-10">
         <Passo n={1} titulo="Abra o app Atalhos e toque em +">
           <p>Dê o nome “Salvar na SOBEDESCE”.</p>
+          <TelaNovo />
         </Passo>
         <Passo n={2} titulo="Ligue a Folha de Compartilhamento">
           <p>
             Toque no ícone <b className="text-ink">ⓘ</b> e ative <b className="text-ink">Mostrar na Folha de Compartilhamento</b>. No primeiro bloco, deixe
             “Receber <b className="text-ink">URLs</b> e <b className="text-ink">Texto</b> da Folha de Compartilhamento”.
           </p>
+          <TelaFolha />
         </Passo>
         <Passo n={3} titulo="Adicione a ação “Obter Conteúdo de URL”">
           <p>No lugar da URL, cole este endereço:</p>
           <Comando comando={endpoint} rotulo="Endereço do Atalho" />
+          <TelaAcao endpoint={endpoint} />
         </Passo>
         <Passo n={4} titulo="Toque em “Mostrar Mais” e preencha">
           <ul className="grid list-disc gap-1.5 pl-5 marker:text-ink-3">
@@ -88,6 +95,7 @@ export function Instrucoes({ endpoint }: { endpoint: string }) {
             </li>
           </ul>
           <p className="text-[14px] text-ink-3">Quer escolher a coleção na hora? No campo colecao, use a variável de uma ação “Pedir Entrada” antes.</p>
+          <TelaPost cabecalho={chave ? `Atalho ${chave.slice(0, 10)}…` : "Atalho <sua chave>"} />
         </Passo>
         <Passo n={5} titulo="Opcional: um aviso de que deu certo">
           <p>
@@ -100,6 +108,11 @@ export function Instrucoes({ endpoint }: { endpoint: string }) {
             No Instagram, no YouTube ou no TikTok, toque em <b className="text-ink">Compartilhar</b> e escolha <b className="text-ink">Salvar na SOBEDESCE</b>{" "}
             (às vezes ele fica em “Mais” ou em “Compartilhar em…”). O link entra na fila; o app do computador, aberto, baixa e guarda na pasta da coleção.
           </p>
+          <p>
+            Não apareceu na lista? Role até o fim da Folha de Compartilhamento, toque em <b className="text-ink">Editar Ações</b> e ligue{" "}
+            <b className="text-ink">Salvar na SOBEDESCE</b>.
+          </p>
+          <TelaUsar />
         </Passo>
       </ol>
 
