@@ -209,7 +209,8 @@ function Sources() {
   </div>`
 }
 
-// O atalho do iPhone já ligado? (null = ainda não sei). Fica no topo até ligar; depois vai para o pé da página.
+// O atalho do iPhone já em uso? (null = ainda não sei). Só a chave gerada não basta: o atalho pode nunca ter sido
+// montado no app Atalhos. Fica no topo até salvar o primeiro link; depois vai para o pé da página.
 let atalhoAtivo = null
 const ATALHO_EVT = 'sd-atalho'
 function useAtalhoAtivo() {
@@ -221,7 +222,7 @@ function useAtalhoAtivo() {
     if (atalhoAtivo == null)
       refs.atalho.status().then(
         (r) => {
-          atalhoAtivo = Boolean(r?.ativo)
+          atalhoAtivo = Boolean(r?.ativo && r?.ultimoUsoEm)
           upd()
         },
         () => {},
@@ -249,7 +250,7 @@ function ShortcutCard() {
   </p>`
 }
 
-/** Atalho no topo enquanto não está ligado (iPhone) e sempre no topo nos outros aparelhos; ligado, vai para o pé. */
+/** Atalho no topo enquanto não está em uso (iPhone) e sempre no topo nos outros aparelhos; em uso, vai para o pé. */
 function ShortcutSlot({ at }) {
   const on = useAtalhoAtivo()
   const top = !isIOS || on !== true
@@ -847,7 +848,7 @@ export function RefAtalhoSheet() {
       const r = await refs.atalho.create()
       setFresh(r)
       setSt({ ativo: true })
-      setAtalhoAtivo(true)
+      setAtalhoAtivo(false) // chave nova: ainda não usada
     } catch (err) {
       toast(err.message, { tone: 'error', ms: 4000 })
     }
