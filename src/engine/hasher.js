@@ -8,6 +8,7 @@ import { JsonFile } from '../util/store.js'
 import { abortError } from '../util/backoff.js'
 
 const WORKER_URL = new URL('./hash-worker.js', import.meta.url)
+const STREAM_WORKER_URL = new URL('./stream-hash-worker.js', import.meta.url)
 const SAVE_DELAY_MS = 3000 // o cache pode ter milhares de itens: agrupa as gravações
 const MAX_CACHE_ENTRIES = 100_000 // acima disso, os mais antigos saem
 const CANCEL_TIMEOUT_MS = 2000 // worker que não confirma o cancelamento nesse tempo é substituído
@@ -28,14 +29,16 @@ function rebuildError(info = {}) {
 
 export class Hasher {
   /**
-   * @param {{ cacheFile?: string, workers?: number, cancelTimeoutMs?: number, workerUrl?: URL|string, log?: Function }} [opts]
-   *   `workerUrl` e `cancelTimeoutMs` existem só para os testes.
+   * @param {{ cacheFile?: string, workers?: number, cancelTimeoutMs?: number, workerUrl?: URL|string, streamWorkerUrl?: URL|string, log?: Function }} [opts]
+   *   `workerUrl`, `streamWorkerUrl` e `cancelTimeoutMs` existem só para os testes.
    */
-  constructor({ cacheFile = dataPaths().hashCache, workers = 2, cancelTimeoutMs = CANCEL_TIMEOUT_MS, workerUrl = WORKER_URL, log = null } = {}) {
+  constructor({ cacheFile = dataPaths().hashCache, workers = 2, cancelTimeoutMs = CANCEL_TIMEOUT_MS, workerUrl = WORKER_URL, streamWorkerUrl = STREAM_WORKER_URL, log = null } = {}) {
     this.cache = new JsonFile(cacheFile, {})
     this.maxWorkers = Math.max(1, Math.floor(Number(workers) || 1))
     this.cancelTimeoutMs = cancelTimeoutMs
     this.workerUrl = workerUrl
+    this.streamWorkerUrl = streamWorkerUrl
+    this.streams = new Set() // MD5 que acompanham downloads (cada um com o seu worker)
     this.log = log || ((...args) => console.warn('[hasher]', ...args))
     this.ready = null
     this.closed = false
@@ -87,6 +90,32 @@ export class Hasher {
     const entry = this.cache.data[path.resolve(String(filePath))]
     if (entry && entry.size === size && entry.mtimeMs === mtimeMs) return entry.md5
     return null
+  }
+
+  /**
+   * Guarda no cache um MD5 conferido por quem chama (ex.: o download, que calculou o MD5 do temporário e depois
+   * renomeou e mudou a data). `size` e `mtimeMs` precisam ser os do arquivo AGORA (fs.stat depois do utimes).
+   */
+  async remember(filePath, size, mtimeMs, md5) {
+    if (this.closed) return false
+    if (!Number.isFinite(size) || !Number.isFinite(mtimeMs) || !/^[0-9a-f]{32}$/.test(String(md5))) return false
+    await this.init()
+    if (this.closed) return false
+    this.#remember(path.resolve(String(filePath)), size, mtimeMs, String(md5))
+    return true
+  }
+
+  /**
+   * MD5 que acompanha uma gravação em ordem (download): lê do disco só até onde `advance(upto)` permitir.
+   * Não passa pelo cache nem pelo pool (um worker próprio, que some no `close()`/`finish()`).
+   * @param {string} filePath
+   * @returns {StreamHash}
+   */
+  stream(filePath) {
+    if (this.closed) throw abortError()
+    const s = new StreamHash(path.resolve(String(filePath)), this.streamWorkerUrl, () => this.streams.delete(s))
+    this.streams.add(s)
+    return s
   }
 
   #remember(abs, size, mtimeMs, md5) {
@@ -321,8 +350,148 @@ export class Hasher {
       await slot.worker.terminate().catch(() => {})
     }))
     this.jobs.clear()
+    await Promise.all([...this.streams].map(s => s.close()))
     if (this.ready) await this.ready.catch(() => {})
     await this.flush()
+  }
+}
+
+/**
+ * MD5 incremental de um arquivo que está sendo gravado em ordem (ver stream-hash-worker.js).
+ * - `advance(upto)`: tudo em [0, upto) já está gravado e não muda mais. Só cresce: um valor menor é defeito de quem
+ *   chama e invalida o cálculo (`failed`), para quem chama cair na conferência completa em vez de confiar nele.
+ * - `finish(size)`: espera ler até `size` e devolve o MD5 (hex). Qualquer falha rejeita (quem chama confere de novo
+ *   lendo o arquivo inteiro).
+ * - `close()`: encerra o worker (idempotente).
+ */
+export class StreamHash {
+  constructor(file, workerUrl, onGone = () => {}) {
+    this.path = file
+    this.front = 0 // maior `upto` enviado
+    this.bytes = 0 // bytes já no MD5 (aproximado: chega a cada 200 ms)
+    this.failed = null
+    this.result = null
+    this.closed = false
+    this.onGone = onGone
+    this.waiters = new Set()
+    this.closing = null
+    this.exited = false
+    this.worker = new Worker(workerUrl, { execArgv: [], workerData: { path: file } })
+    this.worker.unref()
+    this.worker.on('message', msg => this.#onMessage(msg))
+    this.worker.on('error', err => this.#gone(err))
+    this.worker.on('exit', () => {
+      this.exited = true
+      this.#gone(null)
+    })
+  }
+
+  advance(upto) {
+    if (this.closed || this.failed || this.result) return
+    if (!Number.isSafeInteger(upto) || upto < this.front) {
+      this.#setFailed(new Error(`Frente do MD5 andou para trás (${this.front} → ${upto}).`))
+      return
+    }
+    if (upto === this.front) return
+    this.front = upto
+    this.worker.postMessage({ type: 'advance', upto })
+  }
+
+  /** @returns {Promise<string>} */
+  finish(size, { signal, onProgress } = {}) {
+    if (signal?.aborted) return Promise.reject(abortError(signal))
+    if (this.failed) return Promise.reject(this.failed)
+    if (this.result) return Promise.resolve(this.result.md5)
+    if (this.closed) return Promise.reject(new Error('O MD5 do download já foi encerrado.'))
+    if (!Number.isSafeInteger(size) || size < this.front) {
+      this.#setFailed(new Error('Tamanho final menor que o trecho já conferido.'))
+      return Promise.reject(this.failed)
+    }
+    this.front = size
+    this.worker.ref() // esperando o resultado: o processo não pode sair
+    this.worker.postMessage({ type: 'finish', size })
+    return new Promise((resolve, reject) => {
+      const w = { resolve, reject, onProgress, signal, onAbort: null }
+      if (signal) {
+        w.onAbort = () => {
+          this.#drop(w)
+          reject(abortError(signal))
+        }
+        signal.addEventListener('abort', w.onAbort, { once: true })
+      }
+      this.waiters.add(w)
+    })
+  }
+
+  /** Encerra: o worker fecha o arquivo e sai (terminate() só se não sair em 2 s). Nunca rejeita. */
+  close() {
+    if (!this.closed) {
+      this.closed = true
+      this.onGone()
+      const err = new Error('O MD5 do download foi encerrado.')
+      for (const w of [...this.waiters]) {
+        this.#drop(w)
+        w.reject(err)
+      }
+    }
+    this.closing ??= new Promise(resolve => {
+      if (this.exited) return resolve()
+      this.worker.ref() // quem espera o fechamento precisa do evento 'exit' (o worker parado fica unref)
+      const timer = setTimeout(() => this.worker.terminate().then(resolve, resolve), CANCEL_TIMEOUT_MS)
+      timer.unref?.()
+      this.worker.once('exit', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+      try {
+        this.worker.postMessage({ type: 'close' })
+      } catch {
+        this.worker.terminate().then(resolve, resolve)
+      }
+    })
+    return this.closing
+  }
+
+  #drop(w) {
+    this.waiters.delete(w)
+    if (w.signal && w.onAbort) w.signal.removeEventListener('abort', w.onAbort)
+    if (!this.waiters.size) this.worker.unref()
+  }
+
+  #onMessage(msg) {
+    if (msg?.type === 'progress') {
+      this.bytes = msg.bytes
+      for (const w of this.waiters) safeProgress(w, msg.bytes, this.front)
+    } else if (msg?.type === 'done') {
+      this.bytes = msg.bytes
+      if (msg.bytes !== this.front) {
+        this.#setFailed(new Error(`MD5 do download leu ${msg.bytes} bytes, esperava ${this.front}.`))
+        return
+      }
+      this.result = { md5: msg.md5, bytes: msg.bytes }
+      for (const w of [...this.waiters]) {
+        this.#drop(w)
+        w.resolve(msg.md5)
+      }
+      this.close()
+    } else if (msg?.type === 'error') {
+      this.#setFailed(rebuildError(msg.error))
+    }
+  }
+
+  #gone(err) {
+    if (this.result || this.closed) return
+    this.#setFailed(err || new Error('O cálculo do MD5 do download parou inesperadamente.'))
+  }
+
+  #setFailed(err) {
+    if (this.failed || this.result) return
+    this.failed = err
+    for (const w of [...this.waiters]) {
+      this.#drop(w)
+      w.reject(err)
+    }
+    this.close()
   }
 }
 

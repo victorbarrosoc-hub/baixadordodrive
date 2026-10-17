@@ -1,12 +1,20 @@
 // Download segmentado e retomável de UM arquivo do Drive (contrato em docs/ARCHITECTURE.md, "engine/download.js").
 //
 // Por que é assim:
-//  - Várias conexões HTTP/1.1 com Range, cada uma no seu pedaço, enchem o link (uma conexão só raramente enche).
-//    Quem termina o seu pedaço "rouba" a metade do maior que falta, então todas trabalham até o último byte.
+//  - Várias conexões HTTP/1.1 com Range enchem o link (uma conexão só raramente enche). O arquivo é dividido em
+//    BLOCOS EM ORDEM (minSegmentSize, 64 MiB por padrão): cada conexão pega o próximo bloco livre. Só quando não
+//    sobra bloco livre (o fim do arquivo) quem termina "rouba" a metade do maior que falta, então todas trabalham
+//    até o último byte.
 //  - Cada byte vai direto para a posição certa de um arquivo temporário esparso já do tamanho final.
 //    Nada é gravado sem conferir o Content-Range: byte no lugar errado é o pior defeito possível.
-//  - O registro só guarda posições que já passaram por fdatasync. Uma queda pode perder ~2 s de progresso,
-//    mas o registro nunca diz que tem no disco um byte que não está lá.
+//  - MD5 junto com a gravação: como os blocos vão em ordem, existe uma "frente contínua" (tudo antes dela já foi
+//    gravado e não é mais reescrito nesta rodada). Um worker (Hasher.stream) lê do DISCO o que fica atrás dessa
+//    frente, logo depois da gravação (ainda no cache do sistema), e alimenta o MD5. No fim só falta o último trecho.
+//    O MD5 cobre os bytes que estão no arquivo, não os que vieram da rede. Retomada depois de fechar o app: o estado
+//    do MD5 não é guardado; o worker relê o prefixo já baixado em segundo plano enquanto o resto baixa.
+//  - O registro só guarda posições que já passaram por fdatasync, a cada 10 s ou a cada 1 GiB gravado (o que vier
+//    primeiro). Uma queda de energia pode perder ~10 s de progresso (baixa de novo esse trecho), mas o registro
+//    nunca diz que tem no disco um byte que não está lá: o temporário nunca fica errado.
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -23,6 +31,7 @@ const MAX_CONNECTIONS = 32
 const EMPTY_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
 const MAX_REMOTE_RESTARTS = 3
 const MIN_STEAL = 256 * 1024
+const GiB = 1024 * MiB
 // Plano recém-feito (metadados lidos do Drive há menos disso, com md5 e revisão): a primeira rodada não pergunta de
 // novo ao Drive. Se o arquivo mudou nesse meio-tempo, o Content-Range (tamanho) ou o MD5 do fim denunciam.
 export const FRESH_PLAN_MS = 30 * 60_000
@@ -33,7 +42,15 @@ export const DOWNLOAD_DEFAULTS = Object.freeze({
   retryBaseMs: 1000, // base do recuo exponencial entre tentativas
   maxRetryWaitMs: 120_000,
   maxFailures: 10, // falhas seguidas sem progresso (por conexão) antes de desistir do arquivo
-  checkpointMs: 2000, // de quanto em quanto tempo as posições viram duráveis (fdatasync + registro)
+  // Posições viram duráveis (fdatasync + registro) a cada checkpointMs OU a cada checkpointBytes gravados, o que vier
+  // primeiro. Era a cada 2 s; no macOS o fdatasync vira F_FULLFSYNC (esvazia o cache do disco) e, em HD externo,
+  // segura as gravações. Custo: numa queda de energia se perdem até ~10 s de progresso (nunca bytes errados).
+  checkpointMs: 10_000,
+  checkpointBytes: 1 * GiB,
+  // Bloco em ordem: no mínimo minSegmentSize; em conexão rápida cresce para durar ~blockSeconds (até maxBlockBytes),
+  // para a espera de cada requisição nova (TTFB) não pesar. 0 = sempre minSegmentSize.
+  blockSeconds: 4,
+  maxBlockBytes: 256 * MiB,
   tickMs: 250, // relógio do vigia (travamento, conexão lenta, checkpoint)
   slowAfterMs: 15_000, // conexão lenta: só julga depois desse tempo de vida...
   slowForMs: 10_000, // ...se ficar abaixo de slowRatio × mediana das outras por esse tempo seguido
@@ -246,7 +263,7 @@ export class DownloadTask extends EventEmitter {
     this.log = typeof ctx?.log === 'function' ? ctx.log : noop
     this.meter = new SpeedMeter()
     /** Contadores para diagnóstico (e testes). */
-    this.counters = { requests: 0, failures: 0, steals: 0, stalls: 0, slowRestarts: 0, authRefreshes: 0, rangeMismatches: 0, resets: 0, singleStream: 0, revalidateSkipped: 0 }
+    this.counters = { requests: 0, failures: 0, steals: 0, stalls: 0, slowRestarts: 0, authRefreshes: 0, rangeMismatches: 0, resets: 0, singleStream: 0, revalidateSkipped: 0, streamHashes: 0, hashFallbacks: 0, hashConfirms: 0, checkpoints: 0 }
     this.running = false
     this.segs = null // segmentos vivos durante a execução
     this.conns = new Set() // requisições em andamento (o vigia confere cada uma)
@@ -262,6 +279,8 @@ export class DownloadTask extends EventEmitter {
     this.ckChain = null
     this.ckBusy = false
     this.lastCheckpoint = 0
+    this.ckBytes = 0 // gravados desde o último checkpoint
+    this.hs = null // MD5 que acompanha a gravação (Hasher.stream), só durante uma rodada que pode terminar em 'done'
     this.exportBytes = 0
     this.verifyBytes = 0
     this.trustedPlan = false // esta execução baixou sem revalidar (plano recém-feito)
@@ -329,6 +348,7 @@ export class DownloadTask extends EventEmitter {
       this.running = false
       this.meter.reset()
       if (this.segs) for (const s of this.segs) s.active = false
+      await this.#closeHash()
     }
   }
 
@@ -406,11 +426,13 @@ export class DownloadTask extends EventEmitter {
     }
     this.fh = fh
     this.segs = segs.map(liveSeg)
+    this.#openHash(temp)
 
     let err = null
     const timer = setInterval(() => this.#tick(), this.opts.tickMs)
     timer.unref?.()
     this.lastCheckpoint = Date.now()
+    this.ckBytes = 0
     try {
       await this.#phases(signal)
     } catch (e) {
@@ -428,6 +450,10 @@ export class DownloadTask extends EventEmitter {
     await fh.close().catch(noop)
     this.fh = null
     for (const s of this.segs) s.active = false
+    // O MD5 da gravação só segue para a conferência se esta rodada terminou com tudo no disco.
+    // (fecha esperando o worker soltar o arquivo: a próxima rodada pode apagar e recriar o temporário)
+    if (signal?.aborted || err || this.remoteChanged) await this.#closeHash()
+    else this.#feedHash()
     if (signal?.aborted) throw abortError(signal)
     if (err) throw err
     return this.remoteChanged ? 'changed' : 'done'
@@ -476,17 +502,29 @@ export class DownloadTask extends EventEmitter {
     return Math.min(MAX_CONNECTIONS, Math.max(1, n))
   }
 
+  /** Um pedaço só, o arquivo inteiro: os blocos saem dele em ordem, um por vez, conforme as conexões pedem (#pick). */
   #initialSegments(size) {
+    return [{ start: 0, end: size - 1, pos: 0 }]
+  }
+
+  /** Menor bloco em ordem: o minSegmentSize (o mesmo que o manager usa para contar as conexões de cada arquivo). */
+  #minBlock() {
     const st = this.ctx.settings?.get?.() ?? {}
-    const minSeg = Math.max(1, Number(st.minSegmentSize) || 64 * MiB)
-    const n = Math.min(this.#desired(), Math.max(1, Math.ceil(size / minSeg)))
-    const part = Math.floor(size / n)
-    const out = []
-    for (let i = 0; i < n; i++) {
-      const start = i * part
-      out.push({ start, end: i === n - 1 ? size - 1 : start + part - 1, pos: start })
-    }
-    return out
+    return Math.max(MIN_STEAL, Math.floor(Number(st.minSegmentSize) || 64 * MiB))
+  }
+
+  /**
+   * Bloco da próxima requisição: minSegmentSize, ou o que uma conexão baixa em ~blockSeconds se isso for maior
+   * (cada requisição nova espera o primeiro byte; em conexão rápida, bloco pequeno deixaria a conexão parada à toa).
+   * Teto: maxBlockBytes, porque o MD5 só lê até o começo do bloco mais antigo ainda incompleto.
+   */
+  #blockSize() {
+    const min = this.#minBlock()
+    const secs = Number(this.opts.blockSeconds) || 0
+    if (!(secs > 0)) return min
+    const perConn = this.meter.rawRate() / Math.max(1, this.conns.size)
+    const want = Math.floor((perConn * secs) / MiB) * MiB
+    return Math.max(min, Math.min(Number(this.opts.maxBlockBytes) || min, want))
   }
 
   /** Servidor ignorou o Range: junta tudo num segmento só, a partir do maior prefixo já completo. */
@@ -537,11 +575,26 @@ export class DownloadTask extends EventEmitter {
     }
   }
 
-  /** Pega um segmento livre ou rouba a metade do maior que falta. */
+  /**
+   * Pega o PRIMEIRO pedaço livre (em ordem), cortado no tamanho de um bloco; sem pedaço livre (fim do arquivo),
+   * rouba a metade do maior que falta.
+   */
   #pick(w) {
     const segs = this.segs
-    for (const s of segs) {
-      if (!s.active && s.pos <= s.end) return this.#own(s, w)
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i]
+      if (s.active || s.pos > s.end) continue
+      // Uma conexão só (ou servidor sem Range): não corta, para não pagar uma requisição nova a cada bloco.
+      if (!this.single && this.#desired() > 1) {
+        const block = this.#blockSize()
+        const cut = s.pos + block
+        // Sobra pequena (até meio bloco) vai junto: não vale uma requisição a mais.
+        if (s.end + 1 - cut > block / 2) {
+          segs.splice(i + 1, 0, liveSeg({ start: cut, end: s.end, pos: cut }))
+          s.end = cut - 1
+        }
+      }
+      return this.#own(s, w)
     }
     if (this.single) return null
     let best = null
@@ -584,7 +637,83 @@ export class DownloadTask extends EventEmitter {
         seg.active = false
         seg.owner = null
         seg.claimed = seg.pos
+        if (seg.pos > seg.end) {
+          this.#compact()
+          this.#feedHash()
+        }
       }
+    }
+  }
+
+  /** Junta pedaços completos vizinhos (sem dono): com blocos em ordem a lista cresceria um item por bloco. */
+  #compact() {
+    const out = []
+    for (const s of this.segs) {
+      const prev = out[out.length - 1]
+      if (prev && !prev.active && !s.active && prev.pos > prev.end && s.pos > s.end && prev.end + 1 === s.start) {
+        prev.end = s.end
+        prev.pos = s.end + 1
+        prev.claimed = prev.pos
+        continue
+      }
+      out.push(s)
+    }
+    this.segs = out
+  }
+
+  // ─────────── MD5 junto com a gravação ───────────
+
+  /** Abre o MD5 que acompanha esta rodada, se a conferência vai acontecer e o arquivo passa de um bloco. */
+  #openHash(temp) {
+    this.#closeHash()
+    const rec = this.record
+    const hasher = this.ctx.hasher
+    if (!this.ctx.settings?.get?.().verifyChecksums || !rec.source.md5 || typeof hasher?.stream !== 'function') return
+    // Até um bloco a conferência no fim é rápida (e um worker a mais por arquivo pequeno não compensa).
+    if (!(rec.size > this.#minBlock())) return
+    try {
+      this.hs = hasher.stream(temp)
+    } catch (err) {
+      this.hs = null
+      this.log('download: MD5 junto com a gravação indisponível; confere no fim', err?.message)
+      return
+    }
+    this.#feedHash() // retomada: o prefixo já baixado é relido em segundo plano
+  }
+
+  /** Encerra o MD5 da gravação; a promessa resolve quando o worker já fechou o arquivo (nunca rejeita). */
+  #closeHash() {
+    const hs = this.hs
+    this.hs = null
+    return hs ? hs.close() : Promise.resolve()
+  }
+
+  /**
+   * Frente contínua: tudo em [0, frente) já foi gravado (a gravação terminou antes de `pos` andar) e não é mais
+   * reescrito nesta rodada (cada conexão só grava para a frente da sua posição; roubo e conexão única começam depois
+   * dela). Só existe com a lista em ordem e sem buracos; qualquer coisa estranha para de avançar.
+   */
+  #front() {
+    let front = 0
+    for (const s of this.segs ?? []) {
+      if (s.start !== front) break
+      if (s.pos > s.end) {
+        front = s.end + 1
+        continue
+      }
+      front = s.pos
+      break
+    }
+    return front
+  }
+
+  #feedHash() {
+    const hs = this.hs
+    if (!hs || !this.segs) return
+    hs.advance(this.#front())
+    if (hs.failed) {
+      this.log('download: MD5 junto com a gravação falhou; confere no fim', hs.failed?.message)
+      this.#closeHash()
     }
   }
 
@@ -749,6 +878,7 @@ export class DownloadTask extends EventEmitter {
         if (k <= 0) return
         await this.#writeAt(buf, k, at)
         seg.pos = at + k
+        this.ckBytes += k
       },
     })
     conn.done = ended
@@ -855,9 +985,10 @@ export class DownloadTask extends EventEmitter {
       // Com limite de banda ligado, a lentidão é nossa (o limitador reparte as fichas): reabrir não adianta.
       const limited = this.ctx.limiter && !this.ctx.limiter.unlimited
       if (st.restartSlowConnections && !limited) this.#checkSlow(conns, now)
-      if (this.fh && this.segs && !this.ckBusy && now - this.lastCheckpoint >= this.opts.checkpointMs) {
+      if (this.fh && this.segs && !this.ckBusy && (now - this.lastCheckpoint >= this.opts.checkpointMs || this.ckBytes >= this.opts.checkpointBytes)) {
         this.#checkpoint().catch(err => this.#fail(diskError(err)))
       }
+      if (this.fh) this.#feedHash()
       this.#spawnUpTo()
     } catch (err) {
       this.#fail(err)
@@ -912,6 +1043,8 @@ export class DownloadTask extends EventEmitter {
       this.#commit(snap)
     }
     this.lastCheckpoint = Date.now()
+    this.ckBytes = 0
+    this.counters.checkpoints++
     const p = (this.ckChain || Promise.resolve()).catch(noop).then(run)
     this.ckChain = p
     this.ckBusy = true
@@ -1101,17 +1234,23 @@ export class DownloadTask extends EventEmitter {
     if (verify) {
       rec.status = 'verifying'
       rec.verify = { state: 'running', expected, actual: null }
-      this.verifyBytes = 0
+      this.verifyBytes = this.hs ? this.hs.bytes : 0 // o MD5 da gravação já vem andando
       this.#persist()
       this.emit('status', 'verifying')
-      let actual
+      const onProgress = p => {
+        this.verifyBytes = p.bytes
+      }
+      let actual = await this.#streamResult(signal, expected, onProgress)
+      // MD5 da gravação diferente do Drive: antes de jogar o arquivo fora, confirma lendo o arquivo inteiro (raro, e
+      // assim um defeito no caminho novo nunca vira "veio diferente" à toa).
+      if (actual != null && actual !== expected) {
+        this.counters.hashConfirms++
+        this.log('download: MD5 da gravação não confere; confirmando com o arquivo inteiro', rec.name)
+        actual = null
+      }
       try {
-        actual = await this.ctx.hasher.hash(rec.dest.tempPath, {
-          signal,
-          onProgress: p => {
-            this.verifyBytes = p.bytes
-          },
-        })
+        // Sem o MD5 da gravação (arquivo pequeno, falhou ou nem começou): lê o arquivo inteiro, como sempre.
+        actual ??= await this.ctx.hasher.hash(rec.dest.tempPath, { signal, onProgress })
       } catch (err) {
         if (isAbortError(err)) {
           rec.verify = { state: 'pending', expected, actual: null }
@@ -1148,9 +1287,52 @@ export class DownloadTask extends EventEmitter {
       }
       rec.verify = { state: 'ok', expected, actual }
     } else {
+      await this.#closeHash()
       rec.verify = { state: 'skipped', expected, actual: null }
     }
     await this.#place()
+    if (rec.verify.state === 'ok') await this.#rememberHash(rec.verify.actual)
+  }
+
+  /**
+   * Termina o MD5 que acompanhou a gravação (só falta o fim; numa retomada, o que ainda não foi relido).
+   * null = não há MD5 da gravação ou ele falhou (quem chama confere lendo o arquivo inteiro). Pausa = AbortError.
+   */
+  async #streamResult(signal, expected, onProgress) {
+    const hs = this.hs
+    this.hs = null
+    if (!hs) return null
+    try {
+      const md5 = String(await hs.finish(this.record.size, { signal, onProgress })).toLowerCase()
+      this.counters.streamHashes++
+      return md5
+    } catch (err) {
+      if (signal?.aborted) {
+        this.record.verify = { state: 'pending', expected, actual: null }
+        this.#persist()
+        throw abortError(signal)
+      }
+      this.counters.hashFallbacks++
+      this.log('download: MD5 junto com a gravação falhou; conferindo o arquivo inteiro', err?.message)
+      return null
+    } finally {
+      await hs.close() // o worker solta o temporário antes do rename (ou do rm, se não conferir)
+    }
+  }
+
+  /**
+   * 4.14: o arquivo final (nome e data definitivos) entra no cache de MD5, então o Comparar profundo não relê.
+   * stat DEPOIS do utimes: o cache só vale para este tamanho e esta data.
+   */
+  async #rememberHash(md5) {
+    const hasher = this.ctx.hasher
+    if (!md5 || typeof hasher?.remember !== 'function') return
+    try {
+      const st = await fs.stat(this.record.dest.path)
+      if (st.isFile() && st.size === this.record.size) await hasher.remember(this.record.dest.path, st.size, st.mtimeMs, md5)
+    } catch (err) {
+      this.log('download: não consegui guardar o MD5 no cache', err?.message)
+    }
   }
 
   /** Renomeia o temporário para o nome final (sem sobrescrever nada que apareceu no caminho) e aplica a data do Drive. */

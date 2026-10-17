@@ -54,6 +54,7 @@ src/
   google/folder-size.js  walkFolderSize: soma o tamanho de uma pasta (o Drive não guarda), listagem mínima
   engine/hasher.js       Hasher (MD5 em worker thread + cache por caminho/tamanho/mtime)
   engine/hash-worker.js  código do worker
+  engine/stream-hash-worker.js  worker do MD5 que acompanha um download (Hasher.stream)
   engine/download.js     DownloadTask (segmentado, retomável)
   engine/upload.js       UploadTask (sessão retomável)
   engine/planner.js      expande seleções (pastas) em registros de transferência
@@ -257,10 +258,15 @@ new Hasher({ cacheFile = dataPaths().hashCache, workers = 2 })
 async init()
 getCached(path, size, mtimeMs): string|null
 async hash(path, { signal, onProgress } = {}): string     // md5 hex; usa cache se path+size+mtime batem; roda em worker_threads
+async remember(path, size, mtimeMs, md5): boolean         // guarda um MD5 já conferido (download: arquivo final, depois do utimes)
+stream(path): StreamHash                                  // MD5 que acompanha uma gravação em ordem (um worker próprio, fora do pool)
+  // StreamHash: advance(upto) [só cresce; voltar = falha], async finish(size, { signal, onProgress }): md5, close()
 async flush()
-async close()                                             // encerra workers
+async close()                                             // encerra workers (e os StreamHash abertos)
 ```
 Cache: `{ [absPath]: { size, mtimeMs, md5 } }`, salvo com `saveSoon`. Lê o arquivo em blocos de 4 MiB.
+`stream` lê do DISCO, com leitura síncrona no próprio worker (não ocupa o pool do libuv), só até a frente que o download
+avisou; o MD5 cobre os bytes que estão no arquivo, não os que vieram da rede. Não passa pelo cache.
 
 ### Registro de transferência (persistido em `queue.json`)
 
@@ -326,10 +332,13 @@ Algoritmo:
    caso o MD5 diferente vira `retry`/`remoteChanged`, não `checksumMismatch`). Confere espaço livre (`fs.statfs`) >= bytes restantes, senão fatal ENOSPC.
 3. Abre `tempPath` (`r+` se existe e segmentos têm progresso, senão cria e `truncate(size)` → arquivo esparso).
    Se o arquivo temporário sumiu ou é menor que `size`, recomeça do zero.
-4. Segmentos iniciais: `n = clamp(ceil(size / minSegmentSize), 1, connectionsPerDownload)` partes iguais.
-5. Workers (até `connectionsPerDownload`): pegam segmento livre; sem livre, **roubam** a metade do
-   maior restante (se restam > 32 MiB nele) — encolhem `end` do dono e criam novo segmento `[meio, endAntigo]`.
-   O dono para quando `pos > end` (conferido a cada pedaço recebido).
+4. Blocos em ordem: o arquivo começa como um segmento só `[0, size-1]`. Cada worker pega o PRIMEIRO segmento livre e o
+   corta em um bloco de `minSegmentSize` (64 MiB; sobra de até meio bloco vai junto); o resto vira um segmento livre
+   logo depois. Com 1 conexão (ou servidor sem Range) não corta. Segmentos completos vizinhos se juntam (a lista não
+   cresce um item por bloco).
+5. Workers (até `connectionsPerDownload`): pegam o próximo bloco livre; só quando não sobra nenhum (o fim do arquivo)
+   **roubam** a metade do maior restante (se restam > 32 MiB nele) — encolhem `end` do dono e criam novo segmento
+   `[meio, endAntigo]`. O dono para quando `pos > end` (conferido a cada pedaço recebido).
 6. GET `mediaUrl` com `Range: bytes=pos-end` (+ header de resourceKey se houver), exige 206 com
    `Content-Range` começando em `pos` (200 só é aceito se pos === 0 — e aí o arquivo vira 1 conexão só;
    qualquer outra divergência: descarta o corpo e tenta de novo, NUNCA grava bytes no lugar errado). Corpo em
@@ -345,12 +354,22 @@ Algoritmo:
    `downloadQuotaExceeded` (cota do arquivo) chega como 'quota': o manager reagenda com atraso crescente
    (15 min, 1 h, 4 h, 24 h) e os outros arquivos seguem.
    416 → se o segmento já está completo segue; senão o arquivo mudou: recomeça do zero.
-9. Checkpoint a cada 2 s: `await fh.datasync()`, copia `pos` vivo → `record.segments[i].pos`,
-   atualiza `record.bytesDone`, `ctx.persist()`. Só posições sincronizadas são persistidas.
-10. Fim: fecha, `verify` (se `verifyChecksums` e houver `md5`): status 'verifying', `hasher.hash`;
-    diferente → apaga temp, zera segmentos e falha com `verify.state='mismatch'` (retry recomeça).
-    Igual → `rename(tempPath, path)` (se `path` passou a existir, usa `uniqueName`), aplica
-    `utimes` com `modifiedTime` do Drive. `status` final fica com o manager.
+9. Checkpoint a cada 10 s OU a cada 1 GiB gravado (o que vier primeiro; era a cada 2 s): `await fh.datasync()`,
+   copia `pos` vivo → `record.segments[i].pos`, atualiza `record.bytesDone`, `ctx.persist()`. Só posições sincronizadas
+   são persistidas. Numa queda de energia se perdem até ~10 s de progresso (baixa de novo esse trecho); o temporário
+   nunca fica errado. Motivo: no macOS o `fdatasync` vira `F_FULLFSYNC` e, em HD externo, segura as gravações.
+10. MD5 junto com a gravação (se `verifyChecksums`, houver `md5`, `size > minSegmentSize` e `hasher.stream`): a "frente
+    contínua" (fim do maior prefixo já gravado; nada antes dela é reescrito na rodada) vai para `StreamHash.advance` a
+    cada tique, a cada bloco completo e no fim da rodada. O worker lê esse trecho do disco logo depois da gravação.
+    Retomada (outra tarefa, outro processo): o estado do MD5 não é guardado; a frente começa no prefixo já baixado e o
+    worker relê esse prefixo em segundo plano enquanto o resto baixa. Rodada que termina em pausa, erro ou "arquivo
+    mudou" fecha o StreamHash (a próxima começa outro, do zero).
+11. Fim: fecha, `verify` (se `verifyChecksums` e houver `md5`): status 'verifying'; `StreamHash.finish(size)` (só falta
+    o último trecho) ou, sem ele ou se falhou, `hasher.hash` do arquivo inteiro. MD5 da gravação diferente do Drive é
+    confirmado com `hasher.hash` antes de qualquer decisão. Diferente → apaga temp, zera segmentos e falha com
+    `verify.state='mismatch'` (retry recomeça). Igual → `rename(tempPath, path)` (se `path` passou a existir, usa
+    `uniqueName`), aplica `utimes` com `modifiedTime` do Drive e guarda o MD5 do arquivo final no cache do Hasher
+    (`hasher.remember`, com o `stat` depois do `utimes`): o Comparar profundo não relê. `status` final fica com o manager.
 
 ### engine/upload.js — `UploadTask extends EventEmitter`
 

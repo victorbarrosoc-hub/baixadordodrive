@@ -51,6 +51,9 @@ const DEFAULT_OPTIONS = {
   sessionTtlMs: 7 * 24 * 3600 * 1000,
   uploadDailyLimitBytes: 0,
   downloadQuotaExceededIds: null,
+  // { [fileId]: offset }: o GET de mídia desse arquivo manda o byte `offset` trocado (bit flip), com Content-Range e
+  // tamanho certos. Simula um byte corrompido no caminho; quem baixa só percebe pelo MD5.
+  corruptMediaBytes: null,
   storageLimitBytes: null,
   tokenTtlSec: 3600,
   requireClientSecret: true,
@@ -2202,11 +2205,12 @@ class MockDrive {
       this._stats.faults.downloadStalls++
       stallAt = start + Math.floor(this._rand() * len)
     }
-    await this._stream(req, res, partial ? 206 : 200, headers, content, start, start + len, { dropAt, stallAt })
+    const corruptAt = this.options.corruptMediaBytes?.[item.id] ?? null
+    await this._stream(req, res, partial ? 206 : 200, headers, content, start, start + len, { dropAt, stallAt, corruptAt })
   }
 
   /** Manda [start, endExcl) do conteúdo respeitando backpressure, banda por conexão e falhas sorteadas. */
-  async _stream(req, res, status, headers, content, start, endExcl, { dropAt = null, stallAt = null } = {}) {
+  async _stream(req, res, status, headers, content, start, endExcl, { dropAt = null, stallAt = null, corruptAt = null } = {}) {
     const st = this._stats
     st.activeMediaConnections++
     st.maxActiveMediaConnections = Math.max(st.maxActiveMediaConnections, st.activeMediaConnections)
@@ -2240,6 +2244,11 @@ class MockDrive {
           buf = Buffer.allocUnsafe(n)
           const { bytesRead } = await fh.read(buf, 0, n, pos)
           if (bytesRead !== n) throw new Error('arquivo do mock encolheu')
+        }
+        if (corruptAt != null && corruptAt >= pos && corruptAt < pos + n) {
+          buf = Buffer.from(buf) // cópia: o conteúdo guardado não muda
+          buf[corruptAt - pos] ^= 0xff
+          st.faults.corruptedBytes = (st.faults.corruptedBytes || 0) + 1
         }
         pos += n
         st.bytesServed += n
