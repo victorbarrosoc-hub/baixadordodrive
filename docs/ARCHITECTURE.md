@@ -914,7 +914,7 @@ Atualizações) com **Atualizar** (app empacotado no Mac/Windows: o motor baixa 
   `web/src/lib/release.ts`) devolve `{ ok, build, commit, data, mac: '/baixar/mac', windows: '/baixar/windows',
   sha256Mac, sha256Windows }` (cache de 5 min; os `sha256*` são `null` num `versao.json` antigo), ou 503 `{ ok: false }`.
   `mac`/`windows` continuam textos: apps antigos só leem `build`/`commit`/`data`.
-- **Motor:** com build > 0, confere ~10 s depois de abrir e a cada 6 h (tempo limite de 15 s; falha = silêncio). A base é
+- **Motor:** com build > 0, confere ~10 s depois de abrir e a cada 1 h (tempo limite de 15 s; falha = silêncio). A base é
   a mesma da conta SOBEDESCE (`cloud.baseUrl`). "Depois" grava o build em `settings.versaoDispensada`; só um build maior avisa de novo.
   `startApp({ versionOptions })` troca peças nos testes (`buildInfo`, `baseUrl`, `platform`, `fetchJSON`, `firstDelayMs`, `everyMs`).
 
