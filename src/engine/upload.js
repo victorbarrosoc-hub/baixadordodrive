@@ -6,10 +6,15 @@
 //  - Por padrão vai tudo numa requisição só (do ponto confirmado até o fim), como o Google recomenda.
 //    Com `uploadChunkSize` > 0, pedaços múltiplos de 256 KiB (só o último pode ser menor).
 //  - A URI da sessão é uma credencial: nunca vai para logs nem para a UI.
+//  - Arquivo que ainda está chegando do celular (`record.local.growing` + `ctx.feed`, recepção pelo Wi-Fi em fluxo,
+//    src/mobile/receiver.js): a sessão abre logo e o PUT lê só o que já foi gravado no arquivo, em ordem, esperando o
+//    resto. Esperar o celular não é travamento (o detector fica "segurado"); celular parado por muito tempo libera a
+//    vaga (status volta para 'queued' até chegar mais). O MD5 é sempre conferido no fim, com o arquivo final no disco;
+//    se não bater, o envio é refeito a partir do disco (nova versão do mesmo arquivo).
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
-import { Transform, pipeline } from 'node:stream'
+import { Readable, Transform, pipeline } from 'node:stream'
 import { httpRequest, drain, HttpError } from '../net/http.js'
 import { classifyError, SobeDesceError, stalledError } from '../google/errors.js'
 import { toDriveItem } from '../google/drive.js'
@@ -33,6 +38,10 @@ const QUOTA_RETRY_MS = 60 * 60_000
 const MAX_RETRY_WAIT_MS = 120_000
 const READ_HWM = 1 * MiB
 const DEFAULT_STALL_MS = 30_000
+// Recepção em fluxo: dentro de um PUT, celular sem mandar nada por FEED_IDLE_MS → fecha o PUT (o Google guarda o que
+// chegou) e pergunta o ponto; fora do PUT, mais FEED_PARK_MS sem nada novo → solta a vaga até o celular voltar.
+const FEED_IDLE_MS = 20_000
+const FEED_PARK_MS = 60_000
 
 const MSG = {
   missing: p => `O arquivo local não existe mais: ${p}`,
@@ -48,6 +57,9 @@ const MSG = {
   badResponse: 'O Google respondeu de um jeito inesperado. Tentando de novo…',
   quota: 'Você atingiu o limite de upload do Google (750 GB por dia). Retomo sozinho mais tarde.',
   verifyLater: 'Não deu para conferir o arquivo agora. Tente de novo.',
+  waitingPhone: 'Esperando o celular mandar o resto do arquivo.',
+  phoneGone: 'O arquivo não chegou inteiro do celular.',
+  md5Redo: 'O arquivo chegou diferente no Drive (o MD5 não confere). Enviando de novo a partir do arquivo no computador.',
 }
 
 const NOTE = {
@@ -145,15 +157,19 @@ function sameStat(local, st) {
 export class UploadTask extends EventEmitter {
   /**
    * @param {object} record TransferRecord (type 'upload'); é alterado no lugar.
-   * @param {object} ctx TaskContext { drive, settings, limiter, hasher, folderCache, folderListings?, persist, onBytes, log }
-   * @param {{ retryBaseMs?: number }} [opts] recuo base entre tentativas (os testes usam poucos ms).
-   *   Também aceito em `ctx.retryBaseMs`.
+   * @param {object} ctx TaskContext { drive, settings, limiter, hasher, folderCache, folderListings?, persist, onBytes, log,
+   *   feed? } — `feed`: arquivo ainda chegando do celular (contrato no ReceiveFeed de src/mobile/receiver.js).
+   * @param {{ retryBaseMs?: number, feedIdleMs?: number, feedParkMs?: number }} [opts] recuo base entre tentativas (os
+   *   testes usam poucos ms; também aceito em `ctx.retryBaseMs`) e os tempos de espera do celular na recepção em fluxo.
    */
-  constructor(record, ctx, { retryBaseMs } = {}) {
+  constructor(record, ctx, { retryBaseMs, feedIdleMs, feedParkMs } = {}) {
     super()
     this.record = record
     this.ctx = ctx
     this.retryBaseMs = retryBaseMs ?? ctx?.retryBaseMs ?? 1000
+    this.feedIdleMs = feedIdleMs ?? FEED_IDLE_MS
+    this.feedParkMs = feedParkMs ?? FEED_PARK_MS
+    this.feed = null // só enquanto o arquivo ainda está chegando
     this.meter = new SpeedMeter()
     this.running = false
     this.token = null // último token usado: no 401, renova só se ainda for ele
@@ -210,6 +226,27 @@ export class UploadTask extends EventEmitter {
     this.authStreak = 0
     this.probe = false // próximo PUT de dados pequeno (depois de um PUT de dados que falhou sem avanço)
 
+    // 0. Ainda chegando do celular: sobe enquanto chega (o tamanho é o declarado; o arquivo cresce até ele).
+    this.feed = null
+    if (r.local.growing) {
+      const feed = this.ctx.feed
+      if (!feed) throw finalError('retry', MSG.waitingPhone, { reason: 'waitingPhone' })
+      if (feed.failed) throw finalError('fatal', feed.failed.message || MSG.phoneGone, { reason: 'phoneGone' })
+      this.feed = feed
+      if (feed.complete) await this.#adoptFinal()
+    }
+    if (this.feed) {
+      if (!Number.isSafeInteger(this.feed.size) || this.feed.size < 0) throw finalError('fatal', 'Tamanho do arquivo do celular inválido.', { reason: 'badRecord' })
+      if (this.feed.size > MAX_UPLOAD_SIZE) throw finalError('fatal', MSG.tooBig, { reason: 'fileSizeLimitExceeded' })
+      r.size = this.feed.size
+      r.local = { ...r.local, size: this.feed.size }
+      this.size = this.feed.size
+      this.#persist()
+      // O MD5 só começa com o arquivo inteiro (no #finish): nunca de um pedaço.
+      await this.#transfer(signal)
+      return
+    }
+
     // 1. Arquivo local: sumiu → fatal; grande demais → fatal antes de qualquer requisição; mudou → recomeça.
     const st = await this.#statLocal()
     if (st.size > MAX_UPLOAD_SIZE) throw finalError('fatal', MSG.tooBig, { reason: 'fileSizeLimitExceeded' })
@@ -230,7 +267,7 @@ export class UploadTask extends EventEmitter {
     this.size = st.size
     this.#persist()
 
-    if (this.#settings().verifyChecksums) this.#startHash()
+    if (this.#settings().verifyChecksums || r.local.stream) this.#startHash()
     await this.#transfer(signal)
   }
 
@@ -288,7 +325,16 @@ export class UploadTask extends EventEmitter {
           }
           continue
         }
-        // 6. Envio do ponto confirmado em diante.
+        // 6. Arquivo do celular: sem nada novo depois do ponto confirmado, espera chegar (fora de qualquer PUT).
+        const feed = this.feed
+        if (feed && !feed.complete) {
+          const need = Math.max(r.session.offset, feed.mark || 0) + 1
+          if (feed.ready < need) {
+            await this.#waitFeed(need, signal)
+            continue
+          }
+        }
+        // 7. Envio do ponto confirmado em diante.
         const res = await this.#sendData(signal)
         if (res.done) return await this.#finish(res.json, signal)
         if (!this.#commit(res.offset)) {
@@ -306,6 +352,11 @@ export class UploadTask extends EventEmitter {
   /** Decide o que fazer com um erro: tenta de novo (retorna) ou desiste (lança). */
   async #onError(err, signal) {
     if (err?.[FINAL]) throw err
+    if (err?.feedIdle) {
+      // O celular parou no meio do PUT: o Google guarda o que chegou; a consulta diz o ponto e o envio espera o resto.
+      this.#log('upload: o celular parou de mandar; fechei o PUT e espero o resto')
+      return
+    }
     const r = this.record
     let info = classifyError(err)
     // Abort sem pausa pedida = algo derrubou a requisição por dentro: trata como queda de conexão.
@@ -401,6 +452,7 @@ export class UploadTask extends EventEmitter {
 
   /** Antes de cada envio: se o arquivo mudou no meio do caminho, o Drive receberia uma mistura. */
   async #ensureUnchanged() {
+    if (this.feed) return // ainda chegando: cresce de propósito (quem garante a ordem dos bytes é o feed)
     const st = await this.#statLocal()
     if (!sameStat(this.record.local, st)) throw finalError('fatal', MSG.changedDuring, { reason: 'localChanged' })
   }
@@ -559,7 +611,7 @@ export class UploadTask extends EventEmitter {
     const expected = end - start + 1
     let sent = 0
     let fileError = null
-    const file = fs.createReadStream(filePath, { start, end, highWaterMark: READ_HWM })
+    const file = this.feed ? this.#feedStream(this.feed, start, end, { signal, hold }) : fs.createReadStream(filePath, { start, end, highWaterMark: READ_HWM })
     file.on('error', err => {
       fileError ??= err
     })
@@ -601,6 +653,96 @@ export class UploadTask extends EventEmitter {
     }
   }
 
+  /**
+   * Lê do arquivo que está chegando só o que o receptor já gravou (feed.ready), em ordem; quando alcança, espera o
+   * celular com o detector de travamento segurado. Celular parado por feedIdleMs → erro `feedIdle` (fecha o PUT).
+   */
+  #feedStream(feed, start, end, { signal, hold }) {
+    const idleMs = this.feedIdleMs
+    async function* read() {
+      let fh = null
+      let pos = start
+      let empty = 0
+      try {
+        fh = await feed.open()
+        while (pos <= end) {
+          if (feed.failed) throw finalError('fatal', feed.failed.message || MSG.phoneGone, { reason: 'phoneGone' })
+          const avail = (feed.complete ? feed.size : feed.ready) - pos
+          if (avail <= 0) {
+            hold(true)
+            try {
+              await feed.wait(pos + 1, { signal, idleMs })
+            } catch (err) {
+              if (err?.feedIdle) feed.mark = Math.max(feed.mark || 0, feed.ready)
+              throw err
+            } finally {
+              hold(false)
+            }
+            continue
+          }
+          const n = Math.min(READ_HWM, end + 1 - pos, avail)
+          const buf = Buffer.allocUnsafe(n)
+          const { bytesRead } = await fh.read(buf, 0, n, pos)
+          if (bytesRead === 0) {
+            // O arquivo encolheu por baixo (recomeço do .part): espera um pouco; persistindo, fecha o PUT e consulta.
+            if (feed.complete || ++empty > 40) throw Object.assign(new Error('O arquivo do celular encolheu no meio do envio.'), { feedIdle: !feed.complete })
+            hold(true)
+            await sleep(50, signal).finally(() => hold(false))
+            continue
+          }
+          empty = 0
+          pos += bytesRead
+          yield bytesRead === n ? buf : buf.subarray(0, bytesRead)
+        }
+      } finally {
+        await fh?.close().catch(() => {})
+      }
+    }
+    return Readable.from(read(), { objectMode: false, highWaterMark: READ_HWM })
+  }
+
+  /** Espera o celular mandar até `pos` (sem PUT aberto). Parado por feedParkMs → solta a vaga ('waitingPhone'). */
+  async #waitFeed(pos, signal) {
+    const feed = this.feed
+    const prev = this.phase
+    this.phase = 'phone'
+    try {
+      await feed.wait(pos, { signal, idleMs: this.feedParkMs })
+    } catch (err) {
+      if (err?.feedIdle) {
+        // Só volta a ocupar uma vaga quando chegar algo além do que já estava aqui (manager: feed.startable).
+        feed.mark = Math.max(feed.mark || 0, feed.ready)
+        throw finalError('retry', MSG.waitingPhone, { reason: 'waitingPhone' })
+      }
+      throw err
+    } finally {
+      this.phase = prev
+    }
+    if (feed.failed) throw finalError('fatal', feed.failed.message || MSG.phoneGone, { reason: 'phoneGone' })
+    if (feed.complete && this.feed === feed) await this.#adoptFinal()
+  }
+
+  /** Espera o arquivo do celular chegar inteiro (com o nome final) e passa a usar o arquivo final. */
+  async #feedDone(signal) {
+    while (this.feed && !this.feed.complete) await this.#waitFeed(this.feed.size + 1, signal)
+    if (this.feed?.complete) await this.#adoptFinal()
+  }
+
+  /** Chegou inteiro: o registro passa a apontar para o arquivo final (nome na pasta de recebidos), com tamanho e data dele. */
+  async #adoptFinal() {
+    const r = this.record
+    const feed = this.feed
+    if (!feed?.complete) return
+    this.feed = null
+    r.local = { ...r.local, path: feed.path, growing: false }
+    const st = await this.#statLocal()
+    if (st.size !== feed.size) throw finalError('fatal', MSG.phoneGone, { reason: 'phoneSize' })
+    r.local = { ...r.local, size: st.size, mtimeMs: st.mtimeMs }
+    r.size = st.size
+    this.size = st.size
+    this.#persist()
+  }
+
   #onSent(n, pos) {
     this.meter.add(n)
     // Progresso ao vivo (enviado); o Range do Google corrige a cada 308/consulta.
@@ -622,10 +764,10 @@ export class UploadTask extends EventEmitter {
     const onAbort = () => ac.abort(abortError(signal))
     signal.addEventListener('abort', onAbort, { once: true })
     let last = Date.now()
-    let holding = false
+    let holding = 0 // esperas que não são travamento (limitador de banda, celular), podem se sobrepor
     let stalled = false
     const hold = on => {
-      holding = on
+      holding = Math.max(0, holding + (on ? 1 : -1))
       last = Date.now()
     }
     const stallMs = () => Math.max(100, Number(this.#settings().stallTimeoutMs) || DEFAULT_STALL_MS)
@@ -646,6 +788,7 @@ export class UploadTask extends EventEmitter {
     } catch (err) {
       if (signal.aborted) throw abortError(signal)
       const local = src?.error()
+      if (local?.feedIdle) throw local
       if (local) throw localError(local, this.record.local.path)
       if (stalled) {
         this.#log('upload: conexão travada; reconectando')
@@ -656,6 +799,8 @@ export class UploadTask extends EventEmitter {
       clearInterval(timer)
       signal.removeEventListener('abort', onAbort)
       src?.destroy()
+      // Corpo que ainda esperava o celular (resposta do Google antes do fim): solta a espera e o arquivo já.
+      if (src) ac.abort()
     }
   }
 
@@ -673,15 +818,18 @@ export class UploadTask extends EventEmitter {
     r.attempts = 0
     this.#persist()
 
-    const reject = (message, reason) => {
+    const reject = (message, reason, kind = 'fatal') => {
       // O arquivo fica no Drive; tentar de novo troca o conteúdo dele (nova versão) em vez de duplicar.
       r.session = null
       r.target.replaceFileId = item.id
       r.target.fileId = null
       this.#persist()
-      return finalError('fatal', message, { reason })
+      return finalError(kind, message, { reason })
     }
     if (item.size != null && item.size !== this.size) throw reject(MSG.sizeMismatch, 'sizeMismatch')
+    // Do celular: o Drive pode terminar antes de o receptor fechar o arquivo (sincronizar e dar o nome). A conferência
+    // é sempre com o arquivo final no disco.
+    if (this.feed) await this.#feedDone(signal)
     let st = null
     try {
       st = await this.#statLocal()
@@ -692,7 +840,7 @@ export class UploadTask extends EventEmitter {
     }
     if (st && !sameStat(r.local, st)) throw reject(MSG.changedDuring, 'localChanged')
 
-    if (this.hashP || this.#settings().verifyChecksums) {
+    if (this.hashP || this.#settings().verifyChecksums || r.local.stream) {
       this.#startHash()
       const prevStatus = r.status
       r.status = 'verifying'
@@ -709,7 +857,8 @@ export class UploadTask extends EventEmitter {
       }
       r.verify = { state: !local || !item.md5 ? 'skipped' : local === item.md5 ? 'ok' : 'mismatch', expected: local, actual: item.md5 }
       if (r.status === 'verifying') r.status = prevStatus
-      if (r.verify.state === 'mismatch') throw reject(MSG.md5Mismatch, 'checksumMismatch')
+      // Veio em fluxo do celular: refaz sozinho a partir do disco (a fila tenta de novo, nova versão do mesmo arquivo).
+      if (r.verify.state === 'mismatch') throw r.local.stream ? reject(MSG.md5Redo, 'verifyFailed', 'retry') : reject(MSG.md5Mismatch, 'checksumMismatch')
     }
     r.session = null // a URI é credencial: depois de terminar, não precisa ficar guardada
     r.bytesDone = this.size
@@ -765,7 +914,7 @@ export class UploadTask extends EventEmitter {
   }
 
   #startHash() {
-    if (this.hashP || !this.ctx.hasher || this.hashAc?.signal.aborted) return
+    if (this.hashP || this.feed || !this.ctx.hasher || this.hashAc?.signal.aborted) return
     const r = this.record
     this.hashP = this.ctx.hasher.hash(r.local.path, { signal: this.hashAc.signal })
     this.hashP.catch(() => {}) // quem espera trata; aqui só evita rejeição sem dono
@@ -773,6 +922,7 @@ export class UploadTask extends EventEmitter {
   }
 
   async #localMd5(signal) {
+    if (this.feed) await this.#feedDone(signal) // nunca o MD5 de um arquivo pela metade
     this.#startHash()
     if (!this.hashP) throw new Error('Sem calculadora de MD5.')
     try {

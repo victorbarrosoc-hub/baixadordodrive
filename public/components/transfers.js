@@ -48,6 +48,8 @@ export function statusInfo(t) {
     case 'verifying':
       return { tone: up ? 'up' : 'down', label: 'Verificando', icon: 'shield' }
     case 'queued':
+      // Envio em fluxo do celular parado no meio: volta sozinho quando o celular mandar o resto.
+      if (t.receive) return { tone: 'neutral', label: 'Esperando o celular', icon: 'clock' }
       return { tone: 'neutral', label: 'Na fila', icon: 'clock' }
     case 'paused':
       return { tone: t.error ? 'warning' : 'muted', label: t.error ? 'Precisa de você' : 'Pausado', icon: 'pause' }
@@ -105,6 +107,9 @@ const TransferRow = memo(function TransferRow({ t, platform }) {
       ${t.error.kind === 'reauth' ? html`<${ReauthLink} t=${t} />` : null}</div>`
   } else if (t.status === 'waiting' && t.error?.message) {
     message = html`<div class="trow-msg is-quiet"><span>${t.error.message}</span></div>`
+  } else if (t.receive && t.receive.size > 0) {
+    // Recebendo do celular e subindo ao mesmo tempo: a barra mostra os dois (chegou, atrás; subiu, na frente).
+    message = html`<div class="trow-msg is-quiet"><span>Chegando do celular: ${bytes(t.receive.bytes)} <span class="of">de ${bytes(t.receive.size)}</span> (${percent(t.receive.bytes / t.receive.size)}) · sobe junto</span></div>`
   }
 
   // A ação principal do estado fica sempre à vista (as outras aparecem ao passar o mouse). Com problema e

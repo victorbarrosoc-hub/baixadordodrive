@@ -46,12 +46,15 @@ export const Timeline = memo(function Timeline({ t, size = 'md' }) {
       })
   } else {
     const fill = clamp01(t.bytesDone / total)
-    clips = [{ left: 0, width: 1, fill, head: running ? fill : null }]
+    // Chegando do celular e subindo junto: o que já chegou aparece atrás, como o "carregado" de um player.
+    const recv = t.receive ? clamp01(t.receive.bytes / total) : null
+    clips = [{ left: 0, width: 1, fill, head: running ? fill : null, recv }]
   }
 
   return html`<div class=${klass} role="progressbar" aria-label=${label} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${Math.round(clamp01(total ? t.bytesDone / total : done ? 1 : 0) * 100)}>
     ${clips.map(
       (c) => html`<div class="tl-clip" style=${`left:${pct(c.left)};width:${pct(c.width)}`}>
+        ${c.recv != null ? html`<div class="tl-recv" style=${`width:${pct(c.recv)}`}></div>` : null}
         <div class="tl-fill" style=${`width:${pct(c.fill)}`}></div>
         ${c.head != null ? html`<div class="tl-head" style=${`left:${pct(c.head)}`}></div>` : null}
       </div>`,
