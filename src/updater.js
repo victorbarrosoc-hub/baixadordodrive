@@ -341,9 +341,11 @@ export class Updater extends EventEmitter {
   /**
    * Baixa, confere e entrega a troca. Volta logo (o trabalho segue em segundo plano; acompanhe pelo 'change').
    * Lança Error com `status` se não fizer sentido começar.
-   * @param {{ build: number, url: string, sha256: string }} release
+   * `recheck` (opcional) pergunta ao site de novo, se o arquivo não bater: saiu um build mais novo enquanto este app
+   * ainda guardava a conferência do anterior (o endereço de download sempre entrega o mais novo).
+   * @param {{ build: number, url: string, sha256: string, recheck?: () => Promise<{ build: number, sha256: string } | null> }} release
    */
-  install({ build, url, sha256 } = {}) {
+  install({ build, url, sha256, recheck } = {}) {
     if (this.job) return this.job
     if (!this.disponivel) throw Object.assign(new Error(this.motivo), { status: 409 })
     if (!this.podeInstalar(build)) throw Object.assign(new Error('Esta versão não dá para instalar pelo app. Use Baixar.'), { status: 409 })
@@ -354,13 +356,13 @@ export class Updater extends EventEmitter {
       throw Object.assign(new Error(this.erro), { status: 409 })
     }
     this.#set({ fase: 'baixando', build, recebido: 0, total: 0, erro: null })
-    this.job = this.#install({ build, url, sha256: hash }).finally(() => {
+    this.job = this.#install({ build, url, sha256: hash, recheck }).finally(() => {
       this.job = null
     })
     return this.job
   }
 
-  async #install({ build, url, sha256 }) {
+  async #install({ build, url, sha256, recheck }) {
     const tmp = await fsp.mkdtemp(path.join(this.tmpRoot, 'sobedesce-atualizacao-'))
     let handedOff = false
     try {
@@ -373,8 +375,18 @@ export class Updater extends EventEmitter {
         throw new Error('Não consegui baixar a versão nova. Confira a internet e tente de novo.')
       }
       this.#set({ fase: 'conferindo', recebido: this.total || this.recebido })
-      if (String(got).toLowerCase() !== sha256) {
-        throw definitivo('O arquivo baixado não bate com a conferência do site (SHA-256). Pode ser uma versão nova sendo publicada agora. Use Baixar ou tente mais tarde.')
+      got = String(got).toLowerCase()
+      if (got !== sha256) {
+        // O mais comum: saiu um build mais novo depois da última conferida. Se a conferência nova bate com o arquivo,
+        // é ele que vai ser instalado. Senão, erro sem travar o Atualizar: nada que não bate é instalado, e tentar de
+        // novo daqui a pouco resolve quando o site ainda está publicando (os instaladores sobem antes do versao.json).
+        const novo = recheck ? await recheck().catch(() => null) : null
+        if (!(novo && novo.build >= build && String(novo.sha256 || '').toLowerCase() === got && this.podeInstalar(novo.build))) {
+          throw new Error('O arquivo baixado não bate com a conferência do site (SHA-256). Deve ser uma versão nova sendo publicada agora: tente de novo em alguns minutos.')
+        }
+        this.log(`saiu o build ${novo.build} durante a atualização: instalando ele`)
+        build = novo.build
+        this.#set({ build })
       }
       this.#set({ fase: 'preparando' })
       const script = this.plataforma === 'mac' ? await this.#prepareMac({ file, tmp, build }) : await this.#prepareWin({ file, tmp, build })

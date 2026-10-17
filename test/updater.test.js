@@ -192,18 +192,40 @@ test('Mac: baixa, confere, monta, copia o app novo ao lado, desmonta e entrega o
   assert.equal(spawnSync('sh', ['-n', script]).status, 0, 'sh -n')
 })
 
-test('hash diferente: não instala, apaga o download e desliga o Atualizar desta versão', async () => {
+test('hash diferente: não instala, apaga o download e deixa tentar de novo (não trava o Atualizar)', async () => {
   const { up, calls, handoffs, tmpRoot } = await macUpdater('mac-hash')
-  const st = await up.install({ build: 41, url: `${SITE}/baixar/mac`, sha256: 'f'.repeat(64) })
+  let st = await up.install({ build: 41, url: `${SITE}/baixar/mac`, sha256: 'f'.repeat(64) })
   assert.equal(st.fase, 'erro')
   assert.match(st.erro, /não bate/)
-  assert.equal(st.bloqueado, 41)
+  assert.match(st.erro, /tente de novo/)
+  assert.equal(st.bloqueado, 0)
   assert.equal(handoffs.length, 0)
   assert.equal(calls.length, 0, 'nem chegou a montar')
   assert.deepEqual(await fs.readdir(tmpRoot), [], 'o download foi apagado')
-  assert.equal(up.podeInstalar(41), false)
-  assert.equal(up.podeInstalar(42), true, 'um build mais novo pode tentar de novo')
-  assert.throws(() => up.install({ build: 41, url: `${SITE}/baixar/mac`, sha256: SHA }), err => err.status === 409)
+  assert.equal(up.podeInstalar(41), true, 'dá para tentar de novo')
+  // a conferência perguntada de novo também não bate: erro, nada instalado
+  st = await up.install({ build: 41, url: `${SITE}/baixar/mac`, sha256: 'f'.repeat(64), recheck: async () => ({ build: 41, sha256: 'e'.repeat(64) }) })
+  assert.equal(st.fase, 'erro')
+  assert.equal(handoffs.length, 0)
+  // tentar de novo com a conferência certa instala
+  st = await up.install({ build: 41, url: `${SITE}/baixar/mac`, sha256: SHA })
+  assert.equal(st.fase, 'reiniciando')
+  assert.equal(handoffs.length, 1)
+})
+
+test('saiu um build mais novo depois da última conferida: pergunta de novo ao site e instala o novo', async () => {
+  const { up, handoffs } = await macUpdater('mac-recheck')
+  let perguntou = 0
+  const st = await up.install({
+    build: 41,
+    url: `${SITE}/baixar/mac`,
+    sha256: 'f'.repeat(64), // a conferência guardada do 41; o download já entrega o 43
+    recheck: async () => (perguntou++, { build: 43, sha256: SHA }),
+  })
+  assert.equal(perguntou, 1)
+  assert.equal(st.fase, 'reiniciando')
+  assert.equal(st.build, 43)
+  assert.equal(handoffs.length, 1)
 })
 
 test('sem SHA-256 publicado: recusa antes de baixar', async () => {
@@ -368,9 +390,13 @@ test('VersionChecker: podeAtualizar só com Updater pronto e SHA-256 da platafor
   assert.equal(st.podeAtualizar, true)
   assert.equal(st.ultima.sha256.mac, SHA)
 
+  // saiu o 42 depois da última conferida: o update() pergunta de novo antes de baixar
+  answer = remote(42)
   const fases = []
   v.on('status', x => x.atualizacao && fases.push(x.atualizacao.fase))
   st = await v.update()
+  assert.equal(st.ultima.build, 42, 'conferiu de novo antes de baixar')
+  assert.equal(st.atualizacao.build, 42)
   assert.equal(st.atualizacao.fase, 'baixando')
   await waitFor(() => handoffs.length === 1)
   assert.ok(fases.includes('conferindo') && fases.at(-1) === 'reiniciando')
@@ -411,6 +437,7 @@ test('rota /api/versao/atualizar: com transferências andando pede confirmação
     if (cmd === 'ditto') await fs.cp(args[0], args[1], { recursive: true })
     return ''
   }
+  let answer = remote(40) // o site ainda não tem build mais novo
   const app = await startApp({
     home,
     port: 0,
@@ -418,7 +445,7 @@ test('rota /api/versao/atualizar: com transferências andando pede confirmação
     quiet: true,
     managerOptions: { keepAwake: { active: false, setActive() {}, stop() {} } },
     serverOptions: { log: () => {}, media: false },
-    versionOptions: { buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', fetchJSON: async () => remote(41), firstDelayMs: 60_000 },
+    versionOptions: { buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', fetchJSON: async () => answer, firstDelayMs: 60_000 },
     updaterOptions: {
       platform: 'darwin',
       appExe: path.join(apps, 'SOBEDESCE.app', 'Contents', 'MacOS', 'SOBEDESCE'),
@@ -433,7 +460,8 @@ test('rota /api/versao/atualizar: com transferências andando pede confirmação
   })
   try {
     let r = await call(app, 'POST', '/api/versao/atualizar', {})
-    assert.equal(r.status, 409, 'sem versão nova conhecida')
+    assert.equal(r.status, 409, 'sem versão nova (o update() pergunta ao site antes)')
+    answer = remote(41)
 
     r = await call(app, 'POST', '/api/versao/verificar')
     assert.equal(r.json.versao.podeAtualizar, true)

@@ -157,10 +157,16 @@ export class VersionChecker extends EventEmitter {
    * Lança Error com `status` (409) se não der: aí a interface oferece o Baixar.
    */
   async update() {
+    // A conferência pode ter até 6 h: pergunta de novo antes de baixar (o endereço de download entrega o mais novo).
+    if (this.updater && !this.updater.ocupado) await this.check()
     const st = this.status()
     if (!st.disponivel) throw Object.assign(new Error('Não há versão nova para instalar.'), { status: 409 })
     if (!this.updater) throw Object.assign(new Error('Este app não se atualiza sozinho. Use Baixar.'), { status: 409 })
-    if (!this.updater.ocupado) this.updater.install({ build: this.ultima.build, url: st.baixarUrl, sha256: this.ultima.sha256?.[this.plataforma] })
+    const recheck = async () => {
+      await this.check()
+      return this.ultima ? { build: this.ultima.build, sha256: this.ultima.sha256?.[this.plataforma] } : null
+    }
+    if (!this.updater.ocupado) this.updater.install({ build: this.ultima.build, url: st.baixarUrl, sha256: this.ultima.sha256?.[this.plataforma], recheck })
     return this.#emit()
   }
 
