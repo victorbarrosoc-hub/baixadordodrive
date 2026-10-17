@@ -417,7 +417,7 @@ export function createApi(ctx) {
   const state = () => {
     const snap = ctx.manager.snapshot()
     return {
-      app: { name: APP_NAME, version: APP_VERSION, platform: process.platform, desktop: !!ctx.desktop },
+      app: { name: APP_NAME, version: APP_VERSION, platform: process.platform, desktop: !!ctx.desktop, protecao: ctx.auth?.protecao || 'arquivo' },
       setup: ctx.auth.getClientInfo(),
       accounts: ctx.auth.listAccounts(),
       cloud: ctx.auth.cloud?.status() ?? null,

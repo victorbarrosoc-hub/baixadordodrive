@@ -1,10 +1,13 @@
 // Processo principal do app de desktop: sobe o motor, abre a janela e cuida do que é nativo
 // (seletor de pastas, Dock/barra de tarefas, notificações, sair sem perder transferências).
-import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, powerSaveBlocker, session, shell, utilityProcess } from 'electron'
+import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, powerSaveBlocker, safeStorage, session, shell, utilityProcess } from 'electron'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { allowPermission, trustedSender } from './security.js'
+import { responderCofre } from './cofre.js'
+import { AVISO_COOKIES, marcarAvisado, migrarCookies, precisaAvisar } from './cookies-cifrados.js'
 import { abrirNavegador, cookiesPara, fecharNavegador, registrarCanais } from './navegador.js'
 import { handoffCommand, isHandoffScript } from '../src/updater.js'
 
@@ -23,7 +26,19 @@ let quitConfirmed = false // a pessoa já disse "Sair" com transferências andan
 let activeCount = 0
 let sleepBlocker = null
 
-if (!app.requestSingleInstanceLock()) {
+// `SOBEDESCE --smoke` (CI, desktop/smoke.js): sobe o motor numa pasta temporária, confere tudo, escreve "SMOKE OK" e
+// sai com 0 (ou 1). Não abre janela, não usa os dados nem os cookies da pessoa e não disputa a trava de instância.
+const SMOKE = process.argv.includes('--smoke')
+let smokeHome = null
+if (SMOKE) {
+  smokeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sobedesce-smoke-'))
+  app.setPath('userData', path.join(smokeHome, 'electron'))
+  app.setAppLogsPath(path.join(smokeHome, 'logs'))
+  process.env.SOBEDESCE_HOME = path.join(smokeHome, 'dados')
+  process.env.SOBEDESCE_PORT = String(41000 + Math.floor(Math.random() * 20000))
+  process.env.SOBEDESCE_SMOKE = '1'
+  app.whenReady().then(runSmoke)
+} else if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => showWindow())
@@ -66,6 +81,14 @@ function startEngine() {
       } else if (msg?.type === 'cookies-pedido') {
         // Referências: o motor precisa dos cookies do navegador de referências para o yt-dlp (só os domínios do vídeo).
         responderCookies(msg)
+      } else if (msg?.type === 'cofre') {
+        // Tokens e sessão (src/util/segredos.js): o safeStorage só existe neste processo.
+        const child = engine
+        try {
+          child?.postMessage(responderCofre(safeStorage, msg))
+        } catch {}
+      } else if (msg?.type === 'smoke-resultado') {
+        smokeResult?.(msg.checks)
       } else if (msg?.type === 'fatal' && !settled) {
         settled = true
         const err = new Error(msg.message)
@@ -124,6 +147,7 @@ async function responderCookies(msg) {
 }
 
 async function onEngineCrash(code) {
+  if (SMOKE) return smokeResult?.([{ nome: 'motor', ok: false, detalhe: `o motor fechou no meio do teste (código ${code})` }])
   const { response } = await dialog.showMessageBox({
     type: 'error',
     message: 'O motor de transferências parou.',
@@ -142,6 +166,12 @@ async function onEngineCrash(code) {
 }
 
 async function boot() {
+  // Fusível EnableCookieEncryption: na primeira abertura com ele, os cookies antigos (texto puro) do navegador de
+  // Referências são apagados antes de a sessão dele existir (desktop/cookies-cifrados.js). Só no app empacotado.
+  try {
+    const { apagou } = migrarCookies({ userData: app.getPath('userData'), ligado: app.isPackaged })
+    if (apagou) console.log('[sobedesce] cookies antigos do navegador de referências apagados (agora cifrados)')
+  } catch {}
   buildMenu()
   // Nenhuma permissão da web (câmera, microfone, localização…) além de copiar texto, e só para a interface do motor.
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => callback(allowPermission(permission, details?.requestingUrl || wc?.getURL(), engineUrl)))
@@ -336,9 +366,18 @@ ipcMain.handle('sobedesce:open-external', (event, url) => {
 
 ipcMain.handle('sobedesce:abrir-navegador', (event, url) => {
   if (!trustedSender(event, engineUrl) || !engineUrl) return false
-  abrirNavegador({ engineUrl, url: typeof url === 'string' ? url : null, openExternal })
+  const janela = abrirNavegador({ engineUrl, url: typeof url === 'string' ? url : null, openExternal })
+  avisarCookies(janela)
   return true
 })
+
+/** Uma vez, depois que os cookies antigos foram apagados: "Entre de novo no Instagram uma vez". */
+function avisarCookies(janela) {
+  const userData = app.getPath('userData')
+  if (!precisaAvisar(userData)) return
+  marcarAvisado(userData)
+  dialog.showMessageBox(janela && !janela.isDestroyed?.() ? janela : undefined, { type: 'info', message: AVISO_COOKIES.titulo, detail: AVISO_COOKIES.texto, buttons: ['Entendi'] }).catch(() => {})
+}
 
 // Barra do navegador de referências (preload-navegador.cjs): a mesma regra de origem da ponte principal.
 registrarCanais(ipcMain, event => trustedSender(event, engineUrl))
@@ -381,4 +420,74 @@ function buildMenu() {
     },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+// ---- Teste de fumaça (--smoke) ----
+
+let smokeResult = null
+
+async function runSmoke() {
+  // Sem console (app de janela no Windows), escrever no stdout pode dar erro: o resultado vai também para o arquivo.
+  process.stdout.on?.('error', () => {})
+  const linhas = []
+  const escrever = texto => {
+    linhas.push(texto)
+    try {
+      process.stdout.write(`${texto}\n`)
+    } catch {}
+  }
+  let code = 1
+  const limite = setTimeout(() => finish(2, 'SMOKE FALHOU: passou de 4 minutos'), 240_000)
+  async function finish(c, extra) {
+    clearTimeout(limite)
+    if (extra) escrever(extra)
+    quitting = true
+    if (engine) {
+      const child = engine
+      await new Promise(resolve => {
+        const t = setTimeout(() => {
+          child.kill()
+          resolve()
+        }, 15_000)
+        child.once('exit', () => {
+          clearTimeout(t)
+          resolve()
+        })
+        child.postMessage({ type: 'shutdown' })
+      })
+    }
+    if (c !== 0) {
+      try {
+        escrever(`--- motor.log ---\n${fs.readFileSync(logFile(), 'utf8').slice(-8000)}`)
+      } catch {}
+    }
+    const saida = process.env.SOBEDESCE_SMOKE_SAIDA
+    if (saida) {
+      try {
+        fs.writeFileSync(saida, `${linhas.join('\n')}\n`)
+      } catch {}
+    }
+    try {
+      fs.rmSync(smokeHome, { recursive: true, force: true })
+    } catch {}
+    app.exit(c)
+  }
+  try {
+    escrever(`SOBEDESCE ${app.getVersion()} · Electron ${process.versions.electron} · ${process.platform}-${process.arch} · empacotado: ${app.isPackaged ? 'sim' : 'não'}`)
+    engineUrl = await startEngine()
+    const checks = await new Promise((resolve, reject) => {
+      smokeResult = resolve
+      setTimeout(() => reject(new Error('o motor não respondeu ao teste em 3 minutos')), 180_000).unref?.()
+      engine.postMessage({ type: 'smoke', exigirBinarios: app.isPackaged && (isMac || isWin), exigirCofre: isWin })
+    })
+    const { relatorio } = await import('./smoke.js')
+    const r = relatorio(checks)
+    escrever(r.texto)
+    code = r.ok ? 0 : 1
+  } catch (err) {
+    escrever(`FALHA motor: ${err?.message || err}`)
+    escrever('SMOKE FALHOU')
+    code = 1
+  }
+  await finish(code)
 }

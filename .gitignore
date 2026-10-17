@@ -7,3 +7,4 @@ test/.tmp/
 dist/
 build/yt-dlp/
 build/ffmpeg/
+build/quickjs/

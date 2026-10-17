@@ -22,7 +22,7 @@ import { detectar, dominiosDeCookies, limparUrl, nomeDaPlataforma } from './plat
 import { appProperties, descricao, lerReferencia, nomeDoArquivo } from './metadados.js'
 import { apagarCookies, gravarCookies } from './cookies.js'
 import { baixarVideo, YtdlpError } from './ytdlp.js'
-import { ffmpegCandidates, primeiro } from './binarios.js'
+import { ffmpegCandidates, jsRuntimePadrao, primeiro } from './binarios.js'
 import { YtdlpUpdater } from './ytdlp-update.js'
 
 const POLL_MS = 30_000 // fila do celular: o contrato pede ~30 s com o app aberto
@@ -171,7 +171,8 @@ export class ReferenciasService extends EventEmitter {
     this.baixar = baixar
     this.baixarImg = baixarImg
     this.ffmpeg = ffmpeg || (() => primeiro(ffmpegCandidates())?.path || null)
-    this.jsRuntime = jsRuntime === undefined ? { nome: 'node', path: process.execPath, env: process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {} } : jsRuntime
+    // JavaScript dos desafios do YouTube: o Node fora do Electron, o QuickJS que vem no app de desktop (binarios.js).
+    this.jsRuntime = jsRuntime === undefined ? jsRuntimePadrao() : jsRuntime
     this.cookieProvider = cookies
     this.pollMs = pollMs
     this.vidaMs = vidaMs

@@ -41,6 +41,7 @@ src/
   index.js               entrada: sobe servidor, abre navegador, encerra com pausa limpa
   config.js              caminhos, endpoints, Settings (ajustes vivos)          [pronto]
   util/store.js          JSON atômico, JsonFile com saveSoon                       [pronto]
+  util/segredos.js       ArquivoSecreto (segredos com a guarda do sistema: safeStorage no app de desktop), guardaPorMensagens
   util/backoff.js        backoffDelay, sleep(ms, signal), isAbortError, abortError [pronto]
   util/meter.js          SpeedMeter, eta                                           [pronto]
   util/limiter.js        BandwidthLimiter (token bucket)                           [pronto]
@@ -121,7 +122,8 @@ export const PART_SUFFIX = '.sobedesce-part'
 ### google/oauth.js — `AuthManager extends EventEmitter`
 
 Credenciais do cliente OAuth (tipo "App para computador") ficam em `credentials.json`
-(`{ clientId, clientSecret }`). Contas em `accounts.json` (modo 0600):
+(`{ clientId, clientSecret }`). Contas em `accounts.json` (modo 0600; com a guarda do sistema, `accounts.cifrado.json`,
+ver "Segredos no disco"):
 `{ accounts: [{ id, email, name, photoUrl, refreshToken, addedAt, status }] }`.
 `id` = `permissionId` do usuário (via `GET {driveApi}/about?fields=user`).
 
@@ -187,7 +189,8 @@ CloudStatus = { conectado, site, contaUrl, usuario: { id, email, nome }|null, co
                 login: { estado: 'nenhum'|'pendente'|'pronto'|'expirado'|'erro', codigo?, url?, expiraEm?, mensagem? },
                 atualizadoEm, erro: string|null, aviso: string|null }
 ```
-`cloud.json` (modo 0600, gravação atômica): `{ versao, servidor, token: 'sdd_…', usuario, contas, entrouEm, atualizadoEm }`.
+`cloud.json` (modo 0600, gravação atômica; com a guarda do sistema, `cloud.cifrado.json`, ver "Segredos no disco"):
+`{ versao, servidor, token: 'sdd_…', usuario, contas, entrouEm, atualizadoEm }`.
 Token de outro `servidor` é ignorado. A lista guardada deixa o app abrir sem internet com as contas da fila no lugar.
 Quando a lista muda (Drive reconectado no site), o `TransferManager` volta para a fila o que estava pausado com 'reauth'.
 
@@ -695,8 +698,9 @@ fila do celular: a cada 30 s (e no foco da tela) GET fila?status=pendente → PO
   com ffmpeg (`--ffmpeg-location`, `--merge-output-format mp4`, `--convert-thumbnails jpg`); sem ffmpeg só progressivos
   `b[height<=1080][ext=mp4]/b[ext=mp4]/…`; `--write-info-json --write-thumbnail`, `-P <pasta>`, `--max-filesize 4G`,
   `--progress-template "download:SDPROG …"`, `--cookies`, `--js-runtimes node:<Node do app>` e o link depois de `--`).
-  O YouTube exige um interpretador de JavaScript: o app passa o próprio executável com `ELECTRON_RUN_AS_NODE=1`
-  (no `npm start`, o Node). `Progresso` soma as partes (vídeo + áudio) e marca "juntando"; `classificarErro` transforma o
+  O YouTube exige um interpretador de JavaScript (`jsRuntimePadrao` em `binarios.js`): no app de desktop, o QuickJS-ng que
+  vai junto (`<Resources>/quickjs/qjs`, `--js-runtimes quickjs:<caminho>`; o fusível RunAsNode desligado não deixa mais
+  usar o próprio Electron); no `npm start`, o Node. Sem o QuickJS, o yt-dlp procura um deno/node do sistema sozinho. `Progresso` soma as partes (vídeo + áudio) e marca "juntando"; `classificarErro` transforma o
   stderr em frase curta (login, privado/removido, sem vídeo, não suportado, limite, recusado, rede, região, formato…).
   `baixarVideo` mata a árvore inteira (grupo de processos no Mac/Linux, `taskkill /T` no Windows) em cancelamento, tempo
   limite (30 min) e travamento (3 min sem saída).
@@ -763,9 +767,9 @@ Interface: tela **Referências** (`public/components/referencias.js`, rota `#/re
 salva (o app avisa no primeiro uso e no painel do navegador).
 
 O que só dá para conferir num Mac/Windows de verdade: a janela do navegador (WebContentsView, layout, menu de contexto,
-login do Instagram/Google dentro dela), o yt-dlp empacotado rodando com `--js-runtimes node:<Electron>` +
-`ELECTRON_RUN_AS_NODE=1` (fusível RunAsNode ligado), o `x64ArchFiles`/universal no `dist:mac`, o `taskkill /T` e a troca
-do yt-dlp atualizado no Windows (antivírus).
+login do Instagram/Google dentro dela), um vídeo do YouTube de ponta a ponta com o QuickJS empacotado (o teste de fumaça do
+CI só confere que ele roda; num Linux, o yt-dlp 2026.08.19 resolveu os desafios com o QuickJS-ng 0.17.0 em ~16 s), o
+`x64ArchFiles`/universal no `dist:mac`, o `taskkill /T` e a troca do yt-dlp atualizado no Windows (antivírus).
 
 ### engine/compare.js
 
@@ -1062,9 +1066,51 @@ Recepção do celular (`src/mobile/receiver.js`):
   - Transferências mostra os dois progressos: o que já chegou atrás (como o "carregado" de um player) e o que subiu na
     frente, mais a linha "Chegando do celular: X de Y · sobe junto".
 
-Empacotamento (`electron-builder.yml`, sem asar): `package.json`, `desktop/`, `src/`, `public/` e a casca do app do celular
-(`web/public/app/index.html`, `app.*`, `lib/`, `components/`, `vendor/`, `icons/`), que a recepção pelo Wi-Fi serve em `/m/`.
-Em `extraResources`: `ffmpeg/` (por arquitetura) e `ffmpeg-licencas/` (ver "media/previa*.js").
+Empacotamento (`electron-builder.yml`, com asar): `package.json`, `desktop/`, `src/`, `public/` e a casca do app do celular
+(`web/public/app/index.html`, `app.*`, `lib/`, `components/`, `vendor/`, `icons/`), que a recepção pelo Wi-Fi serve em `/m/`,
+vão dentro do `app.asar` (o Electron lê ESM, `utilityProcess.fork`, `worker_threads` e `fs` do motor de dentro dele).
+Em `extraResources` (fora do asar, executáveis): `ffmpeg/` (por arquitetura), `ffmpeg-licencas/`, `yt-dlp/`, `quickjs/`
+(por arquitetura) e `quickjs-licenca/`. Nada precisa de `asarUnpack`.
+
+### Proteção do app de desktop (revisão de segurança A9)
+
+**Fusíveis** (`electronFuses` no `electron-builder.yml`, aplicados pelo electron-builder com `@electron/fuses` antes de
+assinar): `RunAsNode` off, `EnableNodeOptionsEnvironmentVariable` off, `EnableNodeCliInspectArguments` off,
+`EnableCookieEncryption` on, `OnlyLoadAppFromAsar` on e `EnableEmbeddedAsarIntegrityValidation` on (o hash do `app.asar`
+vai no Info.plist no Mac e no recurso do `.exe` no Windows: JavaScript trocado no disco = app não abre).
+Sem assinatura da Apple/Microsoft (por enquanto), a integridade do asar ainda pode ser contornada por quem refaz a
+assinatura ad-hoc; ela pega a troca simples de arquivos, e no Mac o app re-assinado perde as permissões já dadas (TCC).
+
+**Segredos no disco** (`src/util/segredos.js`): `accounts.json`, `credentials.json` e `cloud.json` passam por
+`ArquivoSecreto(arquivo, { guarda })`. Guarda = `{ nome, disponivel(), cifrar(texto) → Buffer, decifrar(Buffer) → texto }`
+(assíncrona). Sem guarda (npm start, testes, modo servidor) = JSON 0600 de sempre. No app de desktop, a guarda é o
+`safeStorage` do Electron, que só existe no processo principal: o motor usa `guardaPorMensagens` (`{ type: 'cofre', id,
+op: 'estado'|'cifrar'|'decifrar', dados (base64) }` → `{ type: 'cofre-resposta', id, ok, disponivel?, dados?, erro? }`,
+2 min de espera por causa da pergunta do Keychain) e o processo principal responde com `responderCofre`
+(`desktop/cofre.js`). Linux com `basic_text` (sem keyring) conta como indisponível.
+- Arquivo cifrado: `<nome>.cifrado.json` (0600) = `{ "sobedesce-cofre": 1, guarda, dados: base64 }`.
+- Migração transparente: com a guarda disponível, o JSON antigo é lido, cifrado, conferido (decifra de volta) e só então
+  apagado. Guarda indisponível = segue o JSON, com um aviso no log (uma vez).
+- Nada some: cifrado que não abre (corrompido, outra chave, Keychain negado) fica no lugar e o app segue sem ele; antes de
+  gravar por cima, vira `<nome>.cifrado.json.guardado-<data>`. Se os dois existem, vale o mais novo (mtime).
+- `AuthManager.protecao` (`'sistema'|'arquivo'`) vai em `/api/state` → `app.protecao` (Ajustes → Avançado → "Onde ficam
+  os acessos"). Fora do escopo por enquanto: `mobile.json` (código da recepção pelo Wi-Fi, `src/mobile/receiver.js`).
+
+**Cookies do navegador de Referências** (`desktop/cookies-cifrados.js`): com `EnableCookieEncryption`, o Chromium só cifra
+o que grava daqui em diante. Na primeira abertura do app empacotado, antes de a sessão `persist:navegador` existir, os
+arquivos `Partitions/navegador/{,Network/}Cookies*` são apagados (marca `cookies-cifrados.json` na pasta do Electron); ao
+abrir o navegador, um aviso único diz "Entre de novo no Instagram uma vez". Ligar o fusível é sem volta: desligar de novo
+deixa os cookies cifrados ilegíveis.
+
+**Teste de fumaça** (`SOBEDESCE --smoke`, `desktop/smoke.js`): sem janela e sem a trava de instância, numa pasta temporária
+(dados, `userData`, logs) e numa porta aleatória, o processo principal sobe o motor de verdade e pede `{ type: 'smoke' }`;
+o motor confere `/api/state`, a interface servida (`/`, `/app.js`, `/styles.css`, `/components/settings.js`), a casca do
+app do celular, o MD5 no worker, ffmpeg (`-version`), yt-dlp (`--version`) e QuickJS (`--help`) de dentro do app, e um
+ciclo cifrar/decifrar pelo cofre. Escreve uma linha por item, `SMOKE OK` / `SMOKE FALHOU` (também no arquivo
+`SOBEDESCE_SMOKE_SAIDA`, se definido) e sai com 0 / 1 (2 = passou de 4 min). No Mac/Windows empacotado, faltar binário
+é falha (o ffmpeg do Windows ARM é exceção); o cofre só é exigido no Windows (no Mac do CI o Keychain pode estar
+travado: vira AVISO). O workflow roda isso no Mac e no Windows depois do build, também em pull requests, antes de
+publicar; e mostra os fusíveis com `electron-fuses read`.
 Sair com transferência ativa sempre pergunta (X da janela no Windows/Linux, ⌘Q no Mac, Arquivo → Sair); confirmado, o motor
 pausa, grava a fila e só então o app fecha.
 
