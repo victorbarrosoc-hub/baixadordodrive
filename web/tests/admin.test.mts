@@ -1,4 +1,4 @@
-/** Tela de admin: quem é admin (só pelo e-mail de um Drive conectado), lista, resumo e busca. */
+/** Tela de admin: quem é admin (só pelo e-mail de um Drive conectado e confirmado pelo Google), lista, resumo e busca. */
 import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
 import { after, before, describe, test } from "node:test";
@@ -21,8 +21,8 @@ before(async () => {
     { id: "u-beto", email: "beto@exemplo.com", nome: "Beto Cor", senhaHash: "scrypt$16384$8$1$x$y", criadoEm: new Date(agora - 60 * dia), ultimoLoginEm: new Date(agora - 40 * dia) },
   ]);
   await db.db.insert(schema.contasGoogle).values([
-    { id: "g1", usuarioId: "u-victor", googleSub: "s1", email: "Contato@Dissesim.com.br", refreshTokenEnc: "x", estado: "ok" },
-    { id: "g2", usuarioId: "u-ana", googleSub: "s2", email: "ana.drive@exemplo.com", refreshTokenEnc: "x", estado: "reconectar" },
+    { id: "g1", usuarioId: "u-victor", googleSub: "s1", email: "Contato@Dissesim.com.br", refreshTokenEnc: "x", estado: "ok", emailVerificado: true },
+    { id: "g2", usuarioId: "u-ana", googleSub: "s2", email: "ana.drive@exemplo.com", refreshTokenEnc: "x", estado: "reconectar", emailVerificado: true },
   ]);
   await db.db.insert(schema.sessoes).values([
     { id: "s1", usuarioId: "u-ana", tokenHash: "h1", tipo: "dispositivo", nome: "Mac", plataforma: "mac", ultimoUsoEm: new Date(agora - 3600_000), expiraEm: new Date(agora + 30 * dia) },
@@ -58,6 +58,19 @@ describe("admin", () => {
       assert.equal(await admin.ehAdmin({ id: "u-intruso", email: "contato@dissesim.com.br" }), false);
     } finally {
       await db.db.delete(db.schema.usuarios).where(eq(db.schema.usuarios.id, "u-intruso"));
+    }
+  });
+
+  test("Drive com o e-mail da lista mas não confirmado pelo Google não é admin (A2)", async () => {
+    // Dá para criar uma conta Google com o e-mail de outra pessoa sem confirmar: o userinfo diz email_verified false.
+    await db.db.insert(db.schema.usuarios).values({ id: "u-falso", email: "falso@exemplo.com", nome: "Falso", senhaHash: "scrypt$16384$8$1$x$y" });
+    try {
+      await db.db.insert(db.schema.contasGoogle).values({ id: "g-falso", usuarioId: "u-falso", googleSub: "s-falso", email: "contato@dissesim.com.br", refreshTokenEnc: "x" });
+      assert.equal(await admin.ehAdmin({ id: "u-falso" }), false);
+      await db.db.update(db.schema.contasGoogle).set({ emailVerificado: true }).where(eq(db.schema.contasGoogle.id, "g-falso"));
+      assert.equal(await admin.ehAdmin({ id: "u-falso" }), true, "confirmado, vale");
+    } finally {
+      await db.db.delete(db.schema.usuarios).where(eq(db.schema.usuarios.id, "u-falso"));
     }
   });
 

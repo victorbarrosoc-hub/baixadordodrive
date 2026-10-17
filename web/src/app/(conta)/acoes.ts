@@ -13,11 +13,11 @@ import { frase as fraseEncerrado } from "@/lib/auth/encerrar";
 import { criarConta, entrarComSenha, trocarNome, trocarSenha } from "@/lib/auth/contas";
 import { dentroDoLimite, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "@/lib/auth/limite";
 import { COOKIE_SESSAO, revogarDispositivo, revogarPorToken } from "@/lib/auth/sessao";
-import { pedirRedefinicao, redefinirSenha } from "@/lib/auth/redefinir";
+import { pedirPrimeiraSenha, pedirRedefinicao, redefinirSenha } from "@/lib/auth/redefinir";
 import { voltaSegura } from "@/lib/auth/volta";
 import { aprovar, buscarPedido, cancelar, normalizarCodigo } from "@/lib/dispositivo";
 import { avisarComputadorConectado } from "@/lib/email/avisos";
-import { removerConta } from "@/lib/google/contas";
+import { removerConta, trocarGoogleDeEntrar } from "@/lib/google/contas";
 import { ehAdmin } from "@/lib/admin";
 import { ehPlano, trocarPlano } from "@/lib/recursos";
 
@@ -92,10 +92,33 @@ export async function acaoTrocarSenha(_: EstadoForm, fd: FormData): Promise<Esta
   return { ok: fraseEncerrado(r.encerrado, "Senha trocada") };
 }
 
+/** Conta criada pelo Google, ainda sem senha: a primeira senha sai por um link no e-mail (revisão A5). */
+export async function acaoPedirPrimeiraSenha(): Promise<EstadoForm> {
+  const atual = await sessaoDoSite();
+  if (!atual) return RECUSADO;
+  const r = await pedirPrimeiraSenha({ usuarioId: atual.usuario.id, ip: await ipAtual(), depois: (t) => after(t) });
+  if (!r.ok) return { erro: r.mensagem };
+  return { ok: r.mensagem };
+}
+
+/** O Google que entra na conta (revisão A3). Pede a senha atual. `conta` vazio = nenhum (só e-mail e senha). */
+export async function acaoTrocarGoogleDeEntrar(_: EstadoForm, fd: FormData): Promise<EstadoForm> {
+  const atual = await sessaoDoSite();
+  if (!atual) return RECUSADO;
+  const conta = texto(fd, "conta");
+  const r = await trocarGoogleDeEntrar({ usuarioId: atual.usuario.id, contaId: conta || null, senhaAtual: texto(fd, "senhaAtual") });
+  if (!r.ok) return { erro: r.mensagem, campo: r.campo };
+  refresh();
+  return { ok: r.conta ? `Pronto. Agora ${r.conta.email} entra na conta.` : "Pronto. Nenhum Google entra na conta: só e-mail e senha." };
+}
+
 export async function acaoRemoverDrive(contaId: string): Promise<EstadoForm> {
   const atual = await sessaoDoSite();
   if (!atual) return RECUSADO;
-  await removerConta(atual.usuario.id, String(contaId));
+  const r = await removerConta(atual.usuario.id, String(contaId));
+  if (!r.ok && r.erro === "google_de_entrar") {
+    return { erro: "É com este Google que você entra na conta. Crie uma senha antes de removê-lo." };
+  }
   refresh();
   return { ok: "Drive removido." };
 }

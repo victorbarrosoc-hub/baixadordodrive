@@ -202,7 +202,8 @@ export function emHtml(c: ColecaoAberta, base: string): string {
 <link rel="alternate" type="text/markdown" href="${esc(md)}">
 <link rel="alternate" type="application/json" href="${esc(base)}.json">
 <style>
-:root{color-scheme:light;--bg:#fbfbfd;--card:#fff;--ink:#1d1d1f;--ink2:#6e6e73;--ink3:#8e8e93;--line:rgba(60,60,67,.12);--up:#5b3df0;--down:#0068d6}
+:root{color-scheme:light dark;--bg:#fbfbfd;--card:#fff;--ink:#1d1d1f;--ink2:#6e6e73;--ink3:#8e8e93;--line:rgba(60,60,67,.12);--up:#5b3df0;--down:#0068d6;--n:#f5f5f7;--n2:#ececf0}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--ink:#f5f5f7;--ink2:#aeaeb2;--ink3:#8e8e93;--line:rgba(235,235,245,.14);--up:#b4a3ff;--down:#64b0ff;--n:#2c2c2e;--n2:#3a3a3c}}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
@@ -220,7 +221,7 @@ h1{font-size:clamp(34px,6vw,48px);line-height:1.06;letter-spacing:-.025em;margin
 ol{list-style:none;margin:40px 0 0;padding:0;border-radius:18px;background:var(--card);box-shadow:0 0 0 1px var(--line);overflow:hidden}
 .item{display:flex;gap:16px;padding:22px 22px 22px 18px;border-top:1px solid var(--line)}
 .item:first-child{border-top:0}
-.n{flex:none;width:28px;height:28px;border-radius:999px;background:#f5f5f7;color:var(--ink2);font-size:13px;font-weight:600;display:grid;place-items:center;font-variant-numeric:tabular-nums}
+.n{flex:none;width:28px;height:28px;border-radius:999px;background:var(--n);color:var(--ink2);font-size:13px;font-weight:600;display:grid;place-items:center;font-variant-numeric:tabular-nums}
 .corpo{min-width:0;flex:1}
 h2{margin:2px 0 4px;font-size:18px;line-height:1.3;letter-spacing:-.01em;font-weight:600;overflow-wrap:anywhere}
 .meta{margin:0;color:var(--ink2);font-size:14px}
@@ -228,8 +229,8 @@ h2{margin:2px 0 4px;font-size:18px;line-height:1.3;letter-spacing:-.01em;font-we
 .legenda{margin:12px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px}
 .url{margin:10px 0 0;font:12px/1.4 "SF Mono",ui-monospace,Menlo,monospace;color:var(--ink3);overflow-wrap:anywhere}
 .links{margin:12px 0 0;display:flex;flex-wrap:wrap;gap:8px}
-.links a{display:inline-flex;align-items:center;height:34px;padding:0 14px;border-radius:999px;background:#f5f5f7;color:var(--ink);text-decoration:none;font-size:14px;font-weight:500}
-.links a:hover{background:#ececf0}
+.links a{display:inline-flex;align-items:center;height:34px;padding:0 14px;border-radius:999px;background:var(--n);color:var(--ink);text-decoration:none;font-size:14px;font-weight:500}
+.links a:hover{background:var(--n2)}
 .vazio{padding:40px 22px;text-align:center;color:var(--ink2)}
 footer{margin-top:28px;color:var(--ink3);font-size:13px;text-align:center}
 footer a{color:inherit}

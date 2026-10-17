@@ -6,7 +6,7 @@ export function Cabecalho({ acao }: { acao?: React.ReactNode }) {
     <header className="mx-auto flex h-16 w-full max-w-[1080px] items-center justify-between px-5 sm:h-20 sm:px-8">
       <Link
         href="/"
-        className="rounded-full text-[15px] font-semibold tracking-[0.16em] text-ink transition-opacity hover:opacity-70"
+        className="toque rounded-full text-[15px] font-semibold tracking-[0.16em] text-ink transition-opacity hover:opacity-70"
         aria-label="SOBEDESCE, página inicial"
       >
         SOBEDESCE

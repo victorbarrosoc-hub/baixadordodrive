@@ -39,7 +39,7 @@ function Plano({ p }: { p: PessoaAdmin }) {
         id={`plano-${p.id}`}
         name="plano"
         defaultValue={p.plano}
-        className="h-8 rounded-full bg-surface-2 pr-2 pl-3 text-[13px] font-medium ring-1 ring-line outline-none focus:ring-2 focus:ring-up"
+        className="h-11 rounded-full bg-surface-2 pr-2 pl-3 sm:h-8 text-[13px] font-medium ring-1 ring-line outline-none focus:ring-2 focus:ring-up"
       >
         {PLANOS.map((pl) => (
           <option key={pl} value={pl}>
@@ -47,7 +47,7 @@ function Plano({ p }: { p: PessoaAdmin }) {
           </option>
         ))}
       </select>
-      <button type="submit" className="h-8 rounded-full px-3 text-[13px] font-medium text-ink-2 ring-1 ring-line hover:bg-surface-2 hover:text-ink">
+      <button type="submit" className="toque h-11 rounded-full px-3 sm:h-8 text-[13px] font-medium text-ink-2 ring-1 ring-line hover:bg-surface-2 hover:text-ink">
         Salvar
       </button>
     </form>

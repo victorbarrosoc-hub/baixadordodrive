@@ -3,7 +3,8 @@
  * Tabelas definidas em docs/CONTAS.md §3. Depois de mudar: npm run db:generate.
  * Colunas em camelCase aqui, snake_case no banco (casing do Drizzle).
  */
-import { bigint, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigint, boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import type { StatusComputador } from "../acompanhar/formato";
 
 /** Data e hora com fuso. `agora()`: obrigatória, padrão now(). */
@@ -53,7 +54,11 @@ export const sessoes = pgTable(
 
 export type EstadoContaGoogle = "ok" | "reconectar";
 
-/** Contas Google vinculadas. Uma conta Google pertence a uma só conta SOBEDESCE (googleSub único). */
+/**
+ * Contas Google vinculadas. Uma conta Google pertence a uma só conta SOBEDESCE (googleSub único).
+ * "Entrar com Google" só vale pela que tem `loginPermitido` (no máximo uma por conta, índice parcial abaixo):
+ * a que criou a conta, ou a que a pessoa escolheu em /conta. Conectar outro Drive não abre a conta (revisão A3).
+ */
 export const contasGoogle = pgTable(
   "contas_google",
   {
@@ -71,12 +76,21 @@ export const contasGoogle = pgTable(
     accessExpiraEm: quando(),
     escopos: text().notNull().default(""),
     estado: text().$type<EstadoContaGoogle>().notNull().default("ok"),
+    /** Este Google serve para entrar na conta ("Entrar com Google"). */
+    loginPermitido: boolean().notNull().default(false),
+    /** O Google confirmou o e-mail (email_verified do userinfo) na última vez que conectou ou entrou. */
+    emailVerificado: boolean().notNull().default(false),
     /** Pasta "SOBEDESCE Referências" deste Drive (achada ou criada na primeira coleção). */
     referenciasPastaId: text(),
     criadoEm: agora(),
     atualizadoEm: agora(),
   },
-  (t) => [index("contas_google_usuario_idx").on(t.usuarioId)],
+  (t) => [
+    index("contas_google_usuario_idx").on(t.usuarioId),
+    uniqueIndex("contas_google_login_idx")
+      .on(t.usuarioId)
+      .where(sql`${t.loginPermitido}`),
+  ],
 );
 
 /** Fluxo de dispositivo: o computador pede um código, a pessoa libera em /dispositivo. */
@@ -93,6 +107,10 @@ export const codigosDispositivo = pgTable("codigos_dispositivo", {
   usadoEm: quando(),
   /** Última consulta do computador (limite de ritmo do /aguardar). */
   consultadoEm: quando(),
+  /** De onde veio o pedido (revisão A6): IP e, na Vercel, cidade e país aproximados. Some com o código. */
+  pedidoIp: text(),
+  pedidoCidade: text(),
+  pedidoPais: text(),
   expiraEm: quando().notNull(),
   criadoEm: agora(),
 });

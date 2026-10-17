@@ -34,7 +34,7 @@ export default async function EsqueciASenha() {
       )}
       <p className="mt-12 text-center text-[15px] text-ink-2">
         Lembrou?{" "}
-        <Link href="/entrar" className="font-medium text-ink underline-offset-4 hover:underline">
+        <Link href="/entrar" className="toque font-medium text-ink underline-offset-4 hover:underline">
           Entrar
         </Link>
       </p>

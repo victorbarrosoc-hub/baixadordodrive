@@ -1,11 +1,13 @@
 /**
  * "Esqueci a senha": pedir (resposta sempre igual) → e-mail com link de 1 hora e uso único
  * → senha nova, tudo o que estava ligado na conta encerrado (lib/auth/encerrar.ts) e uma sessão nova.
+ * O mesmo link cria a primeira senha de uma conta criada pelo Google (pedirPrimeiraSenha, revisão A5).
+ * Link usado ou vencido é apagado de verdade (a política de privacidade promete guardar por uma hora).
  */
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { emailDisponivel, enviarEmail } from "@/lib/email/enviar";
-import { emailEsqueciSenha } from "@/lib/email/modelos";
+import { emailEsqueciSenha, emailPrimeiraSenha } from "@/lib/email/modelos";
 import { emailValido, normalizarEmail, type Entrou, type Falha } from "./contas";
 import { encerrarAcessos, type Encerrado } from "./encerrar";
 import { dentroDoLimite, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "./limite";
@@ -18,6 +20,15 @@ const { redefinicoesSenha, usuarios } = schema;
 export const VALIDADE_LINK_MS = 60 * 60_000;
 export const MENSAGEM_PEDIDO = "Se existir uma conta com este e-mail, mandamos um link para criar uma senha nova. Confira a caixa de entrada e o spam.";
 export const MENSAGEM_INDISPONIVEL = "O envio de e-mail ainda não está ligado. Fale com o Victor para trocar a senha.";
+
+/** Apaga os links já usados ou vencidos (de todo mundo). Barato: a tabela só tem os links da última hora. */
+export async function apagarLinksVencidos(agora = new Date()): Promise<number> {
+  const r = await db
+    .delete(redefinicoesSenha)
+    .where(or(isNotNull(redefinicoesSenha.usadoEm), lt(redefinicoesSenha.expiraEm, agora)))
+    .returning({ id: redefinicoesSenha.id });
+  return r.length;
+}
 
 /** Agenda trabalho depois da resposta (Next: `after`); nos testes roda na hora. */
 export type Depois = (tarefa: () => Promise<unknown>) => void;
@@ -38,6 +49,7 @@ export async function pedirRedefinicao(entrada: { email: unknown; ip: string; de
   await registrarTentativa(chaveEmail, chaveIp);
 
   entrada.depois(async () => {
+    await apagarLinksVencidos();
     const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.email, email), columns: { id: true, nome: true, email: true } });
     if (!usuario) return;
     const token = novoToken();
@@ -45,6 +57,31 @@ export async function pedirRedefinicao(entrada: { email: unknown; ip: string; de
     await enviarEmail(emailEsqueciSenha(usuario.email, usuario.nome, token));
   });
   return { ok: true, mensagem: MENSAGEM_PEDIDO };
+}
+
+/**
+ * Primeira senha de quem entrou pelo Google (revisão A5): a sessão aberta não basta (pode ser roubada), então o link
+ * vai para o e-mail da conta, que é o e-mail que o Google confirmou ao criar a conta. Mesmo link e mesmo limite do
+ * "Esqueci a senha".
+ */
+export async function pedirPrimeiraSenha(entrada: { usuarioId: string; ip: string; depois: Depois }): Promise<{ ok: true; mensagem: string } | Falha> {
+  if (!emailDisponivel()) return { ok: false, erro: "indisponivel", mensagem: MENSAGEM_INDISPONIVEL };
+  const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, entrada.usuarioId), columns: { id: true, nome: true, email: true, senhaHash: true } });
+  if (!usuario) return { ok: false, erro: "sem_sessao", mensagem: "Entre na sua conta para continuar." };
+  if (usuario.senhaHash.startsWith("scrypt$")) return { ok: false, erro: "tem_senha", mensagem: "Esta conta já tem senha. Troque com a senha atual." };
+  const chaveEmail = `esqueci:${usuario.email}`;
+  const chaveIp = `esqueci-ip:${entrada.ip}`;
+  const [porEmail, porIp] = await Promise.all([dentroDoLimite(chaveEmail, REGRAS.esqueciEmail), dentroDoLimite(chaveIp, REGRAS.esqueciIp)]);
+  if (!porEmail || !porIp) return { ok: false, erro: "devagar", mensagem: MENSAGEM_LIMITE };
+  await registrarTentativa(chaveEmail, chaveIp);
+
+  entrada.depois(async () => {
+    await apagarLinksVencidos();
+    const token = novoToken();
+    await db.insert(redefinicoesSenha).values({ id: novoId(), usuarioId: usuario.id, tokenHash: hashToken(token), expiraEm: new Date(Date.now() + VALIDADE_LINK_MS) });
+    await enviarEmail(emailPrimeiraSenha(usuario.email, usuario.nome, token));
+  });
+  return { ok: true, mensagem: `Mandamos um link para ${usuario.email}. Ele vale por uma hora.` };
 }
 
 const FORMATO = /^[A-Za-z0-9_-]{43}$/;
@@ -56,6 +93,7 @@ export async function linkValido(token: unknown): Promise<boolean> {
     where: and(eq(redefinicoesSenha.tokenHash, hashToken(token)), isNull(redefinicoesSenha.usadoEm), gt(redefinicoesSenha.expiraEm, new Date())),
     columns: { id: true },
   });
+  if (!r) await apagarLinksVencidos();
   return Boolean(r);
 }
 
@@ -83,8 +121,9 @@ export async function redefinirSenha(entrada: { token: unknown; senha: unknown; 
   const senhaHash = await hashSenha(senha);
   await db.update(usuarios).set({ senhaHash, atualizadoEm: agora, ultimoLoginEm: agora }).where(eq(usuarios.id, usuarioId));
   const encerrado = await encerrarAcessos(usuarioId, { links: entrada.links === true });
-  // Os outros links pendentes deste usuário também deixam de valer.
-  await db.update(redefinicoesSenha).set({ usadoEm: agora }).where(and(eq(redefinicoesSenha.usuarioId, usuarioId), isNull(redefinicoesSenha.usadoEm)));
+  // Este link e os outros pendentes deste usuário deixam de valer e saem do banco (e os vencidos de todo mundo).
+  await db.delete(redefinicoesSenha).where(eq(redefinicoesSenha.usuarioId, usuarioId));
+  await apagarLinksVencidos(agora);
 
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId), columns: { id: true, email: true, nome: true } });
   if (!usuario) return { ok: false, erro: "link", mensagem: MENSAGEM_LINK_VENCIDO };

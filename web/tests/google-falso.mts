@@ -10,7 +10,8 @@ import { createHash, randomBytes } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
-export type ContaFalsa = { sub: string; email: string; name: string; picture?: string };
+/** `verificado: false`: o Google não confirmou o e-mail (email_verified false no userinfo). */
+export type ContaFalsa = { sub: string; email: string; name: string; picture?: string; verificado?: boolean };
 
 type Codigo = { desafio: string; redirectUri: string; conta: ContaFalsa; escopo: string; usado: boolean; expira: number };
 type Refresh = { conta: ContaFalsa; escopo: string; revogado: boolean };
@@ -204,8 +205,8 @@ export async function iniciarGoogleFalso(cliente: { clientId: string; clientSecr
         const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] ?? "";
         const a = acessos.get(token);
         if (!a || a.revogado || a.expira < Date.now()) return enviar(res, 401, { error: "invalid_token" });
-        const { sub, email, name, picture } = a.conta;
-        return enviar(res, 200, { sub, email, email_verified: true, name, picture });
+        const { sub, email, name, picture, verificado } = a.conta;
+        return enviar(res, 200, { sub, email, email_verified: verificado !== false, name, picture });
       }
 
       if (url.pathname.startsWith("/drive/v3/files")) {

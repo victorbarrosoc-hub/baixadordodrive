@@ -17,7 +17,7 @@ export function FormNovaSenha({ token }: { token: string }) {
         <Aviso tom="erro">
           <p>{estado.erro}</p>
           <p>
-            <Link href="/esqueci-a-senha" className="font-medium text-ink underline underline-offset-4">
+            <Link href="/esqueci-a-senha" className="toque font-medium text-ink underline underline-offset-4">
               Pedir outro link
             </Link>
           </p>

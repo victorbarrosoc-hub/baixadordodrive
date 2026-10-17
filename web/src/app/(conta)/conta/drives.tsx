@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { KeyRound, Trash2 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { Avatar } from "@/components/conta/avatar";
 import { BotaoGoogle } from "@/components/conta/google";
@@ -18,10 +18,23 @@ function Estado({ estado }: { estado: Conta["estado"] }) {
   );
 }
 
-function Linha({ conta }: { conta: Conta }) {
+function Linha({ conta, entra }: { conta: Conta; entra: boolean }) {
   const [confirmando, setConfirmando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const [pendente, iniciar] = useTransition();
   const nome = conta.nome || conta.email;
+  const abrirConfirmacao = () => {
+    setErro(null);
+    setConfirmando(true);
+  };
+  const remover = () =>
+    iniciar(async () => {
+      const r = await acaoRemoverDrive(conta.id);
+      if (r?.erro) {
+        setErro(r.erro);
+        setConfirmando(false);
+      }
+    });
 
   return (
     <li className="px-5 py-4 sm:px-6">
@@ -34,7 +47,15 @@ function Linha({ conta }: { conta: Conta }) {
               {conta.email}
             </p>
           ) : null}
-          <Estado estado={conta.estado} />
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Estado estado={conta.estado} />
+            {entra ? (
+              <span className="inline-flex items-center gap-1 text-[13px] text-ink-2">
+                <KeyRound aria-hidden className="size-3.5" />
+                Entra na conta
+              </span>
+            ) : null}
+          </span>
         </div>
         {!confirmando ? (
           <div className="flex shrink-0 items-center gap-1">
@@ -46,12 +67,12 @@ function Linha({ conta }: { conta: Conta }) {
               </span>
             ) : null}
             <span className="sm:hidden">
-              <Button variant="ghost" size="sm" className="-mr-2 size-9 px-0 text-ink-2" aria-label={`Remover ${conta.email}`} onClick={() => setConfirmando(true)}>
+              <Button variant="ghost" size="sm" className="-mr-2 size-9 px-0 text-ink-2" aria-label={`Remover ${conta.email}`} onClick={abrirConfirmacao}>
                 <Trash2 aria-hidden />
               </Button>
             </span>
             <span className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="-mr-2 px-3" onClick={() => setConfirmando(true)}>
+              <Button variant="ghost" size="sm" className="-mr-2 px-3" onClick={abrirConfirmacao}>
                 Remover
               </Button>
             </span>
@@ -72,24 +93,30 @@ function Linha({ conta }: { conta: Conta }) {
             <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setConfirmando(false)} disabled={pendente}>
               Cancelar
             </Button>
-            <Button variant="danger" size="sm" className="flex-1 sm:flex-none" disabled={pendente} onClick={() => iniciar(async () => void (await acaoRemoverDrive(conta.id)))}>
+            <Button variant="danger" size="sm" className="flex-1 sm:flex-none" disabled={pendente} onClick={remover}>
               {pendente ? "Removendo…" : "Remover"}
             </Button>
           </div>
         </div>
       ) : null}
+      {erro ? (
+        <p role="alert" className="mt-3 text-[14px] leading-relaxed text-pretty text-err-text">
+          {erro}
+        </p>
+      ) : null}
     </li>
   );
 }
 
-export function Drives({ contas }: { contas: Conta[] }) {
+/** `entrar`: id do Google que entra na conta (marcado com "Entra na conta"). */
+export function Drives({ contas, entrar = null }: { contas: Conta[]; entrar?: string | null }) {
   if (contas.length === 0) {
     return <p className="px-5 pt-6 pb-5 text-[15px] text-ink-2 sm:px-6">Nenhum Drive conectado ainda.</p>;
   }
   return (
     <ul className="divide-y divide-line">
       {contas.map((c) => (
-        <Linha key={c.id} conta={c} />
+        <Linha key={c.id} conta={c} entra={c.id === entrar} />
       ))}
     </ul>
   );

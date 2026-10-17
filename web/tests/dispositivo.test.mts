@@ -86,6 +86,16 @@ describe("fluxo de dispositivo", () => {
     assert.equal(p.aprovado, false);
   });
 
+  test("a tela de liberar mostra quando e de onde veio o pedido (A6)", async () => {
+    const p = await dispositivo.buscarPedido(codigo);
+    assert.ok(p);
+    assert.ok(Date.now() - p.criadoEm.getTime() < 60_000, "quando: agora há pouco");
+    assert.deepEqual(p.lugar, { ip: "10.0.0.1", cidade: null, pais: null }, "fora da Vercel, só o IP");
+    assert.equal(dispositivo.mesmaRede(p.lugar.ip, "10.0.0.1"), true);
+    assert.equal(dispositivo.mesmaRede(p.lugar.ip, "10.0.0.2"), false);
+    assert.equal(dispositivo.mesmaRede(null, null), false, "sem IP não diz que é a mesma rede");
+  });
+
   test("liberar e buscar: o token sai uma vez só", async () => {
     assert.equal(await dispositivo.aprovar(codigo, usuario.id), true);
     assert.equal(await dispositivo.aprovar(codigo, usuario.id), false, "não aprova duas vezes");
@@ -102,6 +112,9 @@ describe("fluxo de dispositivo", () => {
     assert.equal(deNovo.status, 410);
     assert.equal((await deNovo.json()).erro, "expirado");
     assert.equal(await dispositivo.buscarPedido(codigo), null, "o código usado some da tela");
+    const { db, schema } = amb.banco;
+    const [linha] = await db.select().from(schema.codigosDispositivo).where(drizzle.eq(schema.codigosDispositivo.codigo, codigo));
+    assert.deepEqual([linha.pedidoIp, linha.pedidoCidade, linha.pedidoPais], [null, null, null], "de onde veio sai junto com o uso");
   });
 
   test("o Bearer vale em /api/eu (sem cookie) e aparece nos computadores da conta", async () => {
@@ -162,6 +175,40 @@ describe("pedidos que não servem", () => {
     assert.equal(await dispositivo.buscarPedido(r.codigo), null);
     await liberarRitmo();
     assert.equal((await consultar(r.segredo)).status, 410);
+  });
+
+  test("na Vercel: cidade e país pelos cabeçalhos dela, com nome do país em português", async () => {
+    const { lugarDe } = await import("../src/lib/http");
+    const h = new Headers({ "x-real-ip": "177.10.20.30", "x-vercel-ip-city": "S%C3%A3o%20Paulo", "x-vercel-ip-country": "BR" });
+    assert.deepEqual(lugarDe(h, { VERCEL: "1" }), { ip: "177.10.20.30", cidade: "São Paulo", pais: "BR" });
+    assert.deepEqual(lugarDe(h, {}), { ip: "177.10.20.30", cidade: null, pais: null }, "fora da Vercel o cabeçalho pode ser de quem pediu");
+    const lixo = new Headers({ "x-vercel-ip-city": "%E0%A4%A", "x-vercel-ip-country": "<script>" });
+    assert.deepEqual(lugarDe(lixo, { VERCEL: "1" }), { ip: null, cidade: "%E0%A4%A", pais: null });
+    assert.equal(dispositivo.lugarLegivel({ cidade: "Natal", pais: "BR" }), "Natal, Brasil");
+    assert.equal(dispositivo.lugarLegivel({ cidade: null, pais: "PT" }), "Portugal");
+    assert.equal(dispositivo.lugarLegivel({ cidade: null, pais: null }), null);
+
+    const prev = process.env.VERCEL;
+    process.env.VERCEL = "1";
+    try {
+      const res = await iniciar.POST(
+        new Request(`${SITE}/api/dispositivo/iniciar`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-real-ip": "200.1.2.3", "x-vercel-ip-city": "Natal", "x-vercel-ip-country": "BR" },
+          body: JSON.stringify({ nome: "MacBook Pro de Victor", plataforma: "mac" }),
+        }),
+      );
+      const r = await res.json();
+      const p = await dispositivo.buscarPedido(r.codigo);
+      assert.deepEqual(p?.lugar, { ip: "200.1.2.3", cidade: "Natal", pais: "BR" });
+      await dispositivo.cancelar(r.codigo);
+      const { db, schema } = amb.banco;
+      const [linha] = await db.select().from(schema.codigosDispositivo).where(drizzle.eq(schema.codigosDispositivo.codigo, r.codigo));
+      assert.equal(linha.pedidoIp, null, "não fui eu: o IP sai na hora");
+    } finally {
+      if (prev === undefined) delete process.env.VERCEL;
+      else process.env.VERCEL = prev;
+    }
   });
 
   test("nome do computador é limpo e tem limite", () => {

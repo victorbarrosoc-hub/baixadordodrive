@@ -31,7 +31,7 @@ function aviso(formato: Formato, status: number, titulo: string, texto: string) 
   return resposta(
     formato,
     status,
-    `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>${esc(titulo)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#fbfbfd;color:#1d1d1f;font:16px/1.5 -apple-system,BlinkMacSystemFont,Inter,system-ui,sans-serif;padding:24px;text-align:center}h1{font-size:26px;margin:0 0 8px;letter-spacing:-.02em}p{margin:0;color:#6e6e73}</style></head><body><main><h1>${esc(titulo)}</h1><p>${esc(texto)}</p></main></body></html>`,
+    `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>${esc(titulo)}</title><style>:root{color-scheme:light dark}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#fbfbfd;color:#1d1d1f;font:16px/1.5 -apple-system,BlinkMacSystemFont,Inter,system-ui,sans-serif;padding:24px;text-align:center}h1{font-size:26px;margin:0 0 8px;letter-spacing:-.02em}p{margin:0;color:#6e6e73}@media (prefers-color-scheme:dark){body{background:#000;color:#f5f5f7}p{color:#aeaeb2}}</style></head><body><main><h1>${esc(titulo)}</h1><p>${esc(texto)}</p></main></body></html>`,
   );
 }
 
