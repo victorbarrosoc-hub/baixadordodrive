@@ -144,6 +144,10 @@ const KINDS = {
   archive: ['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'dmg', 'iso'],
   doc: ['pdf', 'doc', 'docx', 'txt', 'rtf', 'pages', 'xls', 'xlsx', 'csv', 'numbers', 'ppt', 'pptx', 'key', 'srt', 'vtt', 'md', 'json'],
 }
+// Formatos de câmera (BRAW, R3D, ARRI, Canon RAW, MXF, Phantom…): sempre vídeo, mesmo quando o Drive diz
+// application/octet-stream. A prévia (lib/media.js) e o filtro da tela Drive (lib/ordenar.js) usam o mesmo conjunto.
+export const CAMERA_EXT = new Set(['braw', 'r3d', 'ari', 'arx', 'crm', 'mxf', 'cine', 'nev'])
+
 const EXT_KIND = new Map()
 for (const [kind, exts] of Object.entries(KINDS)) for (const e of exts) EXT_KIND.set(e, kind)
 

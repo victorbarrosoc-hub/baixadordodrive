@@ -137,7 +137,7 @@ export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview
       else onPreview(it)
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
       e.preventDefault()
-      onSelect(new Set(shown.map((x) => x.id)))
+      onSelect(new Set(sorted.map((x) => x.id))) // tudo o que está visível
     } else if (e.key === 'Escape' && selected.size) {
       e.stopPropagation()
       onSelect(new Set())

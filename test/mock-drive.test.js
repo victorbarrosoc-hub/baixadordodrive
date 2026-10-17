@@ -472,6 +472,31 @@ test('files.create, PATCH e DELETE: pastas, renomear, mover e lixeira', async t 
   await rejectsWith(httpRequest(`${api}/files/root`, { method: 'DELETE', headers: auth, expect: [204] }), 403)
 })
 
+test('lixeira: trashed só booleano, sem permissão (canTrash) dá 403 e drive compartilhado exige supportsAllDrives', async t => {
+  const { mock, api, auth } = await setup(t)
+  const pasta = mock.addFolder('Diária 02')
+  const meta = mock.addFile('._A003_C001.braw', pasta.id, { size: 4096 })
+  const so = mock.addFile('._A003_C002.braw', pasta.id, { size: 4096, canTrash: false })
+  const caps = await requestJSON(`${api}/files/${so.id}?fields=capabilities(canTrash)`, { headers: auth })
+  assert.equal(caps.capabilities.canTrash, false)
+  await rejectsWith(requestJSON(`${api}/files/${meta.id}`, { method: 'PATCH', headers: auth, body: { trashed: 'true' } }), 400, 'invalid')
+  await rejectsWith(requestJSON(`${api}/files/${so.id}`, { method: 'PATCH', headers: auth, body: { trashed: true } }), 403, 'insufficientFilePermissions')
+  assert.equal(mock.getItem(so.id).trashed, false)
+  const r = await requestJSON(`${api}/files/${meta.id}?fields=id,trashed`, { method: 'PATCH', headers: auth, body: { trashed: true } })
+  assert.deepEqual(r, { id: meta.id, trashed: true })
+  const list = await requestJSON(`${api}/files?q=${encodeURIComponent(`'${pasta.id}' in parents and trashed = false`)}&fields=files(id)`, { headers: auth })
+  assert.deepEqual(list.files.map(f => f.id), [so.id])
+  // Tirar da lixeira volta para a lista (e quem não pode jogar fora pode tirar).
+  await requestJSON(`${api}/files/${meta.id}?fields=id`, { method: 'PATCH', headers: auth, body: { trashed: false } })
+  assert.equal(mock.getItem(meta.id).trashed, false)
+
+  const sd = mock.addSharedDrive('Acervo')
+  const dentro = mock.addFile('.DS_Store', sd.id, { size: 6148 })
+  await rejectsWith(requestJSON(`${api}/files/${dentro.id}`, { method: 'PATCH', headers: auth, body: { trashed: true } }), 404, 'notFound')
+  await requestJSON(`${api}/files/${dentro.id}?supportsAllDrives=true&fields=trashed`, { method: 'PATCH', headers: auth, body: { trashed: true } })
+  assert.equal(mock.getItem(dentro.id).trashed, true)
+})
+
 // ───────────────────────────── download ─────────────────────────────
 
 test('download: Range devolve exatamente os bytes do arquivo', async t => {

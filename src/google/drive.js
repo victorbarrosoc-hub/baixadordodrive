@@ -715,6 +715,24 @@ export class DriveClient {
   }
 
   /**
+   * Manda o item para a lixeira do Drive (files.update trashed: true; recuperável por 30 dias). Só pela ação explícita
+   * de quem usa o app (rota POST /api/drive/:acc/lixeira/mac, com confirmação na tela). Sem permissão (leitor, ou
+   * colaborador em drive compartilhado) vira SobeDesceError 403 com a mensagem para mostrar.
+   */
+  async trash(fileId, { signal } = {}) {
+    try {
+      const r = await this.api('PATCH', `files/${encodeURIComponent(fileId)}`, { query: { fields: 'id,trashed' }, body: { trashed: true }, signal })
+      return { id: r.id ?? fileId, trashed: r.trashed !== false }
+    } catch (err) {
+      const info = classifyError(err)
+      if (info.kind === 'fatal' && info.status === 403) {
+        throw new SobeDesceError('fatal', 'Sua conta não pode mover este arquivo para a lixeira.', { reason: info.reason || 'semPermissao', status: 403 })
+      }
+      throw err
+    }
+  }
+
+  /**
    * Garante cada nível de `relDir` dentro de `rootId` e devolve o id da última pasta.
    * `cache` (Map) guarda uma promessa por `${rootId}/${prefixo}`: 50 uploads na mesma pasta nova criam a pasta uma vez só.
    * `onCreated(folderId)` (opcional): avisado quando um nível foi CRIADO agora (pasta nova = vazia).
