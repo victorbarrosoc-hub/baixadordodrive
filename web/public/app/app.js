@@ -17,6 +17,7 @@ import { RefAtalhoSheet, RefDeleteSheet, RefItemSheet, RefLinkSheet, RefMenuShee
 import { findUrl } from './lib/referencias.js'
 import { ComputerSheet } from './components/computador.js'
 import { startPc } from './lib/computador.js'
+import { MacJunkSheet } from './components/browser.js'
 
 const SHEETS = {
   folders: FolderSheet,
@@ -31,6 +32,7 @@ const SHEETS = {
   refItem: RefItemSheet,
   refAtalho: RefAtalhoSheet,
   computador: ComputerSheet,
+  macJunk: MacJunkSheet,
 }
 
 // Android (share_target nos manifestos): /app/?compartilhar=1&title=&text=&url=. O navegador pode trocar a query
