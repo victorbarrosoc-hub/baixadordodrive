@@ -10,8 +10,11 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Só leitura por padrão (revisão de segurança, A8). Escrita só nos jobs que publicam no Release (app, versao e release).
+# As actions de fora vão fixadas pelo SHA do commit, com a tag ao lado: uma tag movida não troca o código que roda aqui.
+# Passo a passo do lado do GitHub (main protegida, 2FA, quem roda workflows): docs/SEGURANCA-GITHUB.md.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: desktop-${{ github.ref }}
@@ -25,8 +28,11 @@ jobs:
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Ninguém aqui faz git push: o token não fica gravado no .git/config ao alcance do npm ci e dos scripts.
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -38,6 +44,9 @@ jobs:
     if: github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[build]')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
+    # Escrita para subir os instaladores no Release "versao-de-teste" (só a main publica, pelos if dos passos).
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -55,8 +64,11 @@ jobs:
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Ninguém aqui faz git push: o token não fica gravado no .git/config ao alcance do npm ci e dos scripts.
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -74,7 +86,7 @@ jobs:
       - if: github.ref == 'refs/heads/main'
         run: node scripts/sha256.mjs ${{ matrix.plataforma }} dist sha256
       - if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sha256-${{ matrix.plataforma }}
           path: sha256/
@@ -84,7 +96,7 @@ jobs:
       # a cota de armazenamento de artefatos do Actions, que é pequena e enche rápido.
       # Só a main publica ali: é para lá que o aviso "Nova versão" e o /baixar do site mandam as pessoas.
       - if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: versao-de-teste
           name: SOBEDESCE · versão de teste
@@ -96,7 +108,7 @@ jobs:
       # Branches com [build] e tags v*: os instaladores ficam como artefato do Actions (por poucos dias); a tag
       # publica o próprio Release no job "release".
       - if: github.ref != 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: instalador-${{ matrix.label }}
           path: ${{ matrix.files }}
@@ -112,15 +124,20 @@ jobs:
     needs: app
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Ninguém aqui faz git push: o token não fica gravado no .git/config ao alcance do npm ci e dos scripts.
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: sha256-*
           path: sha256
           merge-multiple: true
       - run: node scripts/build-info.mjs versao.json --sha256 sha256
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: versao-de-teste
           name: SOBEDESCE · versão de teste
@@ -135,12 +152,14 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: app
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: instaladores
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: instaladores/*
           generate_release_notes: true
