@@ -214,8 +214,8 @@ Uma biblioteca no estilo "Salvos" do Instagram, guardada no **seu Drive** em `SO
 - **Disco rápido no destino.** Um SSD (interno ou externo em USB-C/Thunderbolt) grava 500 MB/s ou mais. HD externo e pendrive ficam em 100–200 MB/s e seguram o download.
 - **Formato do disco externo:** use **APFS** ou **exFAT**. Em FAT32 não cabem arquivos acima de 4 GB.
 - **Arquivos ao mesmo tempo** (Ajustes → Velocidade):
-  - **Download:** o padrão (3 arquivos × 8 conexões) enche 1 Gbps. Em 10 Gbps, suba para 6–8 arquivos e 12–16 conexões.
-  - **Upload:** cada arquivo sobe a uns 40–100 MB/s no Google. 4 arquivos enchem 1 Gbps; em 10 Gbps, use 12–16.
+  - **Download:** o padrão (3 arquivos × 8 conexões) enche 1 Gbps. Em 10 Gbps, suba para 6–8 arquivos e 12–16 conexões. Arquivos pequenos (fotos, áudio, proxies) usam 1 ou 2 conexões cada, então entram mais deles juntos (até 16), dentro do mesmo total de conexões (arquivos × conexões).
+  - **Upload:** cada arquivo sobe a uns 40–100 MB/s no Google. 4 arquivos enchem 1 Gbps; em 10 Gbps, use 12–16. Dentro de cada envio, o maior arquivo sobe primeiro, para ele não ficar sozinho no fim.
 - **Limite do Google: 750 GB de upload por dia, por conta.** Passou disso, o Google recusa por até 24 horas. O SOBEDESCE espera e retoma sozinho; a tela mostra quanto você já subiu nas últimas 24 h.
 - **Muitos arquivos pequenos** (sequências EXR/DPX, fotos) sobem mais devagar que um arquivo grande do mesmo tamanho total: cada arquivo tem um custo fixo de alguns décimos de segundo no Google. Aumentar os uploads simultâneos ajuda.
 - **Limite de banda** (Ajustes → Limite de banda) serve para não ocupar a internet do escritório inteiro.

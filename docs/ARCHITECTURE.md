@@ -443,7 +443,11 @@ download que voltou para trás pedem gravação "logo" (`#saveUrgent`: em 50 ms�
 Livro-razão de uso: a cada byte confirmado, soma no balde da hora atual por conta/direção
 (`usage.json`, guarda 25 h) → `stats.usage` mostra "612 de 750 GB nas últimas 24 h".
 Agendamento: respeita `maxConcurrentDownloads` / `maxConcurrentUploads` (lidos ao vivo), ordem da fila
-(prioridade, depois createdAt). Ao concluir/falhar, agenda o próximo. Erros: 'retry' (estourou as tentativas da tarefa:
+(prioridade, depois createdAt; dentro do mesmo lote de envio, o maior arquivo primeiro). Download por orçamento de
+conexões: arquivo grande (≥ 2 × `minSegmentSize`, ou Doc exportado) conta no limite de `maxConcurrentDownloads`;
+arquivo pequeno conta as conexões que vai usar, e entram arquivos até `maxConcurrentDownloads × connectionsPerDownload`
+conexões e no máximo 16 arquivos. Se o próximo da fila não cabe, ninguém passa na frente dele.
+Ao concluir/falhar, agenda o próximo. Erros: 'retry' (estourou as tentativas da tarefa:
 internet/Google fora do ar) → 'waiting' com `retryAt` crescente (1, 2, 5, 10, 15 min…; recomeça se houve avanço) e
 volta sozinho; depois de 16 esperas seguidas sem avanço → 'failed'; 'quota' → 'waiting' com `retryAt` e reagenda sozinho; 'reauth' → 'paused' com erro
 "Conecte a conta de novo"; 'fatal'/'notfound' → 'failed'. `cancel` de download apaga o `tempPath`;
