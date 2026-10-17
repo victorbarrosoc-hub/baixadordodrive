@@ -9,6 +9,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { apagarCookieSessao, gravarCookieSessao, ipAtual, origemDaAcaoConfere, usuarioAtual } from "@/lib/auth/atual";
 import { apagarConta } from "@/lib/auth/apagar";
+import { frase as fraseEncerrado } from "@/lib/auth/encerrar";
 import { criarConta, entrarComSenha, trocarNome, trocarSenha } from "@/lib/auth/contas";
 import { dentroDoLimite, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "@/lib/auth/limite";
 import { COOKIE_SESSAO, revogarDispositivo, revogarPorToken } from "@/lib/auth/sessao";
@@ -84,10 +85,11 @@ export async function acaoTrocarSenha(_: EstadoForm, fd: FormData): Promise<Esta
     senhaAtual: texto(fd, "senhaAtual"),
     senhaNova: texto(fd, "senhaNova"),
     ip: await ipAtual(),
+    links: texto(fd, "links") === "1",
   });
   if (!r.ok) return { erro: r.mensagem, campo: r.campo };
   refresh();
-  return { ok: "Senha trocada. Os outros aparelhos saíram da conta." };
+  return { ok: fraseEncerrado(r.encerrado, "Senha trocada") };
 }
 
 export async function acaoRemoverDrive(contaId: string): Promise<EstadoForm> {

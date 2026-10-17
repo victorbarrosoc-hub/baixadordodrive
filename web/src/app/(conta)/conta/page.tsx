@@ -9,6 +9,7 @@ import { listarDispositivos } from "@/lib/auth/sessao";
 import { Comecar } from "@/components/conta/comecar";
 import { MenuConta } from "@/components/conta/menu";
 import { contaComSenha } from "@/lib/auth/contas";
+import { linksLigados } from "@/lib/auth/encerrar";
 import { ehAdmin } from "@/lib/admin";
 import { podeUsar } from "@/lib/recursos";
 import { EntradaReferencias } from "@/components/conta/referencias";
@@ -29,13 +30,14 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 export default async function Conta({ searchParams }: Props) {
   const { usuario } = await exigirUsuario("/conta");
   const q = await searchParams;
-  const [contas, dispositivos, temSenha, admin, referencias, computadores] = await Promise.all([
+  const [contas, dispositivos, temSenha, admin, referencias, computadores, links] = await Promise.all([
     listarContas(usuario.id),
     listarDispositivos(usuario.id),
     contaComSenha(usuario.id),
     ehAdmin(usuario),
     podeUsar(usuario, "referencias"),
     listarComputadores(usuario.id),
+    linksLigados(usuario.id),
   ]);
   const erro = typeof q.erro === "string" ? q.erro : undefined;
   const conectou = q.google === "ok";
@@ -49,7 +51,8 @@ export default async function Conta({ searchParams }: Props) {
         </Aviso>
       ) : q.senha === "nova" ? (
         <Aviso tom="ok" className="mb-10">
-          <p>Senha nova salva. Os outros aparelhos saíram da conta.</p>
+          <p>Senha nova salva. Os outros aparelhos e os computadores saíram da conta, e a chave do Atalho foi desligada.</p>
+          {links ? <p>{links === 1 ? "O link pra IA continua ligado" : `Os ${links} links pra IA continuam ligados`}: se não foi você que ligou, desligue na coleção.</p> : null}
         </Aviso>
       ) : mensagemDeErro(erro) ? (
         <Aviso tom={erro === "google_recusado" ? "info" : "erro"} className="mb-10">
@@ -98,9 +101,13 @@ export default async function Conta({ searchParams }: Props) {
         </Card>
       </Secao>
 
-      <Secao titulo="Senha" id="senha" descricao={temSenha ? "Ao trocar, os outros aparelhos saem da conta." : "Você entra com o Google. Se quiser, crie uma senha para entrar também com o e-mail."}>
+      <Secao titulo="Senha" id="senha" descricao={
+          temSenha
+            ? "Ao trocar, os outros aparelhos e os computadores saem da conta, e a chave do Atalho e os avisos no celular são desligados."
+            : "Você entra com o Google. Se quiser, crie uma senha para entrar também com o e-mail."
+        }>
         <Card className="px-5 py-6 sm:px-6">
-          <FormSenha temSenha={temSenha} />
+          <FormSenha temSenha={temSenha} links={links} />
         </Card>
       </Secao>
 

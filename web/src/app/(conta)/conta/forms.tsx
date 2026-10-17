@@ -29,7 +29,8 @@ export function FormNome({ nome }: { nome: string }) {
   );
 }
 
-export function FormSenha({ temSenha }: { temSenha: boolean }) {
+/** `links`: quantos links pra IA (/r/…) estão ligados; com algum, a troca oferece desligar todos juntos. */
+export function FormSenha({ temSenha, links = 0 }: { temSenha: boolean; links?: number }) {
   const [estado, acao] = useActionState<EstadoForm, FormData>(acaoTrocarSenha, null);
   const erroDo = (campo: string) => (estado?.campo === campo ? estado.erro : null);
   return (
@@ -42,6 +43,15 @@ export function FormSenha({ temSenha }: { temSenha: boolean }) {
       <Field label={temSenha ? "Senha nova" : "Senha"} htmlFor="senhaNova" hint={`Pelo menos ${SENHA_MINIMA} caracteres.`} error={erroDo("senhaNova")}>
         <Input id="senhaNova" name="senhaNova" type="password" autoComplete="new-password" required minLength={SENHA_MINIMA} aria-invalid={Boolean(erroDo("senhaNova"))} />
       </Field>
+      {links ? (
+        <label className="flex items-start gap-3 text-[14px] leading-snug text-ink-2">
+          <input type="checkbox" name="links" value="1" className="mt-0.5 size-5 shrink-0 accent-ink" />
+          <span>
+            Desligar também {links === 1 ? "o link pra IA" : `os ${links} links pra IA`}
+            <span className="block text-[13px] text-ink-3">Quem tem o endereço deixa de abrir a coleção. Dá para ligar de novo depois, com endereço novo.</span>
+          </span>
+        </label>
+      ) : null}
       <div className="flex flex-wrap items-center gap-4">
         <Enviar variant="secondary" ocupado="Salvando…">
           {temSenha ? "Trocar senha" : "Criar senha"}

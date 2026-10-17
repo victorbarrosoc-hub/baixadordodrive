@@ -7,7 +7,8 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { dentroDoLimite, esquecerTentativas, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "./limite";
 import { conferirSenha, hashDeEnfeite, hashSenha, SENHA_MAXIMA, SENHA_MINIMA } from "./senha";
-import { criarSessao, revogarOutras, type UsuarioPublico } from "./sessao";
+import { encerrarAcessos, type Encerrado } from "./encerrar";
+import { criarSessao, type UsuarioPublico } from "./sessao";
 import { novoId } from "./tokens";
 
 const { usuarios } = schema;
@@ -79,14 +80,18 @@ export async function entrarComSenha(entrada: { email: unknown; senha: unknown; 
   return { ok: true, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome }, token: sessao.token, expiraEm: sessao.expiraEm };
 }
 
-/** Troca a senha e encerra as outras sessões (site e computadores). A sessão atual continua. */
+/**
+ * Troca a senha e encerra tudo o que estava ligado na conta (lib/auth/encerrar.ts): outras sessões do site,
+ * computadores, chave do Atalho e avisos no celular; os links pra IA só com `links`. A sessão atual continua.
+ */
 export async function trocarSenha(entrada: {
   usuarioId: string;
   sessaoId: string;
   senhaAtual: unknown;
   senhaNova: unknown;
   ip: string;
-}): Promise<{ ok: true } | Falha> {
+  links?: boolean;
+}): Promise<{ ok: true; encerrado: Encerrado } | Falha> {
   const atual = typeof entrada.senhaAtual === "string" ? entrada.senhaAtual : "";
   const nova = typeof entrada.senhaNova === "string" ? entrada.senhaNova : "";
   if (nova.length < SENHA_MINIMA) return { ok: false, erro: "entrada", campo: "senhaNova", mensagem: `A senha nova precisa de pelo menos ${SENHA_MINIMA} caracteres.` };
@@ -102,9 +107,9 @@ export async function trocarSenha(entrada: {
     return { ok: false, erro: "credenciais", campo: "senhaAtual", mensagem: "A senha atual não confere." };
   }
   await db.update(usuarios).set({ senhaHash: await hashSenha(nova), atualizadoEm: new Date() }).where(eq(usuarios.id, usuario.id));
-  await revogarOutras(usuario.id, entrada.sessaoId);
+  const encerrado = await encerrarAcessos(usuario.id, { manterSessao: entrada.sessaoId, links: entrada.links === true });
   await esquecerTentativas(chave);
-  return { ok: true };
+  return { ok: true, encerrado };
 }
 
 export async function trocarNome(usuarioId: string, valor: unknown): Promise<{ ok: true; nome: string } | Falha> {
