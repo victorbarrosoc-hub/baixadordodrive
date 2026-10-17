@@ -284,7 +284,8 @@ TransferRecord = {
   segments?: Array<{ start, end, pos }>,          // end inclusivo; pos = próximo byte a buscar (durável)
 
   // upload
-  local?:  { path, size, mtimeMs },
+  local?:  { path, size, mtimeMs, growing?, stream? },   // growing: ainda chegando do celular (path = .part);
+                                                          // stream: veio em fluxo (MD5 sempre conferido no fim)
   target?: { rootId, relDir, parentId|null, driveId|null, replaceFileId|null, fileId|null },
   session?: null | { uri, createdAt, offset },    // offset = bytes confirmados pelo Google
 }
@@ -303,6 +304,7 @@ TaskContext = {
   persist(): void,                 // pede gravação (debounced) — chamar após mudar o registro
   onBytes(n): void,                // bytes que trafegaram agora (alimenta velocidade global e do item)
   log(...args): void,
+  feed?: ReceiveFeed | null,       // (upload com local.growing) arquivo ainda chegando do celular (mobile/receiver.js)
 }
 ```
 
@@ -395,6 +397,16 @@ Algoritmo:
     do Google (750 GB por dia)…', { reason: 'uploadLimitExceeded', retryAfterMs: 60 min })`.
     O arquivo que cruza o limite termina; os próximos esperam.
 11. Tamanho > 5 TB (5.497.558.138.880 bytes): fatal antes de começar.
+12. Arquivo ainda chegando do celular (`local.growing` + `ctx.feed`; opções `feedIdleMs` = 20 s, `feedParkMs` = 60 s):
+    o tamanho é o declarado e o passo 1 é pulado (o arquivo cresce de propósito). A sessão abre logo; o PUT
+    (`[offset, fim]`, como no passo 6) lê do `.part` só até `feed.ready` (bytes contíguos já gravados) e, quando alcança,
+    espera o celular com o detector de travamento "segurado" (como no limitador de banda). Celular parado por
+    `feedIdleMs` dentro do PUT → fecha o PUT (o Google guarda o que chegou; não conta como falha), consulta o ponto e
+    espera fora do PUT; mais `feedParkMs` sem nada novo → `SobeDesceError('retry', …, { reason: 'waitingPhone' })` e o
+    manager devolve para 'queued' sem ocupar vaga até chegar algo além de `feed.mark`. Quando o arquivo termina de
+    chegar (`feed.complete`: sincronizado e com o nome final), `local.path` passa a ser o arquivo final; o MD5 é sempre
+    calculado dele, no fim, e comparado com o `md5Checksum`. Diferente → `reason: 'verifyFailed'` ('retry'): a fila refaz
+    sozinha a partir do disco, como nova versão do mesmo arquivo (até 3 vezes). Nunca calcula MD5 de arquivo pela metade.
 
 ### engine/planner.js
 
@@ -428,10 +440,13 @@ add({ batch, records }): void   // persiste e agenda
 pause(ids|'all'), resume(ids|'all'), cancel(ids), retry(ids), remove(ids), prioritize(ids): Promise<void>
 pauseBatch(batchId), resumeBatch(batchId), cancelBatch(batchId)
 clearFinished(): void           // remove completed/skipped/canceled
+canStartUpload(accountId, size): boolean   // vaga de envio livre agora, ninguém na frente, conta fora do limite diário
+attachFeed(id, feed), detachFeed(id)       // recepção do celular em fluxo: envio com local.growing só anda com feed
 async shutdown()                // pausa tudo, espera workers, grava
 stats(): Stats
 // eventos: 'transfers' (PublicTransfer[] alterados, no máximo 4×/s), 'removed' (ids), 'stats' (Stats, 2×/s), 'batches'
-PublicTransfer = registro sem tokens/sessão + { speed, eta, segments: liveSegments() (≤ 32, só download ativo) }
+PublicTransfer = registro sem tokens/sessão + { speed, eta, segments: liveSegments() (≤ 32, só download ativo),
+                 receive?: { bytes, size } (envio em fluxo: quanto já chegou do celular) }
 Stats = { down: { speed, active, queued }, up: { speed, active, queued }, totals: { count, bytes, doneBytes },
           eta, history: Array<{ t, down, up }> (últimos 120 s, 1 ponto/s), keepAwake: boolean,
           usage: { [accountId]: { up24h, down24h } } }   // bytes nas últimas 24 h (cota de 750 GB/dia de upload)
@@ -1022,8 +1037,30 @@ O protocolo com o processo principal fica em `desktop/engine.js` (`ready` / `fat
 Segurança da janela (`desktop/security.js`, testado sem Electron): toda mensagem da ponte (`ipcMain`) só é atendida se vier
 do quadro principal com a origem do motor; permissões da web negadas (só `clipboard-sanitized-write` para a interface).
 
-Recepção do celular (`src/mobile/receiver.js`): o ponto confirmado (`offset`, que o celular ouve e que vai para
-`mobile-uploads.json`) só avança depois do `fdatasync` do pedaço; o progresso ao vivo fica só na memória (tela de Ajustes).
+Recepção do celular (`src/mobile/receiver.js`):
+- **Pontos.** `offset` (o que o celular ouve e de onde continua) é o que já foi gravado, contíguo, e avança no fim de
+  cada PUT. `mobile-uploads.json` guarda `synced`, que só avança depois do `fdatasync`. Se o computador desligar, o
+  celular continua do ponto sincronizado e manda o resto de novo (nunca um buraco de zeros no arquivo). O progresso ao
+  vivo, no meio de um PUT, fica só na memória (tela de Ajustes e envio em fluxo).
+- **`fdatasync` espaçado** (relatório de rede, 4.9): a cada 64 MiB gravados (`SYNC_EVERY`), no fim do arquivo (antes de
+  dar o nome e enfileirar; sem ele o arquivo não é dado como recebido) e ao fechar a recepção/o app. Antes era a cada
+  pedaço do celular (8–16 MiB); no macOS ele vira `F_FULLFSYNC`, que esvazia o cache do disco.
+- **Em fluxo** (relatório de rede, 4.12): arquivo do app com 32 MiB ou mais (`streamMinBytes`), destino decidido (a
+  pasta é consultada para saber o drive compartilhado; sem resposta em 15 s, segue o caminho antigo) e
+  `manager.canStartUpload()` (vaga livre agora, ninguém da fila na frente, nenhuma espera de cota da conta e uso de 24 h +
+  tamanho ≤ 750 GB). Aí o envio entra na fila no começo do recebimento (`local.growing`, `local.stream`, `local.path` =
+  o `.part`) com um `ReceiveFeed`, e sobe enquanto chega: tempo total ≈ a perna mais lenta. Pergunta de novo a cada PUT
+  do celular (no máximo a cada 2 s): se uma vaga abrir no meio do recebimento, passa a subir em fluxo dali. Senão (sem
+  vaga, cota, arquivo pequeno, Atalho do iPhone, outro arquivo com o mesmo nome indo para a mesma pasta): recebe tudo
+  e só depois enfileira, como antes.
+  - Celular parou: o envio fecha o PUT, espera e solta a vaga ('queued', "Esperando o celular"); quando o celular volta
+    e manda o resto, o envio retoma do ponto do Google na mesma sessão.
+  - Celular cancelou (DELETE): o envio sai da fila (a sessão no Google é encerrada) e o `.part` é apagado.
+  - Cancelado/tirado da fila no computador no meio: o recebimento continua, mas não enfileira de novo sozinho.
+  - Reabrir o app no meio: o feed é religado ao envio (chegando, inteiro ou perdido); envio em fluxo sem recebimento por
+    trás sai da fila.
+  - Transferências mostra os dois progressos: o que já chegou atrás (como o "carregado" de um player) e o que subiu na
+    frente, mais a linha "Chegando do celular: X de Y · sobe junto".
 
 Empacotamento (`electron-builder.yml`, sem asar): `package.json`, `desktop/`, `src/`, `public/` e a casca do app do celular
 (`web/public/app/index.html`, `app.*`, `lib/`, `components/`, `vendor/`, `icons/`), que a recepção pelo Wi-Fi serve em `/m/`.
