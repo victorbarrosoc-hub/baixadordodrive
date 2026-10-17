@@ -32,11 +32,15 @@ export function IconButton({ icon, label, class: klass, size = 16, tone, ...rest
 }
 
 /**
- * Botão que abre um menu pequeno (ex.: "⋯ Mais" na barra do Drive).
- * items: [{ icon, label, onSelect, title?, busy?, disabled? }]. Teclado: ↓/↑ andam, Esc fecha e volta o foco ao botão;
- * clicar fora também fecha.
+ * Botão que abre um menu pequeno (ex.: "⋯ Mais" na barra do Drive, "Ordenar").
+ * items: [{ icon, label, onSelect, title?, busy?, disabled?, checked?, hint? }]. Com `checked` (true/false) o item é uma
+ * opção (menuitemradio) com a marca na escolhida e `hint` do lado. `title` (dica do botão) e `heading` (título dentro
+ * do menu) são opcionais. Teclado: ↓/↑ andam, Esc fecha e volta o foco ao botão; clicar fora também fecha.
+ * Para gatilhos diferentes do botão-pílula: `triggerClass` troca as classes do botão, `icon={null}` tira o ícone,
+ * `after` entra depois do texto (um pontinho, uma seta), `ariaLabel` nomeia o botão quando o texto sozinho não basta e
+ * `children` entra no fim do conjunto, depois do menu (ex.: o "×" do Filtro).
  */
-export function MenuButton({ label, icon = 'more', items, busy, align = 'right', class: klass, menuLabel }) {
+export function MenuButton({ label, icon = 'more', items, busy, align = 'right', class: klass, menuLabel, title, heading, triggerClass = 'btn btn-secondary', after, ariaLabel, children }) {
   const [open, setOpen] = useState(false)
   const wrap = useRef(null)
   const trigger = useRef(null)
@@ -75,36 +79,44 @@ export function MenuButton({ label, icon = 'more', items, busy, align = 'right',
   return html`<div class=${cx('menu-wrap', klass)} ref=${wrap}>
     <button
       type="button"
-      class=${cx('btn btn-secondary menu-trigger', open && 'is-open')}
+      class=${cx(triggerClass, 'menu-trigger', open && 'is-open')}
       aria-haspopup="menu"
       aria-expanded=${open ? 'true' : 'false'}
+      aria-label=${ariaLabel}
+      title=${title}
       ref=${trigger}
       onClick=${() => setOpen(!open)}
       onKeyDown=${onTriggerKey}
     >
-      ${busy ? html`<${Spinner} size=${14} />` : html`<${Icon} name=${icon} size=${16} />`}
+      ${busy ? html`<${Spinner} size=${14} />` : icon ? html`<${Icon} name=${icon} size=${16} />` : null}
       <span>${label}</span>
+      ${after}
     </button>
     ${open
       ? html`<div class=${cx('menu menu-pop', align === 'left' && 'is-left')} role="menu" aria-label=${menuLabel || label} onKeyDown=${onKey}>
+          ${heading ? html`<div class="menu-label" aria-hidden="true">${heading}</div>` : null}
           ${list.map(
             (it) => html`<button
               type="button"
-              role="menuitem"
-              class="menu-item"
+              role=${it.checked === undefined ? 'menuitem' : 'menuitemradio'}
+              aria-checked=${it.checked === undefined ? undefined : it.checked ? 'true' : 'false'}
+              class=${cx('menu-item', it.checked && 'is-checked')}
               title=${it.title}
               disabled=${it.disabled}
               onClick=${() => {
-                close(false)
+                close(true) // o foco volta ao botão (como num menu do macOS), não some com o item
                 it.onSelect()
               }}
             >
               ${it.busy ? html`<${Spinner} size=${14} />` : html`<${Icon} name=${it.icon} size=${15} />`}
               <span class="menu-item-text">${it.label}</span>
+              ${it.hint ? html`<span class="menu-item-hint">${it.hint}</span>` : null}
+              ${it.checked !== undefined ? html`<span class="menu-item-check" aria-hidden="true">${it.checked ? html`<${Icon} name="check" size=${14} strokeWidth=${2} />` : null}</span>` : null}
             </button>`,
           )}
         </div>`
       : null}
+    ${children}
   </div>`
 }
 

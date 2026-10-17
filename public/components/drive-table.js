@@ -7,22 +7,11 @@ import { Icon } from './icons.js'
 import { Checkbox, FileIcon, SkeletonRows, Button } from './common.js'
 import { Thumb } from './drive-thumb.js'
 import { FolderSizeCell } from './drive-tamanho.js'
+import { DEFAULT_SORT, compareItems, isFolderLike, nextSort, normalizeSort } from '../lib/ordenar.js'
 
 const PAGE = 200
 
-export function compare(key, dir) {
-  const m = dir === 'desc' ? -1 : 1
-  return (a, b) => {
-    if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1
-    let r = 0
-    if (key === 'size') r = (a.size ?? -1) - (b.size ?? -1)
-    else if (key === 'modified') r = Date.parse(a.modifiedTime || 0) - Date.parse(b.modifiedTime || 0)
-    if (!r) r = a.name.localeCompare(b.name, 'pt-BR', { numeric: true, sensitivity: 'base' })
-    return r * m
-  }
-}
-
-export const isOpenable = (it) => it.isFolder || (it.isShortcut && it.shortcutTargetMimeType === 'application/vnd.google-apps.folder')
+export const isOpenable = isFolderLike
 
 const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview, fsize, onCalcSize, hasProxy, onLink }) {
   const folderLike = isOpenable(item)
@@ -78,9 +67,9 @@ const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick
  * @param {{ items: any[], mode?: 'browse'|'folder', selected: Set<string>, onSelect: (s:Set<string>)=>void,
  *           onOpen: (item)=>void, loading?: boolean, error?: string|null, onRetry?: ()=>void, empty?: any, resetKey?: string }} props
  */
-export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort, sizeOf, onCalcSize, comProxy, onCopyLink }) {
-  const [sortLocal, setSortLocal] = useState({ key: 'name', dir: 'asc' })
-  const sort = sortProp || sortLocal
+export function DriveTable({ items, sorted: sortedProp, mode = 'browse', selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort, sizeOf, onCalcSize, comProxy, onCopyLink }) {
+  const [sortLocal, setSortLocal] = useState(DEFAULT_SORT)
+  const sort = normalizeSort(sortProp || sortLocal)
   const setSort = onSort || setSortLocal
   const [limit, setLimit] = useState(PAGE)
   const [focus, setFocus] = useState(0)
@@ -93,7 +82,8 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
     anchor.current = null
   }, [resetKey])
 
-  const sorted = useMemo(() => (items || []).slice().sort(compare(sort.key, sort.dir)), [items, sort])
+  // `sorted` pronto (tela Drive: já filtrado e na ordem do botão "Ordenar") ou a ordem daqui (seletor de pasta).
+  const sorted = useMemo(() => sortedProp || (items || []).slice().sort(compareItems(sort.key, sort.dir)), [sortedProp, items, sort.key, sort.dir])
   const shown = sorted.slice(0, limit)
   const selectable = (it) => (mode === 'folder' ? isOpenable(it) : true)
 
@@ -162,7 +152,7 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
       else onCheck(i)
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && mode !== 'folder') {
       e.preventDefault()
-      onSelect(new Set(shown.map((x) => x.id)))
+      onSelect(new Set(sorted.map((x) => x.id))) // tudo o que está visível (também o que ainda não desceu na página)
     } else if (e.key === 'Escape' && selected.size) {
       e.stopPropagation()
       onSelect(new Set())
@@ -193,18 +183,19 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
     }
   const h = stable.current
 
-  const allSel = mode !== 'folder' && shown.length > 0 && shown.every((x) => selected.has(x.id))
-  const someSel = mode !== 'folder' && !allSel && shown.some((x) => selected.has(x.id))
+  // "Selecionar tudo" vale para o que está visível (o filtro tira o resto), inclusive além da primeira página.
+  const allSel = mode !== 'folder' && sorted.length > 0 && sorted.every((x) => selected.has(x.id))
+  const someSel = mode !== 'folder' && !allSel && sorted.some((x) => selected.has(x.id))
 
   const header = (key, label, klass) => {
     const on = sort.key === key
     return html`<button
       type="button"
       class=${cx('dhead-btn', klass, on && 'is-on')}
-      onClick=${() => setSort({ key, dir: on && sort.dir === 'asc' ? 'desc' : 'asc' })}
+      onClick=${() => setSort(nextSort(sort, key))}
       aria-sort=${on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
-      ${label}${on ? html`<${Icon} name=${sort.dir === 'asc' ? 'chevron-down' : 'chevron-up'} size=${12} strokeWidth=${2} />` : null}
+      ${label}${on ? html`<${Icon} name=${sort.dir === 'asc' ? 'chevron-up' : 'chevron-down'} size=${12} strokeWidth=${2} />` : null}
     </button>`
   }
 
@@ -252,7 +243,7 @@ export function DriveTable({ items, mode = 'browse', selected, onSelect, onOpen,
             checked=${allSel}
             indeterminate=${someSel}
             label="Selecionar tudo"
-            onChange=${(v) => onSelect(v ? new Set(shown.map((x) => x.id)) : new Set())}
+            onChange=${(v) => onSelect(v ? new Set(sorted.map((x) => x.id)) : new Set())}
           /></span>`
         : null}
       ${header('name', 'Nome', 'drow-name')}

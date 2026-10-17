@@ -7405,3 +7405,224 @@ button.tree-twisty:hover {
   background: color-mix(in srgb, var(--acc) 32%, transparent);
   transition: width 0.26s linear;
 }
+
+/* ───────────── Drive: ordenar, filtro por tipo e arquivos do Mac (drive-ordenar.js) ───────────── */
+.menu-item-hint {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.menu-item-check {
+  flex: none;
+  width: 14px;
+  display: inline-flex;
+  color: var(--down-text);
+}
+.menu-item.is-checked .menu-item-text {
+  font-weight: 600;
+}
+/* "Ordenar" e "Filtro" num grupo só: uma pílula de borda fina com um fio entre os dois (como o "Ver como"). */
+.drive-tools {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 1px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.drive-tools > .menu-wrap {
+  align-items: center;
+}
+.drive-tools > .menu-wrap + .menu-wrap::before {
+  content: '';
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 1px;
+  background: var(--hairline-2);
+}
+.tool-btn {
+  height: 30px;
+  padding: 0 12px;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+}
+.tool-btn .icon {
+  color: var(--text-2);
+}
+.tool-btn:hover:not(:disabled),
+.tool-btn.is-open {
+  background: var(--fill-2);
+}
+.sort-menu .menu-pop {
+  width: 292px;
+}
+.filter-menu .menu-pop {
+  width: 220px;
+}
+/* Filtro ativo: o nome do tipo, o funil azul e o "×" que volta a Tudo. */
+.filter-menu.is-active .tool-btn {
+  padding-right: 8px;
+  font-weight: 600;
+}
+.filter-menu.is-active .tool-btn .icon {
+  color: var(--down-text);
+}
+.filter-clear {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0 6px 0 -2px;
+  border-radius: 50%;
+  color: var(--text-3);
+  transition: background-color 0.15s, color 0.15s;
+}
+.filter-clear:hover {
+  background: var(--fill-2);
+  color: var(--text);
+}
+/* Pouco espaço na barra (até 1240 px): Ordenar só com o ícone e Filtro sem o "Tudo" (as dicas dizem o que está valendo).
+   Com um tipo escolhido, o nome dele continua à vista. */
+@media (max-width: 1240px) {
+  .sort-menu .menu-trigger > span,
+  .filter-menu:not(.is-active) .menu-trigger > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .sort-menu .menu-trigger,
+  .filter-menu:not(.is-active) .menu-trigger {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+/* A barra do Drive numa linha só de 1024 a 1440 px (com um filtro ativo e a busca aberta): "Enviar para esta pasta"
+   sempre à vista. Primeiro o "Mais" fica só com o "⋯" e a busca encolhe; depois o espaço entre os botões aperta e,
+   com um filtro ativo, o funil sai (o nome do tipo, em azul, e o "×" ficam). */
+@media (max-width: 1366px) {
+  .drive-bar .search:focus-within {
+    width: 216px;
+  }
+}
+@media (max-width: 1320px) {
+  .drive-bar .search {
+    width: 180px;
+  }
+  .drive-bar .search:focus-within {
+    width: 200px;
+  }
+  .more-menu .menu-trigger > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .more-menu .menu-trigger {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+@media (max-width: 1180px) {
+  .drive-bar .search:focus-within {
+    width: 180px;
+  }
+}
+@media (max-width: 1100px) {
+  .drive-bar-actions {
+    gap: 6px;
+  }
+  .drive-bar .search,
+  .drive-bar .search:focus-within {
+    width: 154px;
+    padding: 0 10px 0 11px;
+    gap: 6px;
+  }
+  .drive-bar .search input {
+    padding: 0;
+  }
+  .filter-menu.is-active .tool-btn {
+    padding-left: 12px;
+  }
+  .filter-menu.is-active .tool-btn > .icon {
+    display: none;
+  }
+  .filter-menu.is-active .tool-btn > span {
+    color: var(--down-text);
+  }
+}
+/* Linha do total: o que está à vista à esquerda; os arquivos do Mac ocultos no fim, em cinza e menor. */
+.dsum-main {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.dsum-end {
+  display: inline-flex;
+  margin-left: auto;
+}
+.dsum-mac-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  transition: background-color 0.15s, color 0.15s;
+}
+.dsum-mac-link:hover,
+.dsum-mac-link.is-open {
+  color: var(--text-2);
+  background: var(--fill-2);
+}
+.dsum-mac .menu-pop {
+  width: 228px;
+}
+.mt-what {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+  font-size: 13px;
+}
+.mt-names {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mt-names li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.mt-dialog .rt-summary .sub {
+  display: block;
+}

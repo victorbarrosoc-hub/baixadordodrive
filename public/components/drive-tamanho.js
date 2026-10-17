@@ -210,8 +210,10 @@ export function FolderSizeCell({ v, onCalc, name }) {
 /**
  * Linha embaixo da trilha: "75 itens · 412,3 GB · 1.234 arquivos em 56 pastas".
  * Começa sozinha ao abrir a pasta (menos no Meu Drive inteiro, que pode ser enorme: lá é no botão).
+ * Com um filtro de tipo (`filtro`: "12 vídeos · 380 GB") a linha mostra só o que está visível (o "×" do botão Filtro
+ * volta a Tudo). `extra`: o "N arquivos do Mac ocultos", no fim da linha.
  */
-export function FolderSummary({ accountId, folderId, items, ready }) {
+export function FolderSummary({ accountId, folderId, items, ready, count: n0, filtro, extra }) {
   useSizes()
   const v = getSize(accountId, folderId)
   const auto = folderId !== 'root'
@@ -222,9 +224,17 @@ export function FolderSummary({ accountId, folderId, items, ready }) {
     if (ready && items?.length) primeSizes(accountId, items.filter((it) => it.isFolder || (it.isShortcut && it.shortcutTargetMimeType === 'application/vnd.google-apps.folder')).map(sizeId))
   }, [ready, accountId, items])
 
-  const n = items?.length ?? 0
+  // `count`: os itens à vista (sem os arquivos do Mac ocultos); sem ele, todos da pasta.
+  const n = n0 ?? items?.length ?? 0
   const head = items ? html`<span class="dsum-count">${plural(n, 'item', 'itens')}</span>` : null
   const sep = html`<span class="dsum-sep" aria-hidden="true">·</span>`
+  const end = extra ? html`<span class="dsum-end">${extra}</span>` : null
+  if (filtro) {
+    return html`<div class="drive-sum is-filtered">
+      <span class="dsum-main" aria-live="polite"><span class="dsum-count"><b>${filtro}</b></span></span>
+      ${end}
+    </div>`
+  }
   let body = null
   if (!v) {
     body = auto
@@ -250,6 +260,10 @@ export function FolderSummary({ accountId, folderId, items, ready }) {
     body = html`<span class="dsum-err">${v.error || 'Não consegui somar esta pasta.'}</span>
       <button type="button" class="dsum-act" onClick=${() => calcSize(accountId, folderId, { refresh: true })}>Tentar de novo</button>`
   }
-  if (!head && !body) return null
-  return html`<div class=${cx('drive-sum', v && isLive(v) && 'is-live')} aria-live="polite">${head}${head && body ? sep : null}${body}</div>`
+  if (!head && !body && !extra) return null
+  // O mini-menu do Mac fica fora da região "aria-live" (abrir o menu não é anunciado como mudança do total).
+  return html`<div class=${cx('drive-sum', v && isLive(v) && 'is-live')}>
+    <span class="dsum-main" aria-live="polite">${head}${head && body ? sep : null}${body}</span>
+    ${end}
+  </div>`
 }

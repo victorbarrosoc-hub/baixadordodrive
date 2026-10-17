@@ -1124,7 +1124,7 @@ class MockDrive {
     return id === 'root' ? this.rootId : id
   }
 
-  _insert({ id, name, mimeType, parentId, driveId = null, content = null, createdTime, modifiedTime, resourceKey = null, canDownload = true, trashed = false, shortcutDetails = null, docSize = null, md5Override, description = null, thumbnail = null, videoMediaMetadata = null, imageMediaMetadata = null, appProperties = null, canShare = true }) {
+  _insert({ id, name, mimeType, parentId, driveId = null, content = null, createdTime, modifiedTime, resourceKey = null, canDownload = true, trashed = false, shortcutDetails = null, docSize = null, md5Override, description = null, thumbnail = null, videoMediaMetadata = null, imageMediaMetadata = null, appProperties = null, canShare = true, canTrash = true }) {
     const parent = parentId ? this.items.get(parentId) : null
     const now = isoNow()
     const item = {
@@ -1151,6 +1151,8 @@ class MockDrive {
       appProperties: appProperties && Object.keys(appProperties).length ? { ...appProperties } : null,
       permissions: [], // só as deste item; as herdadas vêm das pastas de cima (_permissions)
       canShare: canShare !== false,
+      // false = a conta só lê (ou é colaboradora num drive compartilhado): files.update trashed → 403.
+      canTrash: canTrash !== false,
       version: 1,
       seq: this._seq++,
     }
@@ -1293,6 +1295,7 @@ class MockDrive {
       resourceKey: extra.resourceKey === true ? newResourceKey() : extra.resourceKey ?? null,
       trashed: extra.trashed,
       canShare: extra.canShare,
+      canTrash: extra.canTrash,
     })
     return this._view(item)
   }
@@ -1321,6 +1324,7 @@ class MockDrive {
       imageMediaMetadata: opts.imageMediaMetadata ?? null,
       appProperties: opts.appProperties ?? null,
       canShare: opts.canShare,
+      canTrash: opts.canTrash,
     })
     return this._view(item)
   }
@@ -1611,7 +1615,7 @@ class MockDrive {
       canEdit: true,
       canRename: true,
       canDelete: true,
-      canTrash: true,
+      canTrash: item.canTrash,
       canAddChildren: isFolder,
       canListChildren: isFolder,
       canModifyContent: !isFolder,
@@ -2459,6 +2463,10 @@ class MockDrive {
     } else if (remove.length) {
       return this._send(res, 403, gError(403, 'cannotRemoveParent', 'An item must have a parent.'))
     }
+    if (meta.trashed != null && typeof meta.trashed !== 'boolean') {
+      return this._send(res, 400, gError(400, 'invalid', 'Invalid value for: trashed', { location: 'trashed' }))
+    }
+    if (meta.trashed === true && !item.trashed && !item.canTrash) return this._send(res, 403, gError(403, 'insufficientFilePermissions', 'The user does not have sufficient permissions for this file.'))
     if (meta.name != null) item.name = String(meta.name)
     if (meta.description !== undefined) item.description = meta.description
     // Renomear/mover não mexe em modifiedTime (só quando vem explícito).

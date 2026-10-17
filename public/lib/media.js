@@ -2,7 +2,7 @@
 // no Chromium e o proxy de câmera (BRAW/R3D/MXF… com um .mp4 leve do lado).
 import { getState } from './store.js'
 import { api, enc, withQuery } from './api.js'
-import { extOf, fileKind } from './format.js'
+import { CAMERA_EXT, extOf, fileKind } from './format.js'
 
 const mediaKey = () => getState().media?.key || ''
 
@@ -34,13 +34,12 @@ const PROXY_WORTH = new Set(['braw', 'r3d', 'ari', 'arx', 'crm', 'mxf', 'mov', '
 const PROXY_EXT = new Set(['mp4', 'mov', 'm4v'])
 const IMG_FULL = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'bmp'])
 const AUDIO_OK = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', 'weba'])
-const CAMERA = new Set(['braw', 'r3d', 'ari', 'arx', 'crm', 'mxf', 'cine', 'nev'])
 
 /** 'video' | 'audio' | 'image' | 'other' */
 export function previewKind(item) {
   if (!item || item.isFolder || item.isGoogleDoc) return 'other'
   const ext = extOf(item.name)
-  if (CAMERA.has(ext)) return 'video'
+  if (CAMERA_EXT.has(ext)) return 'video'
   const kind = fileKind(item.name, item.mimeType)
   if (kind === 'video' || kind === 'audio' || kind === 'image') return kind
   return 'other'
@@ -101,7 +100,7 @@ export function siblingProxies(items) {
   const byBase = new Map()
   for (const it of items) if (!it.isFolder && it.hasThumbnail && PROXY_EXT.has(extOf(it.name))) byBase.set(base(it.name), it)
   for (const it of items) {
-    if (it.isFolder || it.hasThumbnail || !CAMERA.has(extOf(it.name))) continue
+    if (it.isFolder || it.hasThumbnail || !CAMERA_EXT.has(extOf(it.name))) continue
     const p = byBase.get(base(it.name))
     if (p && p.id !== it.id) out.set(it.id, p)
   }
