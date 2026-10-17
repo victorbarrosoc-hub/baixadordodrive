@@ -74,6 +74,75 @@ function Scrubber({ time, dur, buffered, onSeek, onScrub }) {
   </div>`
 }
 
+// ───── carregando: a marca SOBEDESCE como buffer ─────
+//
+// As duas barras do ícone viram o medidor: a violeta enche de baixo para cima (sobe) e a azul de cima para baixo
+// (desce), na proporção do que já chegou dos próximos segundos; um brilho corre dentro delas enquanto chegam bytes.
+// Embaixo: a porcentagem e quanto falta para começar, pela velocidade com que o trecho carregado cresce.
+
+const AHEAD_S = 4 // segundos à frente que contam como "pronto para tocar"
+
+/** Medição do buffer enquanto o player quer tocar e ainda não tem dados (ou parou para carregar). */
+function useBuffering(media, on) {
+  const [b, setB] = useState(null) // null | { pct, eta, phase: 'conectando' | 'carregando' }
+  const last = useRef(null)
+  useEffect(() => {
+    if (!on) {
+      last.current = null
+      setB(null)
+      return
+    }
+    const tick = () => {
+      const m = media.current
+      if (!m) return
+      // Pausado (o navegador barrou o autoplay, ou a pessoa pausou): some e o botão de play volta.
+      if (m.paused) return setB(null)
+      const now = performance.now()
+      if (m.readyState < 1) return setB({ pct: 0, eta: null, phase: 'conectando' })
+      const t = m.currentTime
+      let end = t
+      for (let i = 0; i < m.buffered.length; i++) if (m.buffered.start(i) <= t + 0.25 && m.buffered.end(i) > end) end = m.buffered.end(i)
+      const dur = Number.isFinite(m.duration) ? m.duration : 0
+      const target = Math.max(0.5, Math.min(AHEAD_S, dur ? dur - t : AHEAD_S))
+      const ahead = Math.max(0, end - t)
+      // Velocidade em segundos de vídeo por segundo de relógio (média móvel): dá o "começa em ~N s".
+      const prev = last.current
+      let rate = prev?.rate ?? 0
+      if (prev && now > prev.at) {
+        const r = Math.max(0, (ahead - prev.ahead) / ((now - prev.at) / 1000))
+        rate = prev.rate == null ? r : prev.rate * 0.7 + r * 0.3
+      }
+      last.current = { at: now, ahead, rate }
+      const left = Math.max(0, target - ahead)
+      setB({ pct: Math.min(1, ahead / target), eta: rate > 0.02 ? left / rate : null, phase: 'carregando' })
+    }
+    tick()
+    const id = setInterval(tick, 300)
+    return () => clearInterval(id)
+  }, [on])
+  return b
+}
+
+const etaText = (s) => (s < 1.5 ? 'começando…' : s < 60 ? `começa em ~${Math.ceil(s)} s` : `começa em ~${Math.ceil(s / 60)} min`)
+
+function BufferMark({ b }) {
+  const pct = Math.round((b?.pct || 0) * 100)
+  const h = 12 * (b?.pct || 0) // altura do enchimento das barras (de 12)
+  return html`<div class="mp-buf" role="status" aria-live="polite" aria-label=${b?.phase === 'conectando' ? 'Conectando' : `Carregando ${pct}%`} data-control>
+    <svg class="mp-buf-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="0.5" y="0.5" width="23" height="23" rx="7" class="mp-buf-bg" />
+      <rect x="7.2" y="4.5" width="3.6" height="12" rx="1.8" class="mp-buf-track is-up" />
+      <rect x="13.2" y="7.5" width="3.6" height="12" rx="1.8" class="mp-buf-track is-down" />
+      <rect x="7.2" y=${4.5 + 12 - h} width="3.6" height=${h} rx="1.8" class="mp-buf-fill is-up" />
+      <rect x="13.2" y="7.5" width="3.6" height=${h} rx="1.8" class="mp-buf-fill is-down" />
+      <rect x="7.2" y="4.5" width="3.6" height="3" rx="1.5" class="mp-buf-spark is-up" />
+      <rect x="13.2" y="16.5" width="3.6" height="3" rx="1.5" class="mp-buf-spark is-down" />
+    </svg>
+    <span class="mp-buf-pct tc">${b?.phase === 'conectando' ? '' : `${pct}%`}</span>
+    <span class="mp-buf-eta">${b?.phase === 'conectando' ? 'conectando…' : b?.eta != null ? etaText(b.eta) : 'carregando…'}</span>
+  </div>`
+}
+
 /**
  * kind 'video' | 'audio'. `poster` (miniatura) aparece até o primeiro quadro. onFail(code) quando o navegador não
  * consegue tocar (formato ou rede): quem chama decide o aviso.
@@ -190,13 +259,17 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
     onFail?.(err?.code || 0)
   }
 
+  // Quer tocar e ainda não dá: autoplay esperando os primeiros dados, ou parou no meio para carregar.
+  const buffering = kind === 'video' && ((autoPlay && !s.started && !s.ended) || (s.waiting && (s.playing || !s.started)))
+  const buf = useBuffering(media, buffering)
+
   const Media = kind === 'video' ? 'video' : 'audio'
   const playing = s.playing
   const showTime = scrub != null ? scrub : s.time
   const canFull = kind === 'video'
   return html`<div
     ref=${wrap}
-    class=${cx('mp', `mp-${kind}`, ui || !playing ? 'is-ui' : 'is-bare', s.waiting && 'is-waiting', s.started && 'is-started')}
+    class=${cx('mp', `mp-${kind}`, ui || !playing ? 'is-ui' : 'is-bare', s.waiting && 'is-waiting', s.started && 'is-started', buf && 'is-buffering')}
     style=${kind === 'video' && ratio ? `--ratio:${ratio}` : ''}
     onClick=${(e) => {
       if (e.target.closest('[data-control]')) return
@@ -257,6 +330,7 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
     ${corner ? html`<div class="mp-corner" data-control>${corner}</div>` : null}
     ${kind === 'audio' ? html`<div class="mp-art">${poster ? html`<img src=${poster} alt="" referrerpolicy="no-referrer" draggable="false" />` : html`<span class="mp-art-glyph"><${Icon} name="music" size=${46} strokeWidth=${1.3} /></span>`}</div>` : null}
 
+    ${buf ? html`<${BufferMark} b=${buf} />` : null}
     <button type="button" class="mp-big" onClick=${toggle} aria-label=${playing ? 'Pausar' : 'Reproduzir'} data-control>
       ${s.waiting && playing ? html`<span class="spinner mp-spin" aria-hidden="true"></span>` : html`<${Icon} name=${playing ? 'pause-fill' : 'play'} size=${kind === 'video' ? 30 : 28} />`}
     </button>

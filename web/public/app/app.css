@@ -3180,6 +3180,102 @@ html.has-preview .toasts {
 .mp-big .icon[data-name="play"] {
   margin-left: 3px;
 }
+/* Carregando: a marca como buffer (components/player.js, BufferMark). */
+.mp-buf {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  pointer-events: none;
+  animation: fade-in 0.25s var(--ease) both;
+}
+.mp-buf-mark {
+  width: 76px;
+  height: 76px;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.45));
+}
+.mp-buf-bg {
+  fill: rgba(17, 17, 19, 0.88);
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 0.4;
+}
+.mp-buf-track.is-up {
+  fill: rgba(161, 140, 255, 0.22);
+}
+.mp-buf-track.is-down {
+  fill: rgba(61, 156, 255, 0.22);
+}
+.mp-buf-fill {
+  transition: y 0.3s var(--ease), height 0.3s var(--ease);
+}
+.mp-buf-fill.is-up {
+  fill: #a18cff;
+}
+.mp-buf-fill.is-down {
+  fill: #3d9cff;
+}
+/* o brilho: sobe na barra violeta e desce na azul, sem parar, enquanto chegam dados */
+.mp-buf-spark {
+  fill: rgba(255, 255, 255, 0.85);
+  transform-box: view-box;
+}
+.mp-buf-spark.is-up {
+  animation: buf-up 1.1s var(--ease) infinite;
+}
+.mp-buf-spark.is-down {
+  animation: buf-down 1.1s var(--ease) infinite;
+  animation-delay: 0.55s;
+}
+@keyframes buf-up {
+  from {
+    transform: translateY(9px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 0;
+  }
+}
+@keyframes buf-down {
+  from {
+    transform: translateY(-9px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 0;
+  }
+}
+.mp-buf-pct {
+  min-height: 22px;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.mp-buf-eta {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.mp-video.is-buffering .mp-big {
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mp-buf-spark {
+    display: none;
+  }
+}
 .mp-spin {
   width: 26px;
   height: 26px;
