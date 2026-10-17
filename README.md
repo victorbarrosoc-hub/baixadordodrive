@@ -155,7 +155,7 @@ Para saber o que já subiu de um projeto:
 2. Em **No computador**, escolha a pasta do projeto. Em **No Drive**, a pasta correspondente.
 3. Escolha o modo:
    - **Rápido:** compara nome e tamanho. Segundos, mesmo em pastas enormes.
-   - **Completo:** confere o conteúdo (MD5) de cada arquivo. Lê tudo do disco na primeira vez; depois fica guardado.
+   - **Completo:** confere o conteúdo (MD5) de cada arquivo. Lê tudo do disco na primeira vez; depois fica guardado. O que o SOBEDESCE baixou já entra conferido, sem reler.
 4. Veja o resultado pasta por pasta: **Já no Drive**, **Falta subir**, **Diferentes** e **Só no Drive**.
 5. **Subir o que falta** manda só o que não está lá. **Baixar o que só está no Drive** traz o que falta no computador (clique numa pasta da árvore para baixar só dela).
 

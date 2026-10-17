@@ -239,7 +239,8 @@ test('queda simulada: retoma do ÚLTIMO persist() antes da pausa (registro velho
   const size = 64 * MiB
   const file = e.mock.addFile('camera_b.mov', 'root', { size, seed: 41 })
   const rec = await recordFor(e, file.id)
-  const job = makeTask(e, rec)
+  // O padrão é a cada 10 s (ou 1 GiB): aqui o arquivo inteiro leva ~4 s, então o checkpoint periódico fica curto.
+  const job = makeTask(e, rec, { checkpointMs: 1000 })
   const ac = new AbortController()
   const p = job.task.run(ac.signal)
   p.catch(() => {})
