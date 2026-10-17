@@ -7331,3 +7331,15 @@ button.tree-twisty:hover {
   flex: none;
   max-width: 220px;
 }
+
+/* Recepção do celular em fluxo: o que já chegou, atrás do que já subiu (como o "carregado" de um player). */
+.tl-recv {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  max-width: 100%;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--acc) 32%, transparent);
+  transition: width 0.26s linear;
+}
