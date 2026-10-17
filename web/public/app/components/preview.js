@@ -209,7 +209,6 @@ function DrivePlayer({ file, ratio, onOriginal }) {
         allow="autoplay; fullscreen; picture-in-picture"
         allowfullscreen
         referrerpolicy="strict-origin-when-cross-origin"
-        sandbox="allow-scripts allow-same-origin allow-presentation"
       ></iframe>
     </div>
     <p class="pv-proxy-note">
