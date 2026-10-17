@@ -4557,6 +4557,11 @@ html.has-preview .toasts {
   --crumb-h: 34px;
   height: var(--tap);
 }
+.crumb.is-here,
+.crumb:active {
+  /* o "background" dessas regras volta o clip para a borda: aqui ele fica de novo só dentro da pílula */
+  background-clip: padding-box;
+}
 .crumb.is-here {
   /* a sombra de fora seguiria a borda transparente (44 px): fica só o fio de dentro, que é o que se vê */
   box-shadow: inset 0 0 0 0.5px var(--hairline);
@@ -4614,6 +4619,10 @@ html.has-preview .toasts {
 
 /* envio concluído: o que o celular conferiu */
 .row-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
   color: var(--ok-text);
 }
 
