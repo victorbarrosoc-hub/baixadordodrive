@@ -1,6 +1,7 @@
-// Navegar no Drive (aba Drive): listar pastas e arquivos com miniatura, buscar por nome e ordenar.
-// Só leitura: nada aqui muda o Drive. Usa o mesmo token da conta (lib/auth.js) e o mesmo `call` do envio.
-import { FOLDER_MIME, driveCall, q } from './drive.js'
+// Navegar no Drive (aba Drive): listar pastas e arquivos com miniatura, buscar por nome, ordenar e filtrar por tipo.
+// Quase tudo é só leitura. A única escrita é macJunkTrash (arquivos ._ do Mac para a lixeira), e só depois da
+// confirmação na tela. Usa o mesmo token da conta (lib/auth.js) e o mesmo `call` do envio.
+import { FOLDER_MIME, driveCall, q, trashFile } from './drive.js'
 import { extOf, fileKind } from './format.js'
 import { local } from './config.js'
 import { FolderSizes, pageLister, walkFolderSize } from './tamanho.js'
@@ -36,11 +37,28 @@ export const SCOPES = [
   { id: 'drives', label: 'Drives', aria: 'Drives compartilhados' },
 ]
 
+// Ordens. Pastas sempre primeiro ('folder' no orderBy do Drive; sortLocal faz o mesmo). `hint` e `chip`: [padrão,
+// invertida]. O Drive não ordena por tipo/extensão no servidor: 'type' pede por nome e agrupa aqui, no aparelho, e a
+// tela carrega a pasta toda antes (senão a ordem mudaria a cada página que chega). Ver needsAll.
 export const SORTS = {
-  name: { label: 'Nome', order: 'folder,name_natural', desc: 'folder,name_natural desc' },
-  date: { label: 'Data', order: 'folder,modifiedTime desc', desc: 'folder,modifiedTime' },
-  size: { label: 'Tamanho', order: 'folder,quotaBytesUsed desc', desc: 'folder,quotaBytesUsed' },
+  name: { label: 'Nome', order: 'folder,name_natural', desc: 'folder,name_natural desc', hint: ['A → Z', 'Z → A'], chip: ['Nome A→Z', 'Nome Z→A'] },
+  date: { label: 'Modificado', order: 'folder,modifiedTime desc', desc: 'folder,modifiedTime', hint: ['Mais recentes', 'Mais antigos'], chip: ['Mais recentes', 'Mais antigos'] },
+  size: { label: 'Tamanho', order: 'folder,quotaBytesUsed desc', desc: 'folder,quotaBytesUsed', hint: ['Maiores', 'Menores'], chip: ['Maiores', 'Menores'] },
+  type: { label: 'Tipo', order: null, desc: null, hint: ['Por extensão, A → Z', 'Por extensão, Z → A'], chip: ['Tipo A→Z', 'Tipo Z→A'] },
 }
+
+/** Rótulo curto da ordem atual, para o chip ("Nome A→Z", "Mais recentes", "Maiores"…). */
+export function sortChip(sort, flip) {
+  return (SORTS[sort] || SORTS.name).chip[flip ? 1 : 0]
+}
+
+/** Ordem que vai para o Drive: 'type' não existe lá, então pede por nome (e a tela agrupa). */
+export function serverSort(sort, flip) {
+  return SORTS[sort]?.order ? { sort, flip: !!flip } : { sort: 'name', flip: false }
+}
+
+/** A ordem só fica certa com a pasta toda carregada? (ordenada no aparelho, não no Drive). */
+export const needsAll = (sort) => Boolean(SORTS[sort]) && !SORTS[sort].order
 
 // ───── preferências do aparelho (grade/lista e ordem) ─────
 //
@@ -104,6 +122,131 @@ export function kindOf(f) {
   return fileKind(f.name, f.mimeType)
 }
 
+// ───── filtro por tipo (chips Tudo · Vídeos · Fotos · Áudio · Pastas · Outros) ─────
+//
+// Em duas partes. No Drive, o `q` por mimeType já tira o grosso (uma pasta de BRAW filtrada em Fotos nem baixa os
+// BRAW). Mas o Drive marca BRAW, R3D, ARRI e cia. como application/octet-stream: esses passam no `q` de vídeo, foto e
+// áudio, e quem decide é a extensão, aqui no aparelho (categoryOf). Por isso o `q` é sempre um SUPERCONJUNTO do que
+// categoryOf aceita, e a tela segue carregando páginas enquanto o filtro daqui esconde quase tudo.
+
+export const FILTERS = [
+  { id: 'all', label: 'Tudo' },
+  { id: 'video', label: 'Vídeos', one: 'vídeo', many: 'vídeos', none: 'Nenhum vídeo aqui' },
+  { id: 'image', label: 'Fotos', one: 'foto', many: 'fotos', none: 'Nenhuma foto aqui' },
+  { id: 'audio', label: 'Áudio', one: 'áudio', many: 'áudios', none: 'Nenhum áudio aqui' },
+  { id: 'folder', label: 'Pastas', one: 'pasta', many: 'pastas', none: 'Nenhuma pasta aqui' },
+  { id: 'other', label: 'Outros', one: 'outro arquivo', many: 'outros arquivos', none: 'Nenhum outro arquivo aqui' },
+]
+export const filterById = (id) => FILTERS.find((x) => x.id === id) || FILTERS[0]
+
+// Tipos "sem tipo" (o Drive não reconheceu): aí vale a extensão. Os de mídia (video/, image/, audio/) valem pelo tipo.
+const BINARY = ['application/octet-stream', 'binary/octet-stream', 'application/mxf', 'application/x-mxf']
+const MEDIA = ['video', 'audio', 'image']
+
+/** 'folder' | 'video' | 'image' | 'audio' | 'other': em que chip o item aparece. */
+export function categoryOf(f) {
+  if (isFolder(f)) return 'folder'
+  const mime = (f?.mimeType === SHORTCUT_MIME ? f.shortcutDetails?.targetMimeType : f?.mimeType) || ''
+  const byMime = MEDIA.find((k) => mime.startsWith(`${k}/`))
+  if (byMime) return byMime
+  if (mime && !BINARY.includes(mime)) return 'other'
+  const k = kindOf({ ...f, mimeType: mime })
+  return MEDIA.includes(k) ? k : 'other'
+}
+
+export const matchesFilter = (f, id) => !id || id === 'all' || categoryOf(f) === id
+
+/** O pedaço do `q` do Drive para o filtro (superconjunto de categoryOf; '' = sem filtro no servidor). */
+export function filterQuery(id) {
+  const loose = [...BINARY, SHORTCUT_MIME].map((m) => `mimeType = '${m}'`)
+  if (MEDIA.includes(id)) return `(mimeType contains '${id}/' or ${loose.join(' or ')})`
+  if (id === 'folder') return `(mimeType = '${FOLDER_MIME}' or mimeType = '${SHORTCUT_MIME}')`
+  if (id === 'other') return `mimeType != '${FOLDER_MIME}' and ${MEDIA.map((k) => `not mimeType contains '${k}/'`).join(' and ')}`
+  return ''
+}
+
+// ───── arquivos do Mac (._* e .DS_Store) ─────
+//
+// O Finder grava, em discos que não são do Mac, um "._nome" (AppleDouble: ícone, etiquetas, metadados) ao lado de cada
+// arquivo, e um .DS_Store por pasta. Quem copia o cartão inteiro para o Drive leva junto. Ficam ocultos por padrão.
+// Para a lixeira só vão os ._ pequenos (MAC_JUNK_MAX): um ._ de verdade tem de 4 KB a algumas centenas de KB; um
+// arquivo grande com nome começando em "._" pode ser outra coisa e fica onde está.
+
+export const MAC_JUNK_MAX = 4e6 // 4 MB (decimal, como o resto do app)
+
+/** ._qualquer-coisa ou .DS_Store (só arquivos; pastas nunca). */
+export function isMacJunk(f) {
+  if (!f || isFolder(f) || isGoogleDoc(f)) return false
+  const n = String(f.name || '')
+  return n.startsWith('._') || n === '.DS_Store'
+}
+
+/** Pode ir para a lixeira pelo botão: começa com "._", tem tamanho conhecido e menor que 4 MB. */
+export function isTrashableJunk(f) {
+  if (!f || isFolder(f) || isGoogleDoc(f) || f.mimeType === SHORTCUT_MIME) return false
+  const size = Number(f.size)
+  return String(f.name || '').startsWith('._') && f.size != null && Number.isFinite(size) && size < MAC_JUNK_MAX
+}
+
+/**
+ * Os ._ de uma pasta (só os filhos diretos), para a folha de confirmação: lista a pasta toda com o mínimo de campos,
+ * em páginas de 1000. Devolve [{ id, name, size, canTrash }].
+ */
+export async function macJunkIn(folder, { driveId = null, signal } = {}) {
+  const out = []
+  let pageToken
+  do {
+    const query = {
+      q: `'${q(folder.id)}' in parents and trashed = false`,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1000,
+      pageToken,
+      fields: 'nextPageToken,files(id,name,size,mimeType,parents,capabilities(canTrash))',
+    }
+    const d = driveId || folder.driveId || null
+    if (d) Object.assign(query, { corpora: 'drive', driveId: d })
+    const r = await driveCall('/files', { query, signal })
+    for (const f of r.files || []) {
+      if (!isTrashableJunk(f) || (f.parents && !f.parents.includes(folder.id))) continue
+      out.push({ id: f.id, name: f.name, size: Number(f.size), canTrash: f.capabilities?.canTrash !== false })
+    }
+    pageToken = r.nextPageToken
+  } while (pageToken)
+  return out
+}
+
+/**
+ * Move para a lixeira (files.update trashed=true, recuperável por 30 dias), 3 de cada vez. Confere de novo cada item
+ * (nome ._ e < 4 MB) antes de mexer. onProgress({ done, moved, refused, failed }). Cancelado (signal), para de pedir
+ * novos e devolve o que já foi. Devolve { moved: [ids], refused, failed, reason }.
+ */
+export async function macJunkTrash(items, { signal, onProgress } = {}) {
+  const list = items.filter((f) => isTrashableJunk(f))
+  const res = { moved: [], refused: 0, failed: 0, reason: null, skipped: items.length - list.length }
+  let next = 0
+  let done = 0
+  const worker = async () => {
+    while (next < list.length && !signal?.aborted) {
+      const f = list[next++]
+      try {
+        await trashFile(f.id, signal)
+        res.moved.push(f.id)
+      } catch (err) {
+        if (signal?.aborted) break
+        if (err?.status === 403 || err?.status === 404) {
+          res.refused++
+          res.reason = res.reason || err.reason || 'forbidden'
+        } else res.failed++
+      }
+      done++
+      onProgress?.({ done, total: list.length, moved: res.moved.length, refused: res.refused, failed: res.failed })
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, list.length) }, worker))
+  return res
+}
+
 /** O navegador deve conseguir tocar? (a última palavra é do próprio <video>: se der erro, mostra o aviso). */
 export function mayPlay(f, el) {
   const ext = extOf(f.name)
@@ -156,11 +299,14 @@ export function sizedThumb(link, px) {
  * where = { scope: 'mine'|'shared'|'drives', folder: { id, name } | null, driveId, search }
  * Devolve { files, next } (next = pageToken ou null).
  */
-export async function listPage(where, { sort = 'name', flip = false, pageToken, signal } = {}) {
+// O Drive aceitou o filtro por tipo no `q`? (se recusar uma vez, os próximos pedidos já vão sem ele).
+let kindQueryOk = true
+
+export async function listPage(where, { sort = 'name', flip = false, filter = 'all', pageToken, pageSize = PAGE, signal } = {}) {
   const { scope, folder, driveId, search } = where
   const clean = (search || '').trim()
   const parts = ['trashed = false']
-  const query = { supportsAllDrives: true, includeItemsFromAllDrives: true, pageSize: PAGE, pageToken, fields: `nextPageToken,files(${FILE_FIELDS})` }
+  const query = { supportsAllDrives: true, includeItemsFromAllDrives: true, pageSize, pageToken, fields: `nextPageToken,files(${FILE_FIELDS})` }
   if (clean) parts.push(`name contains '${q(clean)}'`)
   if (folder) {
     if (!clean) parts.push(`'${q(folder.id)}' in parents`)
@@ -171,31 +317,44 @@ export async function listPage(where, { sort = 'name', flip = false, pageToken, 
   }
   if (driveId) Object.assign(query, { corpora: 'drive', driveId })
   else if (scope === 'drives' && clean) query.corpora = 'allDrives'
-  query.q = parts.join(' and ')
-  const s = SORTS[sort] || SORTS.name
-  query.orderBy = flip ? s.desc : s.order
-  let r
-  try {
-    r = await driveCall('/files', { query, signal })
-  } catch (err) {
-    // Alguns lugares (busca em todos os Drives, Compartilhados comigo) recusam certas ordens: ordena aqui.
-    if (err?.status !== 400 || !query.orderBy) throw err
-    delete query.orderBy
-    r = await driveCall('/files', { query, signal })
-    r.files = sortLocal(r.files || [], sort, flip)
+  const fq = kindQueryOk ? filterQuery(filter) : ''
+  query.q = [...parts, fq].filter(Boolean).join(' and ')
+  const srv = serverSort(sort, flip)
+  const s = SORTS[srv.sort] || SORTS.name
+  query.orderBy = srv.flip ? s.desc : s.order
+  // Recusas (400) que dá para contornar, uma de cada vez: o filtro por tipo no `q` (a tela filtra do mesmo jeito,
+  // só carrega mais) e a ordem (alguns lugares, como a busca em todos os Drives e Compartilhados comigo, recusam
+  // certas ordens: ordena aqui).
+  for (;;) {
+    try {
+      const r = await driveCall('/files', { query, signal })
+      const files = r.files || []
+      return { files: query.orderBy ? files : sortLocal(files, srv.sort, srv.flip), next: r.nextPageToken || null }
+    } catch (err) {
+      if (err?.status !== 400) throw err
+      if (fq && query.q.includes(fq)) {
+        kindQueryOk = false
+        query.q = parts.join(' and ')
+      } else if (query.orderBy) delete query.orderBy
+      else throw err
+    }
   }
-  return { files: r.files || [], next: r.nextPageToken || null }
 }
+
+const extKey = (f) => (isFolder(f) ? '' : extOf(f.name) || '\uffff')
 
 export function sortLocal(files, sort, flip) {
   const coll = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true })
-  const by = {
-    name: (a, b) => coll.compare(a.name, b.name),
-    date: (a, b) => String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || '')),
-    size: (a, b) => (Number(b.size) || 0) - (Number(a.size) || 0),
-  }[sort] || ((a, b) => coll.compare(a.name, b.name))
+  const byName = (a, b) => coll.compare(a.name, b.name)
   const dir = flip ? -1 : 1
-  return [...files].sort((a, b) => Number(isFolder(b)) - Number(isFolder(a)) || dir * by(a, b))
+  const by = {
+    name: (a, b) => dir * byName(a, b),
+    date: (a, b) => dir * String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || '')),
+    size: (a, b) => dir * ((Number(b.size) || 0) - (Number(a.size) || 0)),
+    // Por tipo: agrupa pela extensão (sem extensão vai para o fim); dentro do grupo, sempre por nome, A → Z.
+    type: (a, b) => dir * extKey(a).localeCompare(extKey(b)) || byName(a, b),
+  }[sort] || ((a, b) => dir * byName(a, b))
+  return [...files].sort((a, b) => Number(isFolder(b)) - Number(isFolder(a)) || by(a, b))
 }
 
 /** Drives compartilhados da conta, como "pastas" da raiz. */

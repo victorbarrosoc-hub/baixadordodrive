@@ -81,10 +81,35 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
 (no modo Wi-Fi não aparece: lá o celular não tem token do Google).
 
 - **Navegar:** Meu Drive, Compartilhados comigo (“Comigo”) e Drives compartilhados (“Drives”); trilha, voltar,
-  grade com miniaturas ou lista (lembra no aparelho), ordem por nome/data/tamanho (tocar de novo inverte; pastas
-  sempre primeiro), busca por nome no lugar inteiro (o `name contains` do Drive casa o começo das palavras),
-  puxar para atualizar e mais páginas ao rolar (60 por vez). Listas já abertas ficam em memória; com mais de 2 min,
-  atualizam por trás.
+  grade com miniaturas ou lista (lembra no aparelho), busca por nome no lugar inteiro (o `name contains` do Drive
+  casa o começo das palavras), puxar para atualizar e mais páginas ao rolar (60 por vez). Listas já abertas ficam em
+  memória; com mais de 2 min, atualizam por trás.
+- **Ordem e filtro (2.8.0):** uma fileira de chips logo abaixo da busca (rola de lado). O primeiro mostra a ordem
+  atual (“Nome A→Z”, “Mais recentes”, “Maiores”, “Tipo A→Z”) e abre o menu: Nome, Modificado, Tamanho e Tipo
+  (tocar de novo inverte; pastas sempre primeiro; fica salvo no aparelho, `sobedesce.browse`). O Drive não ordena por
+  tipo: “Tipo” pede por nome, carrega a pasta toda (páginas de 200, “Carregando a pasta toda…”) e agrupa pela extensão
+  no aparelho. Depois, Tudo · Vídeos · Fotos · Áudio · Pastas · Outros: o `q` do Drive filtra pelo `mimeType`
+  (`filterQuery`), mas BRAW, R3D, ARRI e MXF chegam como `application/octet-stream`/`application/mxf`, então esses
+  passam no `q` e a extensão decide no aparelho (`categoryOf`). Quando o filtro daqui esconde quase tudo, a tela segue
+  carregando páginas (“Procurando…”) até ter o que mostrar ou a pasta acabar. Com filtro, a linha do tamanho vira
+  “12 vídeos · 380 GB” (com “até aqui” e “Somar tudo” se a pasta ainda não carregou inteira). Se o Drive recusar o
+  `q` do filtro (400), o app tira ele e filtra só no aparelho. O filtro volta para Tudo ao trocar de pasta.
+- **Voltar de pasta (2.8.0):** cada pasta aberta é uma entrada do histórico (`history.pushState` com
+  `{ sd: 'drive', scope, path, base }`), e a prévia aberta também: o gesto nativo do Safari e o botão voltar do
+  Android voltam a pasta (ou fecham a prévia) em vez de sair do app; o `popstate` leva à pasta da entrada. A seta, a
+  trilha e o gesto usam `history.go` quando a corrente de entradas está inteira (senão empilham uma nova). No app da
+  Tela de Início do iPhone (`navigator.standalone`), onde o Safari não tem gesto de voltar, há um próprio
+  (`useEdgeSwipe`): o toque começa nos primeiros 20 px depois de `env(safe-area-inset-left)` e anda para a direita; a
+  tela acompanha o dedo e a pasta de cima aparece por trás (parallax de 30% e escurecimento). Soltou depois de 35% da
+  largura ou a mais de 0,5 px/ms: termina com `--spring` e volta; senão, desliza de volta. Só trava depois de andar
+  mais para o lado do que para baixo (rolagem vertical continua dela; a fileira de chips já rolada também), e lá o
+  `overscroll-behavior-x: none` evita voltar duas vezes. Com “reduzir movimento”, nada se mexe no arrasto: ao soltar
+  além do limite, só volta. Na raiz, nada.
+- **Arquivos do Mac** (`._*`, `.DS_Store`): ocultos por padrão, com a linha “38 arquivos do Mac ocultos · Mostrar ·
+  Limpar”. Limpar abre uma folha de confirmação que lista a pasta toda e só move para a lixeira do Drive
+  (`files.update` com `trashed: true`, `supportsAllDrives`; recuperável por 30 dias) os que começam com `._` **e** têm
+  menos de 4 MB. Mostra o progresso, para ao fechar a folha e explica a recusa (sem permissão: num Drive
+  compartilhado, só quem gerencia o conteúdo manda para a lixeira). Nada é apagado de vez.
 - **Tamanho das pastas** (`lib/tamanho.js`, `folderSize` em `lib/browse.js`): o Drive não guarda, então o app soma
   a árvore direto no Google (4 listagens de cada vez, `files(id,mimeType,size)`, 1000 por página, sem lixeira, atalhos
   não seguidos, Docs do Google contam 0). Abrir uma pasta começa sozinho e mostra “Calculando… 1.234 arquivos · 412 GB”

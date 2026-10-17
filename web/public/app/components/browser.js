@@ -1,19 +1,47 @@
 // Aba Drive: navegar no Meu Drive, Compartilhados comigo e Drives compartilhados, em grade com miniaturas ou em
-// lista; ordenar, buscar por nome, puxar para atualizar e carregar mais ao rolar. Tocar num arquivo abre a prévia.
+// lista; ordenar e filtrar por tipo (chips abaixo da busca), buscar por nome, puxar para atualizar e carregar mais ao
+// rolar. Os arquivos ._ do Mac ficam ocultos (com a opção de mostrar ou mandar para a lixeira, com confirmação).
+// Tocar num arquivo abre a prévia.
 import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js'
-import { SCOPES, SORTS, autoView, folderSizes, getPrefs, isFolder, kindOf, knownProxy, listDrives, listPage, savePrefs, target } from '../lib/browse.js'
+import {
+  FILTERS,
+  SCOPES,
+  SORTS,
+  autoView,
+  filterById,
+  folderSizes,
+  getPrefs,
+  isFolder,
+  isMacJunk,
+  kindOf,
+  knownProxy,
+  listDrives,
+  listPage,
+  macJunkIn,
+  macJunkTrash,
+  matchesFilter,
+  needsAll,
+  savePrefs,
+  serverSort,
+  sortChip,
+  sortLocal,
+  target,
+} from '../lib/browse.js'
 import { sizeIsBig } from '../lib/tamanho.js'
 import { bytes, count, duration, plural, shortDate } from '../lib/format.js'
 import { Icon } from './icons.js'
-import { Button, cx } from './ui.js'
+import { Button, SheetHead, cx, reducedMotion } from './ui.js'
 import { Preview } from './preview.js'
 import { KindGlyph, Thumb } from './thumb.js'
 import { FileName } from './queue.js'
-import { MY_DRIVE, getState, pushRecent, setState, setTab, toast } from '../lib/state.js'
+import { MY_DRIVE, closeSheet, getState, openSheet, pushRecent, setState, setTab, toast } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
+import { isIOS } from '../lib/platform.js'
 
 // Listas já abertas (voltar para uma pasta não pisca). Vale enquanto a página está aberta.
 const lists = new Map()
+// Carregar a pasta toda sozinho (ordem por tipo, "Somar tudo") vai até aqui.
+const AUTO_MAX = 3000
 
 // ───── tamanho das pastas (lib/tamanho.js) ─────
 
@@ -40,8 +68,11 @@ const folderMeta = (f, base) => {
   return s ? `${base} · ${s}` : base
 }
 
-/** Linha do topo da pasta aberta: "412,3 GB · 1.234 arquivos em 56 pastas" (começa sozinha ao abrir). */
-function FolderSize({ folder, driveId, active }) {
+/**
+ * Linha do topo da pasta aberta: "412,3 GB · 1.234 arquivos em 56 pastas" (começa sozinha ao abrir). Com um filtro
+ * ligado, a linha mostra o total do filtro (FilterTotal) e esta fica escondida (`hide`), mas a conta segue andando.
+ */
+function FolderSize({ folder, driveId, active, hide }) {
   useFolderSizes()
   const v = folderSizes.get(folder.id)
   useEffect(() => {
@@ -55,7 +86,7 @@ function FolderSize({ folder, driveId, active }) {
     if (!active) folderSizes.focus(null)
   }, [active])
   const again = () => folderSizes.start({ id: folder.id, driveId: driveId || folder.driveId || null }, { refresh: true })
-  if (!v) return null
+  if (!v || hide) return null
   if (isLive(v)) {
     const big = sizeIsBig(v)
     return html`<div class="dsize is-live" role="status">
@@ -190,9 +221,14 @@ function SkeletonGrid({ view }) {
   </ul>`
 }
 
-/** Lista de um lugar: primeira página, mais páginas ao rolar e recarregar. */
-function useListing(where, prefs) {
-  const key = JSON.stringify([where.scope, where.folder?.id || null, where.driveId || null, where.search || '', prefs.sort, prefs.flip])
+/**
+ * Lista de um lugar: primeira página, mais páginas ao rolar e recarregar. A chave leva a ordem que vai para o Drive
+ * (a ordem por tipo é feita aqui e não muda a chave) e o filtro por tipo (o `q` muda). more({ big }) pede páginas de
+ * 200 (quando a tela precisa da pasta toda ou está procurando o que o filtro esconde).
+ */
+function useListing(where, prefs, filter) {
+  const srv = serverSort(prefs.sort, prefs.flip)
+  const key = JSON.stringify([where.scope, where.folder?.id || null, where.driveId || null, where.search || '', srv.sort, srv.flip, filter])
   const [st, setSt] = useState(() => lists.get(key) || { files: null, next: null, loading: true, error: null })
   const ctl = useRef(null)
   const keyRef = useRef(key)
@@ -204,7 +240,7 @@ function useListing(where, prefs) {
     if (keyRef.current === k) setSt(merged)
   }
 
-  const load = (k, { more = false } = {}) => {
+  const load = (k, { more = false, big = false } = {}) => {
     const cur = lists.get(k) || {}
     if (more && (!cur.next || cur.loadingMore)) return
     ctl.current?.abort()
@@ -214,7 +250,7 @@ function useListing(where, prefs) {
     const atDrivesRoot = where.scope === 'drives' && !where.folder && !where.search
     const p = atDrivesRoot
       ? listDrives(c.signal).then((files) => ({ files, next: null }))
-      : listPage(where, { sort: prefs.sort, flip: prefs.flip, pageToken: more ? cur.next : undefined, signal: c.signal })
+      : listPage(where, { sort: srv.sort, flip: srv.flip, filter, pageToken: more ? cur.next : undefined, pageSize: big ? 200 : undefined, signal: c.signal })
     return p.then(
       (r) => {
         if (c.signal.aborted) return
@@ -243,7 +279,13 @@ function useListing(where, prefs) {
   return {
     ...st,
     reload: () => load(key),
-    more: () => load(key, { more: true }),
+    more: (opts) => load(key, { more: true, ...opts }),
+    /** Tira itens (foram para a lixeira) de todas as listas guardadas, sem recarregar. */
+    drop: (ids) => {
+      const gone = new Set(ids)
+      for (const [k, v] of lists) if (v.files) lists.set(k, { ...v, files: v.files.filter((f) => !gone.has(f.id)) })
+      if (lists.get(keyRef.current)) setSt(lists.get(keyRef.current))
+    },
   }
 }
 
@@ -258,24 +300,204 @@ function SortMenu({ prefs, onChange, onClose }) {
       document.removeEventListener('keydown', onKey)
     }
   }, [])
-  const hint = { name: prefs.flip ? 'Z → A' : 'A → Z', date: prefs.flip ? 'Mais antigos' : 'Mais recentes', size: prefs.flip ? 'Menores' : 'Maiores' }
   return html`<div class="sort-menu" role="menu" aria-label="Ordenar por">
     <p class="sort-menu-label">Ordenar por</p>
-    ${Object.entries(SORTS).map(
-      ([id, s]) => html`<button
+    ${Object.entries(SORTS).map(([id, s]) => {
+      const on = prefs.sort === id
+      return html`<button
         type="button"
         role="menuitemradio"
-        aria-checked=${prefs.sort === id ? 'true' : 'false'}
-        class=${cx('sort-opt', prefs.sort === id && 'is-on')}
-        onClick=${() => onChange(prefs.sort === id ? { flip: !prefs.flip } : { sort: id, flip: false })}
+        aria-checked=${on ? 'true' : 'false'}
+        class=${cx('sort-opt', on && 'is-on')}
+        onClick=${() => {
+          onChange(on ? { flip: !prefs.flip } : { sort: id, flip: false })
+          if (!on) onClose()
+        }}
       >
-        <span class="sort-check">${prefs.sort === id ? html`<${Icon} name="check" size=${16} strokeWidth=${2.2} />` : null}</span>
-        <span class="sort-text">${s.label}${prefs.sort === id ? html`<small>${hint[id]}</small>` : null}</span>
-        ${prefs.sort === id ? html`<${Icon} name=${prefs.flip ? 'chevron-up' : 'chevron-down'} size=${15} strokeWidth=${2} />` : null}
-      </button>`,
-    )}
+        <span class="sort-check">${on ? html`<${Icon} name="check" size=${16} strokeWidth=${2.2} />` : null}</span>
+        <span class="sort-text">${s.label}<small>${s.hint[on && prefs.flip ? 1 : 0]}</small></span>
+        ${on ? html`<${Icon} name=${prefs.flip ? 'chevron-up' : 'chevron-down'} size=${15} strokeWidth=${2} />` : null}
+      </button>`
+    })}
+    <p class="sort-menu-foot">Toque de novo para inverter. Pastas sempre primeiro.</p>
   </div>`
 }
+
+/** Chips abaixo da busca: a ordem atual (abre o menu) e o filtro por tipo. A fileira rola de lado. */
+function DriveTools({ prefs, filter, menu, setMenu, onPrefs, onFilter }) {
+  return html`<div class="dtools">
+    <div class="dchips">
+      <button
+        type="button"
+        class=${cx('dchip sort-btn', menu && 'is-open')}
+        onClick=${() => setMenu(!menu)}
+        aria-haspopup="menu"
+        aria-expanded=${menu ? 'true' : 'false'}
+        aria-label=${`Ordem: ${sortChip(prefs.sort, prefs.flip)}. Mudar a ordem`}
+      >
+        <${Icon} name="chevron-updown" size=${15} strokeWidth=${2} />
+        <span>${sortChip(prefs.sort, prefs.flip)}</span>
+      </button>
+      <span class="dchips-sep" aria-hidden="true"></span>
+      <div class="dchips-group" role="radiogroup" aria-label="Mostrar">
+        ${FILTERS.map(
+          (x) => html`<button
+            type="button"
+            role="radio"
+            aria-checked=${filter === x.id ? 'true' : 'false'}
+            class=${cx('dchip', filter === x.id && 'is-on')}
+            onClick=${() => onFilter(x.id)}
+          >
+            <span>${x.label}</span>
+          </button>`,
+        )}
+      </div>
+    </div>
+    ${menu ? html`<${SortMenu} prefs=${prefs} onChange=${onPrefs} onClose=${() => setMenu(false)} />` : null}
+  </div>`
+}
+
+/** Soma do que está à mostra: "12 vídeos · 380 GB". Sem a pasta toda carregada, diz "até aqui" e oferece somar tudo. */
+function filterSummary(files, filter) {
+  const x = filterById(filter)
+  const n = files.length
+  const sum = files.reduce((t, f) => t + (isFolder(f) ? 0 : Number(f.size) || 0), 0)
+  const hasSize = files.some((f) => !isFolder(f) && f.size != null)
+  return { label: `${count(n)} ${n === 1 ? x.one : x.many}`, size: hasSize ? total(sum) : null }
+}
+
+function FilterTotal({ files, filter, partial, busy, onAll }) {
+  const { label, size } = filterSummary(files, filter)
+  return html`<div class="dsize">
+    <span class="dsize-text"><b>${label}</b>${size ? html` · ${size}` : null}${partial ? html` <small>até aqui</small>` : null}</span>
+    ${partial
+      ? busy
+        ? html`<span class="spinner dsize-spin" aria-label="Somando"></span>`
+        : html`<button type="button" class="dsize-act" onClick=${onAll}>Somar tudo</button>`
+      : null}
+  </div>`
+}
+
+/** Linha discreta dos arquivos do Mac: "38 arquivos do Mac ocultos · Mostrar · Limpar". */
+function MacLine({ n, more, shown, onToggle, onClean }) {
+  if (!n) return null
+  const what = `${count(n)}${more ? '+' : ''} ${n === 1 ? 'arquivo' : 'arquivos'} do Mac`
+  return html`<div class="dmac">
+    <${Icon} name=${shown ? 'eye' : 'eye-off'} size=${15} strokeWidth=${1.9} />
+    <span class="dmac-text">${shown ? `${what} à mostra` : `${what} ${n === 1 ? 'oculto' : 'ocultos'}`}</span>
+    <button type="button" class="dmac-act" onClick=${onToggle}>${shown ? 'Ocultar' : 'Mostrar'}</button>
+    ${onClean ? html`<button type="button" class="dmac-act" onClick=${onClean}>Limpar</button>` : null}
+  </div>`
+}
+
+/**
+ * Folha de confirmação: arquivos ._ desta pasta para a lixeira do Drive. Procura na pasta toda (não só no que a tela
+ * carregou), mostra quantos e quanto, e só mexe depois do toque em "Mover para a lixeira". Fechar no meio para de
+ * mandar os próximos (os que já foram ficam na lixeira, recuperáveis).
+ */
+export function MacJunkSheet({ folder, driveId, onDone }) {
+  const [st, setSt] = useState({ phase: 'scan' })
+  const ctl = useRef(null)
+  useEffect(() => {
+    const c = new AbortController()
+    ctl.current = c
+    macJunkIn(folder, { driveId, signal: c.signal }).then(
+      (items) => !c.signal.aborted && setSt({ phase: 'ready', items }),
+      (err) => !c.signal.aborted && setSt({ phase: 'error', error: err }),
+    )
+    return () => c.abort()
+  }, [])
+
+  const run = async () => {
+    const items = st.items.filter((f) => f.canTrash)
+    setSt({ ...st, phase: 'busy', done: 0, total: items.length })
+    const r = await macJunkTrash(items, {
+      signal: ctl.current.signal,
+      onProgress: (p) => !ctl.current.signal.aborted && setSt((cur) => ({ ...cur, done: p.done })),
+    })
+    // Mesmo parada no meio (folha fechada), a tela tira da lista os que já foram.
+    if (r.moved.length) onDone?.(r.moved)
+    if (ctl.current.signal.aborted) return
+    setSt({ ...st, phase: 'done', result: { ...r, refused: r.refused + (st.items.length - items.length) } })
+  }
+
+  const head = (title, right) => html`<${SheetHead}
+    title=${title}
+    left=${st.phase === 'done' ? null : html`<button type="button" class="link-btn" onClick=${closeSheet}>${st.phase === 'busy' ? 'Parar' : 'Cancelar'}</button>`}
+    right=${right}
+  />`
+  const explain = html`<p class="rexplain">
+    Esses são arquivos de controle do Mac (._) que vieram junto com os originais. Os vídeos não são afetados. Vão para a lixeira do Drive e podem ser recuperados por 30 dias.
+  </p>`
+
+  if (st.phase === 'scan') {
+    return html`${head('Arquivos do Mac')}
+      <div class="sheet-body rsheet">
+        ${explain}
+        <div class="mjunk-wait" role="status"><span class="spinner" aria-hidden="true"></span> Procurando os arquivos ._ em “${folder.name}”…</div>
+      </div>`
+  }
+  if (st.phase === 'error') {
+    return html`${head('Arquivos do Mac')}
+      <div class="sheet-body rsheet">
+        <div class="ritem is-error"><${Icon} name="warning" size=${22} /><div><b>Não consegui ler a pasta</b><p>${st.error?.status === 0 ? 'Sem conexão com o Google. Confira a internet.' : 'Tente de novo daqui a pouco.'}</p></div></div>
+      </div>`
+  }
+  const items = st.items || []
+  const can = items.filter((f) => f.canTrash)
+  if (st.phase === 'ready') {
+    if (!items.length) {
+      return html`${head('Arquivos do Mac')}
+        <div class="sheet-body rsheet">
+          <div class="ritem is-ok"><${Icon} name="circle-check" size=${22} /><div><b>Nada para limpar</b><p>Não há arquivos ._ pequenos nesta pasta. Os .DS_Store só ficam ocultos.</p></div></div>
+        </div>`
+    }
+    const sample = items[0].name
+    return html`${head(`${count(items.length)} ${items.length === 1 ? 'arquivo' : 'arquivos'} do Mac`)}
+      <div class="sheet-body rsheet">
+        ${explain}
+        <div class="mjunk-list">
+          <span class="mono">${sample}</span>
+          <span>${items.length > 1 ? `e mais ${count(items.length - 1)} · ` : ''}${total(items.reduce((t, f) => t + f.size, 0))} no total</span>
+        </div>
+        ${can.length < items.length
+          ? html`<p class="group-foot mjunk-warn">${can.length ? `${count(items.length - can.length)} deles você não pode mover: falta permissão nesta pasta.` : 'Você não tem permissão para mover estes arquivos para a lixeira. Peça a quem é dono da pasta (ou a quem gerencia o Drive compartilhado).'}</p>`
+          : null}
+        ${can.length
+          ? html`<${Button} variant="secondary" class="btn-block btn-lg is-danger" icon="trash" onClick=${run}>
+              ${`Mover ${can.length === 1 ? '1 arquivo' : `${count(can.length)} arquivos`} para a lixeira`}
+            </${Button}>
+            <p class="group-foot rdel-foot">Só os que começam com “._” e têm menos de 4 MB.</p>`
+          : null}
+      </div>`
+  }
+  if (st.phase === 'busy') {
+    const pct = st.total ? Math.round((st.done / st.total) * 100) : 0
+    return html`${head('Movendo para a lixeira')}
+      <div class="sheet-body rsheet">
+        <div class="mjunk-prog" role="progressbar" aria-valuemin="0" aria-valuemax=${st.total} aria-valuenow=${st.done} aria-label="Movendo para a lixeira">
+          <span style=${`width:${pct}%`}></span>
+        </div>
+        <p class="mjunk-count">${count(st.done)} de ${count(st.total)}</p>
+      </div>`
+  }
+  const r = st.result
+  const n = r.moved.length
+  const refusedText = r.refused
+    ? `${count(r.refused)} não ${r.refused === 1 ? 'foi' : 'foram'}: sem permissão nesta pasta. Num Drive compartilhado, só quem gerencia o conteúdo pode mandar para a lixeira.`
+    : null
+  return html`${head(n ? 'Pronto' : 'Não deu', html`<button type="button" class="link-btn is-strong" onClick=${closeSheet}>OK</button>`)}
+    <div class="sheet-body rsheet">
+      <div class=${cx('ritem', n ? 'is-ok' : 'is-error')}>
+        <${Icon} name=${n ? 'circle-check' : 'warning'} size=${22} />
+        <div>
+          <b>${n ? `${n === 1 ? '1 arquivo foi' : `${count(n)} arquivos foram`} para a lixeira do Drive` : 'Nenhum arquivo foi para a lixeira'}</b>
+          <p>${[n ? 'Dá para recuperar por 30 dias, na lixeira do Drive.' : null, refusedText, r.failed ? `${count(r.failed)} falharam (conexão). Tente de novo.` : null].filter(Boolean).join(' ')}</p>
+        </div>
+      </div>
+    </div>`
+}
+MacJunkSheet.label = 'Arquivos do Mac'
 
 /** Puxar para atualizar (a página rola no documento; só começa com a rolagem no topo). */
 function usePull(ref, active, onRefresh) {
@@ -288,7 +510,7 @@ function usePull(ref, active, onRefresh) {
     const el = ref.current
     if (!el || !active) return
     const start = (e) => {
-      if (window.scrollY > 0 || e.touches.length !== 1 || busy || e.target.closest('input, .sort-menu')) return
+      if (window.scrollY > 0 || e.touches.length !== 1 || busy || e.target.closest('input, .sort-menu, .dchips')) return
       st.current = { y0: e.touches[0].clientY, x0: e.touches[0].clientX, d: 0, on: false }
     }
     const move = (e) => {
@@ -334,14 +556,219 @@ function usePull(ref, active, onRefresh) {
   return { pull, busy }
 }
 
+// ───── voltar de pasta: histórico e gesto da borda ─────
+//
+// Cada pasta aberta vira uma entrada do histórico (history.pushState com o caminho). Assim o gesto nativo do Safari
+// e o botão voltar do Android voltam a pasta em vez de sair do app; o popstate leva à pasta da entrada. A prévia
+// aberta também é uma entrada (voltar fecha). As entradas da aba Drive levam { sd: 'drive', scope, path, base }:
+// `base` é a menor profundidade da corrente de entradas nossas, seguidas, logo abaixo desta (abrir uma pasta pela
+// busca começa uma corrente nova). Voltar pela tela (seta, trilha, gesto) usa history.go quando a corrente está
+// inteira; senão, empilha uma entrada nova (nunca volta para fora do app).
+//
+// No app da Tela de Início do iPhone (navigator.standalone) não há gesto de voltar: useEdgeSwipe faz um, como o do
+// UINavigationController. Só lá: no Safari o gesto é do próprio Safari (o nosso brigaria com ele), e no Android o
+// gesto da borda é do sistema (vira o botão voltar → popstate). Os dois caminhos acabam no mesmo history.go, então
+// não duplicam.
+
+const samePath = (a, b) => a.length === b.length && a.every((p, i) => p.id === b[i].id)
+const ours = (st, nav) => st?.sd === 'drive' && st.scope === nav.scope && Array.isArray(st.path) && samePath(st.path, nav.path)
+const slim = (path) => path.map((p) => ({ id: p.id, name: p.name, driveId: p.driveId || null, canAdd: p.canAdd }))
+const historyState = () => {
+  try {
+    return history.state
+  } catch {
+    return null
+  }
+}
+
+/** O gesto próprio vale aqui? (app instalado no iPhone; o teste pode simular com navigator.standalone). */
+const edgeSwipeHere = () => isIOS && typeof navigator !== 'undefined' && navigator.standalone === true
+
+const EDGE = 20 // px a partir da borda (depois da área segura)
+let safeLeftPx = null
+function safeLeft() {
+  if (safeLeftPx != null) return safeLeftPx
+  try {
+    const el = document.createElement('div')
+    el.style.cssText = 'position:fixed;left:0;top:0;height:0;visibility:hidden;width:env(safe-area-inset-left,0px)'
+    document.body.appendChild(el)
+    safeLeftPx = el.getBoundingClientRect().width || 0
+    el.remove()
+  } catch {
+    safeLeftPx = 0
+  }
+  return safeLeftPx
+}
+
+/**
+ * Arrastar da borda esquerda para a direita volta uma pasta. O toque precisa começar nos primeiros EDGE px (depois da
+ * área segura) e andar mais para o lado do que para baixo; só então a rolagem é segurada (touchmove não passivo, com
+ * preventDefault só depois de travar no gesto). Começar na fileira de chips já rolada é dela, não nosso. A tela atual
+ * acompanha o dedo (transform direto no elemento, sem redesenhar) e a de cima aparece por trás, deslocada e escurecida.
+ * Soltou depois de 35% da largura ou rápido (> 0,5 px/ms): termina com --spring e volta; senão, desliza de volta.
+ * Com "reduzir movimento": nada se mexe no arrasto; ao soltar além do limite, só volta.
+ */
+function useEdgeSwipe({ enabled, screenRef, behindRef, onStart, onEnd, onBack }) {
+  const cb = useRef({ onStart, onEnd, onBack })
+  cb.current = { onStart, onEnd, onBack }
+  useEffect(() => {
+    if (!enabled) return
+    let g = null
+    const W = () => window.innerWidth || 390
+    const paint = (dx) => {
+      const el = screenRef.current
+      const bh = behindRef.current
+      const p = Math.max(0, Math.min(1, dx / W()))
+      if (el) el.style.transform = dx > 0 ? `translate3d(${dx}px,0,0)` : ''
+      if (bh) {
+        bh.style.transform = `translate3d(${(-30 * (1 - p)).toFixed(2)}%,0,0)`
+        const dim = bh.querySelector('.dswipe-dim')
+        if (dim) dim.style.opacity = String((1 - p).toFixed(3))
+      }
+    }
+    const transition = (on) => {
+      const v = on ? 'transform 0.38s var(--spring), opacity 0.38s var(--spring)' : ''
+      if (screenRef.current) screenRef.current.style.transition = v
+      if (behindRef.current) {
+        behindRef.current.style.transition = v
+        const dim = behindRef.current.querySelector('.dswipe-dim')
+        if (dim) dim.style.transition = v
+      }
+    }
+    const reset = () => {
+      transition(false)
+      const el = screenRef.current
+      if (el) {
+        el.style.transform = ''
+        el.classList.remove('is-swiping')
+      }
+      document.documentElement.classList.remove('is-dswipe')
+      cb.current.onEnd()
+    }
+    const start = (e) => {
+      if (g || e.touches.length !== 1) return
+      const t = e.touches[0]
+      if (t.clientX > safeLeft() + EDGE) return
+      if (document.documentElement.classList.contains('has-sheet')) return
+      const chips = e.target.closest?.('.dchips')
+      if (chips && chips.scrollLeft > 0) return
+      g = { x0: t.clientX, y0: t.clientY, dx: 0, on: false, samples: [{ x: t.clientX, t: performance.now() }] }
+    }
+    const move = (e) => {
+      if (!g) return
+      const t = e.touches[0]
+      const dx = t.clientX - g.x0
+      const dy = t.clientY - g.y0
+      if (!g.on) {
+        if (Math.abs(dy) > 10 && Math.abs(dy) > dx) return void (g = null) // rolagem: não é com a gente
+        if (dx < 10 || dx < Math.abs(dy) * 1.2) return
+        g.on = true
+        g.reduced = reducedMotion()
+        g.x0 = t.clientX - 1 // sem salto: o arrasto começa de onde travou
+        screenRef.current?.classList.add('is-swiping')
+        document.documentElement.classList.add('is-dswipe')
+        cb.current.onStart()
+      }
+      e.preventDefault()
+      g.dx = Math.max(0, t.clientX - g.x0)
+      const now = performance.now()
+      g.samples.push({ x: t.clientX, t: now })
+      while (g.samples.length > 2 && now - g.samples[0].t > 100) g.samples.shift()
+      if (!g.reduced) paint(g.dx)
+    }
+    const end = (e) => {
+      const cur = g
+      g = null
+      if (!cur?.on) return
+      const s0 = cur.samples[0]
+      const s1 = cur.samples[cur.samples.length - 1]
+      const v = s1.t > s0.t ? (s1.x - s0.x) / (s1.t - s0.t) : 0
+      const done = e.type !== 'touchcancel' && (cur.dx > W() * 0.35 || (v > 0.5 && cur.dx > 24))
+      if (cur.reduced) {
+        if (done) cb.current.onBack()
+        return reset()
+      }
+      transition(true)
+      paint(done ? W() : 0)
+      let over = false
+      const finish = () => {
+        if (over) return
+        over = true
+        if (done) {
+          cb.current.onBack()
+          // a pasta de cima entra no lugar antes de a tela voltar para o zero (sem piscar a pasta que saiu)
+          requestAnimationFrame(() => requestAnimationFrame(reset))
+        } else reset()
+      }
+      screenRef.current?.addEventListener('transitionend', finish, { once: true })
+      setTimeout(finish, 450)
+    }
+    document.addEventListener('touchstart', start, { passive: true })
+    document.addEventListener('touchmove', move, { passive: false })
+    document.addEventListener('touchend', end)
+    document.addEventListener('touchcancel', end)
+    return () => {
+      document.removeEventListener('touchstart', start)
+      document.removeEventListener('touchmove', move)
+      document.removeEventListener('touchend', end)
+      document.removeEventListener('touchcancel', end)
+    }
+  }, [enabled])
+}
+
+/** A pasta de cima, por trás da atual durante o gesto: o que já está carregado dela (ou o esqueleto). */
+function SwipeBehind({ scope, path, prefs, innerRef }) {
+  const folder = path[path.length - 1] || null
+  const driveId = scope === 'drives' && path[0] ? path[0].id : null
+  let files = null
+  for (const [k, v] of lists) {
+    let key
+    try {
+      key = JSON.parse(k)
+    } catch {
+      continue
+    }
+    if (key[0] !== scope || key[1] !== (folder?.id || null) || key[2] !== (driveId || null) || key[3] !== '' || !v.files) continue
+    if (!files || key[6] === 'all') files = v.files
+  }
+  const shown = files ? files.filter((f) => !isMacJunk(f)).slice(0, 24) : null
+  const view = prefs.view || (shown ? autoView(shown) : 'list')
+  const title = folder ? folder.name : SCOPES.find((x) => x.id === scope)?.aria
+  const noop = () => {}
+  return html`<div class="dswipe-behind" ref=${innerRef} aria-hidden="true" inert>
+    <div class=${cx('screen', 'drive-screen', view === 'list' && 'is-list')}>
+      <header class="topbar dtop">
+        <div class="dtop-row">
+          ${folder ? html`<span class="icon-btn dtop-back"><${Icon} name="chevron-left" size=${22} strokeWidth=${2} /></span>` : null}
+          <h1 class="dtop-title">${title}</h1>
+        </div>
+      </header>
+      <main class="drive-body">
+        ${shown
+          ? view === 'grid'
+            ? html`<ul class="tiles">${shown.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${files} onOpen=${noop} />`)}</ul>`
+            : html`<ul class="group lrows">${shown.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${files} onOpen=${noop} driveId=${driveId} />`)}</ul>`
+          : html`<${SkeletonGrid} view=${view} />`}
+      </main>
+    </div>
+    <div class="dswipe-dim"></div>
+  </div>`
+}
+
 export function DriveScreen({ active }) {
   const [prefs, setPrefs] = useState(getPrefs)
   const [nav, setNav] = useState({ scope: 'mine', path: [] })
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
   const [menu, setMenu] = useState(false)
+  // Filtro por tipo e arquivos do Mac à mostra: valem para o lugar aberto (voltam ao padrão ao trocar de pasta).
+  const [filter, setFilter] = useState('all')
+  const [showMac, setShowMac] = useState(false)
+  const [wantAll, setWantAll] = useState(false) // "Somar tudo": carregar a pasta toda
   const [preview, setPreview] = useState(null) // { files, index }
   const root = useRef(null)
+  const behindRef = useRef(null)
+  const [swipe, setSwipe] = useState(false) // gesto da borda em andamento (mostra a pasta de cima por trás)
   const sentinel = useRef(null)
   const crumbsRef = useRef(null)
 
@@ -353,12 +780,33 @@ export function DriveScreen({ active }) {
   const folder = nav.path[nav.path.length - 1] || null
   const driveId = nav.scope === 'drives' && nav.path[0] ? nav.path[0].id : null
   const where = useMemo(() => ({ scope: nav.scope, folder: search ? null : folder, driveId, search }), [nav, search])
-  const list = useListing(where, prefs)
+  const list = useListing(where, prefs, filter)
   useFolderSizes()
+
+  // O que vai para a tela: sem os arquivos do Mac (a não ser que a pessoa peça), só o tipo escolhido e, na ordem por
+  // tipo, agrupado aqui (o Drive não ordena por extensão).
+  const raw = list.files || []
+  const files = useMemo(() => {
+    const shown = raw.filter((f) => (showMac || !isMacJunk(f)) && matchesFilter(f, filter))
+    return needsAll(prefs.sort) ? sortLocal(shown, prefs.sort, prefs.flip) : shown
+  }, [raw, showMac, filter, prefs.sort, prefs.flip])
+  const macN = useMemo(() => raw.filter(isMacJunk).length, [raw])
+
+  // Carregar mais sem rolar: a ordem por tipo e o "Somar tudo" precisam da pasta toda; e quando o filtro daqui (tipo
+  // pela extensão, arquivos do Mac) esconde quase tudo, uma página pode vir sem nada para mostrar: segue procurando até
+  // encher a tela ou acabar a pasta. Erro para tudo (aparece "Tentar de novo"). A pasta toda só até AUTO_MAX itens
+  // (uma busca no Drive todo pode ter dezenas de milhares): dali em diante, mais páginas só rolando, como sempre.
+  const hidden = files.length < raw.length
+  const whole = (needsAll(prefs.sort) || wantAll) && raw.length < AUTO_MAX
+  const hunting = Boolean(list.next) && !list.error && !list.loading && (whole || (hidden && files.length < 24))
+  useEffect(() => {
+    if (hunting && !list.loadingMore) list.more({ big: true })
+  }, [hunting, list.loadingMore, list.files])
+
   // Grade ou lista: o que a pessoa escolheu; sem escolha, pelo conteúdo (só pastas → lista; foto ou vídeo → grade).
   // Enquanto carrega, fica a vista da última pasta (o esqueleto não pula de forma).
   const lastAuto = useRef('list')
-  if (list.files) lastAuto.current = autoView(list.files)
+  if (list.files && files.length) lastAuto.current = autoView(files)
   const view = prefs.view || lastAuto.current
   const { pull, busy } = usePull(root, active && !preview, () => list.reload())
 
@@ -381,12 +829,74 @@ export function DriveScreen({ active }) {
     setPrefs(next)
     savePrefs(next)
   }
-  const go = (scope, path) => {
+  const changeFilter = (id) => {
+    setFilter(id)
+    setWantAll(false)
+  }
+  // Trocar de lugar sem mexer no histórico (o popstate usa direto).
+  const apply = (scope, path) => {
     setNav({ scope, path })
     setQuery('')
     setSearch('')
+    setFilter('all')
+    setShowMac(false)
+    setWantAll(false)
+    setMenu(false)
+    setPreview(null)
     window.scrollTo(0, 0)
   }
+  const navRef = useRef(nav)
+  navRef.current = nav
+  const previewRef = useRef(preview)
+  previewRef.current = preview
+  const ignorePop = useRef(0)
+  /** how: 'push' (abrir pasta: nova entrada), 'replace' (trocar de lugar na raiz) ou 'none'. */
+  const go = (scope, path, how = 'push') => {
+    const cur = navRef.current
+    apply(scope, path)
+    try {
+      if (how === 'none') return
+      const st = historyState()
+      if (how === 'replace') return history.replaceState({ ...(st || {}), sd: 'drive', scope, path: slim(path), base: 0, preview: false }, '')
+      // Uma pasta abaixo da atual continua a corrente (base de baixo); qualquer outro salto começa uma nova.
+      const child = scope === cur.scope && path.length === cur.path.length + 1 && samePath(path.slice(0, -1), cur.path)
+      const base = child && ours(st, cur) ? st.base : child && !cur.path.length && st?.sd !== 'drive' ? 0 : path.length
+      history.pushState({ sd: 'drive', scope, path: slim(path), base }, '')
+    } catch {
+      // histórico indisponível: segue só na tela
+    }
+  }
+  /** Volta para a profundidade `depth` (0 = raiz do lugar): pelo histórico quando dá, senão empilha. */
+  const up = (depth) => {
+    const cur = navRef.current
+    if (depth < 0 || depth >= cur.path.length) return
+    const st = historyState()
+    if (ours(st, cur) && !st.preview && depth >= (st.base ?? cur.path.length)) {
+      apply(cur.scope, cur.path.slice(0, depth))
+      ignorePop.current++
+      history.go(depth - cur.path.length)
+      return
+    }
+    go(cur.scope, cur.path.slice(0, depth), 'push')
+  }
+  // Voltar/avançar do navegador (gesto do Safari, botão do Android): a pasta da entrada; sem entrada nossa, a raiz.
+  useEffect(() => {
+    const onPop = (e) => {
+      if (ignorePop.current > 0) {
+        ignorePop.current--
+        return
+      }
+      const st = e.state
+      const cur = navRef.current
+      const scope = st?.sd === 'drive' ? st.scope : cur.scope
+      const path = st?.sd === 'drive' && Array.isArray(st.path) ? st.path : []
+      if (previewRef.current && !st?.preview && scope === cur.scope && samePath(path, cur.path)) return setPreview(null)
+      if (scope === cur.scope && samePath(path, cur.path)) return
+      apply(scope, path)
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
   const open = (f) => {
     if (isFolder(f)) {
       const t = target(f)
@@ -397,37 +907,74 @@ export function DriveScreen({ active }) {
       go(nav.scope, f.isDrive ? [entry] : [...base, entry])
       return
     }
-    const files = (list.files || []).filter((x) => !isFolder(x))
-    setPreview({ files, index: Math.max(0, files.findIndex((x) => x.id === f.id)) })
+    const pv = files.filter((x) => !isFolder(x))
+    setPreview({ files: pv, index: Math.max(0, pv.findIndex((x) => x.id === f.id)) })
+    // A prévia também é uma entrada: voltar (gesto do Safari, botão do Android) fecha ela.
+    try {
+      history.pushState({ ...(historyState() || {}), preview: true }, '')
+    } catch {
+      // segue sem
+    }
   }
+  const closePreview = () => {
+    setPreview(null)
+    if (historyState()?.preview) {
+      ignorePop.current++
+      history.back()
+    }
+  }
+  // Com o gesto próprio ligado, nenhum gesto lateral do navegador junto (seria voltar duas vezes).
+  useEffect(() => {
+    if (edgeSwipeHere()) document.documentElement.classList.add('is-ios-app')
+  }, [])
+  const canSwipe = active && !preview && !search && nav.path.length > 0 && edgeSwipeHere()
+  useEdgeSwipe({
+    enabled: canSwipe,
+    screenRef: root,
+    behindRef,
+    onStart: () => setSwipe(true),
+    onEnd: () => setSwipe(false),
+    onBack: () => up(navRef.current.path.length - 1),
+  })
+  const cleanMac =
+    folder && !search
+      ? () =>
+          openSheet('macJunk', {
+            folder: { id: folder.id, name: folder.name, driveId: driveId || folder.driveId || null },
+            driveId: driveId || folder.driveId || null,
+            onDone: (ids) => {
+              list.drop(ids)
+              folderSizes.start({ id: folder.id, driveId: driveId || folder.driveId || null }, { refresh: true })
+            },
+          })
+      : null
 
   const scopeLabel = SCOPES.find((s) => s.id === nav.scope)?.aria
   const title = search ? 'Busca' : folder ? folder.name : scopeLabel
   // A busca não fica na pasta aberta: em Meu Drive procura em tudo o que a conta vê; num Drive compartilhado, nele todo.
   const placeholder =
     nav.scope === 'mine' ? 'Buscar no Drive todo' : nav.scope === 'drives' && nav.path[0] ? `Buscar em todo o “${nav.path[0].name}”` : `Buscar em ${scopeLabel}`
-  const files = list.files || []
-  const empty = !list.loading && !list.error && list.files && !files.length
+  const atDrivesRoot = nav.scope === 'drives' && !nav.path.length && !search
+  const filtering = filter !== 'all'
+  const done = !list.loading && !list.error && Boolean(list.files)
+  const empty = done && !raw.length
+  // Tem coisa no lugar, mas o filtro (ou o ocultar do Mac) esconde tudo e a pasta já acabou.
+  const emptyHere = done && raw.length > 0 && !files.length && !list.next
+  const partial = Boolean(list.next)
+  const huntNote = hunting || (list.loadingMore && (whole || hidden))
+  const huntText = needsAll(prefs.sort) ? 'Carregando a pasta toda para agrupar por tipo…' : wantAll ? 'Somando tudo…' : 'Procurando…'
 
-  return html`<div class=${cx('screen', 'drive-screen', view === 'list' && 'is-list')} ref=${root}>
+  return html`${swipe ? html`<${SwipeBehind} scope=${nav.scope} path=${nav.path.slice(0, -1)} prefs=${prefs} innerRef=${behindRef} />` : null}
+  <div class=${cx('screen', 'drive-screen', view === 'list' && 'is-list')} ref=${root}>
     <header class="topbar dtop">
       <div class="dtop-row">
         ${nav.path.length && !search
-          ? html`<button type="button" class="icon-btn dtop-back" onClick=${() => go(nav.scope, nav.path.slice(0, -1))} aria-label="Voltar">
+          ? html`<button type="button" class="icon-btn dtop-back" onClick=${() => up(nav.path.length - 1)} aria-label="Voltar">
               <${Icon} name="chevron-left" size=${22} strokeWidth=${2} />
             </button>`
           : null}
         <h1 class="dtop-title">${title}</h1>
         <div class="dtop-actions">
-          <button
-            type="button"
-            class=${cx('icon-btn sort-btn', menu && 'is-on')}
-            onClick=${() => setMenu(!menu)}
-            aria-label=${`Ordenar por ${SORTS[prefs.sort].label}`}
-            aria-expanded=${menu ? 'true' : 'false'}
-          >
-            <${Icon} name="chevron-updown" size=${19} strokeWidth=${1.9} />
-          </button>
           <button
             type="button"
             class="icon-btn"
@@ -437,17 +984,16 @@ export function DriveScreen({ active }) {
             <${Icon} name=${view === 'grid' ? 'list' : 'grid'} size=${20} />
           </button>
         </div>
-        ${menu ? html`<${SortMenu} prefs=${prefs} onChange=${(p) => changePrefs(p)} onClose=${() => setMenu(false)} />` : null}
       </div>
       ${nav.path.length && !search
         ? html`<nav class="crumbs dcrumbs" aria-label="Caminho" ref=${crumbsRef}>
-            <button type="button" class="crumb" onClick=${() => go(nav.scope, [])}>${SCOPES.find((s) => s.id === nav.scope)?.label}</button>
+            <button type="button" class="crumb" onClick=${() => up(0)}>${SCOPES.find((s) => s.id === nav.scope)?.label}</button>
             ${nav.path.map(
               (p, i) => html`<${Icon} name="chevron-right" size=${12} strokeWidth=${2} class="crumb-sep" />
                 <button
                   type="button"
                   class=${cx('crumb', i === nav.path.length - 1 && 'is-here')}
-                  onClick=${() => go(nav.scope, nav.path.slice(0, i + 1))}
+                  onClick=${() => up(i + 1)}
                   aria-current=${i === nav.path.length - 1 ? 'location' : undefined}
                 >
                   ${p.name}
@@ -462,7 +1008,7 @@ export function DriveScreen({ active }) {
                 aria-selected=${nav.scope === s.id ? 'true' : 'false'}
                 aria-label=${s.aria}
                 class=${cx('scope', nav.scope === s.id && 'is-on')}
-                onClick=${() => go(s.id, [])}
+                onClick=${() => go(s.id, [], 'replace')}
               >
                 ${s.label}
               </button>`,
@@ -483,7 +1029,7 @@ export function DriveScreen({ active }) {
           onKeyDown=${(e) => e.key === 'Enter' && (setSearch(query.trim()), e.currentTarget.blur())}
         />
         ${query
-          ? html`<button type="button" class="search-x" onClick=${() => go(nav.scope, nav.path)} aria-label="Limpar busca">
+          ? html`<button type="button" class="search-x" onClick=${() => go(nav.scope, nav.path, 'none')} aria-label="Limpar busca">
               <${Icon} name="circle-x" size=${17} />
             </button>`
           : null}
@@ -498,13 +1044,29 @@ export function DriveScreen({ active }) {
     </div>
 
     <main class="drive-body" aria-busy=${list.loading ? 'true' : 'false'}>
+      ${atDrivesRoot
+        ? null
+        : html`<${DriveTools} prefs=${prefs} filter=${filter} menu=${menu} setMenu=${setMenu} onPrefs=${changePrefs} onFilter=${changeFilter} />`}
       ${folder && !search
         ? html`<div class="dfolder">
-            <${FolderSize} folder=${folder} driveId=${driveId} active=${active} />
+            <${FolderSize} folder=${folder} driveId=${driveId} active=${active} hide=${filtering} />
+            ${filtering && list.files
+              ? html`<${FilterTotal} files=${files} filter=${filter} partial=${partial} busy=${wantAll || hunting} onAll=${() => setWantAll(true)} />`
+              : null}
             ${folder.canAdd !== false ? html`<${SendHere} scope=${nav.scope} path=${nav.path} />` : null}
           </div>`
         : null}
-      ${search ? html`<p class="drive-note">${list.loading ? 'Buscando…' : `${files.length}${list.next ? '+' : ''} ${files.length === 1 ? 'resultado' : 'resultados'} para “${search}”`}</p>` : null}
+      ${search
+        ? html`<p class="drive-note">
+            ${list.loading
+              ? 'Buscando…'
+              : `${files.length}${list.next ? '+' : ''} ${files.length === 1 ? 'resultado' : 'resultados'} para “${search}”${filtering ? ` em ${filterById(filter).label}` : ''}`}
+          </p>`
+        : null}
+      ${!search && !folder && filtering && list.files
+        ? html`<${FilterTotal} files=${files} filter=${filter} partial=${partial} busy=${wantAll || hunting} onAll=${() => setWantAll(true)} />`
+        : null}
+      <${MacLine} n=${macN} more=${partial} shown=${showMac} onToggle=${() => setShowMac(!showMac)} onClean=${cleanMac} />
       ${list.loading && !list.files ? html`<${SkeletonGrid} view=${view} />` : null}
       ${list.error && !list.files
         ? html`<div class="drive-msg" role="alert">
@@ -517,18 +1079,46 @@ export function DriveScreen({ active }) {
       ${empty
         ? html`<div class="drive-msg is-empty">
             <${KindGlyph} kind="folder" size=${34} />
-            <b>${search ? 'Nada encontrado' : nav.scope === 'drives' && !nav.path.length ? 'Nenhum Drive compartilhado' : nav.scope === 'shared' && !nav.path.length ? 'Nada compartilhado com você' : 'Pasta vazia'}</b>
-            <p>${search ? 'A busca procura pelo começo das palavras do nome.' : nav.scope === 'drives' && !nav.path.length ? 'Os Drives de equipe que você participa aparecem aqui.' : 'Quando chegar algo, aparece aqui.'}</p>
+            <b>${
+              filtering
+                ? filterById(filter).none
+                : search
+                  ? 'Nada encontrado'
+                  : nav.scope === 'drives' && !nav.path.length
+                    ? 'Nenhum Drive compartilhado'
+                    : nav.scope === 'shared' && !nav.path.length
+                      ? 'Nada compartilhado com você'
+                      : 'Pasta vazia'
+            }</b>
+            ${filtering
+              ? html`<${Button} size="sm" variant="secondary" onClick=${() => changeFilter('all')}>Ver tudo</${Button}>`
+              : html`<p>${search ? 'A busca procura pelo começo das palavras do nome.' : nav.scope === 'drives' && !nav.path.length ? 'Os Drives de equipe que você participa aparecem aqui.' : 'Quando chegar algo, aparece aqui.'}</p>`}
           </div>`
         : null}
+      ${emptyHere
+        ? html`<div class="drive-msg is-empty">
+            <${KindGlyph} kind="folder" size=${34} />
+            <b>${filtering ? filterById(filter).none : 'Só arquivos do Mac aqui'}</b>
+            ${filtering
+              ? html`<${Button} size="sm" variant="secondary" onClick=${() => changeFilter('all')}>Ver tudo</${Button}>`
+              : html`<p>Estão ocultos. Toque em Mostrar, acima, para ver.</p>`}
+          </div>`
+        : null}
+      ${huntNote && !files.length ? html`<p class="drive-note dhunt" role="status"><span class="spinner" aria-hidden="true"></span>${huntText} <small>${count(raw.length)} vistos</small></p>` : null}
       ${files.length
         ? view === 'grid'
-          ? html`<ul class="tiles">${files.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${files} onOpen=${open} />`)}</ul>`
-          : html`<ul class="group lrows">${files.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${files} onOpen=${open} driveId=${driveId} />`)}</ul>`
+          ? html`<ul class="tiles">${files.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${raw} onOpen=${open} />`)}</ul>`
+          : html`<ul class="group lrows">${files.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${raw} onOpen=${open} driveId=${driveId} />`)}</ul>`
         : null}
-      ${list.error && list.files ? html`<p class="drive-note is-error">Não consegui carregar mais. <button type="button" class="link-btn" onClick=${list.more}>Tentar de novo</button></p>` : null}
-      <div ref=${sentinel} class="drive-sentinel">${list.loadingMore ? html`<span class="spinner" aria-label="Carregando mais"></span>` : null}</div>
-      ${files.length && !list.next && !list.loading ? html`<p class="foot drive-foot">${files.length === 1 ? '1 item' : `${files.length} itens`}</p>` : null}
+      ${list.error && list.files ? html`<p class="drive-note is-error">Não consegui carregar mais. <button type="button" class="link-btn" onClick=${() => list.more()}>Tentar de novo</button></p>` : null}
+      <div ref=${sentinel} class="drive-sentinel">
+        ${list.loadingMore
+          ? huntNote && files.length
+            ? html`<span class="drive-note dhunt" role="status"><span class="spinner" aria-hidden="true"></span>${huntText} <small>${count(raw.length)} vistos</small></span>`
+            : html`<span class="spinner" aria-label="Carregando mais"></span>`
+          : null}
+      </div>
+      ${files.length && !list.next && !list.loading ? html`<p class="foot drive-foot">${files.length === 1 ? '1 item' : `${count(files.length)} itens`}</p>` : null}
     </main>
 
     ${preview
@@ -536,7 +1126,7 @@ export function DriveScreen({ active }) {
           files=${preview.files}
           index=${preview.index}
           onIndex=${(i) => setPreview({ ...preview, index: i })}
-          onClose=${() => setPreview(null)}
+          onClose=${closePreview}
         />`
       : null}
   </div>`

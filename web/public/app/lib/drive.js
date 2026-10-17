@@ -239,6 +239,20 @@ export function openLink(id) {
   })
 }
 
+/**
+ * Manda um arquivo para a lixeira do Drive (files.update trashed=true; dá para recuperar por 30 dias). Não apaga de
+ * vez. Só a folha de confirmação dos arquivos do Mac usa (lib/browse.js macJunkTrash).
+ */
+export function trashFile(id, signal) {
+  return call(`/files/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    query: { supportsAllDrives: true, fields: 'id,trashed' },
+    body: { trashed: true },
+    signal,
+    retries: 2,
+  })
+}
+
 // Recusas de política (Google Workspace da empresa, Drive compartilhado só para o domínio): o app não tem como
 // contornar, só explicar.
 const POLICY = new Set([
