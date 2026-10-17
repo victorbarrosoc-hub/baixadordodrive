@@ -157,5 +157,11 @@ extensão). A miniatura é a do próprio Drive (vídeo e foto têm sozinhos).
   conta: pede para trocar de Drive.
 - Android: `share_target` nos dois manifestos (`GET /app/?compartilhar=1&title=&text=&url=`; o navegador pode
   trocar a query, então o app também reconhece só `url`/`text`). Abre “Salvar link” com o link achado no texto.
-- iPhone: cartão “Salvar direto do Instagram” → gera a chave e leva ao `/atalho`.
+- iPhone: cartão “Salvar direto do Instagram” → gera a chave e leva ao `/atalho`. Fica no topo da aba (logo abaixo
+  de “Procurar referência”) enquanto o atalho não está ligado; ligado, vai para o pé da página (2.8.2).
+- **Procurar referência (2.8.2)**, o “Abrir navegador” do computador no celular: o app não mostra o Instagram por
+  dentro (os sites bloqueiam), então os botões Instagram, TikTok e YouTube abrem o app (ou o site) da rede em outra
+  aba e guardam `{ label, em }` em `sessionStorage` (`sobedesce.refs.fora`). Ao voltar (`visibilitychange`, até 30 min
+  depois), aparece “Voltou do Instagram?” no topo: **Colar** lê a área de transferência (o toque é o gesto que o iOS
+  pede) e abre “Salvar link” já com o link achado; sem link, abre a folha vazia. O × descarta.
 - Aviso de primeiro uso: “Salve só para referência dos seus projetos. Respeite os direitos de quem criou.”

@@ -122,6 +122,119 @@ function Waiting({ fila }) {
   </div>`
 }
 
+// ───── procurar referência no app de cada rede (o "Abrir navegador" do computador, no celular) ─────
+//
+// O app do celular não consegue mostrar o Instagram por dentro (os sites bloqueiam). Então os botões abrem o app (ou o
+// site) da rede; ao voltar para cá, aparece "Voltou do Instagram?" e um toque cola o link copiado na folha Salvar link.
+const SOURCES = [
+  { id: 'instagram', label: 'Instagram', href: 'https://www.instagram.com/' },
+  { id: 'tiktok', label: 'TikTok', href: 'https://www.tiktok.com/' },
+  { id: 'youtube', label: 'YouTube', href: 'https://www.youtube.com/' },
+]
+const AWAY_KEY = 'sobedesce.refs.fora' // sessionStorage: { label, em }
+const AWAY_MS = 30 * 60_000
+const away = {
+  get() {
+    try {
+      const a = JSON.parse(sessionStorage.getItem(AWAY_KEY) || 'null')
+      return a && Date.now() - a.em < AWAY_MS ? a : null
+    } catch {
+      return null
+    }
+  },
+  set(v) {
+    try {
+      if (v) sessionStorage.setItem(AWAY_KEY, JSON.stringify(v))
+      else sessionStorage.removeItem(AWAY_KEY)
+    } catch {}
+  },
+}
+
+/** De onde o usuário voltou (abriu uma rede pelos botões e a tela voltou a aparecer). */
+function useBackFrom() {
+  const [from, setFrom] = useState(null)
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState !== 'visible') return
+      const a = away.get()
+      if (a && Date.now() - a.em > 1500) setFrom(a.label)
+    }
+    check()
+    document.addEventListener('visibilitychange', check)
+    return () => document.removeEventListener('visibilitychange', check)
+  }, [])
+  const dismiss = () => {
+    away.set(null)
+    setFrom(null)
+  }
+  return { from, dismiss }
+}
+
+function BackFrom({ from, dismiss }) {
+  if (!from) return null
+  const pasteSave = async () => {
+    dismiss()
+    let texto = ''
+    try {
+      texto = (await navigator.clipboard?.readText?.()) || ''
+    } catch {}
+    openSheet('refSave', refs.findUrl(texto) ? { texto } : {})
+  }
+  return html`<div class="rback" role="status">
+    <span class="rtip-icon" aria-hidden="true"><${Icon} name="clipboard" size=${20} /></span>
+    <span class="rtip-text"><b>Voltou do ${from}?</b><span>Copiou o link do post? Cole e escolha a coleção.</span></span>
+    <${Button} size="sm" variant="primary" onClick=${pasteSave}>Colar</${Button}>
+    <button type="button" class="icon-btn rback-x" onClick=${dismiss} aria-label="Fechar"><${Icon} name="x" size=${18} /></button>
+  </div>`
+}
+
+function Sources() {
+  return html`<div class="rsrc">
+    <p class="rsrc-label">Procurar referência</p>
+    <div class="rsrc-row">
+      ${SOURCES.map(
+        (s) => html`<a
+          key=${s.id}
+          class="rsrc-btn"
+          href=${s.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick=${() => away.set({ label: s.label, em: Date.now() })}
+        >
+          <span>${s.label}</span><${Icon} name="external" size=${14} strokeWidth=${2} />
+        </a>`,
+      )}
+    </div>
+    <p class="rsrc-hint">Copie o link do post e volte para cá: um toque cola e salva.</p>
+  </div>`
+}
+
+// O atalho do iPhone já ligado? (null = ainda não sei). Fica no topo até ligar; depois vai para o pé da página.
+let atalhoAtivo = null
+const ATALHO_EVT = 'sd-atalho'
+function useAtalhoAtivo() {
+  const [on, setOn] = useState(atalhoAtivo)
+  useEffect(() => {
+    if (!isIOS) return
+    const upd = () => setOn(atalhoAtivo)
+    window.addEventListener(ATALHO_EVT, upd)
+    if (atalhoAtivo == null)
+      refs.atalho.status().then(
+        (r) => {
+          atalhoAtivo = Boolean(r?.ativo)
+          upd()
+        },
+        () => {},
+      )
+    return () => window.removeEventListener(ATALHO_EVT, upd)
+  }, [])
+  return on
+}
+const setAtalhoAtivo = (v) => {
+  atalhoAtivo = v
+  window.dispatchEvent(new Event(ATALHO_EVT))
+}
+
 function ShortcutCard() {
   if (isIOS) {
     return html`<button type="button" class="rtip" onClick=${() => openSheet('refAtalho')}>
@@ -136,9 +249,17 @@ function ShortcutCard() {
   </p>`
 }
 
+/** Atalho no topo enquanto não está ligado (iPhone) e sempre no topo nos outros aparelhos; ligado, vai para o pé. */
+function ShortcutSlot({ at }) {
+  const on = useAtalhoAtivo()
+  const top = !isIOS || on !== true
+  return (at === 'top') === top ? html`<${ShortcutCard} />` : null
+}
+
 function Home({ onOpen }) {
   const { st, drive } = useApp((s) => ({ st: s.refs, drive: s.drive }))
   const list = st.colecoes || []
+  const back = useBackFrom()
   return html`<div class="screen refs-screen">
     <header class="topbar dtop rtop">
       <div class="dtop-row">
@@ -152,7 +273,10 @@ function Home({ onOpen }) {
     </header>
     <main class="refs-body" aria-busy=${st.status === 'loading' ? 'true' : 'false'}>
       <${FirstUse} />
+      <${BackFrom} ...${back} />
       <${SaveButton} />
+      <${Sources} />
+      <${ShortcutSlot} at="top" />
       <${Waiting} fila=${st.fila} />
       ${st.status === 'error'
         ? html`<div class="drive-msg" role="alert">
@@ -188,7 +312,7 @@ function Home({ onOpen }) {
             <${Button} variant="primary" icon="plus" onClick=${() => openSheet('refName')}>Criar a primeira coleção</${Button}>
           </div>`
         : null}
-      <${ShortcutCard} />
+      <${ShortcutSlot} at="bottom" />
       <p class="foot">Tudo fica no seu Drive, na pasta SOBEDESCE Referências.</p>
     </main>
   </div>`
@@ -723,6 +847,7 @@ export function RefAtalhoSheet() {
       const r = await refs.atalho.create()
       setFresh(r)
       setSt({ ativo: true })
+      setAtalhoAtivo(true)
     } catch (err) {
       toast(err.message, { tone: 'error', ms: 4000 })
     }
@@ -734,6 +859,7 @@ export function RefAtalhoSheet() {
       await refs.atalho.revoke()
       setFresh(null)
       setSt({ ativo: false })
+      setAtalhoAtivo(false)
       toast('Atalho desligado.')
     } catch (err) {
       toast(err.message, { tone: 'error', ms: 4000 })
