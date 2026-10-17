@@ -21,6 +21,28 @@ import { createDriveFolder, useAbout, useDriveFolder, useDriveSearch, useSharedD
 import { hasRawFiles, onRawThumbsDone, openRawThumbs, useRawThumbsRunning } from './raw-thumbs.js'
 import { hasVideoFiles, isVideoName, onPreviasDone, openPrevias, openProxyArquivo, usePreviasRunning, useComProxy } from './previa.js'
 import { FolderSummary, calcSize, focusSize, getSize, sizeId, useSizes } from './drive-tamanho.js'
+import { copyDriveLink } from './link-share.js'
+
+const FOLDER_MIME = 'application/vnd.google-apps.folder'
+
+/** O que copiar de um item da lista: atalho vira o alvo (o link do atalho só abre para quem o criou). */
+export function linkTarget(it) {
+  if (it.isShortcut && it.shortcutTargetId) return { id: it.shortcutTargetId, resourceKey: it.shortcutTargetResourceKey || null, url: null, isFolder: it.shortcutTargetMimeType === FOLDER_MIME }
+  return { id: it.id, resourceKey: it.resourceKey || null, url: it.webViewLink || null, isFolder: !!it.isFolder }
+}
+
+/** "Meu Drive / SERHS / Diária 02": o caminho da pasta aberta, para lembrar nos destinos recentes. */
+function folderPathText(data, drives) {
+  const list = (data?.path || []).slice()
+  if (data?.folder && (!list.length || list[list.length - 1].id !== data.folder.id)) list.push({ id: data.folder.id, name: data.folder.name })
+  return list
+    .map((c, i) => {
+      if (i) return c.name
+      const shared = drives?.find((d) => d.id === c.id)
+      return shared ? shared.name : c.id === 'root' || !data?.folder?.driveId ? 'Meu Drive' : c.name
+    })
+    .join(' / ')
+}
 
 /** Fontes: Meu Drive + drives compartilhados, em pílulas. */
 export function SourceChips({ drives, current, onPick, vertical }) {
@@ -72,7 +94,7 @@ function Quota({ accountId }) {
   </div>`
 }
 
-function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear, busy, onPreview, accountId, onProxy }) {
+function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear, busy, onPreview, accountId, onProxy, onCopyLink }) {
   const files = items.filter((x) => !isOpenable(x))
   const folderItems = items.filter(isOpenable)
   const folders = folderItems.length
@@ -103,7 +125,10 @@ function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear,
     ${unknown.length
       ? html`<${Button} icon="disk" loading=${calculating} onClick=${() => unknown.forEach((x) => calcSize(accountId, sizeId(x)))} title="Somar tudo o que tem dentro das pastas escolhidas">${calculating ? 'Calculando…' : 'Calcular tamanho'}</${Button}>`
       : null}
-    ${onPreview && files.length ? html`<${Button} icon="eye" onClick=${onPreview} title="Prévia (espaço)">Prévia</${Button}>` : null}
+    ${onPreview && files.length ? html`<${Button} icon="eye" class="selbar-compact" aria-label="Prévia" onClick=${onPreview} title="Prévia (espaço)">Prévia</${Button}>` : null}
+    ${onCopyLink && items.length === 1
+      ? html`<${Button} icon="link" class="selbar-compact" aria-label="Copiar link" onClick=${() => onCopyLink(items[0])} title="Copiar o link para mandar (e ver quem consegue abrir)">Copiar link</${Button}>`
+      : null}
     ${onProxy && items.length === 1 && files.length === 1 && isVideoName(files[0].name)
       ? html`<${Button} icon="film" onClick=${() => onProxy(files[0])} title="Proxy (cópia leve 1080p) para a prévia tocar fluida">Gerar proxy</${Button}>`
       : null}
@@ -207,8 +232,12 @@ export function DriveScreen({ route }) {
   const uploadHere = async (e) => {
     const paths = await pickUploadPaths({ title: `Enviar para “${folderLabel(folder, drives)}”`, anchor: e?.currentTarget })
     if (!paths?.length) return
-    await uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives) })
+    await uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives), destPath: folderPathText(data, drives) })
   }
+
+  const copyItemLink = (it) => copyDriveLink({ accountId, name: it.name, ...linkTarget(it) })
+  const copyFolderLink = () =>
+    folder && copyDriveLink({ accountId, id: folder.id, name: folderLabel(folder, drives), isFolder: true, url: folder.webViewLink || null, resourceKey: folder.resourceKey || null })
 
   const chooseDest = async () => {
     const p = await pickFolderPath({ title: 'Onde salvar os downloads?', defaultPath: dest })
@@ -250,7 +279,7 @@ export function DriveScreen({ route }) {
     <${FileDrop}
       label=${folderLabel(folder, drives)}
       enabled=${!!folder && !!accountId}
-      onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives) })}
+      onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives), destPath: folderPathText(data, drives) })}
     />
     <header class="page-head">
       <h1>Drive</h1>
@@ -285,6 +314,7 @@ export function DriveScreen({ route }) {
           ]}
         />
         ${!searching ? html`<${IconButton} icon="refresh" label="Atualizar" onClick=${reload} class=${loading && data ? 'is-spinning' : ''} />` : null}
+        ${!searching && folder && folderId !== 'root' ? html`<${IconButton} icon="link" label="Copiar link da pasta" onClick=${copyFolderLink} />` : null}
         ${!searching && folder ? html`<a class="icon-btn" href=${folderId === 'root' ? 'https://drive.google.com/drive/my-drive' : driveFolderUrl(folderId)} target="_blank" rel="noopener" title="Abrir no navegador" aria-label="Abrir no navegador"><${Icon} name="external" /></a>` : null}
         <${MenuButton}
           label="Mais"
@@ -335,6 +365,7 @@ export function DriveScreen({ route }) {
             proxies=${proxies}
             sizeOf=${sizeOf}
             onCalcSize=${calcFolder}
+            onCopyLink=${copyItemLink}
             comProxy=${comProxy}
             sort=${sort}
             onSort=${setSort}
@@ -374,6 +405,7 @@ export function DriveScreen({ route }) {
           accountId=${accountId}
           onPreview=${() => preview(selItems.find((x) => !isOpenable(x)))}
           onProxy=${(item) => openProxyArquivo({ accountId, item })}
+          onCopyLink=${copyItemLink}
         />`
       : null}
   </div>`

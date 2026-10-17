@@ -2,12 +2,14 @@
 import { html } from '/vendor/preact-htm.js'
 import { dismiss, holdToast, releaseToast, useToasts } from '../lib/toasts.js'
 import { Icon } from './icons.js'
+import { LinkShareCard } from './link-share.js'
 
 const ICONS = { success: 'circle-check', error: 'warning', warning: 'warning', info: 'info' }
 
 export function Toasts() {
   const list = useToasts()
   return html`<div class="toasts" aria-live="polite" aria-relevant="additions">
+    <${LinkShareCard} />
     ${list.map(
       (t) => html`<div
         key=${t.id}

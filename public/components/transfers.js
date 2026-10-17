@@ -5,8 +5,9 @@ import { useStore } from '../lib/store.js'
 import { api, attempt } from '../lib/api.js'
 import { bytes, clock, count, dirOf, percent, plural, relTime, speed, timecode, fullDate } from '../lib/format.js'
 import { cx, memo, usePersistentState, storage } from '../lib/ui.js'
-import { batchAction, cancelBatch, cancelTransfer, driveFileUrl, reveal, transferAction, uploadFlow, uploadPaths } from '../lib/actions.js'
-import { bridge, revealLabel } from '../lib/desktop.js'
+import { batchAction, cancelBatch, cancelTransfer, driveFileUrl, driveFolderUrl, reveal, transferAction, uploadFlow, uploadPaths } from '../lib/actions.js'
+import { bridge, openExternal, revealLabel } from '../lib/desktop.js'
+import { copyDriveLink } from './link-share.js'
 import { FileDrop } from './drop.js'
 import { confirmDialog } from '../lib/modals.js'
 import { Icon } from './icons.js'
@@ -16,7 +17,7 @@ import { SequenceBar, Timeline } from './timeline.js'
 import { contaUrl, isCloudAccount } from '../lib/cloud.js'
 import { navigate } from '../lib/router.js'
 import { PreviaLine } from './previa.js'
-import { FILTER_TESTS, integrity, integrityLabel, sortRows } from '../lib/transferencias.js'
+import { FILTER_TESTS, batchFolder, integrity, integrityLabel, sortRows } from '../lib/transferencias.js'
 
 /** "Conectar de novo" certo para a conta: OAuth deste computador, o site (Drive da conta) ou entrar na conta. */
 function ReauthLink({ t }) {
@@ -195,6 +196,8 @@ function BatchGroup({ group, rows, expanded, onToggle, limit, onMore, platform }
   const id = `batch-${batch.id}`
   const check = finished ? integrity(items) : null
   const checkText = check ? integrityLabel(check) : null
+  // Envio concluído: o link da pasta para mandar ao cliente (e abrir no Drive).
+  const pasta = finished && check?.total && type === 'upload' ? batchFolder(items, batch) : null
 
   return html`<section class=${cx('batch card', !expanded && 'is-collapsed', finished && 'is-finished')} aria-labelledby=${id}>
     <header class="batch-head">
@@ -224,6 +227,14 @@ function BatchGroup({ group, rows, expanded, onToggle, limit, onMore, platform }
         ${sum.speed > 0 ? html`<span class="tc">${timecode(remaining / sum.speed)}</span>` : html`<span class="sub">${finished ? relTime(batch.createdAt) : ' '}</span>`}
       </div>
       <div class="batch-actions">
+        ${pasta
+        ? html`<div class="batch-share">
+            ${pasta.id !== 'root'
+              ? html`<${Button} size="sm" icon="link" title=${`Copiar o link de “${pasta.name}” para mandar`} onClick=${() => copyDriveLink({ accountId: pasta.accountId, id: pasta.id, name: pasta.name, isFolder: true })} aria-label="Copiar link da pasta">Copiar link<span class="batch-share-long"> da pasta</span></${Button}>`
+              : null}
+            <${Button} size="sm" variant="ghost" icon="external" aria-label="Abrir no Drive" title=${`Abrir “${pasta.name}” no Google Drive`} onClick=${() => openExternal(pasta.id === 'root' ? 'https://drive.google.com/drive/my-drive' : driveFolderUrl(pasta.id))}>Abrir no Drive</${Button}>
+          </div>`
+        : null}
         ${active ? html`<${IconButton} icon="pause" label="Pausar lote" onClick=${() => batchAction('pause', batch.id)} />` : null}
         ${paused ? html`<${IconButton} icon="play" label="Retomar lote" onClick=${() => batchAction('resume', batch.id)} />` : null}
         ${!finished ? html`<${IconButton} icon="x" label="Cancelar lote" tone="danger" onClick=${() => cancelBatch(batch, items.filter((t) => !FINISHED.has(t.status)).length)} />` : null}

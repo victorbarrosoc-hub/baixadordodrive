@@ -491,26 +491,39 @@ export function SettingsScreen({ route } = {}) {
         <${Row} label="Downloads ao mesmo tempo" desc="Quantos arquivos baixam juntos.">
           <${Stepper} label="Downloads ao mesmo tempo" value=${d.maxConcurrentDownloads} min=${1} max=${16} onChange=${(v) => set('maxConcurrentDownloads', v)} />
         </${Row}>
-        <${Row} label="Conexões por arquivo" desc="Cada arquivo baixado vem em pedaços paralelos. Entre 8 e 16 costuma encher a banda.">
-          <${Slider}
-            label="Conexões por arquivo"
-            value=${d.connectionsPerDownload}
-            min=${1}
-            max=${32}
-            onInput=${(v) => set('connectionsPerDownload', v)}
-            format=${(v) => `${v}`}
-          />
-        </${Row}>
         <${Row} label="Uploads ao mesmo tempo" desc="O Google recebe cada arquivo a uns 40–100 MB/s; mais arquivos juntos enchem a banda (4 para 1 Gbps, 12–16 para 10 Gbps).">
           <${Stepper} label="Uploads ao mesmo tempo" value=${d.maxConcurrentUploads} min=${1} max=${16} onChange=${(v) => set('maxConcurrentUploads', v)} />
         </${Row}>
-        <${Row} label="Tamanho do pedaço de upload" desc="Contínuo manda o resto do arquivo numa requisição só, como o Google recomenda. Pedaços ajudam em redes que derrubam conexões longas; se cair, continua de onde o Google confirmou.">
-          <${Select} label="Tamanho do pedaço de upload" value=${d.uploadChunkSize} options=${chunkOpts} onChange=${(v) => set('uploadChunkSize', Number(v), { now: true })} />
-        </${Row}>
-        <${Row} label="Refazer conexões lentas" desc="Às vezes o Google segura uma conexão; o SOBEDESCE reabre as que ficam bem para trás.">
-          <${Switch} label="Refazer conexões lentas" checked=${d.restartSlowConnections} onChange=${(v) => set('restartSlowConnections', v, { now: true })} />
-        </${Row}>
       </${Group}>
+
+      <details class="sgroup sgroup-details" id="avancado">
+        <summary>
+          <h2 class="sgroup-title">
+            <span class="sgroup-icon tone-neutral"><${Icon} name="sliders" size=${14} strokeWidth=${1.8} /></span>Avançado
+            <span class="sgroup-summary-hint">pedaço de upload, conexões por arquivo</span>
+            <${Icon} name="chevron-right" size=${14} class="sgroup-chev" />
+          </h2>
+        </summary>
+        <div class="sgroup-box">
+          <${Row} label="Tamanho do pedaço de upload" desc="Contínuo manda o resto do arquivo numa requisição só, como o Google recomenda. Pedaços ajudam em redes que derrubam conexões longas; se cair, continua de onde o Google confirmou.">
+            <${Select} label="Tamanho do pedaço de upload" value=${d.uploadChunkSize} options=${chunkOpts} onChange=${(v) => set('uploadChunkSize', Number(v), { now: true })} />
+          </${Row}>
+          <${Row} label="Conexões por arquivo" desc="Cada arquivo baixado vem em pedaços paralelos. Entre 8 e 16 costuma encher a banda.">
+            <${Slider}
+              label="Conexões por arquivo"
+              value=${d.connectionsPerDownload}
+              min=${1}
+              max=${32}
+              onInput=${(v) => set('connectionsPerDownload', v)}
+              format=${(v) => `${v}`}
+            />
+          </${Row}>
+          <${Row} label="Refazer conexões lentas" desc="Às vezes o Google segura uma conexão; o SOBEDESCE reabre as que ficam bem para trás.">
+            <${Switch} label="Refazer conexões lentas" checked=${d.restartSlowConnections} onChange=${(v) => set('restartSlowConnections', v, { now: true })} />
+          </${Row}>
+        </div>
+        <p class="sgroup-foot">O padrão já serve para quase toda rede. Mexa aqui se o envio cair muito ou não encher a banda.</p>
+      </details>
 
       <${Group} title="Limite de banda" icon="gauge" tone="up" foot="Útil para não ocupar a internet do escritório inteiro. Desligado, vai na velocidade máxima.">
         <${Row} label="Limitar download">
@@ -522,7 +535,12 @@ export function SettingsScreen({ route } = {}) {
       </${Group}>
 
       <${Group} title="Segurança e retomada" icon="shield" tone="success">
-        <${Row} label="Conferir integridade (MD5)" desc="Depois de cada arquivo, confere se chegou idêntico ao original. Leva um pouquinho mais.">
+        <${Row}
+          label="Conferir integridade (MD5)"
+          desc=${html`Depois de cada arquivo, confere se chegou idêntico ao original. Leva um pouquinho mais.${!d.verifyChecksums
+            ? html`<span class="srow-note is-warn" role="status"><${Icon} name="warning" size=${13} />Sem conferir, um arquivo corrompido passa sem aviso.</span>`
+            : null}`}
+        >
           <${Switch} label="Conferir integridade" checked=${d.verifyChecksums} onChange=${(v) => set('verifyChecksums', v, { now: true })} />
         </${Row}>
         <${Row} label="Retomar ao abrir" desc="Se o app fechar no meio, continua de onde parou quando abrir de novo.">

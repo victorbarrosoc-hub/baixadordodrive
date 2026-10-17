@@ -33,7 +33,7 @@ export function useDriveFolder(accountId, folderId) {
         listCache.set(key, data)
         if (my === seq.current) setState({ data, loading: false, error: null, key })
       } catch (err) {
-        if (my === seq.current) setState({ data: hit || null, loading: false, error: err.message, key })
+        if (my === seq.current) setState({ data: hit || null, loading: false, error: err.message, errorStatus: err.status || 0, key })
       }
     },
     [key],
@@ -86,6 +86,28 @@ export function useDriveSearch(accountId, q) {
       alive = false
     }
   }, [accountId, q])
+  return state
+}
+
+/** Pastas pelo nome no Drive todo do escopo ('root' = Meu Drive, ou o id de um drive compartilhado). */
+export function useFolderSearch(accountId, q, escopo = 'root') {
+  const [state, setState] = useState({ items: null, loading: false, error: null })
+  useEffect(() => {
+    const term = (q || '').trim()
+    if (!term || !accountId) {
+      setState({ items: null, loading: false, error: null })
+      return undefined
+    }
+    let alive = true
+    setState((s) => ({ ...s, loading: true, error: null }))
+    api
+      .get(withQuery(`/api/drive/${enc(accountId)}/pastas`, { q: term, escopo }))
+      .then((res) => alive && setState({ items: res.items || [], loading: false, error: null }))
+      .catch((err) => alive && setState({ items: [], loading: false, error: err.message }))
+    return () => {
+      alive = false
+    }
+  }, [accountId, q, escopo])
   return state
 }
 

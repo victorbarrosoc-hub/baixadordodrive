@@ -817,6 +817,9 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | GET | `/api/drive/:acc/drives` | | `{ drives }` |
 | GET | `/api/drive/:acc/list` | `folderId` (padrão `root`) | `{ folder, path, items }` |
 | GET | `/api/drive/:acc/search` | `q` | `{ items }` |
+| GET | `/api/drive/:acc/pastas` | `q`, `escopo` (`root` = Meu Drive, ou o id do drive compartilhado) | `{ items: [{ id, name, driveId, path }] }` (só pastas, até 20; `path` = nomes da raiz até o pai) |
+| GET | `/api/drive/:acc/link` | `id`, `rk?` | `{ link: { id, name, isFolder, url, access: 'qualquer'\|'dominio'\|'restrito'\|'desconhecido', domain, canShare, sharedDrive, root, podeLiberar } }` |
+| POST | `/api/drive/:acc/link/liberar` | `{ id, rk?, confirmado: true }` | `{ link }`. Cria "qualquer pessoa com o link" (leitor). Sem `confirmado: true` → 400; a tela só manda depois da confirmação "Qualquer pessoa com o link vai poder ver e baixar". Recusa do Workspace/drive compartilhado → 403 com a mensagem |
 | POST | `/api/drive/:acc/folders` | `{ parentId, name }` | `{ item }` |
 | POST | `/api/drive/:acc/tamanho` | `{ folderId, refresh?, auto? }` | `{ tamanho: TamanhoView }` (começa ou devolve a conta guardada; `auto` não recomeça uma parada à mão) |
 | GET | `/api/drive/:acc/tamanho` | `ids=a,b,c` (até 200) | `{ tamanhos: { id: TamanhoView\|null } }` (a interface pergunta a cada ~0,7 s; sem pergunta por 20 s a conta é abandonada) |

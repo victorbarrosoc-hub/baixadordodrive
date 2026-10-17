@@ -13,6 +13,9 @@
 //  - Upload retomável: 308 + Range, pedaços múltiplos de 256 KiB, sobreposição, perda dos bytes ainda não
 //    "assentados" quando a conexão cai, sessão que expira, limite diário (750 GB/dia em escala), cancelamento (499).
 //  - Banda limitada POR CONEXÃO: é o que prova que várias conexões ganham de uma.
+//  - Compartilhamento: permissions.list/create, `permissions` só fora de drive compartilhado (como no Google), `shared`,
+//    herança das pastas de cima, recusa da política do Workspace (`anyoneSharingBlocked`) e do drive compartilhado
+//    (`addSharedDrive(nome, { domainUsersOnly: true })`). share()/permissionsOf() montam e conferem cenários.
 // Arquivos "virtuais" têm qualquer tamanho e são gerados na hora a partir de uma semente (sem memória nem disco).
 import http from 'node:http'
 import crypto from 'node:crypto'
@@ -55,6 +58,8 @@ const DEFAULT_OPTIONS = {
   authDeny: false,
   omitRefreshToken: false,
   nameQueryCaseSensitive: false,
+  // true = o Workspace não deixa compartilhar com "qualquer pessoa com o link" (permissions.create anyone → 403).
+  anyoneSharingBlocked: false,
   // Arquivos virtuais maiores que isso informam um md5Checksum "de mentirinha" (determinístico) para a listagem
   // não esperar minutos calculando o MD5 de 200 GB. contentMd5() continua calculando o verdadeiro.
   virtualMd5Limit: 4 * 1024 ** 3,
@@ -100,6 +105,14 @@ const DRIVE_FIELDS = new Set([
   'themeId', 'orgUnitId', 'backgroundImageFile', 'copyRequiresWriterPermission',
 ])
 const DRIVE_LIST_FIELDS = new Set(['kind', 'nextPageToken', 'drives'])
+const PERMISSION_FIELDS = new Set([
+  'kind', 'id', 'type', 'role', 'emailAddress', 'domain', 'displayName', 'allowFileDiscovery', 'expirationTime',
+  'deleted', 'photoLink', 'pendingOwner', 'permissionDetails', 'view', 'inheritedPermissionsDisabled',
+])
+const PERMISSION_LIST_FIELDS = new Set(['kind', 'nextPageToken', 'permissions'])
+const DEFAULT_PERMISSION_MASK = { kind: true, id: true, type: true, role: true }
+const PERMISSION_TYPES = new Set(['user', 'group', 'domain', 'anyone'])
+const PERMISSION_ROLES = new Set(['owner', 'organizer', 'fileOrganizer', 'writer', 'commenter', 'reader'])
 
 // Sem `fields`, o Google devolve só isto (pegadinha clássica: sem pedir, não vem size nem md5Checksum).
 const DEFAULT_FILE_MASK = { kind: true, id: true, name: true, mimeType: true, resourceKey: true }
@@ -300,6 +313,7 @@ const newFileId = () => `1${randomId(32)}`
 const newDriveId = () => `0A${randomId(12)}Uk9PVA`
 const newRevisionId = () => `0B${randomId(42)}`
 const newResourceKey = () => `0-${randomId(22)}`
+const newPermissionId = () => String(10n ** 19n + BigInt(crypto.randomInt(2 ** 47)) * 1000n + BigInt(crypto.randomInt(1000)))
 const isoNow = () => new Date().toISOString()
 const noop = () => {}
 const md5Hex = buf => crypto.createHash('md5').update(buf).digest('hex')
@@ -1107,7 +1121,7 @@ class MockDrive {
     return id === 'root' ? this.rootId : id
   }
 
-  _insert({ id, name, mimeType, parentId, driveId = null, content = null, createdTime, modifiedTime, resourceKey = null, canDownload = true, trashed = false, shortcutDetails = null, docSize = null, md5Override, description = null, thumbnail = null, videoMediaMetadata = null, imageMediaMetadata = null, appProperties = null }) {
+  _insert({ id, name, mimeType, parentId, driveId = null, content = null, createdTime, modifiedTime, resourceKey = null, canDownload = true, trashed = false, shortcutDetails = null, docSize = null, md5Override, description = null, thumbnail = null, videoMediaMetadata = null, imageMediaMetadata = null, appProperties = null, canShare = true }) {
     const parent = parentId ? this.items.get(parentId) : null
     const now = isoNow()
     const item = {
@@ -1132,6 +1146,8 @@ class MockDrive {
       videoMediaMetadata,
       imageMediaMetadata,
       appProperties: appProperties && Object.keys(appProperties).length ? { ...appProperties } : null,
+      permissions: [], // só as deste item; as herdadas vêm das pastas de cima (_permissions)
+      canShare: canShare !== false,
       version: 1,
       seq: this._seq++,
     }
@@ -1273,6 +1289,7 @@ class MockDrive {
       modifiedTime: toIso(extra.modifiedTime) ?? undefined,
       resourceKey: extra.resourceKey === true ? newResourceKey() : extra.resourceKey ?? null,
       trashed: extra.trashed,
+      canShare: extra.canShare,
     })
     return this._view(item)
   }
@@ -1300,6 +1317,7 @@ class MockDrive {
       videoMediaMetadata: opts.videoMediaMetadata ?? null,
       imageMediaMetadata: opts.imageMediaMetadata ?? null,
       appProperties: opts.appProperties ?? null,
+      canShare: opts.canShare,
     })
     return this._view(item)
   }
@@ -1332,16 +1350,66 @@ class MockDrive {
   }
 
   /** Drive compartilhado: a pasta raiz tem id = id do drive; tudo dentro dele carrega driveId. */
-  addSharedDrive(name) {
+  addSharedDrive(name, { domainUsersOnly = false } = {}) {
     const id = newDriveId()
     const now = isoNow()
     this._insert({ id, name, mimeType: FOLDER_MIME, parentId: null, driveId: id, createdTime: now, modifiedTime: now })
-    this.drives.set(id, { id, name, createdTime: now })
+    this.drives.set(id, { id, name, createdTime: now, restrictions: { domainUsersOnly: Boolean(domainUsersOnly) } })
     return { id, name }
+  }
+
+  /**
+   * Compartilha o item como alguém faria pelo Drive: { type, role, emailAddress?, domain?, allowFileDiscovery? }.
+   * Vale para o item e, numa pasta, para tudo dentro dela (herança). Devolve a permissão (com id).
+   */
+  share(id, perm) {
+    const item = this.items.get(this._resolve(id))
+    if (!item) throw new Error(`não existe: ${id}`)
+    return { ...this._addPermission(item, perm) }
+  }
+
+  /** Permissões que valem para o item: dono (ou organizador do drive compartilhado), as dele e as herdadas. */
+  permissionsOf(id) {
+    const item = this.items.get(this._resolve(id))
+    if (!item) throw new Error(`não existe: ${id}`)
+    return this._permissions(item).map(p => ({ ...p }))
   }
 
   getItem(id) {
     return this._view(this.items.get(this._resolve(id)))
+  }
+
+  _addPermission(item, perm) {
+    const type = perm.type
+    let id
+    if (type === 'anyone') id = perm.allowFileDiscovery ? 'anyone' : 'anyoneWithLink'
+    else if (type === 'domain') id = `domain:${perm.domain}`
+    else id = item.permissions.find(p => p.type === type && p.emailAddress === perm.emailAddress)?.id ?? newPermissionId()
+    const out = { id, type, role: perm.role }
+    if (perm.emailAddress) out.emailAddress = perm.emailAddress
+    if (type === 'domain') out.domain = perm.domain
+    if (type === 'anyone' || type === 'domain') out.allowFileDiscovery = Boolean(perm.allowFileDiscovery)
+    // Mesmo tipo de novo (ex.: "qualquer pessoa" duas vezes): troca o papel, não duplica.
+    const i = item.permissions.findIndex(p => p.id === id)
+    if (i >= 0) item.permissions[i] = out
+    else item.permissions.push(out)
+    return out
+  }
+
+  _permissions(item) {
+    const u = this.user
+    const out = [{ id: u.permissionId, type: 'user', role: item.driveId ? 'organizer' : 'owner', emailAddress: u.emailAddress, displayName: u.displayName }]
+    const seen = new Set([u.permissionId])
+    let cur = item
+    for (let depth = 0; cur && depth < 200; depth++) {
+      for (const p of cur.permissions || []) {
+        if (seen.has(p.id)) continue
+        seen.add(p.id)
+        out.push({ ...p })
+      }
+      cur = cur.parents.length ? this.items.get(cur.parents[0]) : null
+    }
+    return out
   }
 
   /** Todos os itens (sem as raízes do Meu Drive e dos drives compartilhados). */
@@ -1501,7 +1569,11 @@ class MockDrive {
     j.modifiedByMe = true
     j.modifiedByMeTime = item.modifiedTime
     j.ownedByMe = !item.driveId
-    j.shared = false
+    const perms = this._permissions(item)
+    j.shared = perms.length > 1
+    j.permissionIds = perms.map(p => p.id)
+    // Como no Google: `permissions` não vem para itens de drive compartilhado nem para quem não pode compartilhar.
+    if (!item.driveId && item.canShare) j.permissions = perms.map(p => ({ kind: 'drive#permission', ...p }))
     if (item.driveId) {
       j.driveId = item.driveId
       j.teamDriveId = item.driveId
@@ -1541,7 +1613,7 @@ class MockDrive {
       canListChildren: isFolder,
       canModifyContent: !isFolder,
       canReadRevisions: Boolean(c),
-      canShare: true,
+      canShare: item.canShare,
       canMoveItemWithinDrive: true,
     }
     return mask ? applyMask(j, mask) : j
@@ -1556,7 +1628,7 @@ class MockDrive {
       hidden: false,
       colorRgb: '#4986e7',
       capabilities: { canAddChildren: true, canListChildren: true, canDownload: true, canEdit: true, canManageMembers: true },
-      restrictions: { adminManagedRestrictions: false, copyRequiresWriterPermission: false, domainUsersOnly: false, driveMembersOnly: false },
+      restrictions: { adminManagedRestrictions: false, copyRequiresWriterPermission: false, domainUsersOnly: Boolean(d.restrictions?.domainUsersOnly), driveMembersOnly: false },
     }
   }
 
@@ -1768,6 +1840,10 @@ class MockDrive {
         if (method === 'DELETE') return drive('files.delete', (q, s, u) => this._filesDelete(q, s, u, id), { write: true })
       }
       if (segs.length === 3 && segs[2] === 'export' && method === 'GET') return drive('files.export', (q, s, u) => this._filesExport(q, s, u, segs[1]))
+      if (segs.length === 3 && segs[1] && segs[2] === 'permissions') {
+        if (method === 'GET') return drive('permissions.list', (q, s, u) => this._permissionsList(q, s, u, segs[1]))
+        if (method === 'POST') return drive('permissions.create', (q, s, u) => this._permissionsCreate(q, s, u, segs[1]), { write: true })
+      }
     }
     return notFound
   }
@@ -2202,6 +2278,64 @@ class MockDrive {
     const size = item.docSize ?? 2048
     const content = { kind: 'virtual', s: seed32(`${item.id}|${mime}|${item.version}`), size }
     await this._stream(req, res, 200, { 'content-type': mime, 'cache-control': 'private, max-age=0' }, content, 0, size)
+  }
+
+  // ─────────── Drive: compartilhamento ───────────
+
+  _permissionsList(req, res, url, rawId) {
+    const item = this._accessible(rawId, url, req)
+    if (!item) return this._send(res, 404, notFoundFile(rawId))
+    const { mask, error } = this._parseMask(url, PERMISSION_LIST_FIELDS, { permissions: PERMISSION_FIELDS })
+    if (error) return this._send(res, 400, error)
+    const pageSize = parsePageSize(url.searchParams.get('pageSize'), 100, 100)
+    if (pageSize == null) return this._send(res, 400, gError(400, 'invalid', 'Invalid value for pageSize.', { location: 'pageSize' }))
+    // Fora de drive compartilhado, só quem pode compartilhar enxerga a lista.
+    if (!item.driveId && !item.canShare) return this._send(res, 403, gError(403, 'insufficientFilePermissions', 'The user does not have sufficient permissions for this file.'))
+    const all = this._permissions(item)
+    let offset = 0
+    const token = url.searchParams.get('pageToken')
+    if (token) {
+      const t = decodePageToken(token)
+      if (!t || t.k !== `perm:${item.id}`) return this._send(res, 400, gError(400, 'invalid', 'Invalid Value', { location: 'pageToken' }))
+      offset = t.o
+    }
+    const page = all.slice(offset, offset + pageSize).map(p => ({ kind: 'drive#permission', ...p }))
+    const body = { kind: 'drive#permissionList', permissions: page }
+    if (offset + pageSize < all.length) body.nextPageToken = encodePageToken({ k: `perm:${item.id}`, o: offset + pageSize })
+    this._send(res, 200, applyMask(body, mask ?? { kind: true, nextPageToken: true, permissions: DEFAULT_PERMISSION_MASK }))
+  }
+
+  async _permissionsCreate(req, res, url, rawId) {
+    let perm
+    try {
+      perm = await this._jsonBody(req)
+    } catch {
+      return this._send(res, 400, gError(400, 'parseError', 'Parse Error'))
+    }
+    const item = this._accessible(rawId, url, req)
+    if (!item) return this._send(res, 404, notFoundFile(rawId))
+    const { mask, error } = this._parseMask(url, PERMISSION_FIELDS)
+    if (error) return this._send(res, 400, error)
+    const bad = (msg, location) => this._send(res, 400, gError(400, 'invalid', msg, { location }))
+    if (!PERMISSION_TYPES.has(perm.type)) return bad('The permission type field is required.', 'permission.type')
+    if (!PERMISSION_ROLES.has(perm.role)) return bad('The permission role field is required.', 'permission.role')
+    if ((perm.type === 'user' || perm.type === 'group') && !perm.emailAddress) return bad('The permission emailAddress field is required.', 'permission.emailAddress')
+    if (perm.type === 'domain' && !perm.domain) return bad('The permission domain field is required.', 'permission.domain')
+    const forbidden = (reason, msg) => this._send(res, 403, gError(403, reason, msg))
+    const wide = perm.type === 'anyone' || perm.type === 'domain'
+    if (!item.parents.length) {
+      if (item.driveId && wide) return forbidden('cannotShareTeamDriveTopFolderWithAnyoneOrDomains', 'The top-level folder of a shared drive cannot be shared with anyone or domains.')
+      return forbidden('insufficientFilePermissions', 'The user does not have sufficient permissions for this file.')
+    }
+    if (!item.canShare) return forbidden('insufficientFilePermissions', 'The user does not have sufficient permissions for this file.')
+    if (perm.type === 'anyone' && this.options.anyoneSharingBlocked) {
+      return forbidden('publishOutNotPermitted', 'Bad Request. User message: "Sharing with anyone is not allowed by your organization."')
+    }
+    if (wide && item.driveId && this.drives.get(item.driveId)?.restrictions?.domainUsersOnly) {
+      return forbidden('teamDriveDomainUsersOnlyRestriction', "The request was not completed because the shared drive's restrictions do not permit this action.")
+    }
+    const created = this._addPermission(item, perm)
+    this._send(res, 200, applyMask({ kind: 'drive#permission', ...created }, mask ?? DEFAULT_PERMISSION_MASK))
   }
 
   async _jsonBody(req, limit = MiB) {

@@ -132,6 +132,13 @@ Na hora de conectar aparece **"O Google não verificou este app"**. É esperado:
 - No **Drive**, abra a pasta de destino e clique em **Enviar para esta pasta**. Ou, em **Transferências**, clique em **Enviar** e escolha a pasta do Drive depois.
 - No app de desktop dá para **arrastar** arquivos e pastas do Finder/Explorer direto para a janela.
 - Se o arquivo já existe no Drive com o mesmo conteúdo, ele é pulado ("Já estava no Drive"). Dá para mudar isso em **Ajustes → Arquivos**.
+- O seletor **Para qual pasta do Drive?** abre na última pasta usada como destino. Na lateral, **Recentes** guarda as 5 últimas (um clique escolhe) e **Buscar pasta** procura pelo nome no Drive todo (Meu Drive ou o drive compartilhado aberto), mostrando onde cada uma está.
+
+### Mandar o link para o cliente
+
+- Num envio concluído, em **Transferências**: **Copiar link da pasta** (a pasta enviada, ou o destino) e **Abrir no Drive**.
+- No **Drive**: o ícone de link na barra copia o link da pasta aberta; numa linha (ao passar o mouse) ou com um item marcado, **Copiar link**.
+- Ao copiar, o app confere quem consegue abrir. Se só quem tem acesso abre, aparece **Liberar para quem tiver o link**, que sempre pede confirmação ("Qualquer pessoa com o link vai poder ver e baixar") antes de mudar o compartilhamento no Drive. O app nunca libera sozinho. Se o Workspace não deixa compartilhar com qualquer pessoa, o aviso diz isso.
 
 ### Pausar, continuar, cancelar
 

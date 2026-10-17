@@ -586,6 +586,48 @@ export function createApi(ctx) {
     return { items }
   })
 
+  // Seletor de pasta: busca só pastas, no escopo aberto (Meu Drive ou um drive compartilhado).
+  route('GET', '/api/drive/:acc/pastas', async ({ params, query, signal }) => {
+    account(params.acc)
+    const q = (query.get('q') || '').trim()
+    if (!q) return { items: [] }
+    const escopo = query.get('escopo') || 'root'
+    if (escopo !== 'root' && !DRIVE_ID.test(escopo)) throw new HttpProblem(400, 'Onde buscar? Escolha Meu Drive ou um drive compartilhado.')
+    const items = await ctx.manager.driveFor(params.acc).searchFolders(q.slice(0, 200), { signal, driveId: escopo === 'root' ? null : escopo })
+    return { items }
+  })
+
+  // ── Copiar link (mandar para o cliente): o link do item e quem consegue abrir.
+  const linkTarget = (query) => {
+    const id = typeof query.id === 'string' ? query.id : ''
+    if (!DRIVE_ID.test(id)) throw new HttpProblem(400, 'Item inválido.')
+    const rk = typeof query.rk === 'string' && DRIVE_ID.test(query.rk) ? query.rk : undefined
+    return { id, resourceKey: rk }
+  }
+
+  route('GET', '/api/drive/:acc/link', async ({ params, query, signal }) => {
+    account(params.acc)
+    const { id, resourceKey } = linkTarget({ id: query.get('id'), rk: query.get('rk') })
+    return { link: await ctx.manager.driveFor(params.acc).sharing(id, { signal, resourceKey }) }
+  })
+
+  // Libera para "qualquer pessoa com o link" (leitor). Só com `confirmado: true`, que a tela manda depois de a pessoa
+  // ler "Qualquer pessoa com o link vai poder ver e baixar" e clicar em Liberar. Nada no app chama isto sozinho.
+  route('POST', '/api/drive/:acc/link/liberar', async ({ params, body, signal }) => {
+    account(params.acc)
+    if (body.confirmado !== true) throw new HttpProblem(400, 'Confirme na tela antes de liberar o link.')
+    const { id, resourceKey } = linkTarget(body)
+    if (id === 'root') throw new HttpProblem(400, 'O Meu Drive inteiro não pode ser liberado. Escolha uma pasta dentro dele.')
+    const drive = ctx.manager.driveFor(params.acc)
+    const before = await drive.sharing(id, { signal, resourceKey })
+    if (before.root) throw new HttpProblem(400, before.sharedDrive ? 'A raiz de um drive compartilhado não pode ser liberada para qualquer pessoa. Libere uma pasta dentro dele.' : 'O Meu Drive inteiro não pode ser liberado. Escolha uma pasta dentro dele.')
+    if (before.access === 'qualquer') return { link: before }
+    if (!before.canShare) throw new HttpProblem(403, 'Sua conta não pode mudar o compartilhamento deste item. Peça a quem é dono ou gerente.')
+    await drive.shareWithAnyone(before.id, { signal, resourceKey })
+    ctx.log?.(`link liberado para qualquer pessoa: ${before.id}`)
+    return { link: await drive.sharing(before.id, { signal, resourceKey }) }
+  })
+
   // ── miniaturas e prévia (src/server/media.js): chave `k` da interface, conta e id na query
   const mediaTarget = (req, query) => {
     if (!ctx.media) throw new HttpProblem(404, 'A prévia não está disponível nesta versão.')
