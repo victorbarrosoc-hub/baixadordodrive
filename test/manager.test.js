@@ -138,7 +138,9 @@ async function makeManager(t, { settings = {}, home, ctl, auth, keep = false, ..
   const paths = dataPaths(home)
   const s = new Settings(paths.settings)
   await s.load()
-  await s.update({ keepAwake: false, ...settings })
+  // 1 conexão por download: o orçamento de conexões (maxConcurrentDownloads × conexões) vira o limite de arquivos de
+  // sempre. Os testes do orçamento ligam mais conexões explicitamente.
+  await s.update({ keepAwake: false, connectionsPerDownload: 1, ...settings })
   const keepAwake = fakeKeepAwake()
   const m = new TransferManager({ settings: s, auth: auth ?? new EventEmitter(), paths, driveFactory: () => ({}), keepAwake, createTask: ctl?.create, quotaDelays: [60_000], ...opts })
   await m.init()
@@ -253,6 +255,106 @@ test('prioridade: "passar na frente" vai para o começo da fila; pausado volta p
   await waitFor(() => ctl.live.has('p5'))
   ctl.finish('p5')
   await waitFor(() => ctl.live.has('p2'))
+})
+
+test('download por orçamento de conexões: pequenos andam juntos (até 16), grandes seguem o limite, a ordem manda', async t => {
+  const ctl = fakeTasks()
+  const dir = await makeTmpDir()
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  // Orçamento: 3 arquivos × 8 conexões = 24. Pequeno = menos de 2 × 64 MiB.
+  const { m, s } = await makeManager(t, { ctl, settings: { maxConcurrentDownloads: 3, connectionsPerDownload: 8, minSegmentSize: 64 * MiB } })
+  const small = Array.from({ length: 20 }, (_, i) => dl(dir, `s${String(i).padStart(2, '0')}`, { size: 20 * MiB }))
+  await m.add({ batch: batch('b1'), records: small })
+  await waitFor(() => ctl.live.size === 16)
+  assert.equal(statusOf(m, 's16'), 'queued', 'teto de 16 arquivos')
+  assert.equal(m.stats().down.active, 16)
+
+  // Grandes (8 conexões cada) atrás dos pequenos: só entram com orçamento, nunca mais que maxConcurrentDownloads.
+  const big = ['g1', 'g2', 'g3', 'g4'].map(id => dl(dir, id, { size: 4 * 1024 * MiB }))
+  await m.add({ batch: batch('b2'), records: big })
+  await waitFor(() => {
+    for (const id of ctl.running()) if (id.startsWith('s')) ctl.finish(id)
+    return ['g1', 'g2', 'g3'].every(id => ctl.live.has(id))
+  })
+  assert.equal(statusOf(m, 'g4'), 'queued', 'grandes: no máximo maxConcurrentDownloads')
+  assert.deepEqual(ctl.running(), ['g1', 'g2', 'g3'])
+
+  // Pequeno que chegou depois do g4 não passa na frente dele (a ordem da fila manda)...
+  await m.add({ batch: batch('b3'), records: [dl(dir, 'tarde', { size: MiB })] })
+  await new Promise(r => setTimeout(r, 50))
+  assert.equal(statusOf(m, 'tarde'), 'queued')
+  // ...mas "passar na frente" vale, e um pequeno cabe junto dos 3 grandes? Não: 24 conexões já estão em uso.
+  await m.prioritize(['tarde'])
+  await new Promise(r => setTimeout(r, 50))
+  assert.equal(statusOf(m, 'tarde'), 'queued', 'sem orçamento sobrando')
+  ctl.finish('g1')
+  await waitFor(() => ctl.live.has('tarde'))
+  assert.equal(statusOf(m, 'g4'), 'queued', 'g4 espera: 2 grandes + 1 pequeno = 17 conexões, sem lugar para mais 8')
+  ctl.finish('tarde')
+  await waitFor(() => ctl.live.has('g4'))
+
+  // Ajuste reduzido ao vivo: 1 arquivo grande por vez (orçamento de 8): os outros voltam para a fila na hora.
+  await s.update({ maxConcurrentDownloads: 1 })
+  await waitFor(() => ctl.live.size === 1)
+  assert.deepEqual(ctl.running(), ['g2'], 'fica o primeiro da fila')
+  await waitFor(() => statusOf(m, 'g3') === 'queued' && statusOf(m, 'g4') === 'queued')
+})
+
+test('download por orçamento: arquivo médio conta as conexões que vai usar; Doc do Google conta como grande', async t => {
+  const ctl = fakeTasks()
+  const dir = await makeTmpDir()
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  // Orçamento 2 × 8 = 16. 100 MiB < 128 MiB: 2 segmentos que viram 4 com o roubo (> 32 MiB) = 4 conexões.
+  const { m, s } = await makeManager(t, { ctl, settings: { maxConcurrentDownloads: 2, connectionsPerDownload: 8, minSegmentSize: 64 * MiB } })
+  await m.add({ batch: batch('b1'), records: Array.from({ length: 6 }, (_, i) => dl(dir, `m${i}`, { size: 100 * MiB })) })
+  await waitFor(() => ctl.live.size === 4)
+  await new Promise(r => setTimeout(r, 50))
+  assert.equal(ctl.live.size, 4, '4 × 4 conexões = 16')
+  for (const id of ctl.running()) ctl.finish(id)
+  await waitFor(() => ctl.live.size === 2 && ctl.live.has('m4') && ctl.live.has('m5'))
+
+  // Exportação de Doc (tamanho desconhecido): um por vaga, como sempre.
+  for (const id of ctl.running()) ctl.finish(id)
+  const docs = Array.from({ length: 4 }, (_, i) => dl(dir, `doc${i}`, { size: null, source: { fileId: `f-doc${i}`, mimeType: 'application/vnd.google-apps.document', md5: null, export: { mime: 'x', ext: '.docx' } } }))
+  await m.add({ batch: batch('b2'), records: docs })
+  await waitFor(() => ctl.live.size === 2)
+  await new Promise(r => setTimeout(r, 50))
+  assert.deepEqual(ctl.running(), ['doc0', 'doc1'])
+
+  // Menos conexões nos ajustes: o orçamento encolhe e os pequenos voltam para a fila na hora.
+  for (const id of ctl.running()) ctl.finish(id)
+  await waitFor(() => ctl.live.size === 2 && ctl.live.has('doc2'))
+  for (const id of ctl.running()) ctl.finish(id)
+  await waitFor(() => ctl.live.size === 0)
+  await m.add({ batch: batch('b3'), records: Array.from({ length: 10 }, (_, i) => dl(dir, `p${i}`, { size: MiB })) })
+  await waitFor(() => ctl.live.size === 10)
+  await s.update({ connectionsPerDownload: 2 })
+  await waitFor(() => ctl.live.size === 4)
+  assert.deepEqual(ctl.running(), ['p0', 'p1', 'p2', 'p3'])
+  await waitFor(() => statusOf(m, 'p9') === 'queued')
+})
+
+test('envio: maior arquivo primeiro dentro do lote; "passar na frente" continua mandando; lote mais antigo antes', async t => {
+  const ctl = fakeTasks()
+  const { m } = await makeManager(t, { ctl, settings: { maxConcurrentUploads: 1 } })
+  const order = []
+  ctl.on('start', id => order.push(id))
+  // Lote mais antigo (arquivos pequenos): vem inteiro antes de qualquer arquivo do lote novo.
+  await m.add({ batch: batch('b0', 'upload'), records: [up('v1', { batchId: 'b0', size: 10 }), up('v2', { batchId: 'b0', size: 20 })] })
+  await waitFor(() => ctl.live.has('v2'))
+  const sizes = { a: 5_000, b: 300_000_000_000, c: 70_000, d: 70_000, e: 1 }
+  await m.add({ batch: batch('b2', 'upload'), records: Object.entries(sizes).map(([id, size]) => up(id, { size })) })
+  for (const want of ['v1', 'b']) {
+    ctl.finish(ctl.running()[0])
+    await waitFor(() => ctl.live.has(want))
+  }
+  await m.prioritize(['e'])
+  for (const want of ['e', 'c', 'd', 'a']) {
+    ctl.finish(ctl.running()[0])
+    await waitFor(() => ctl.live.has(want))
+  }
+  ctl.finish('a')
+  assert.deepEqual(order, ['v2', 'v1', 'b', 'e', 'c', 'd', 'a'], 'maior primeiro no lote; empate na ordem do plano; prioridade vence o tamanho')
 })
 
 // ─────────── ações ───────────
@@ -849,4 +951,64 @@ test('reabrir no meio de um download continua de onde parou e o arquivo fica ín
   assert.equal(await md5File(second.m.get(id).dest.path), await virtualMd5(21, size))
   const served = env.mock.stats().bytesServed
   assert.ok(served <= size - savedBytes + 4 * MiB, `baixou de novo o que já tinha: ${served} bytes servidos`)
+})
+
+test('muitos downloads pequenos de verdade: mais arquivos juntos, sem files.get e dentro do limite de banda', async t => {
+  const rate = 4 * MiB
+  const { env, dir, make } = await realSetup(t, {}, { maxConcurrentDownloads: 2, connectionsPerDownload: 4, minSegmentSize: 4 * MiB, bandwidthLimitDown: rate })
+  const folder = env.mock.addFolder('Fotos do set')
+  const n = 12
+  const seeds = Array.from({ length: n }, (_, i) => 900 + i)
+  for (const seed of seeds) env.mock.addFile(`IMG_${seed}.CR3`, folder.id, { size: MiB, seed })
+  const { m } = await make()
+  const drive = m.driveFor(env.accountId)
+  const plan = await planDownloads({ drive, accountId: env.accountId, items: [{ id: folder.id }], destDir: dir })
+  env.mock.resetStats()
+  let most = 0
+  const poll = setInterval(() => (most = Math.max(most, m.stats().down.active)), 5)
+  t.after(() => clearInterval(poll))
+  const t0 = Date.now()
+  await m.add({ batch: plan.batch, records: plan.records })
+  await waitFor(() => plan.records.every(r => m.get(r.id)?.status === 'completed'), { timeoutMs: 30_000, message: 'os downloads não terminaram' })
+  const secs = (Date.now() - t0) / 1000
+  clearInterval(poll)
+  assert.ok(most > 2, `mais que maxConcurrentDownloads ao mesmo tempo (${most})`)
+  assert.ok(most <= 8, `até o orçamento de 2 × 4 conexões (${most})`)
+  // 12 MiB a 4 MiB/s: ~3 s (o balde do limitador deixa sair 1 MiB de uma vez).
+  assert.ok(secs >= ((n - 1) * MiB) / rate * 0.8, `o limite de banda vale para todos juntos (${secs.toFixed(2)} s)`)
+  assert.equal(env.mock.stats().requests['files.get'] || 0, 0, 'plano recém-feito: nenhum files.get')
+  for (const r of plan.records) {
+    const seed = Number(/IMG_(\d+)/.exec(r.name)[1])
+    assert.equal(await md5File(m.get(r.id).dest.path), await virtualMd5(seed, MiB))
+  }
+})
+
+test('dois lotes de envio para a mesma pasta: o segundo enxerga o que o primeiro criou (sem duplicar nome)', async t => {
+  const { env, dir, make } = await realSetup(t, {}, { maxConcurrentUploads: 1, uploadConflict: 'skip' })
+  const dest = env.mock.addFolder('Material bruto')
+  const camA = path.join(dir, 'CAM A', 'C0001.MXF')
+  const camB = path.join(dir, 'CAM B', 'C0001.MXF')
+  const copia = path.join(dir, 'copia', 'C0001.MXF')
+  const md5A = await randomFile(camA, 300 * 1024, 61)
+  const md5B = await randomFile(camB, 300 * 1024, 62)
+  await randomFile(copia, 300 * 1024, 61)
+  const { m } = await make()
+  const drive = m.driveFor(env.accountId)
+  const ids = []
+  for (const p of [camA, camB, copia]) {
+    const plan = await planUploads({ drive, accountId: env.accountId, paths: [p], destFolderId: dest.id })
+    await m.add({ batch: plan.batch, records: plan.records })
+    ids.push(plan.records[0].id)
+  }
+  await waitFor(() => ids.every(id => ['completed', 'skipped', 'failed'].includes(m.get(id)?.status)), { timeoutMs: 20_000 })
+  const [a, b, c] = ids.map(id => m.get(id))
+  assert.equal(a.status, 'completed')
+  assert.equal(b.status, 'completed')
+  assert.equal(b.name, 'C0001 (2).MXF', 'mesmo nome, conteúdo diferente: mantém os dois')
+  assert.equal(c.status, 'skipped', 'a cópia idêntica do primeiro já estava no Drive')
+  assert.equal(c.target.fileId, a.target.fileId)
+  const names = env.mock.listAll().filter(it => !it.isFolder && it.parents.includes(dest.id)).map(it => it.name).sort()
+  assert.deepEqual(names, ['C0001 (2).MXF', 'C0001.MXF'])
+  assert.equal(await env.mock.contentMd5(a.target.fileId), md5A)
+  assert.equal(await env.mock.contentMd5(b.target.fileId), md5B)
 })

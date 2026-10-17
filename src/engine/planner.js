@@ -326,12 +326,15 @@ export async function planDownloads({ drive, accountId, items, destDir, conflict
     }
   }
 
-  const addFile = async (it, dirAbs, displayDir, { inFolder, extraNote = null }) => {
+  // `fresh`: os metadados do item foram lidos do Drive agora, neste plano (não vieram prontos da tela).
+  const addFile = async (it, dirAbs, displayDir, { inFolder, extraNote = null, fresh = false }) => {
     // Lixo de sistema que alguém subiu (.DS_Store…) não vem junto numa pasta; escolhido à mão, vem.
     if (inFolder && isJunkFile(it.name)) return
     let src = it
+    let srcFresh = fresh
     if (it.isShortcut) {
       if (it.shortcutTargetMimeType === FOLDER_MIME) return void skipped.push({ name: joinRel(displayDir, it.name), reason: SKIP.folderShortcut, id: it.id })
+      srcFresh = fresh || it.target === undefined // sem alvo pronto, o alvo é buscado agora
       src = await shortcutTarget(drive, it, signal)
       if (!src) return void skipped.push({ name: joinRel(displayDir, it.name), reason: SKIP.danglingShortcut, id: it.id })
       if (src.isFolder) return void skipped.push({ name: joinRel(displayDir, it.name), reason: SKIP.folderShortcut, id: it.id })
@@ -364,6 +367,8 @@ export async function planDownloads({ drive, accountId, items, destDir, conflict
       resourceKey: src.resourceKey ?? null,
     }
     if (exp) rec.source.export = { mime: exp.mime, ext: exp.ext }
+    // Metadados lidos agora: o download pode começar sem perguntar de novo ao Drive (engine/download.js, #freshPlan).
+    else if (srcFresh) rec.source.checkedAt = now
     rec.dest = { path: destPath, tempPath: destPath + PART_SUFFIX }
     if (placed.overwrite) rec.dest.overwrite = true
     rec.segments = null // a tarefa cria os segmentos (depende dos ajustes na hora de baixar)
@@ -399,7 +404,7 @@ export async function planDownloads({ drive, accountId, items, destDir, conflict
     if (!isFolderLike) {
       picked.files.push(toNFC(item.name))
       progress.current = toNFC(item.name)
-      await addFile(item, root, '', { inFolder: false })
+      await addFile(item, root, '', { inFolder: false, fresh: item !== raw })
       emit()
       continue
     }
@@ -455,7 +460,7 @@ export async function planDownloads({ drive, accountId, items, destDir, conflict
     for (const it of files) {
       if (signal?.aborted) throw abortError(signal)
       const d = dirOf(it.relDir || '')
-      await addFile(it, d.abs, d.display, { inFolder: true, extraNote: topNote })
+      await addFile(it, d.abs, d.display, { inFolder: true, extraNote: topNote, fresh: true })
     }
     emit()
   }

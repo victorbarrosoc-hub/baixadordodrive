@@ -1,7 +1,7 @@
 // Conta e Ajustes: qual Drive recebe, espaço nele, a conta SOBEDESCE e o tipo de rede (que define quantos arquivos
 // sobem juntos e o tamanho do pedaço).
 import { html, useState } from '../vendor/preact-htm.js'
-import { ACCOUNT, DEV, LAN, VERSION, getSettings, saveSettings } from '../lib/config.js'
+import { ACCOUNT, CHUNK_AUTO, DEV, LAN, VERSION, getSettings, saveSettings } from '../lib/config.js'
 import { bytes } from '../lib/format.js'
 import { closeSheet, openSheet, useApp } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
@@ -28,12 +28,14 @@ function Storage({ quota }) {
 }
 
 // Uma escolha só, no lugar de "arquivos ao mesmo tempo" e "tamanho do pedaço": por baixo, os mesmos valores que o
-// motor de envio usa. Quem tinha valores salvos à mão: 3 ou mais arquivos juntos conta como Wi-Fi rápido.
+// motor de envio usa. Automático (o padrão) mede a rede e escolhe o pedaço sozinho; as outras duas são tamanhos
+// fixos para quem prefere. Quem tinha valores salvos à mão: 3 ou mais arquivos juntos conta como Wi-Fi rápido.
 const NETWORKS = {
-  mobile: { label: 'Rede do celular', help: 'Mais estável no 4G e 5G.', concurrency: 2, chunkMiB: 8 },
-  wifi: { label: 'Wi-Fi rápido', help: 'Mais velocidade em rede boa.', concurrency: 4, chunkMiB: 16 },
+  auto: { label: 'Automático', help: 'Mede a rede e ajusta o tamanho de cada pedaço.', concurrency: 2, chunkMiB: CHUNK_AUTO },
+  mobile: { label: 'Celular', help: 'Pedaços pequenos: mais estável no 4G e 5G.', concurrency: 2, chunkMiB: 8 },
+  wifi: { label: 'Wi-Fi rápido', help: 'Mais arquivos ao mesmo tempo, para rede boa.', concurrency: 4, chunkMiB: 16 },
 }
-const networkOf = (s) => (s.concurrency >= 3 ? 'wifi' : 'mobile')
+const networkOf = (s) => (s.chunkMiB === CHUNK_AUTO ? 'auto' : s.concurrency >= 3 ? 'wifi' : 'mobile')
 
 export function SettingsSheet() {
   const { user, quota, lan, account, drives } = useApp((s) => ({ user: s.user, quota: s.quota, lan: s.lan, account: s.account, drives: s.drives }))

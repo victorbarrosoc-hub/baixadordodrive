@@ -504,10 +504,13 @@ export class DriveClient {
     return `'${escapeQueryValue(folderId)}' in parents and trashed = false`
   }
 
-  /** Filhos diretos (sem lixeira), pastas primeiro e depois por nome. `media: true` = campos da prévia (tela Drive). */
-  async listChildren(folderId, { signal, media = false } = {}) {
-    const driveId = await this.#driveIdOf(folderId, signal)
-    const items = await this.#list(this.#childrenQuery(folderId), { driveId, signal, media })
+  /**
+   * Filhos diretos (sem lixeira), pastas primeiro e depois por nome. `media: true` = campos da prévia (tela Drive).
+   * `driveId` (opcional, como no findChild) evita buscar a pasta; `limit` para de paginar ao chegar nisso.
+   */
+  async listChildren(folderId, { signal, media = false, driveId, limit = Infinity } = {}) {
+    const did = driveId !== undefined ? driveId : await this.#driveIdOf(folderId, signal)
+    const items = await this.#list(this.#childrenQuery(folderId), { driveId: did, signal, media, limit })
     return sortItems(items)
   }
 
@@ -568,8 +571,9 @@ export class DriveClient {
   /**
    * Garante cada nível de `relDir` dentro de `rootId` e devolve o id da última pasta.
    * `cache` (Map) guarda uma promessa por `${rootId}/${prefixo}`: 50 uploads na mesma pasta nova criam a pasta uma vez só.
+   * `onCreated(folderId)` (opcional): avisado quando um nível foi CRIADO agora (pasta nova = vazia).
    */
-  async ensureFolderPath(rootId, relDir, { signal, cache = this.folderCache, driveId } = {}) {
+  async ensureFolderPath(rootId, relDir, { signal, cache = this.folderCache, driveId, onCreated } = {}) {
     if (signal?.aborted) throw abortError(signal)
     const parts = splitRel(toNFC(relDir))
     let parentId = rootId
@@ -583,7 +587,7 @@ export class DriveClient {
         // A criação é compartilhada: não usa o signal de quem pediu primeiro (a pausa dele não pode
         // derrubar os outros). Ela só é cancelada quando TODOS que esperavam por ela desistiram.
         const controller = new AbortController()
-        const level = this.#ensureLevel(parentId, part, driveId, controller.signal)
+        const level = this.#ensureLevel(parentId, part, driveId, controller.signal, onCreated)
         entry = { controller, waiters: 0, settled: false }
         sharedLevels.set(level, entry)
         cache.set(key, level)
@@ -620,13 +624,19 @@ export class DriveClient {
     }
   }
 
-  async #ensureLevel(parentId, name, driveId, signal) {
+  async #ensureLevel(parentId, name, driveId, signal, onCreated) {
     for (let attempt = 0; ; attempt++) {
       try {
         // Sempre procura antes de criar: se um "criar" anterior deu erro mas chegou ao Google, a pasta já está lá.
         const found = await this.findChild(parentId, name, { folder: true, driveId, signal })
         if (found) return found.id
-        return (await this.createFolder(name, parentId, { retries: 0, signal })).id
+        const id = (await this.createFolder(name, parentId, { retries: 0, signal })).id
+        try {
+          onCreated?.(id)
+        } catch {
+          // quem escuta não pode atrapalhar a criação
+        }
+        return id
       } catch (err) {
         const info = classifyError(err)
         if (info.kind !== 'retry' || attempt + 1 >= ENSURE_TRIES) throw err

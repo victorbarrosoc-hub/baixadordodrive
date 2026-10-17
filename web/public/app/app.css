@@ -50,6 +50,7 @@
   --r: 14px;
   --r-lg: 18px;
   --gutter: 16px;
+  --tap: 44px; /* área mínima de toque (o desenho pode ser menor; ver "alvos de toque" no fim) */
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --spring: cubic-bezier(0.32, 0.72, 0, 1);
   --safe-t: env(safe-area-inset-top, 0px);
@@ -4527,4 +4528,129 @@ html.has-preview .toasts {
 }
 .switch.is-busy > span {
   opacity: 0.7;
+}
+
+/* ───────────── alvos de toque (44 px) ─────────────
+   O desenho continua do mesmo tamanho; o que cresce é a área que aceita o toque. Nos botões, um ::after invisível de
+   pelo menos var(--tap) × var(--tap), centrado (:where = especificidade zero: não briga com quem já posiciona o
+   botão). Na trilha de pastas, que rola de lado e cortaria o ::after, a pílula ganha borda transparente em cima e
+   embaixo e o fundo fica só dentro dela (background-clip). */
+:where(.icon-btn, .scope, .segmented-opt, .btn-sm, .mp-btn, .dsize-act, .sheet-head .link-btn) {
+  position: relative;
+}
+:where(.icon-btn, .scope, .segmented-opt, .btn-sm, .mp-btn, .dsize-act, .sheet-head .link-btn)::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, var(--tap));
+  height: max(100%, var(--tap));
+  transform: translate(-50%, -50%);
+}
+.crumb {
+  --crumb-h: 32px;
+  height: var(--tap);
+  border-block: calc((var(--tap) - var(--crumb-h)) / 2) solid transparent;
+  background-clip: padding-box;
+}
+.dcrumbs .crumb {
+  --crumb-h: 34px;
+  height: var(--tap);
+}
+.crumb.is-here,
+.crumb:active {
+  /* o "background" dessas regras volta o clip para a borda: aqui ele fica de novo só dentro da pílula */
+  background-clip: padding-box;
+}
+.crumb.is-here {
+  /* a sombra de fora seguiria a borda transparente (44 px): fica só o fio de dentro, que é o que se vê */
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+}
+.crumbs {
+  margin-block: calc((32px - var(--tap)) / 2);
+}
+.dcrumbs {
+  margin-block: calc((34px - var(--tap)) / 2);
+}
+
+/* ───────────── aba Drive: Enviar aqui ───────────── */
+.dfolder {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.dfolder .dsize {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.dhere {
+  display: flex;
+  flex: none;
+  margin-left: auto;
+}
+.dhere-btn {
+  height: auto;
+  min-height: 44px;
+  padding: 0 14px 0 12px;
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--up) 13%, var(--surface));
+  color: var(--up-text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.dhere-btn:active {
+  background: color-mix(in srgb, var(--up) 22%, var(--surface));
+}
+.dhere-btn .icon {
+  flex: none;
+}
+
+/* nome com reticências no meio (FileName) nos quadros e na lista do Drive */
+.tile-name.fname {
+  display: flex;
+  justify-content: center;
+  word-break: normal;
+}
+.lrow-name.fname {
+  display: flex;
+}
+
+/* envio concluído: o que o celular conferiu */
+.row-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  color: var(--ok-text);
+}
+
+/* envios pela metade: quais arquivos escolher de novo */
+.resume-names {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  color: var(--text);
+}
+.resume-names li {
+  min-width: 0;
+}
+.resume-name {
+  font-weight: 550;
+}
+.resume-more {
+  color: var(--text-2);
+}
+.resume > div {
+  min-width: 0;
+  flex: 1;
+}
+.notice .resume-btn {
+  margin-top: 12px;
+  color: var(--up-text);
 }

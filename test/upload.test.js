@@ -15,6 +15,7 @@ import { isAbortError } from '../src/util/backoff.js'
 import { classifyError } from '../src/google/errors.js'
 import { closeHttp } from '../src/net/http.js'
 import { joinRel } from '../src/util/paths.js'
+import { FolderListings } from '../src/engine/folder-listings.js'
 
 const KiB = 1024
 const MiB = 1024 * KiB
@@ -38,7 +39,7 @@ async function setup(t, mockOptions = {}) {
 }
 
 /** TaskContext de teste. `settings` é um objeto vivo (dá para mudar no meio). */
-function makeCtx(env, { settings = {}, limiter, folderCache, onBytes, onPersist } = {}) {
+function makeCtx(env, { settings = {}, limiter, folderCache, folderListings, onBytes, onPersist } = {}) {
   const live = { ...DEFAULT_SETTINGS, ...settings }
   const ctx = {
     drive: env.drive,
@@ -46,6 +47,7 @@ function makeCtx(env, { settings = {}, limiter, folderCache, onBytes, onPersist 
     limiter: limiter ?? new BandwidthLimiter(0),
     hasher: env.hasher,
     folderCache: folderCache ?? new Map(),
+    folderListings,
     persist: () => onPersist?.(),
     onBytes: n => {
       ctx.sent += n
@@ -713,4 +715,240 @@ test('17. pausa antes de começar e run() em dobro', async t => {
   await assert.rejects(task.run(new AbortController().signal), /já está em andamento/)
   await p
   await assertUploaded(env, record, file)
+})
+
+// ─────────── listagem por pasta em vez de findChild por arquivo (FolderListings) ───────────
+
+const lists = env => env.mock.stats().requests['files.list'] || 0
+
+test('18. sem findChild por arquivo: pasta que já existe é listada UMA vez; pasta criada pelo app nem é listada', async t => {
+  const env = await setup(t)
+  const folder = env.mock.addFolder('Cartão A')
+  env.mock.addFile('antigo.mov', folder.id, { size: 1000, seed: 1 })
+  const listings = new FolderListings()
+  const folderCache = new Map()
+  const files = await Promise.all(Array.from({ length: 12 }, (_, i) => localFile(env, `cartao/c${i}.wav`, 64 * KiB + i, 200 + i)))
+  env.mock.resetStats()
+  const recs = files.map(f => makeRecord(env, f, { rootId: folder.id }))
+  await Promise.all(recs.map(rec => new UploadTask(rec, makeCtx(env, { folderCache, folderListings: listings })).run(new AbortController().signal)))
+  for (let i = 0; i < recs.length; i++) await assertUploaded(env, recs[i], files[i])
+  assert.equal(lists(env), 1, '12 envios juntos para uma pasta que já existe: uma listagem só')
+  assert.equal(listings.counters.listings, 1)
+
+  // Pasta nova (dois níveis): só as buscas da própria criação das pastas; nenhuma por arquivo.
+  env.mock.resetStats()
+  const more = await Promise.all(Array.from({ length: 20 }, (_, i) => localFile(env, `novo/n${i}.wav`, 32 * KiB + i, 300 + i)))
+  const recs2 = more.map(f => makeRecord(env, f, { rootId: folder.id, relDir: 'Dia 2/Som' }))
+  await Promise.all(recs2.map(rec => new UploadTask(rec, makeCtx(env, { folderCache, folderListings: listings })).run(new AbortController().signal)))
+  for (let i = 0; i < recs2.length; i++) await assertUploaded(env, recs2[i], more[i])
+  assert.equal(env.mock.stats().requests['files.create'], 2, 'uma criação por nível')
+  assert.equal(lists(env), 2, 'só os 2 findChild de "a pasta já existe?"; antes eram + 20')
+  assert.equal(listings.counters.seeded, 2)
+
+  // Sem a listagem (como antes): uma busca por arquivo.
+  env.mock.resetStats()
+  const solo = await Promise.all(Array.from({ length: 5 }, (_, i) => localFile(env, `solo/s${i}.wav`, 16 * KiB + i, 400 + i)))
+  await Promise.all(solo.map(f => new UploadTask(makeRecord(env, f, { rootId: folder.id }), makeCtx(env, { folderCache })).run(new AbortController().signal)))
+  assert.equal(lists(env), 5)
+})
+
+test('19. conflitos com a listagem: exatamente o mesmo resultado que sem ela (pular, substituir, renomear, manter os dois)', async t => {
+  const env = await setup(t)
+  const size = 2 * MiB + 7
+  const local = {
+    a: await localFile(env, 'l/a.mov', size, 31),
+    b: await localFile(env, 'l/b.mov', size + 100, 32),
+    aOutro: await localFile(env, 'l/outro/a.mov', size, 33),
+    aMais: await localFile(env, 'l/mais/a.mov', size, 34),
+    c: await localFile(env, 'l/c.wav', 1 * MiB, 35),
+    d: await localFile(env, 'l/d.mov', size, 36),
+    novo: await localFile(env, 'l/novo.mov', 300 * KiB, 37),
+    novoIgual: await localFile(env, 'l/igual/novo.mov', 300 * KiB, 37),
+    novoOutro: await localFile(env, 'l/outro/novo.mov', 300 * KiB, 38),
+    x: await localFile(env, 'l/x.mov', 100 * KiB, 39),
+    xOutro: await localFile(env, 'l/outro/x.mov', 100 * KiB, 40),
+    atalho: await localFile(env, 'l/atalho.mov', size, 31),
+    doc: await localFile(env, 'l/Roteiro', 10 * KiB, 41),
+  }
+
+  async function scenario(withListings) {
+    const folder = env.mock.addFolder(withListings ? 'Com listagem' : 'Sem listagem')
+    const pre = {
+      a: env.mock.addFile('a.mov', folder.id, { size, seed: 31 }),
+      b: env.mock.addFile('b.mov', folder.id, { size, seed: 99 }),
+      c: env.mock.addFile('c.wav', folder.id, { size: 1 * MiB, seed: 777, md5: null }),
+      d: env.mock.addFile('d.mov', folder.id, { size: size + 1, seed: 98 }),
+    }
+    pre.atalho = env.mock.addShortcut('atalho.mov', folder.id, pre.a.id)
+    pre.doc = env.mock.addGoogleDoc('Roteiro', folder.id)
+    const listings = withListings ? new FolderListings() : undefined
+    const folderCache = new Map()
+    const steps = [
+      ['a', 'skip', {}],
+      ['b', 'replace', {}],
+      ['aOutro', 'rename', { name: 'a.mov' }],
+      ['aMais', 'skip', { name: 'a.mov' }],
+      ['c', 'skip', {}],
+      ['d', 'skip', {}],
+      ['novo', 'skip', {}],
+      ['novoIgual', 'skip', { name: 'novo.mov' }],
+      ['novoOutro', 'skip', { name: 'novo.mov' }],
+      ['x', 'rename', { relDir: 'Sub' }],
+      ['xOutro', 'rename', { relDir: 'Sub', name: 'x.mov' }],
+      ['x', 'skip', { relDir: 'Sub' }],
+      ['atalho', 'skip', {}],
+      ['doc', 'replace', {}],
+    ]
+    const out = []
+    const before = lists(env)
+    for (const [key, mode, opts] of steps) {
+      const rec = makeRecord(env, local[key], { rootId: folder.id, ...opts })
+      await new UploadTask(rec, makeCtx(env, { settings: { uploadConflict: mode }, folderCache, folderListings: listings })).run(new AbortController().signal)
+      const preKey = Object.keys(pre).find(k => pre[k]?.id === rec.target.fileId) ?? null
+      out.push({ key, mode, status: rec.status, name: rec.name, note: rec.note, sameAs: preKey, md5: rec.status === 'skipped' ? null : await env.mock.contentMd5(rec.target.fileId) })
+    }
+    const sub = env.mock.listAll().find(it => it.isFolder && it.name === 'Sub' && it.parents.includes(folder.id))
+    const names = id => env.mock.listAll().filter(it => !it.isFolder && it.parents.includes(id)).map(it => it.name).sort()
+    return { out, names: names(folder.id), subNames: names(sub.id), lists: lists(env) - before, listings }
+  }
+
+  const sem = await scenario(false)
+  const com = await scenario(true)
+  assert.deepEqual(com.out, sem.out, 'cada envio terminou igual com e sem a listagem')
+  assert.deepEqual(com.names, sem.names)
+  assert.deepEqual(com.subNames, sem.subNames)
+  const by = Object.fromEntries(com.out.map((o, i) => [`${i}:${o.key}`, o]))
+  assert.equal(by['0:a'].status, 'skipped')
+  assert.equal(by['0:a'].sameAs, 'a')
+  assert.equal(by['1:b'].sameAs, 'b', 'replace: mesmo arquivo, nova versão')
+  assert.equal(by['2:aOutro'].name, 'a (2).mov')
+  assert.equal(by['3:aMais'].name, 'a (3).mov')
+  assert.equal(by['4:c'].status, 'skipped')
+  assert.equal(by['5:d'].name, 'd (2).mov', 'mesmo nome, tamanho diferente: mantém os dois')
+  assert.equal(by['6:novo'].name, 'novo.mov')
+  assert.equal(by['7:novoIgual'].status, 'skipped', 'o arquivo que o próprio app acabou de criar é enxergado')
+  assert.equal(by['8:novoOutro'].name, 'novo (2).mov')
+  assert.equal(by['10:xOutro'].name, 'x (2).mov', 'pasta criada pelo app: o primeiro x.mov é enxergado sem listar')
+  assert.equal(by['11:x'].status, 'skipped')
+  assert.deepEqual(com.subNames, ['x (2).mov', 'x.mov'])
+  assert.equal(by['12:atalho'].name, 'atalho (2).mov', 'atalho com o mesmo nome não é "o mesmo arquivo"')
+  assert.equal(by['13:doc'].name, 'Roteiro (2)', 'Doc do Google não é substituído')
+  assert.ok(com.lists < sem.lists, `menos files.list com a listagem (${com.lists} × ${sem.lists})`)
+  assert.equal(com.listings.counters.listings, 1, 'a pasta que já existia foi listada uma vez; a Sub (criada pelo app) nenhuma')
+})
+
+test('20. listagem: vale 10 min, pasta enorme cai na busca de sempre, pasta apagada é esquecida, drive compartilhado', async t => {
+  const env = await setup(t)
+  let clock = 1_000_000
+  const listings = new FolderListings({ now: () => clock })
+  const folder = env.mock.addFolder('Validade')
+  const first = await localFile(env, 'v/primeiro.mov', 50 * KiB, 51)
+  await new UploadTask(makeRecord(env, first, { rootId: folder.id }), makeCtx(env, { folderListings: listings })).run(new AbortController().signal)
+  assert.equal(listings.counters.listings, 1)
+
+  // Alguém sobe o mesmo arquivo por fora. Passados 10 min, a listagem é refeita e o envio enxerga (pula).
+  const fora = await localFile(env, 'v/fora.mov', 70 * KiB, 52)
+  env.mock.addFile('fora.mov', folder.id, { size: 70 * KiB, seed: 52 })
+  clock += 10 * 60_000 + 1
+  const rec = makeRecord(env, fora, { rootId: folder.id })
+  await new UploadTask(rec, makeCtx(env, { folderListings: listings })).run(new AbortController().signal)
+  assert.equal(listings.counters.listings, 2)
+  assert.equal(rec.status, 'skipped')
+  assert.equal(rec.note, 'Já estava no Drive')
+
+  // Pasta com mais itens que o teto: "não sei" → busca por arquivo, como antes, com o mesmo resultado.
+  const big = env.mock.addFolder('Enorme')
+  for (let i = 0; i < 6; i++) env.mock.addFile(`ja${i}.wav`, big.id, { size: 10 * KiB, seed: 60 + i })
+  const small = new FolderListings({ maxItems: 4 })
+  env.mock.resetStats()
+  const same = await localFile(env, 'e/ja3.wav', 10 * KiB, 63)
+  const fresh = await localFile(env, 'e/novo.wav', 10 * KiB, 70)
+  const recSame = makeRecord(env, same, { rootId: big.id })
+  const recFresh = makeRecord(env, fresh, { rootId: big.id })
+  await new UploadTask(recSame, makeCtx(env, { folderListings: small })).run(new AbortController().signal)
+  await new UploadTask(recFresh, makeCtx(env, { folderListings: small })).run(new AbortController().signal)
+  assert.equal(recSame.status, 'skipped')
+  await assertUploaded(env, recFresh, fresh)
+  assert.equal(lists(env), 3, 'uma listagem (cortada) + um findChild por arquivo')
+
+  // Pasta do cache apagada no Drive: procura/cria de novo e a listagem velha é esquecida.
+  const base = env.mock.addFolder('Base')
+  const folderCache = new Map()
+  const gone = await localFile(env, 'g/um.mov', 40 * KiB, 80)
+  const r1 = makeRecord(env, gone, { rootId: base.id, relDir: 'Destino' })
+  await new UploadTask(r1, makeCtx(env, { folderCache, folderListings: listings })).run(new AbortController().signal)
+  const oldParent = r1.target.parentId
+  env.mock.deleteItem(oldParent)
+  const gone2 = await localFile(env, 'g/dois.mov', 40 * KiB, 81)
+  const r2 = makeRecord(env, gone2, { rootId: base.id, relDir: 'Destino' })
+  await new UploadTask(r2, makeCtx(env, { folderCache, folderListings: listings })).run(new AbortController().signal)
+  await assertUploaded(env, r2, gone2)
+  assert.notEqual(r2.target.parentId, oldParent)
+  assert.ok(!listings.map.has(oldParent), 'a listagem da pasta apagada saiu')
+
+  // Drive compartilhado: lista dentro do drive e decide igual.
+  const shared = env.mock.addSharedDrive('Equipe')
+  const sf = await localFile(env, 's/shared.mov', 30 * KiB, 90)
+  const sharedListings = new FolderListings()
+  const rs1 = makeRecord(env, sf, { rootId: shared.id, driveId: shared.id, relDir: 'Entregas' })
+  await new UploadTask(rs1, makeCtx(env, { folderListings: sharedListings })).run(new AbortController().signal)
+  await assertUploaded(env, rs1, sf)
+  const rs2 = makeRecord(env, sf, { rootId: shared.id, driveId: shared.id, relDir: 'Entregas' })
+  await new UploadTask(rs2, makeCtx(env, { folderListings: sharedListings })).run(new AbortController().signal)
+  assert.equal(rs2.status, 'skipped')
+  assert.equal(rs2.target.fileId, rs1.target.fileId)
+  const rs3 = makeRecord(env, sf, { rootId: shared.id, driveId: shared.id })
+  await new UploadTask(rs3, makeCtx(env, { folderListings: sharedListings })).run(new AbortController().signal)
+  await assertUploaded(env, rs3, sf)
+  assert.equal(env.mock.getItem(rs3.target.fileId).driveId, shared.id)
+})
+
+test('21. listagem compartilhada: a pausa de um não derruba os outros; todos pausaram = cancela; erro = lista de novo', async () => {
+  const pending = []
+  const fake = {
+    calls: 0,
+    listChildren(folderId, { signal, limit }) {
+      this.calls++
+      return new Promise((resolve, reject) => {
+        const job = { folderId, limit, signal, resolve, reject }
+        signal.addEventListener('abort', () => reject(Object.assign(new Error('abortado'), { name: 'AbortError' })), { once: true })
+        pending.push(job)
+      })
+    },
+  }
+  const l = new FolderListings()
+  const a1 = new AbortController()
+  const p1 = l.has(fake, 'F', 'x.mov', { signal: a1.signal })
+  const p2 = l.has(fake, 'F', 'y.mov', { signal: new AbortController().signal })
+  assert.equal(fake.calls, 1, 'uma listagem para os dois')
+  assert.equal(pending[0].limit, 5001)
+  a1.abort()
+  await assert.rejects(p1, err => isAbortError(err))
+  assert.equal(pending[0].signal.aborted, false, 'o outro ainda espera: a listagem segue')
+  pending[0].resolve([{ name: 'y.mov', isFolder: false }, { name: 'x.mov', isFolder: true }])
+  assert.equal(await p2, true)
+  assert.equal(await l.has(fake, 'F', 'x.mov'), false, 'pasta com o mesmo nome não conta')
+  assert.equal(fake.calls, 1)
+
+  // Todos desistiram: cancela e a próxima pergunta lista de novo.
+  const b1 = new AbortController()
+  const q1 = l.has(fake, 'G', 'z.mov', { signal: b1.signal })
+  b1.abort()
+  await assert.rejects(q1, err => isAbortError(err))
+  assert.equal(pending[1].signal.aborted, true)
+  const q2 = l.has(fake, 'G', 'z.mov')
+  assert.equal(fake.calls, 3)
+  pending[2].reject(Object.assign(new Error('500'), { status: 500 }))
+  await assert.rejects(q2, /500/)
+  const q3 = l.has(fake, 'G', 'z.mov')
+  assert.equal(fake.calls, 4, 'erro não fica guardado')
+  pending[3].resolve([{ name: 'z.mov', isFolder: false }])
+  assert.equal(await q3, true)
+
+  // Nome normalizado (NFC): "Câmera" composto e decomposto são o mesmo nome.
+  l.created('H')
+  assert.equal(await l.has(fake, 'H', 'Câmera.mov'), false)
+  l.added('H', 'Câmera.mov')
+  assert.equal(await l.has(fake, 'H', 'Câmera.mov'), true)
+  assert.equal(fake.calls, 4, 'pasta criada pelo app não é listada')
 })

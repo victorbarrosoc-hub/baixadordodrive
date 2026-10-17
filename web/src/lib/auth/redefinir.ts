@@ -1,18 +1,19 @@
 /**
  * "Esqueci a senha": pedir (resposta sempre igual) → e-mail com link de 1 hora e uso único
- * → senha nova, todas as sessões antigas encerradas e uma sessão nova.
+ * → senha nova, tudo o que estava ligado na conta encerrado (lib/auth/encerrar.ts) e uma sessão nova.
  */
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { emailDisponivel, enviarEmail } from "@/lib/email/enviar";
 import { emailEsqueciSenha } from "@/lib/email/modelos";
 import { emailValido, normalizarEmail, type Entrou, type Falha } from "./contas";
+import { encerrarAcessos, type Encerrado } from "./encerrar";
 import { dentroDoLimite, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "./limite";
 import { hashSenha, SENHA_MAXIMA, SENHA_MINIMA } from "./senha";
 import { criarSessao } from "./sessao";
 import { hashToken, novoId, novoToken } from "./tokens";
 
-const { redefinicoesSenha, sessoes, usuarios } = schema;
+const { redefinicoesSenha, usuarios } = schema;
 
 export const VALIDADE_LINK_MS = 60 * 60_000;
 export const MENSAGEM_PEDIDO = "Se existir uma conta com este e-mail, mandamos um link para criar uma senha nova. Confira a caixa de entrada e o spam.";
@@ -60,8 +61,11 @@ export async function linkValido(token: unknown): Promise<boolean> {
 
 export const MENSAGEM_LINK_VENCIDO = "Este link venceu ou já foi usado. Peça outro em Esqueci a senha.";
 
-/** Usa o link: grava a senha, encerra todas as sessões (site e computadores) e abre uma sessão nova. */
-export async function redefinirSenha(entrada: { token: unknown; senha: unknown }): Promise<Entrou | Falha> {
+/**
+ * Usa o link: grava a senha, encerra tudo (sessões do site e dos computadores, chave do Atalho, avisos no celular;
+ * links pra IA só com `links`) e abre uma sessão nova.
+ */
+export async function redefinirSenha(entrada: { token: unknown; senha: unknown; links?: boolean }): Promise<(Entrou & { encerrado: Encerrado }) | Falha> {
   const senha = typeof entrada.senha === "string" ? entrada.senha : "";
   if (senha.length < SENHA_MINIMA) return { ok: false, erro: "entrada", campo: "senha", mensagem: `A senha precisa de pelo menos ${SENHA_MINIMA} caracteres.` };
   if (senha.length > SENHA_MAXIMA) return { ok: false, erro: "entrada", campo: "senha", mensagem: "Senha longa demais." };
@@ -78,14 +82,12 @@ export async function redefinirSenha(entrada: { token: unknown; senha: unknown }
 
   const senhaHash = await hashSenha(senha);
   await db.update(usuarios).set({ senhaHash, atualizadoEm: agora, ultimoLoginEm: agora }).where(eq(usuarios.id, usuarioId));
-  await db.update(sessoes).set({ revogadaEm: agora }).where(and(eq(sessoes.usuarioId, usuarioId), isNull(sessoes.revogadaEm)));
-  // O andamento dos computadores (docs/CONTAS.md §9) sai junto com as sessões deles.
-  await db.delete(schema.dispositivoStatus).where(eq(schema.dispositivoStatus.usuarioId, usuarioId));
+  const encerrado = await encerrarAcessos(usuarioId, { links: entrada.links === true });
   // Os outros links pendentes deste usuário também deixam de valer.
   await db.update(redefinicoesSenha).set({ usadoEm: agora }).where(and(eq(redefinicoesSenha.usuarioId, usuarioId), isNull(redefinicoesSenha.usadoEm)));
 
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId), columns: { id: true, email: true, nome: true } });
   if (!usuario) return { ok: false, erro: "link", mensagem: MENSAGEM_LINK_VENCIDO };
   const sessao = await criarSessao(usuario.id, "web");
-  return { ok: true, usuario, token: sessao.token, expiraEm: sessao.expiraEm };
+  return { ok: true, usuario, token: sessao.token, expiraEm: sessao.expiraEm, encerrado };
 }
