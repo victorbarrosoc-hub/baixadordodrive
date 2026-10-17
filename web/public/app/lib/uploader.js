@@ -15,7 +15,7 @@
 // site da conta, ou Drive para reconectar), só os passos que precisam mesmo de token
 // (conferir destino, abrir sessão) esperam.
 // Se mesmo assim o Google responder 401 num PUT, passamos a mandar o token naquela sessão.
-import { LAN, getSettings, local } from './config.js'
+import { CHUNK_AUTO, LAN, getSettings, local } from './config.js'
 import * as auth from './auth.js'
 import { DriveError, backoffMs, createUploadSession, driveErrorFrom, findByName, isRetryable, sleep } from './drive.js'
 import { allRecords, deleteRecord, getRecord, putRecord, sessionKey } from './idb.js'
@@ -30,6 +30,51 @@ const MAX_FAILURES = 10 // falhas seguidas antes de desistir (com recuo até 64 
 const MAX_RESTARTS = 3
 const CAP_HITS = 4 // 403 userRateLimitExceeded seguidos = limite diário de 750 GB
 const RANGE_SEEN_KEY = 'sobedesce.rangeVisible'
+
+// ───── tamanho do pedaço ─────
+//
+// Em "Automático" (o padrão), cada pedaço é escolhido para durar ~4 s na velocidade que o anterior teve:
+// clamp(velocidade × 4 s, 8 MiB, 64 MiB), arredondado para baixo a 256 KiB (o Google exige múltiplos disso).
+// Rede boa: pedaços maiores, menos pausas entre um PUT e outro (o Wi-Fi rápido rende bem mais com 1 arquivo só).
+// Rede ruim: volta sozinho para 8 MiB, e qualquer falha volta direto ao mínimo, para não perder muito numa queda.
+// Cresce no máximo 2× por vez (uma medida boa por acaso não pula de 8 para 64).
+// Memória: o pedaço é um Blob.slice do arquivo, preguiçoso. Nada é lido para a memória aqui: o navegador lê do disco
+// enquanto manda, então um pedaço de 64 MiB não vira 64 MiB de RAM (vale também no Safari do iPhone).
+export const GRAIN = 256 * 1024
+export const AUTO_MIN = 8 * MiB
+export const AUTO_MAX = 64 * MiB
+export const AUTO_SECONDS = 4
+
+/** Próximo pedaço em "Automático": `prev` é o pedaço anterior, `bytesPerSec` a velocidade que ele teve. */
+export function chunkFor(prev, bytesPerSec) {
+  if (!(bytesPerSec > 0)) return AUTO_MIN
+  const want = Math.min(bytesPerSec * AUTO_SECONDS, (prev || AUTO_MIN) * 2)
+  const clamped = Math.min(AUTO_MAX, Math.max(AUTO_MIN, want))
+  return Math.floor(clamped / GRAIN) * GRAIN
+}
+
+/** Quem decide o pedaço de um arquivo: fixo (Ajustes) ou acompanhando a rede. Lê os Ajustes a cada pedaço. */
+class ChunkSizer {
+  constructor() {
+    this.auto = AUTO_MIN
+  }
+
+  get size() {
+    const { chunkMiB } = getSettings()
+    return chunkMiB === CHUNK_AUTO ? this.auto : chunkMiB * MiB
+  }
+
+  /** Um pedaço de `bytes` chegou inteiro em `ms`. */
+  ok(bytes, ms) {
+    if (bytes < GRAIN || !(ms > 0)) return // fim do arquivo (pedaço curto) não diz nada da rede
+    this.auto = chunkFor(this.auto, bytes / (ms / 1000))
+  }
+
+  /** Queda, 5xx, limite, travou: volta ao mínimo. */
+  fail() {
+    this.auto = AUTO_MIN
+  }
+}
 
 // 'mac' (só no modo Wi-Fi): já chegou inteiro no computador, que está subindo pro Drive.
 export const ACTIVE = new Set(['queued', 'preparing', 'running', 'paused', 'mac'])
@@ -239,6 +284,8 @@ class Engine {
       note: '',
       error: null,
       fileId: null,
+      sizeOk: false, // o Drive disse ter recebido exatamente o tamanho do arquivo (o celular não confere MD5)
+      chunk: 0, // tamanho do pedaço da vez (bytes)
       forceCopy: false,
       addedAt: Date.now(),
       finishedAt: 0,
@@ -642,7 +689,7 @@ class Engine {
 
   async _loop(it, first, ctl) {
     let session = first
-    const chunk = getSettings().chunkMiB * MiB
+    const sizer = new ChunkSizer()
     let failures = 0
     let restarts = 0
     let capHits = 0
@@ -674,13 +721,16 @@ class Engine {
         if (it.offset >= it.size) throw new UploadError('O Google não confirmou o fim do envio. Toque em Tentar de novo.')
         continue
       }
-      const end = Math.min(start + chunk, it.size)
+      const end = Math.min(start + sizer.size, it.size)
+      it.chunk = end - start
+      const sentAt = performance.now()
       let r
       try {
         r = await this._put(it, session, ctl, start, end)
       } catch (err) {
         if (ctl.aborted) throw new Aborted(ctl.aborted)
         if (err?.signedOut) throw err
+        sizer.fail()
         const wasResync = ctl.resync
         ctl.resync = false
         if (!wasResync) {
@@ -699,6 +749,7 @@ class Engine {
         failures = 0
         capHits = 0
         badRequests = 0
+        sizer.ok(end - start, performance.now() - sentAt)
         if (r.range != null) {
           markRangeSeen()
           it.offset = parseRange(r.range)
@@ -727,6 +778,7 @@ class Engine {
       if (err.reason === 'storageQuotaExceeded') throw new UploadError(MSG.quota)
       if (err.reason === 'userRateLimitExceeded' && ++capHits >= CAP_HITS) throw new UploadError(MSG.cap, { cap: true })
       if (isRetryable(err)) {
+        sizer.fail()
         if (++failures > MAX_FAILURES) throw new UploadError(MSG.network)
         await this._waitBeforeRetry(it, ctl, failures)
         const done = await resync(session.acked)
@@ -858,7 +910,7 @@ class Engine {
     it.offset = view.offset
     it.note = ''
     await this._saveLan(it, 'sending')
-    const chunk = getSettings().chunkMiB * MiB
+    const sizer = new ChunkSizer()
     let failures = 0
     let conflicts = 0
     let lost = 0
@@ -880,12 +932,15 @@ class Engine {
         continue
       }
       const start = it.offset
-      const end = Math.min(start + chunk, it.size)
+      const end = Math.min(start + sizer.size, it.size)
+      it.chunk = end - start
+      const sentAt = performance.now()
       let r
       try {
         r = await this._lanChunk(it, ctl, start, end)
       } catch (err) {
         if (ctl.aborted) throw new Aborted(ctl.aborted)
+        sizer.fail()
         const wasResync = ctl.resync
         ctl.resync = false
         if (!wasResync) {
@@ -899,6 +954,7 @@ class Engine {
       if (r.status === 200) {
         failures = 0
         conflicts = 0
+        sizer.ok(end - start, performance.now() - sentAt)
         it.offset = Number(j.offset) || end
         await this._saveLan(it, 'sending')
         if (j.status === 'received') return this._toMac(it, j)
@@ -925,6 +981,7 @@ class Engine {
       // Disco cheio / sem permissão no computador: repetir não resolve; a mensagem dele explica o que fazer.
       if (r.status === 507) throw new UploadError(j.error || 'O computador não conseguiu gravar o arquivo.')
       if (r.status === 429 || r.status >= 500) {
+        sizer.fail()
         if (++failures > MAX_FAILURES) throw new UploadError(MSG.lanNetwork)
         await this._waitBeforeRetry(it, ctl, failures)
         if (await resync()) return this._toMac(it, view)
@@ -1055,6 +1112,7 @@ class Engine {
       throw new UploadError(`O Drive recebeu ${bytes(size)} em vez de ${bytes(it.size)}. Toque em Tentar de novo para enviar outra vez.`)
     }
     it.status = 'done'
+    it.sizeOk = size != null
     it.fileId = json?.id || null
     it.offset = it.size
     it.inflight = 0

@@ -1,7 +1,7 @@
 // Configuração do SOBEDESCE Celular: endpoints, modo de teste local, endereços da conta e ajustes.
 // Os arquivos vão do navegador direto para o Google; o site da SOBEDESCE só entrega o token de acesso do Drive.
 
-export const VERSION = '2.5.0'
+export const VERSION = '2.5.2'
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost'])
 
@@ -85,12 +85,15 @@ export const ACCOUNT = {
 const SETTINGS_KEY = 'sobedesce.settings'
 export const CONCURRENCY_OPTIONS = [1, 2, 3, 4]
 export const CHUNK_OPTIONS = [4, 8, 16, 32] // MiB (múltiplos de 256 KiB, como o Google exige)
-const DEFAULT_SETTINGS = { concurrency: 2, chunkMiB: 8 }
+// 'auto': o pedaço acompanha a velocidade da rede (lib/uploader.js, chunkFor). É o padrão de quem nunca mexeu em
+// Ajustes; quem já escolheu um tamanho (Rede do celular, Wi-Fi rápido) continua com o que escolheu.
+export const CHUNK_AUTO = 'auto'
+const DEFAULT_SETTINGS = { concurrency: 2, chunkMiB: CHUNK_AUTO }
 
 export function getSettings() {
   const s = { ...DEFAULT_SETTINGS, ...(local.get(SETTINGS_KEY) || {}) }
   if (!CONCURRENCY_OPTIONS.includes(s.concurrency)) s.concurrency = DEFAULT_SETTINGS.concurrency
-  if (!CHUNK_OPTIONS.includes(s.chunkMiB)) s.chunkMiB = DEFAULT_SETTINGS.chunkMiB
+  if (s.chunkMiB !== CHUNK_AUTO && !CHUNK_OPTIONS.includes(s.chunkMiB)) s.chunkMiB = DEFAULT_SETTINGS.chunkMiB
   return s
 }
 
