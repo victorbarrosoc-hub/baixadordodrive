@@ -1,0 +1,125 @@
+// Teste de fumaça do app empacotado (`SOBEDESCE --smoke`, rodado pelo CI no Mac e no Windows depois do build).
+// O maior risco de mexer em asar, fusíveis e cofre é o app instalado não abrir: aqui o motor de verdade sobe dentro do
+// Electron e confere o que mais quebra (código dentro do app.asar, worker do MD5, interface servida, ffmpeg, yt-dlp,
+// QuickJS e o cofre do sistema). Sem Electron também roda (test/protecao.test.js), com os binários como "aviso".
+import { execFile } from 'node:child_process'
+import crypto from 'node:crypto'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { ffmpegCandidates, primeiro, quickjsCandidates, ytdlpCandidates } from '../src/referencias/binarios.js'
+import { MOBILE_DIR } from '../src/mobile/receiver.js'
+
+function rodar(cmd, args, timeoutMs = 60_000) {
+  return new Promise(resolve => {
+    execFile(cmd, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+      resolve({ code: err ? (typeof err.code === 'number' ? err.code : -1) : 0, saida: `${stdout || ''}${stderr || ''}`, erro: err?.message || null })
+    })
+  })
+}
+
+async function obter(url) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+  const corpo = await res.text()
+  return { status: res.status, corpo }
+}
+
+/**
+ * Roda as verificações. `exigirBinarios`: no app empacotado do Mac/Windows, ffmpeg, yt-dlp e QuickJS têm que vir no app
+ * (falha); fora disso, faltar é só aviso. `exigirCofre`: falha se o cofre não cifrar (Windows); no Mac do CI o Keychain
+ * pode estar travado e no Linux pode não haver keyring, então lá é aviso.
+ * @returns {Promise<Array<{ nome: string, ok: boolean, aviso?: boolean, detalhe: string }>>}
+ */
+export async function verificar({ app, guarda = null, exigirBinarios = false, exigirCofre = false, env = process.env, platform = process.platform, arch = process.arch, resourcesPath = process.resourcesPath } = {}) {
+  const out = []
+  const passo = async (nome, fn) => {
+    try {
+      const r = await fn()
+      out.push({ nome, ok: r.ok !== false, aviso: Boolean(r.aviso), detalhe: r.detalhe || '' })
+    } catch (err) {
+      out.push({ nome, ok: false, detalhe: err?.message || String(err) })
+    }
+  }
+  const falta = (o, detalhe) => (o ? { ok: false, detalhe } : { ok: true, aviso: true, detalhe })
+  const busca = { env, platform, arch, resourcesPath }
+
+  await passo('motor', async () => {
+    const r = await obter(`${app.url}/api/state`)
+    const data = JSON.parse(r.corpo)
+    if (r.status !== 200 || data?.ok !== true) return { ok: false, detalhe: `GET /api/state → ${r.status}` }
+    return { detalhe: `${data.app?.name} ${data.app?.version || ''} em ${app.url}`.trim() }
+  })
+
+  await passo('interface', async () => {
+    const ruins = []
+    for (const p of ['/', '/app.js', '/styles.css', '/components/settings.js']) {
+      const r = await obter(`${app.url}${p}`)
+      if (r.status !== 200 || !r.corpo.length) ruins.push(`${p} → ${r.status}`)
+    }
+    return ruins.length ? { ok: false, detalhe: ruins.join(', ') } : { detalhe: 'página, scripts e estilos servidos de dentro do app' }
+  })
+
+  await passo('app do celular', async () => {
+    const html = await fs.readFile(path.join(MOBILE_DIR, 'index.html'), 'utf8')
+    return html.includes('<') ? { detalhe: 'casca lida' } : { ok: false, detalhe: 'index.html vazio' }
+  })
+
+  await passo('md5 (worker)', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sobedesce-smoke-'))
+    try {
+      const file = path.join(dir, 'a.bin')
+      const dados = crypto.randomBytes(256 * 1024)
+      await fs.writeFile(file, dados)
+      const esperado = crypto.createHash('md5').update(dados).digest('hex')
+      const md5 = await app.hasher.hash(file)
+      return md5 === esperado ? { detalhe: 'worker_threads ok' } : { ok: false, detalhe: `md5 ${md5} ≠ ${esperado}` }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  await passo('ffmpeg', async () => {
+    const c = primeiro(ffmpegCandidates(busca))
+    // O Windows ARM sai sem ffmpeg (não há um build fixo para ele; ver scripts/ffmpeg-baixar.mjs).
+    const exigir = exigirBinarios && !(platform === 'win32' && arch === 'arm64')
+    if (!c || c.origem !== 'app') return falta(exigir, c ? `só o do sistema (${c.path})` : 'não veio no app')
+    const r = await rodar(c.path, ['-hide_banner', '-version'])
+    const v = /ffmpeg version (\S+)/.exec(r.saida)
+    return r.code === 0 && v ? { detalhe: `${v[1]} (${c.path})` } : { ok: false, detalhe: `não rodou: ${r.erro || r.saida.slice(0, 200)}` }
+  })
+
+  await passo('yt-dlp', async () => {
+    const c = primeiro(ytdlpCandidates(busca))
+    if (!c || c.origem !== 'app') return falta(exigirBinarios, c ? `só o do sistema (${c.path})` : 'não veio no app')
+    const r = await rodar(c.path, ['--version'], 120_000)
+    return r.code === 0 ? { detalhe: `${r.saida.trim()} (${c.path})` } : { ok: false, detalhe: `não rodou: ${r.erro || r.saida.slice(0, 200)}` }
+  })
+
+  await passo('quickjs', async () => {
+    const c = primeiro(quickjsCandidates(busca))
+    if (!c) return falta(exigirBinarios, 'não veio no app (o YouTube nas Referências fica sem o JavaScript dos desafios)')
+    const r = await rodar(c.path, ['--help'])
+    const v = /QuickJS-ng version (\S+)/.exec(r.saida)
+    return v ? { detalhe: `QuickJS-ng ${v[1]} (${c.path})` } : { ok: false, detalhe: `não rodou: ${r.erro || r.saida.slice(0, 200)}` }
+  })
+
+  await passo('cofre', async () => {
+    if (!guarda) return falta(exigirCofre, 'sem guarda (fora do Electron)')
+    if (!(await guarda.disponivel())) return falta(exigirCofre, 'a proteção do sistema não está disponível nesta máquina')
+    const texto = `sobedesce-smoke-${crypto.randomBytes(8).toString('hex')}`
+    const cifrado = await guarda.cifrar(texto)
+    if (Buffer.from(cifrado).includes(Buffer.from(texto))) return { ok: false, detalhe: 'o cifrado contém o texto em claro' }
+    const volta = await guarda.decifrar(cifrado)
+    return volta === texto ? { detalhe: 'cifrar e decifrar ok' } : { ok: false, detalhe: 'decifrou outro conteúdo' }
+  })
+
+  return out
+}
+
+/** Texto do resultado (uma linha por verificação + "SMOKE OK" / "SMOKE FALHOU"). */
+export function relatorio(checks) {
+  const linhas = checks.map(c => `${c.ok ? (c.aviso ? 'AVISO' : 'ok   ') : 'FALHA'} ${c.nome}: ${c.detalhe}`)
+  const ok = checks.length > 0 && checks.every(c => c.ok)
+  linhas.push(ok ? 'SMOKE OK' : 'SMOKE FALHOU')
+  return { ok, texto: linhas.join('\n') }
+}

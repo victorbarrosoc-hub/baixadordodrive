@@ -36,6 +36,13 @@
       "when": 1792235570713,
       "tag": "0004_login_google",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792239137267,
+      "tag": "0005_aparelhos",
+      "breakpoints": true
     }
   ]
 }

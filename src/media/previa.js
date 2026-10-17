@@ -390,7 +390,7 @@ export function ffmpegCandidates({ env = process.env, platform = process.platfor
   }
   if (env.SOBEDESCE_FFMPEG) add(env.SOBEDESCE_FFMPEG, 'env')
   if (resourcesPath) add(P.join(resourcesPath, 'ffmpeg', exe), 'app')
-  // Empacotado sem asar: o código fica em <Resources>/app/src, o ffmpeg em <Resources>/ffmpeg.
+  // Empacotado: o código fica em <Resources>/app.asar (ou app/), o ffmpeg em <Resources>/ffmpeg.
   add(P.join(appRoot, '..', 'ffmpeg', exe), 'app')
   add(P.join(appRoot, 'build', 'ffmpeg', `${osTag(platform)}-${arch}`, exe), 'app')
   // App aberto pelo Finder não herda o PATH do terminal: os lugares do Homebrew entram à mão.
