@@ -32,11 +32,12 @@ export function IconButton({ icon, label, class: klass, size = 16, tone, ...rest
 }
 
 /**
- * Botão que abre um menu pequeno (ex.: "⋯ Mais" na barra do Drive).
- * items: [{ icon, label, onSelect, title?, busy?, disabled? }]. Teclado: ↓/↑ andam, Esc fecha e volta o foco ao botão;
- * clicar fora também fecha.
+ * Botão que abre um menu pequeno (ex.: "⋯ Mais" na barra do Drive, "Ordenar").
+ * items: [{ icon, label, onSelect, title?, busy?, disabled?, checked?, hint? }]. Com `checked` (true/false) o item é uma
+ * opção (menuitemradio) com a marca na escolhida e `hint` do lado. `title` (dica do botão) e `heading` (título dentro
+ * do menu) são opcionais. Teclado: ↓/↑ andam, Esc fecha e volta o foco ao botão; clicar fora também fecha.
  */
-export function MenuButton({ label, icon = 'more', items, busy, align = 'right', class: klass, menuLabel }) {
+export function MenuButton({ label, icon = 'more', items, busy, align = 'right', class: klass, menuLabel, title, heading }) {
   const [open, setOpen] = useState(false)
   const wrap = useRef(null)
   const trigger = useRef(null)
@@ -78,6 +79,7 @@ export function MenuButton({ label, icon = 'more', items, busy, align = 'right',
       class=${cx('btn btn-secondary menu-trigger', open && 'is-open')}
       aria-haspopup="menu"
       aria-expanded=${open ? 'true' : 'false'}
+      title=${title}
       ref=${trigger}
       onClick=${() => setOpen(!open)}
       onKeyDown=${onTriggerKey}
@@ -87,11 +89,13 @@ export function MenuButton({ label, icon = 'more', items, busy, align = 'right',
     </button>
     ${open
       ? html`<div class=${cx('menu menu-pop', align === 'left' && 'is-left')} role="menu" aria-label=${menuLabel || label} onKeyDown=${onKey}>
+          ${heading ? html`<div class="menu-label" aria-hidden="true">${heading}</div>` : null}
           ${list.map(
             (it) => html`<button
               type="button"
-              role="menuitem"
-              class="menu-item"
+              role=${it.checked === undefined ? 'menuitem' : 'menuitemradio'}
+              aria-checked=${it.checked === undefined ? undefined : it.checked ? 'true' : 'false'}
+              class=${cx('menu-item', it.checked && 'is-checked')}
               title=${it.title}
               disabled=${it.disabled}
               onClick=${() => {
@@ -101,6 +105,8 @@ export function MenuButton({ label, icon = 'more', items, busy, align = 'right',
             >
               ${it.busy ? html`<${Spinner} size=${14} />` : html`<${Icon} name=${it.icon} size=${15} />`}
               <span class="menu-item-text">${it.label}</span>
+              ${it.hint ? html`<span class="menu-item-hint">${it.hint}</span>` : null}
+              ${it.checked !== undefined ? html`<span class="menu-item-check" aria-hidden="true">${it.checked ? html`<${Icon} name="check" size=${14} strokeWidth=${2} />` : null}</span>` : null}
             </button>`,
           )}
         </div>`

@@ -7405,3 +7405,119 @@ button.tree-twisty:hover {
   background: color-mix(in srgb, var(--acc) 32%, transparent);
   transition: width 0.26s linear;
 }
+
+/* ───────────── Drive: ordenar, filtro por tipo e arquivos do Mac (drive-ordenar.js) ───────────── */
+.menu-item-hint {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.menu-item-check {
+  flex: none;
+  width: 14px;
+  display: inline-flex;
+  color: var(--down-text);
+}
+.menu-item.is-checked .menu-item-text {
+  font-weight: 600;
+}
+.sort-menu .menu-pop {
+  width: 292px;
+}
+.sort-menu .menu-trigger {
+  font-variant-numeric: tabular-nums;
+}
+/* Pouco espaço na barra (até 1240 px): só o ícone, com a dica ("Ordenar: Nome: A a Z") no botão. */
+@media (max-width: 1240px) {
+  .sort-menu .menu-trigger > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .sort-menu .menu-trigger {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+.type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -4px 0 10px;
+}
+.type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-2);
+  background: var(--surface);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+.type-chip:hover:not(.is-on) {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.type-chip.is-on {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  border-color: transparent;
+}
+.type-chip-n {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.type-chip.is-on .type-chip-n {
+  color: inherit;
+  opacity: 0.7;
+}
+.dsum-mac {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  color: var(--text-2);
+}
+.dsum-mac > span:first-child {
+  margin-right: 2px;
+}
+.mt-what {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+  font-size: 13px;
+}
+.mt-names {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mt-names li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.mt-dialog .rt-summary .sub {
+  display: block;
+}

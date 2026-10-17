@@ -13,7 +13,7 @@ import { FileDrop } from './drop.js'
 import { toast } from '../lib/toasts.js'
 import { Icon } from './icons.js'
 import { Button, IconButton, MenuButton, Segmented, Spinner } from './common.js'
-import { DriveTable, compare, isOpenable } from './drive-table.js'
+import { DriveTable, isOpenable } from './drive-table.js'
 import { DriveGrid } from './drive-grid.js'
 import { DrivePreview } from './drive-preview.js'
 import { onProxies, knownProxy, siblingProxies } from '../lib/media.js'
@@ -22,6 +22,8 @@ import { hasRawFiles, onRawThumbsDone, openRawThumbs, useRawThumbsRunning } from
 import { hasVideoFiles, isVideoName, onPreviasDone, openPrevias, openProxyArquivo, usePreviasRunning, useComProxy } from './previa.js'
 import { FolderSummary, calcSize, focusSize, getSize, sizeId, useSizes } from './drive-tamanho.js'
 import { copyDriveLink } from './link-share.js'
+import { DEFAULT_SORT, FILTERS, driveView, filterChips, keepVisible, normalizeSort, visibleSummary } from '../lib/ordenar.js'
+import { MacLine, SortMenu, TypeChips, openMacTrash } from './drive-ordenar.js'
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
@@ -151,7 +153,11 @@ export function DriveScreen({ route }) {
   const [home, setHome] = useState('')
   const [busy, setBusy] = useState(false)
   const [view, setView] = usePersistentState('drive.view', 'list')
-  const [sort, setSort] = usePersistentState('drive.sort', { key: 'name', dir: 'asc' })
+  const [sortSaved, setSort] = usePersistentState('drive.sort', DEFAULT_SORT)
+  const sort = normalizeSort(sortSaved)
+  // Filtro por tipo e arquivos do Mac à vista: valem para a pasta aberta (com "Vídeos" fixo as subpastas sumiriam).
+  const [filter, setFilter] = useState('all')
+  const [showMac, setShowMac] = useState(false)
   const [peek, setPeek] = useState(null) // id do item na prévia
   const [, setProxyTick] = useState(0)
   useEffect(() => onProxies(() => setProxyTick((n) => n + 1)), [])
@@ -183,6 +189,10 @@ export function DriveScreen({ route }) {
     setSelected(new Set())
     setPeek(null)
   }, [folderId, q, accountId])
+  useEffect(() => {
+    setFilter('all')
+    setShowMac(false)
+  }, [folderId, accountId])
   // lembra a pasta aberta: soltar arquivos na tela Transferências envia para cá
   useEffect(() => {
     if (folder && accountId) storage.set('drive.last', { accountId, id: folder.id, name: folderLabel(folder, drives), driveId: folder.driveId || null })
@@ -191,8 +201,14 @@ export function DriveScreen({ route }) {
     api.get('/api/local/roots').then((r) => setHome(r.home || '')).catch(() => {})
   }, [])
 
-  const byId = useMemo(() => new Map((items || []).map((x) => [x.id, x])), [items])
-  const sorted = useMemo(() => (items || []).slice().sort(compare(sort?.key || 'name', sort?.dir || 'asc')), [items, sort])
+  // O que está à vista: sem os arquivos do Mac (a menos que "Mostrar"), só o tipo do filtro, na ordem escolhida.
+  // Seleção, "Selecionar tudo", Baixar e a prévia (←/→) valem só sobre isso.
+  const shown = useMemo(() => driveView(items, { sort, filter, showMac }), [items, sort.key, sort.dir, filter, showMac])
+  const sorted = shown.sorted
+  const byId = useMemo(() => new Map(sorted.map((x) => [x.id, x])), [sorted])
+  useEffect(() => setSelected((s) => keepVisible(s, sorted)), [sorted])
+  const chips = filterChips(shown.counts, shown.filter)
+  const filterDef = FILTERS.find((f) => f.value === shown.filter)
   // Arquivos da pasta na ordem da tela (atalho para arquivo vira o próprio arquivo): a prévia anda por eles com ←/→.
   const peekList = useMemo(
     () => sorted.filter((x) => !isOpenable(x)).map((x) => (x.isShortcut && x.shortcutTargetId ? { ...x, id: x.shortcutTargetId, mimeType: x.shortcutTargetMimeType || x.mimeType, isShortcut: false, hasThumbnail: false, viaShortcut: x.id } : x)),
@@ -267,9 +283,32 @@ export function DriveScreen({ route }) {
     }
   }
 
-  const emptyView = searching
-    ? html`<span>Nada com “${q.trim()}” no nome.</span>`
-    : html`<div class="table-empty"><${Icon} name="folder" size=${22} /><b>Pasta vazia</b><span>Use “Enviar para esta pasta” para mandar arquivos para cá.</span></div>`
+  // A pasta recarrega assim que algo vai para a lixeira (por trás da janela, que mostra o resultado).
+  const trashMac = () =>
+    openMacTrash({
+      accountId,
+      folderId,
+      folderName: folderLabel(folder, drives),
+      mac: shown.mac,
+      onMoved: () => {
+        reloadRef.current()
+        if (getSize(accountId, folderId)?.status === 'done') calcSize(accountId, folderId, { refresh: true })
+      },
+    })
+
+  const emptyView =
+    shown.filter !== 'all' && items?.length
+      ? html`<div class="table-empty"><${Icon} name="search" size=${22} /><b>Nenhum ${filterDef.one} ${searching ? 'nos resultados' : 'nesta pasta'}</b><button type="button" class="btn btn-secondary btn-sm" onClick=${() => setFilter('all')}><span>Mostrar tudo</span></button></div>`
+      : shown.mac.length && !showMac && items?.length === shown.mac.length
+        ? html`<div class="table-empty"><${Icon} name="eye-off" size=${22} /><b>Só arquivos de controle do Mac aqui</b><span>${shown.mac.length === 1 ? 'Está oculto.' : 'Estão ocultos.'}</span><button type="button" class="btn btn-secondary btn-sm" onClick=${() => setShowMac(true)}><span>Mostrar</span></button></div>`
+        : searching
+          ? html`<span>Nada com “${q.trim()}” no nome.</span>`
+          : html`<div class="table-empty"><${Icon} name="folder" size=${22} /><b>Pasta vazia</b><span>Use “Enviar para esta pasta” para mandar arquivos para cá.</span></div>`
+
+  const macLine = shown.mac.length
+    ? html`<${MacLine} mac=${shown.mac} shown=${showMac} onToggle=${() => setShowMac(!showMac)} onTrash=${!searching && folder ? () => trashMac() : null} />`
+    : null
+  const filtro = shown.filter !== 'all' ? visibleSummary(sorted, shown.filter) : null
 
   const onKeyDownPage = (e) => {
     if (e.key === 'Escape' && selected.size) setSelected(new Set())
@@ -302,6 +341,7 @@ export function DriveScreen({ route }) {
             aria-label="Buscar no Drive"
           />
         </label>
+        <${SortMenu} sort=${sort} onSort=${setSort} />
         <${Segmented}
           size="sm"
           class="view-seg"
@@ -333,9 +373,25 @@ export function DriveScreen({ route }) {
         <${Button} variant="primary" icon="upload" onClick=${uploadHere} disabled=${searching}>Enviar para esta pasta</${Button}>
       </div>
     </div>
+    ${items?.length && (chips.length > 2 || shown.filter !== 'all') ? html`<${TypeChips} chips=${chips} value=${shown.filter} onChange=${setFilter} />` : null}
     ${!searching && accountId
-      ? html`<${FolderSummary} accountId=${accountId} folderId=${folderId} items=${data?.items || null} ready=${!!folder && !error} />`
-      : null}
+      ? html`<${FolderSummary}
+          accountId=${accountId}
+          folderId=${folderId}
+          items=${data?.items || null}
+          count=${shown.counts.all}
+          ready=${!!folder && !error}
+          filtro=${filtro}
+          onClearFilter=${() => setFilter('all')}
+          extra=${macLine}
+        />`
+      : searching && items && (filtro || macLine)
+        ? html`<div class="drive-sum is-filtered" aria-live="polite">
+            ${filtro ? html`<span class="dsum-count"><b>${filtro}</b></span><button type="button" class="dsum-act" onClick=${() => setFilter('all')}>Mostrar tudo</button>` : null}
+            ${filtro && macLine ? html`<span class="dsum-sep" aria-hidden="true">·</span>` : null}
+            ${macLine}
+          </div>`
+        : null}
     <div class=${cx('card', view === 'grid' ? 'card-grid' : 'card-table')}>
       ${view === 'grid'
         ? html`<${DriveGrid}
@@ -357,6 +413,7 @@ export function DriveScreen({ route }) {
           />`
         : html`<${DriveTable}
             items=${items}
+            sorted=${sorted}
             selected=${selected}
             onSelect=${setSelected}
             onOpen=${open}

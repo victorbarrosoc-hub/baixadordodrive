@@ -68,3 +68,17 @@ export function isJunkFile(name) {
   const lower = n.toLowerCase()
   return JUNK_EXACT.has(lower) || n.startsWith('._') || lower.endsWith(PART_SUFFIX)
 }
+
+// Arquivos de controle do Mac e do Windows que vieram junto com os originais (AppleDouble "._A003_C001.braw",
+// .DS_Store, Thumbs.db). A tela Drive esconde e oferece "Mover para a lixeira…"; o servidor só aceita mover o que passa
+// por aqui. "._" grande demais (4 MB) não é metadado comum: fica onde está.
+export const MAC_CLUTTER_MAX_BYTES = 4_000_000
+const MAC_CLUTTER_EXACT = new Set(['.ds_store', 'thumbs.db'])
+
+/** O item do Drive (DriveItem) é arquivo de controle do Mac que pode ir para a lixeira? */
+export function isMacClutter(it) {
+  if (!it || it.isFolder || it.isShortcut || it.isGoogleDoc) return false
+  const name = String(it.name ?? '')
+  if (MAC_CLUTTER_EXACT.has(name.toLowerCase())) return true
+  return name.startsWith('._') && Number.isFinite(it.size) && it.size >= 0 && it.size < MAC_CLUTTER_MAX_BYTES
+}

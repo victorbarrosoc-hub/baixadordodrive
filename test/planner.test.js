@@ -472,6 +472,38 @@ test('planUploadsFromCompare / planDownloadsFromCompare: o que falta, os diferen
   assert.equal(after2.files.find(f => f.relPath === 'Brutos 2/Z.mov').status, 'synced')
 })
 
+test('baixar pasta e "Comparar e baixar" deixam de fora os ._ do Mac (AppleDouble); escolhido à mão, vem', async t => {
+  const env = await setup(t)
+  const m = env.mock
+  const dia = m.addFolder('Diária 02', 'root')
+  const braw = m.addFile('A003_C001_1014XQ.braw', dia.id, { size: 300, seed: 71, mimeType: 'application/octet-stream' })
+  const meta = m.addFile('._A003_C001_1014XQ.braw', dia.id, { size: 40, seed: 72, mimeType: 'application/octet-stream' })
+  m.addFile('._A003_C002_1014XQ.braw', dia.id, { size: 41, seed: 73 })
+  m.addFile('Thumbs.db', dia.id, { size: 9, seed: 74 })
+  const cam = m.addFolder('CAM_B', dia.id)
+  const mov = m.addFile('B001_C001.mov', cam.id, { size: 120, seed: 75 })
+  m.addFile('._B001_C001.mov', cam.id, { size: 42, seed: 76 })
+  m.addFile('.DS_Store', cam.id, { size: 8, seed: 77 })
+
+  const destDir = path.join(env.dir, 'Baixados')
+  const plan = await planDownloads({ drive: env.drive, accountId: env.accountId, items: [await env.drive.getItem(dia.id)], destDir, conflict: 'skip' })
+  assert.deepEqual(plan.records.map(r => r.relPath).sort(), ['Diária 02/A003_C001_1014XQ.braw', 'Diária 02/CAM_B/B001_C001.mov'])
+  assert.deepEqual(plan.skipped, [], 'em silêncio: não vira aviso de "pulado"')
+  assert.equal(plan.totals.bytes, 300 + 120)
+  assert.deepEqual(plan.records.map(r => r.source.fileId).sort(), [braw.id, mov.id].sort())
+
+  // Escolhido à mão (a pessoa clicou nele): vem.
+  const mao = await planDownloads({ drive: env.drive, accountId: env.accountId, items: [await env.drive.getItem(meta.id)], destDir: path.join(env.dir, 'Mao'), conflict: 'skip' })
+  assert.deepEqual(mao.records.map(r => r.name), ['._A003_C001_1014XQ.braw'])
+
+  // Comparar com uma pasta local vazia e baixar o que falta: os ._ não entram.
+  const local = path.join(env.dir, 'Diária 02')
+  await fs.mkdir(local, { recursive: true })
+  const result = await compareFolders({ drive: env.drive, localPath: local, driveFolderId: dia.id, hasher: env.hasher, paths: env.paths })
+  const down = planDownloadsFromCompare(result, { accountId: env.accountId })
+  assert.deepEqual(down.records.map(r => r.relPath).sort(), ['A003_C001_1014XQ.braw', 'CAM_B/B001_C001.mov'])
+})
+
 test('planUploadsFromCompare: drive compartilhado (driveId passa adiante) e pasta que só muda maiúscula no Drive', async t => {
   const env = await setup(t)
   const m = env.mock

@@ -12,6 +12,7 @@ import { planDownloads, planDownloadsFromCompare, planUploads, planUploadsFromCo
 import { compareFolders, loadCompare } from '../engine/compare.js'
 import { writeJSONAtomic } from '../util/store.js'
 import { newId } from '../util/ids.js'
+import { isMacClutter } from '../util/paths.js'
 import { isAbortError } from '../util/backoff.js'
 import { qrSvg, shortcutSteps } from '../mobile/qr.js'
 import { gerarMiniaturasLote, resumoLote } from '../media/raw-thumb-lote.js'
@@ -626,6 +627,57 @@ export function createApi(ctx) {
     await drive.shareWithAnyone(before.id, { signal, resourceKey })
     ctx.log?.(`link liberado para qualquer pessoa: ${before.id}`)
     return { link: await drive.sharing(before.id, { signal, resourceKey }) }
+  })
+
+  // ── Arquivos do Mac (._A003_C001.braw, .DS_Store, Thumbs.db) que vieram junto com os originais: para a lixeira do
+  // Drive (recuperável por 30 dias). Só com `confirmado: true`, que a tela manda depois de a pessoa ler o aviso e clicar
+  // em "Mover para a lixeira". A tela manda os ids em lotes pequenos (mostra o progresso); aqui a pasta é listada de
+  // novo e só vai o que é filho dela E passa por isMacClutter (._ com menos de 4 MB, .DS_Store, Thumbs.db). O resto
+  // volta em `pulados`. Cada files.update passa pelo limitador de metadados da conta (drive.api).
+  const LIXEIRA_LOTE = 50
+  const LIXEIRA_PARALELO = 4
+  route('POST', '/api/drive/:acc/lixeira/mac', async ({ params, body, signal }) => {
+    account(params.acc)
+    if (body.confirmado !== true) throw new HttpProblem(400, 'Confirme na tela antes de mover para a lixeira.')
+    const folderId = typeof body.folderId === 'string' && DRIVE_ID.test(body.folderId) ? body.folderId : null
+    if (!folderId) throw new HttpProblem(400, 'Pasta inválida.')
+    const ids = Array.isArray(body.ids) ? [...new Set(body.ids)] : []
+    if (!ids.length || ids.length > LIXEIRA_LOTE || !ids.every(id => typeof id === 'string' && DRIVE_ID.test(id))) {
+      throw new HttpProblem(400, `Mande de 1 a ${LIXEIRA_LOTE} arquivos por vez.`)
+    }
+    const drive = ctx.manager.driveFor(params.acc)
+    const filhos = new Map((await drive.listChildren(folderId, { signal })).map(it => [it.id, it]))
+    const movidos = []
+    const pulados = []
+    const recusados = []
+    const fila = []
+    for (const id of ids) {
+      const it = filhos.get(id)
+      if (!it) pulados.push({ id, motivo: 'Não está mais nesta pasta.' })
+      else if (!isMacClutter(it)) pulados.push({ id, name: it.name, motivo: 'Não é arquivo de controle do Mac: fica onde está.' })
+      else fila.push(it)
+    }
+    let compartilhado = false
+    const um = async it => {
+      try {
+        await drive.trash(it.id, { signal })
+        movidos.push(it.id)
+      } catch (err) {
+        const info = classifyError(err)
+        if (info.kind === 'abort' || info.kind === 'auth' || info.kind === 'reauth') throw err
+        if (info.status === 403 && it.driveId) compartilhado = true
+        recusados.push({ id: it.id, name: it.name, status: info.status ?? null, error: info.message })
+      }
+    }
+    for (let i = 0; i < fila.length; i += LIXEIRA_PARALELO) await Promise.all(fila.slice(i, i + LIXEIRA_PARALELO).map(um))
+    if (movidos.length) ctx.log?.(`lixeira: ${movidos.length} arquivo(s) do Mac em ${folderId}`)
+    // Nada foi e foi tudo recusa de permissão: responde como recusa (a tela mostra e para).
+    if (!movidos.length && recusados.length && recusados.every(r => r.status === 403)) {
+      throw new HttpProblem(403, compartilhado
+        ? 'Sua conta não pode mover arquivos para a lixeira neste drive compartilhado. Isso pede acesso de Administrador de conteúdo ou Administrador.'
+        : 'Sua conta não pode mover estes arquivos para a lixeira. Peça a quem é dono da pasta.')
+    }
+    return { movidos, pulados, recusados }
   })
 
   // ── miniaturas e prévia (src/server/media.js): chave `k` da interface, conta e id na query
