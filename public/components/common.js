@@ -36,8 +36,11 @@ export function IconButton({ icon, label, class: klass, size = 16, tone, ...rest
  * items: [{ icon, label, onSelect, title?, busy?, disabled?, checked?, hint? }]. Com `checked` (true/false) o item é uma
  * opção (menuitemradio) com a marca na escolhida e `hint` do lado. `title` (dica do botão) e `heading` (título dentro
  * do menu) são opcionais. Teclado: ↓/↑ andam, Esc fecha e volta o foco ao botão; clicar fora também fecha.
+ * Para gatilhos diferentes do botão-pílula: `triggerClass` troca as classes do botão, `icon={null}` tira o ícone,
+ * `after` entra depois do texto (um pontinho, uma seta), `ariaLabel` nomeia o botão quando o texto sozinho não basta e
+ * `children` entra no fim do conjunto, depois do menu (ex.: o "×" do Filtro).
  */
-export function MenuButton({ label, icon = 'more', items, busy, align = 'right', class: klass, menuLabel, title, heading }) {
+export function MenuButton({ label, icon = 'more', items, busy, align = 'right', class: klass, menuLabel, title, heading, triggerClass = 'btn btn-secondary', after, ariaLabel, children }) {
   const [open, setOpen] = useState(false)
   const wrap = useRef(null)
   const trigger = useRef(null)
@@ -76,16 +79,18 @@ export function MenuButton({ label, icon = 'more', items, busy, align = 'right',
   return html`<div class=${cx('menu-wrap', klass)} ref=${wrap}>
     <button
       type="button"
-      class=${cx('btn btn-secondary menu-trigger', open && 'is-open')}
+      class=${cx(triggerClass, 'menu-trigger', open && 'is-open')}
       aria-haspopup="menu"
       aria-expanded=${open ? 'true' : 'false'}
+      aria-label=${ariaLabel}
       title=${title}
       ref=${trigger}
       onClick=${() => setOpen(!open)}
       onKeyDown=${onTriggerKey}
     >
-      ${busy ? html`<${Spinner} size=${14} />` : html`<${Icon} name=${icon} size=${16} />`}
+      ${busy ? html`<${Spinner} size=${14} />` : icon ? html`<${Icon} name=${icon} size=${16} />` : null}
       <span>${label}</span>
+      ${after}
     </button>
     ${open
       ? html`<div class=${cx('menu menu-pop', align === 'left' && 'is-left')} role="menu" aria-label=${menuLabel || label} onKeyDown=${onKey}>
@@ -99,7 +104,7 @@ export function MenuButton({ label, icon = 'more', items, busy, align = 'right',
               title=${it.title}
               disabled=${it.disabled}
               onClick=${() => {
-                close(false)
+                close(true) // o foco volta ao botão (como num menu do macOS), não some com o item
                 it.onSelect()
               }}
             >
@@ -111,6 +116,7 @@ export function MenuButton({ label, icon = 'more', items, busy, align = 'right',
           )}
         </div>`
       : null}
+    ${children}
   </div>`
 }
 

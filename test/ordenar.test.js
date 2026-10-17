@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  DEFAULT_SORT, canTrashMac, compareItems, driveView, filterChips, isMacFile, keepVisible, kindOf, macHiddenText, nextSort,
+  DEFAULT_SORT, canTrashMac, compareItems, driveView, filterButton, filterChips, isMacFile, keepVisible, kindOf, macHiddenText, nextSort,
   normalizeSort, sortLabel, visibleSummary, chunks,
 } from '../public/lib/ordenar.js'
 import { isMacClutter, MAC_CLUTTER_MAX_BYTES } from '../src/util/paths.js'
@@ -88,8 +88,14 @@ test('filtro "Vídeos" com BRAW octet-stream: mostra só os vídeos, na ordem, e
   assert.equal(v.mac.length, 3)
   assert.equal(visibleSummary(v.sorted, 'video'), '3 vídeos · 84 GB')
   assert.equal(visibleSummary(driveView(items, { filter: 'folder' }).sorted, 'folder'), '1 pasta')
-  assert.deepEqual(filterChips(v.counts, 'video').map(c => `${c.label} ${c.count}`), ['Tudo 6', 'Vídeos 3', 'Fotos 1', 'Áudio 1', 'Pastas 1'], 'sem "Outros" vazio')
+  assert.deepEqual(filterChips(v.counts, 'video').map(c => `${c.label} ${c.count}`), ['Tudo 6', 'Vídeos 3', 'Fotos 1', 'Áudio 1', 'Pastas 1'], 'menu Filtro: sem "Outros" vazio')
   assert.deepEqual(filterChips(v.counts, 'other').map(c => c.value), ['all', 'video', 'image', 'audio', 'folder', 'other'], 'o ativo fica mesmo vazio')
+
+  // O botão "Filtro" da barra (no lugar dos chips): "Tudo" sem filtro; com filtro, o nome do tipo e a dica.
+  assert.deepEqual(filterButton('all'), { label: 'Tudo', on: false, title: 'Filtro: Tudo' })
+  assert.deepEqual(filterButton('video'), { label: 'Vídeos', on: true, title: 'Filtro: só vídeos' })
+  assert.deepEqual(filterButton('other'), { label: 'Outros', on: true, title: 'Filtro: só outros arquivos' })
+  assert.deepEqual(filterButton('nada'), { label: 'Tudo', on: false, title: 'Filtro: Tudo' }, 'desconhecido vira Tudo')
 
   // Tudo, sem os do Mac (padrão) e com eles à vista.
   const tudo = driveView(items)

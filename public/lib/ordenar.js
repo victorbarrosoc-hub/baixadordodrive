@@ -1,5 +1,6 @@
 // Ordenar e filtrar a tela Drive: lista e grade usam a mesma ordem (botão "Ordenar" e cabeçalho da lista), o filtro
-// por tipo (Tudo · Vídeos · Fotos · Áudio · Pastas · Outros) e os arquivos de controle do Mac escondidos por padrão.
+// por tipo (botão "Filtro": Tudo · Vídeos · Fotos · Áudio · Pastas · Outros) e os arquivos de controle do Mac
+// escondidos por padrão.
 // Sem preact aqui: os testes (test/ordenar.test.js) importam direto.
 import { CAMERA_EXT, bytes, extOf, fileKind, plural } from './format.js'
 
@@ -118,7 +119,7 @@ export function kindOf(it) {
 
 /**
  * O que a tela mostra: sem os arquivos do Mac (a menos que `showMac`), só o tipo do filtro, na ordem escolhida.
- * `counts` (por tipo, sem os do Mac escondidos) alimenta os chips; `mac` são os arquivos do Mac da pasta.
+ * `counts` (por tipo, sem os do Mac escondidos) alimenta o menu Filtro; `mac` são os arquivos do Mac da pasta.
  */
 export function driveView(items, { sort = DEFAULT_SORT, filter = 'all', showMac = false } = {}) {
   const all = items || []
@@ -132,9 +133,16 @@ export function driveView(items, { sort = DEFAULT_SORT, filter = 'all', showMac 
   return { sorted: visible.slice().sort(compareItems(s.key, s.dir)), counts, mac, filter: f }
 }
 
-/** Chips que valem a pena: Tudo, os tipos que existem aqui e o ativo (mesmo vazio, para dar para sair dele). */
+/** Opções do menu "Filtro": Tudo, os tipos que existem aqui e o ativo (mesmo vazio, para dar para sair dele). */
 export function filterChips(counts, active = 'all') {
   return FILTERS.filter((x) => x.value === 'all' || x.value === active || counts[x.value] > 0).map((x) => ({ ...x, count: counts[x.value] ?? 0 }))
+}
+
+/** O botão "Filtro" da barra: o texto ("Tudo", "Vídeos"), se tem filtro ativo e a dica/nome acessível. */
+export function filterButton(filter) {
+  const def = FILTERS.find((x) => x.value === filter) || FILTERS[0]
+  const on = def.value !== 'all'
+  return { label: def.label, on, title: on ? `Filtro: só ${def.many}` : 'Filtro: Tudo' }
 }
 
 /** Linha do total com o filtro ativo: "12 vídeos · 380 GB" (só o que está visível). */

@@ -7422,15 +7422,79 @@ button.tree-twisty:hover {
 .menu-item.is-checked .menu-item-text {
   font-weight: 600;
 }
+/* "Ordenar" e "Filtro" num grupo só: uma pílula de borda fina com um fio entre os dois (como o "Ver como"). */
+.drive-tools {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 1px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.drive-tools > .menu-wrap {
+  align-items: center;
+}
+.drive-tools > .menu-wrap + .menu-wrap::before {
+  content: '';
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 1px;
+  background: var(--hairline-2);
+}
+.tool-btn {
+  height: 30px;
+  padding: 0 12px;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+}
+.tool-btn .icon {
+  color: var(--text-2);
+}
+.tool-btn:hover:not(:disabled),
+.tool-btn.is-open {
+  background: var(--fill-2);
+}
 .sort-menu .menu-pop {
   width: 292px;
 }
-.sort-menu .menu-trigger {
-  font-variant-numeric: tabular-nums;
+.filter-menu .menu-pop {
+  width: 220px;
 }
-/* Pouco espaço na barra (até 1240 px): só o ícone, com a dica ("Ordenar: Nome: A a Z") no botão. */
+/* Filtro ativo: o nome do tipo, o funil azul e o "×" que volta a Tudo. */
+.filter-menu.is-active .tool-btn {
+  padding-right: 8px;
+  font-weight: 600;
+}
+.filter-menu.is-active .tool-btn .icon {
+  color: var(--down-text);
+}
+.filter-clear {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0 6px 0 -2px;
+  border-radius: 50%;
+  color: var(--text-3);
+  transition: background-color 0.15s, color 0.15s;
+}
+.filter-clear:hover {
+  background: var(--fill-2);
+  color: var(--text);
+}
+/* Pouco espaço na barra (até 1240 px): Ordenar só com o ícone e Filtro sem o "Tudo" (as dicas dizem o que está valendo).
+   Com um tipo escolhido, o nome dele continua à vista. */
 @media (max-width: 1240px) {
-  .sort-menu .menu-trigger > span {
+  .sort-menu .menu-trigger > span,
+  .filter-menu:not(.is-active) .menu-trigger > span {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -7438,59 +7502,100 @@ button.tree-twisty:hover {
     clip: rect(0 0 0 0);
     white-space: nowrap;
   }
-  .sort-menu .menu-trigger {
+  .sort-menu .menu-trigger,
+  .filter-menu:not(.is-active) .menu-trigger {
     width: 34px;
     padding: 0;
     justify-content: center;
   }
 }
-.type-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: -4px 0 10px;
+/* A barra do Drive numa linha só de 1024 a 1440 px (com um filtro ativo e a busca aberta): "Enviar para esta pasta"
+   sempre à vista. Primeiro o "Mais" fica só com o "⋯" e a busca encolhe; depois o espaço entre os botões aperta e,
+   com um filtro ativo, o funil sai (o nome do tipo, em azul, e o "×" ficam). */
+@media (max-width: 1366px) {
+  .drive-bar .search:focus-within {
+    width: 216px;
+  }
 }
-.type-chip {
+@media (max-width: 1320px) {
+  .drive-bar .search {
+    width: 180px;
+  }
+  .drive-bar .search:focus-within {
+    width: 200px;
+  }
+  .more-menu .menu-trigger > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .more-menu .menu-trigger {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+@media (max-width: 1180px) {
+  .drive-bar .search:focus-within {
+    width: 180px;
+  }
+}
+@media (max-width: 1100px) {
+  .drive-bar-actions {
+    gap: 6px;
+  }
+  .drive-bar .search,
+  .drive-bar .search:focus-within {
+    width: 154px;
+    padding: 0 10px 0 11px;
+    gap: 6px;
+  }
+  .drive-bar .search input {
+    padding: 0;
+  }
+  .filter-menu.is-active .tool-btn {
+    padding-left: 12px;
+  }
+  .filter-menu.is-active .tool-btn > .icon {
+    display: none;
+  }
+  .filter-menu.is-active .tool-btn > span {
+    color: var(--down-text);
+  }
+}
+/* Linha do total: o que está à vista à esquerda; os arquivos do Mac ocultos no fim, em cinza e menor. */
+.dsum-main {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px 0 12px;
-  border-radius: 999px;
-  border: 1px solid var(--hairline-2);
-  background: var(--surface);
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--text-2);
-  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
 }
-.type-chip:hover:not(.is-on) {
-  color: var(--text);
-  background: var(--surface-2);
+.dsum-end {
+  display: inline-flex;
+  margin-left: auto;
 }
-.type-chip.is-on {
-  background: var(--primary-bg);
-  color: var(--primary-fg);
-  border-color: transparent;
-}
-.type-chip-n {
+.dsum-mac-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
   font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
   color: var(--text-3);
+  transition: background-color 0.15s, color 0.15s;
 }
-.type-chip.is-on .type-chip-n {
-  color: inherit;
-  opacity: 0.7;
-}
-.dsum-mac {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 2px 4px;
+.dsum-mac-link:hover,
+.dsum-mac-link.is-open {
   color: var(--text-2);
+  background: var(--fill-2);
 }
-.dsum-mac > span:first-child {
-  margin-right: 2px;
+.dsum-mac .menu-pop {
+  width: 228px;
 }
 .mt-what {
   display: flex;
