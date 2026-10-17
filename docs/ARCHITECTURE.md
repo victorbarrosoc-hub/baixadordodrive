@@ -318,7 +318,10 @@ Algoritmo:
 0. `size === 0`: cria o arquivo vazio sem nenhuma requisição (Range em arquivo vazio falha).
 1. Google Doc nativo (`source.export`): uma conexão, sem Range, escreve no tempPath e renomeia.
 2. Revalida metadados (`getItem`): se `md5`/`size`/`headRevisionId` mudou desde a criação do registro,
-   zera segmentos e recomeça (senão juntaria pedaços de duas versões). Confere espaço livre (`fs.statfs`) >= bytes restantes, senão fatal ENOSPC.
+   zera segmentos e recomeça (senão juntaria pedaços de duas versões). Exceção: a PRIMEIRA execução de um plano
+   recém-feito (`source.checkedAt` < 30 min, com `md5` e `headRevisionId`, sem progresso) pula o `getItem`; a marca
+   é de uso único. Se o arquivo mudou depois do plano, o `Content-Range` (tamanho) ou o MD5 do fim denunciam (neste
+   caso o MD5 diferente vira `retry`/`remoteChanged`, não `checksumMismatch`). Confere espaço livre (`fs.statfs`) >= bytes restantes, senão fatal ENOSPC.
 3. Abre `tempPath` (`r+` se existe e segmentos têm progresso, senão cria e `truncate(size)` → arquivo esparso).
    Se o arquivo temporário sumiu ou é menor que `size`, recomeça do zero.
 4. Segmentos iniciais: `n = clamp(ceil(size / minSegmentSize), 1, connectionsPerDownload)` partes iguais.

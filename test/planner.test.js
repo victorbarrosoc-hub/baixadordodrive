@@ -130,9 +130,11 @@ test('planDownloads: pasta vira destino/<pasta>/<caminho>, nomes repetidos do Dr
   assert.equal(a.size, 1000)
   assert.equal(a.dest.path, path.join(destDir, 'Brutos', 'Dia 01', 'A001.mov'))
   assert.equal(a.note, null)
+  // checkedAt: metadados lidos agora pela varredura (o download começa sem perguntar de novo ao Drive).
+  assert.ok(a.source.checkedAt > 0 && a.source.checkedAt <= Date.now())
   assert.deepEqual(a.source, {
     fileId: a001.id, mimeType: 'video/quicktime', md5: await m.contentMd5(a001.id), modifiedTime: a001.modifiedTime,
-    headRevisionId: a001.headRevisionId, resourceKey: null,
+    headRevisionId: a001.headRevisionId, resourceKey: null, checkedAt: a.source.checkedAt,
   })
 
   // O Drive aceita dois "Take1.mov" na mesma pasta; no disco o segundo ganha "(2)".
