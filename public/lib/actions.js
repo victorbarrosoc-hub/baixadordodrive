@@ -5,6 +5,8 @@ import { confirmDialog, openModal, pickDriveFolder } from './modals.js'
 import { pickUploadPaths, revealPath } from './desktop.js'
 import { getState } from './store.js'
 import { bytes, plural } from './format.js'
+import { storage } from './ui.js'
+import { lembrarDestino, pastaInicial } from './destinos.js'
 
 export function transferAction(action, ids) {
   return attempt(api.post('/api/transfers/action', { action, ids }))
@@ -80,7 +82,7 @@ export function mayHaveVideo(paths) {
  * Envia caminhos locais para uma pasta do Drive. `proxy` (boolean) é a escolha deste envio; sem ela vale o ajuste
  * "Proxy ao enviar" — e, em "Perguntar a cada envio", abre a janela de envio com a escolha em destaque.
  */
-export async function uploadPaths({ accountId, paths, destFolderId, driveId, proxy, destName }) {
+export async function uploadPaths({ accountId, paths, destFolderId, driveId, proxy, destName, destPath }) {
   if (!paths?.length) return null
   // destName: nome da pasta do Drive, para mostrar (janela de envio e Acompanhar pelo celular).
   if (typeof proxy !== 'boolean') {
@@ -95,6 +97,8 @@ export async function uploadPaths({ accountId, paths, destFolderId, driveId, pro
   }
   const res = await attempt(api.post('/api/transfers/upload', { accountId, paths, destFolderId, ...(driveId ? { driveId } : {}), ...(typeof proxy === 'boolean' ? { proxy } : {}), ...(destName ? { destName } : {}) }))
   announceBatch(res, 'para enviar')
+  // Destino usado: entra nos Recentes do seletor e é onde ele abre da próxima vez.
+  if (res) lembrarDestino(storage, accountId, { id: destFolderId || (driveId || 'root'), name: destName, driveId: driveId || null, path: destPath })
   return res
 }
 
@@ -107,8 +111,16 @@ export async function uploadFlow({ destFolderId, driveId, destName, anchor } = {
   let dest = destFolderId ? { id: destFolderId, driveId, name: destName } : null
   if (!dest) {
     // A escolha do proxy fica visível no próprio seletor de pasta (marcada pelo ajuste).
-    dest = await pickDriveFolder({ accountId: activeAccountId, title: 'Para qual pasta do Drive?', confirmLabel: 'Enviar para cá', proxyChoice: mayHaveVideo(paths) })
+    // Abre na última pasta usada como destino, com os Recentes e a busca de pastas ao lado.
+    dest = await pickDriveFolder({
+      accountId: activeAccountId,
+      title: 'Para qual pasta do Drive?',
+      confirmLabel: 'Enviar para cá',
+      proxyChoice: mayHaveVideo(paths),
+      initialFolderId: pastaInicial(storage, activeAccountId).id,
+      destinos: true,
+    })
     if (!dest) return null
   }
-  return uploadPaths({ accountId: activeAccountId, paths, destFolderId: dest.id, driveId: dest.driveId, destName: destName || dest.name, ...(typeof dest.proxy === 'boolean' ? { proxy: dest.proxy } : {}) })
+  return uploadPaths({ accountId: activeAccountId, paths, destFolderId: dest.id, driveId: dest.driveId, destName: destName || dest.name, destPath: dest.path, ...(typeof dest.proxy === 'boolean' ? { proxy: dest.proxy } : {}) })
 }

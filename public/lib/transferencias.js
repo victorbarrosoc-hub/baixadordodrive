@@ -72,3 +72,26 @@ export function meterTotals(totals = {}) {
   const moving = typeof totals.remaining === 'number' ? Math.max(0, totals.remaining) : all
   return { moving, parked: Math.max(0, totals.parked || 0), parkedCount: totals.parkedCount || 0, problems: totals.problems || 0 }
 }
+
+/**
+ * A pasta do Drive para mandar o link de um envio concluído. Uma pasta enviada inteira ("CAM_A → Diária 02") vira a
+ * própria pasta nova (CAM_A, criada no Drive); arquivos soltos, a pasta de destino. Só envios (download não tem pasta
+ * no Drive) e só com todos os arquivos indo para o mesmo destino. Devolve { id, name, driveId, accountId } ou null.
+ * `id` 'root' = Meu Drive (abre, mas não tem link para mandar).
+ */
+export function batchFolder(items, batch = {}) {
+  const ups = (items || []).filter((t) => t.type === 'upload' && t.status !== 'canceled' && t.target?.rootId)
+  if (!ups.length) return null
+  const { rootId, driveId = null } = ups[0].target
+  const accountId = ups[0].accountId || batch.accountId || null
+  if (ups.some((t) => t.target.rootId !== rootId || (t.target.driveId || null) !== (driveId || null) || (t.accountId || null) !== accountId)) return null
+  const tops = new Set(ups.map((t) => String(t.target.relDir || '').split('/')[0]))
+  const [top] = tops
+  if (tops.size === 1 && top) {
+    // A pasta nova: o id vem de quem foi direto para ela (parentId é a pasta que recebeu o arquivo).
+    const direct = ups.find((t) => t.target.relDir === top && t.target.parentId)
+    if (direct) return { id: direct.target.parentId, name: top, driveId: driveId || null, accountId }
+  }
+  const name = rootId === 'root' && !driveId ? 'Meu Drive' : batch.destino || (rootId === driveId ? 'drive compartilhado' : 'pasta de destino')
+  return { id: rootId, name, driveId: driveId || null, accountId }
+}

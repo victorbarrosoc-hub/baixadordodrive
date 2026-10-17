@@ -7078,3 +7078,256 @@ button.tree-twisty:hover {
 .proxy-baixar .btn {
   flex: none;
 }
+
+/* ───────────── Rodada 2: link para o cliente, Recentes e busca no seletor ───────────── */
+/* Copiar link na linha do Drive: aparece ao passar o mouse, na seleção ou com o foco (como "Calcular"). */
+.drow-act {
+  display: none;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  border-radius: 7px;
+  color: var(--text-2);
+}
+.drow:hover .drow-act,
+.drow.is-selected .drow-act,
+.drow:focus-within .drow-act {
+  display: inline-grid;
+}
+.drow-act:hover {
+  background: var(--fill-2);
+  color: var(--down-text);
+}
+
+/* Cartão do link (na pilha de avisos). */
+.linkcard .toast-text {
+  gap: 6px;
+}
+.linkcard {
+  background: var(--menu-bg);
+}
+.linkcard-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.linkcard .sub {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.linkcard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.linkcard-url {
+  height: 30px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+/* Lote concluído: Copiar link da pasta / Abrir no Drive. */
+.batch-share {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+@media (max-width: 1240px) {
+  .batch-share .btn-ghost > span,
+  .batch-share-long {
+    display: none;
+  }
+}
+
+/* Seletor de pasta: Recentes na lateral e "Buscar pasta" na barra. */
+.picker-bar .crumbs {
+  flex: 1;
+  min-width: 0;
+}
+.picker-search {
+  flex: none;
+  width: 190px;
+}
+.picker-search:focus-within {
+  width: 230px;
+}
+.picker-recent-label {
+  margin-top: 8px;
+}
+.picker-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.picker-recent-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 6px 10px;
+  min-height: 36px;
+  border-radius: 7px;
+  text-align: left;
+  font-size: 13px;
+}
+.picker-recent-item .icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-3);
+}
+.picker-recent-item:hover {
+  background: var(--fill-2);
+}
+.picker-recent-item:hover .icon {
+  color: var(--down);
+}
+.picker-recent-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+.picker-recent-text .name,
+.picker-recent-text .sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker-recent-text .sub {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.picker-results {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.picker-results .table-msg {
+  padding: 28px 18px;
+}
+.folder-results {
+  list-style: none;
+  margin: 0;
+  padding: 6px 8px;
+}
+.folder-result {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  text-align: left;
+}
+.folder-result > .icon {
+  flex: none;
+  color: var(--down);
+}
+.folder-result:hover,
+.folder-result:focus-visible {
+  background: var(--fill);
+}
+.folder-result-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.folder-result-text .name {
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-result-text .sub {
+  font-size: 12px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-result-go {
+  flex: none;
+  color: var(--text-3);
+}
+
+/* Ajustes: grupo Avançado recolhido e o aviso ao desligar o MD5. */
+.sgroup-details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.sgroup-details > summary::-webkit-details-marker {
+  display: none;
+}
+.sgroup-details > summary .sgroup-title {
+  display: flex;
+  align-items: center;
+}
+.sgroup-details .sgroup-chev {
+  margin-left: auto;
+  color: var(--text-3);
+  transition: transform 0.2s var(--ease);
+}
+.sgroup-details[open] .sgroup-chev {
+  transform: rotate(90deg);
+}
+.sgroup-details > summary:hover .sgroup-chev {
+  color: var(--text);
+}
+.sgroup-summary-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+  margin-left: 8px;
+}
+
+
+/* Primeiros passos: criar conta no site. */
+.cloud-signup {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: center;
+}
+.cloud-signup .link {
+  font-weight: 600;
+  color: var(--text);
+}
+.srow-desc .srow-note.is-warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.srow-desc .srow-note.is-warn .icon {
+  flex: none;
+}
+/* Barra de seleção apertada (até 1240 px): Prévia e Copiar link ficam só com o ícone (o nome vai na dica). */
+.selbar-info b,
+.selbar-info .sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 1240px) {
+  .selbar .selbar-compact {
+    padding-inline: 10px;
+  }
+  .selbar .selbar-compact span {
+    display: none;
+  }
+}
+.selbar-info {
+  flex: none;
+  max-width: 220px;
+}

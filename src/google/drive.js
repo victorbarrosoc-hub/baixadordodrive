@@ -6,7 +6,7 @@ import { endpoints } from '../config.js'
 import { requestJSON } from '../net/http.js'
 import { abortError, backoffDelay, sleep } from '../util/backoff.js'
 import { joinRel, splitRel, toNFC } from '../util/paths.js'
-import { classifyError } from './errors.js'
+import { SobeDesceError, classifyError } from './errors.js'
 import { SIZE_LIST_FIELDS, walkFolderSize } from './folder-size.js'
 
 export const FOLDER_MIME = 'application/vnd.google-apps.folder'
@@ -36,9 +36,24 @@ const LIST_FIELDS = `nextPageToken,files(${FILE_FIELDS})`
 // Varredura que precisa das marcas do app (Comparar: deixar de fora a pasta Proxy que o SOBEDESCE gerou).
 const LIST_APP_FIELDS = `nextPageToken,files(${FILE_FIELDS},appProperties)`
 const BROWSE_LIST_FIELDS = `nextPageToken,files(${BROWSE_FIELDS})`
+// Compartilhamento (Copiar link): o link e quem consegue abrir. `permissions` não vem em drive compartilhado
+// (nem para quem não pode compartilhar): aí vai um permissions.list.
+const PERMISSION_FIELDS = 'id,type,role,domain,allowFileDiscovery'
+const SHARE_FIELDS = `id,name,mimeType,webViewLink,driveId,parents,shared,resourceKey,capabilities(canShare),permissions(${PERMISSION_FIELDS})`
+const PERMISSION_LIST_FIELDS = `nextPageToken,permissions(${PERMISSION_FIELDS})`
+// Recusas do Google ao liberar para "qualquer pessoa com o link" que vêm da política do Workspace ou do drive compartilhado.
+const SHARE_POLICY_REASONS = new Set([
+  'publishOutNotPermitted',
+  'domainPolicy',
+  'teamDriveDomainUsersOnlyRestriction',
+  'teamDriveTeamMembersOnlyRestriction',
+  'cannotShareTeamDriveWithNonGoogleAccounts',
+  'sharingNotSupported',
+])
 const ABOUT_FIELDS = 'user(displayName,emailAddress,permissionId,photoLink),storageQuota(limit,usage,usageInDrive)'
 const PAGE_SIZE = 1000
 const SEARCH_LIMIT = 200
+const FOLDER_SEARCH_LIMIT = 20
 const MAX_RETRY_WAIT_MS = 120_000
 const FOLDER_CACHE_TTL_MS = 5 * 60_000
 const MAX_CACHED_FOLDERS = 20_000
@@ -115,6 +130,18 @@ function mediaInfo(f) {
     out.image = image
   }
   return out
+}
+
+/**
+ * Quem consegue abrir o link, pelas permissões do item: 'qualquer' (qualquer pessoa com o link), 'dominio' (quem é
+ * do domínio, com o nome em `domain`) ou 'restrito' (só quem recebeu acesso). Papéis de leitura em diante contam.
+ */
+export function linkAccess(permissions) {
+  const list = Array.isArray(permissions) ? permissions : []
+  if (list.some(p => p?.type === 'anyone' && p.role)) return { access: 'qualquer', domain: null }
+  const dom = list.find(p => p?.type === 'domain' && p.role)
+  if (dom) return { access: 'dominio', domain: dom.domain || null }
+  return { access: 'restrito', domain: null }
 }
 
 /** Itens antigos compartilhados por link exigem o resourceKey num cabeçalho, senão o Google responde 404. */
@@ -523,6 +550,31 @@ export class DriveClient {
   }
 
   /**
+   * Pastas pelo nome (seletor "Para qual pasta do Drive?"), no Drive todo do escopo: `driveId` null = Meu Drive (o que
+   * é meu e o que foi compartilhado comigo, sem os drives compartilhados), ou um drive compartilhado. Cada resultado
+   * vem com o caminho até ele (`path`: nomes da raiz até o pai), para dar para diferenciar duas "Diária 02".
+   */
+  async searchFolders(text, { signal, driveId = null } = {}) {
+    const term = String(text ?? '').trim()
+    if (!term) return []
+    const q = `mimeType = '${FOLDER_MIME}' and name contains '${escapeQueryValue(term)}' and trashed = false`
+    let items = await this.#list(q, { driveId, signal, limit: SEARCH_LIMIT, pageSize: 100 })
+    if (!driveId) items = items.filter(it => !it.driveId)
+    items = sortItems(items).slice(0, FOLDER_SEARCH_LIMIT)
+    return Promise.all(
+      items.map(async it => {
+        let path = null
+        try {
+          path = (await this.getPath(it.id, { signal })).slice(0, -1).map(c => c.name)
+        } catch (err) {
+          if (classifyError(err).kind === 'abort') throw err
+        }
+        return { id: it.id, name: it.name, driveId: it.driveId, path }
+      }),
+    )
+  }
+
+  /**
    * Filho com exatamente esse nome (o `name =` do Drive não diferencia maiúsculas: a conferência final é aqui).
    * `folder`: true = só pastas, false = só arquivos, null = qualquer um.
    */
@@ -566,6 +618,100 @@ export class DriveClient {
       retries,
     })
     return { id: r.id ?? fileId, hasThumbnail: r.hasThumbnail === true }
+  }
+
+  // ─────────── compartilhamento (Copiar link) ───────────
+
+  async listPermissions(fileId, { signal, resourceKey } = {}) {
+    const headers = resourceKey ? { 'x-goog-drive-resource-keys': `${fileId}/${resourceKey}` } : undefined
+    const out = []
+    let pageToken
+    do {
+      const r = await this.api('GET', `files/${encodeURIComponent(fileId)}/permissions`, { query: { fields: PERMISSION_LIST_FIELDS, pageSize: 100, pageToken }, headers, signal })
+      for (const p of r.permissions || []) out.push(p)
+      pageToken = r.nextPageToken
+    } while (pageToken)
+    return out
+  }
+
+  /**
+   * O link do item (webViewLink) e quem consegue abrir. Uma chamada no Meu Drive (files.get já traz as permissões);
+   * duas em drive compartilhado. Sem como ver as permissões (conta sem poder de compartilhar), access = 'desconhecido'.
+   * `podeLiberar`: dá para criar "qualquer pessoa com o link" (não está liberado, a conta pode compartilhar, não é raiz).
+   */
+  async sharing(fileId, { signal, resourceKey } = {}) {
+    const headers = resourceKey ? { 'x-goog-drive-resource-keys': `${fileId}/${resourceKey}` } : undefined
+    const f = await this.api('GET', `files/${encodeURIComponent(fileId)}`, { query: { fields: SHARE_FIELDS }, headers, signal })
+    const isFolder = f.mimeType === FOLDER_MIME
+    const parents = Array.isArray(f.parents) ? f.parents : []
+    const sharedDriveRoot = !!f.driveId && f.id === f.driveId
+    const myDriveRoot = !f.driveId && !parents.length && (fileId === 'root' || f.id === this.myDriveRootId)
+    let permissions = Array.isArray(f.permissions) ? f.permissions : null
+    let known = true
+    if (!permissions) {
+      if (!f.driveId && f.shared === false) permissions = [] // Meu Drive sem ninguém além do dono
+      else {
+        try {
+          permissions = await this.listPermissions(f.id, { signal, resourceKey: f.resourceKey || resourceKey })
+        } catch (err) {
+          const info = classifyError(err)
+          if (info.kind === 'abort' || info.kind === 'retry' || info.kind === 'auth' || info.kind === 'reauth') throw err
+          known = false
+          permissions = []
+        }
+      }
+    }
+    const { access, domain } = known ? linkAccess(permissions) : { access: 'desconhecido', domain: null }
+    const canShare = f.capabilities?.canShare === true
+    const url = f.webViewLink || (isFolder ? `https://drive.google.com/drive/folders/${encodeURIComponent(f.id)}` : `https://drive.google.com/file/d/${encodeURIComponent(f.id)}/view`)
+    return {
+      id: f.id,
+      name: f.name ?? '',
+      isFolder,
+      url,
+      access,
+      domain,
+      canShare,
+      sharedDrive: !!f.driveId,
+      root: myDriveRoot || sharedDriveRoot,
+      podeLiberar: canShare && access !== 'qualquer' && !myDriveRoot && !sharedDriveRoot,
+    }
+  }
+
+  /**
+   * Cria "qualquer pessoa com o link pode ver" (anyone/reader, sem aparecer em busca). Só pela ação explícita de quem
+   * usa o app (rota POST /api/drive/:acc/link/liberar, com confirmação na tela). As recusas viram SobeDesceError com a
+   * mensagem para mostrar: política do Workspace/drive compartilhado, raiz de drive compartilhado, conta sem permissão.
+   */
+  async shareWithAnyone(fileId, { signal, resourceKey } = {}) {
+    const headers = resourceKey ? { 'x-goog-drive-resource-keys': `${fileId}/${resourceKey}` } : undefined
+    try {
+      return await this.api('POST', `files/${encodeURIComponent(fileId)}/permissions`, {
+        query: { fields: PERMISSION_FIELDS },
+        body: { type: 'anyone', role: 'reader', allowFileDiscovery: false },
+        headers,
+        signal,
+        retries: 2,
+      })
+    } catch (err) {
+      const info = classifyError(err)
+      if (info.kind !== 'fatal') throw err
+      const reason = info.reason || null
+      if (SHARE_POLICY_REASONS.has(reason)) {
+        throw new SobeDesceError('fatal', 'Seu Workspace não deixa compartilhar com qualquer pessoa. Compartilhe pelo Drive com o e-mail de quem vai receber.', { reason: 'politicaCompartilhamento', status: 403 })
+      }
+      if (reason === 'cannotShareTeamDriveTopFolderWithAnyoneOrDomains') {
+        throw new SobeDesceError('fatal', 'A raiz de um drive compartilhado não pode ser liberada para qualquer pessoa. Libere uma pasta dentro dele.', { reason, status: 403 })
+      }
+      if (reason === 'insufficientFilePermissions' || reason === 'insufficientPermissions' || info.status === 403) {
+        throw new SobeDesceError('fatal', 'Sua conta não pode mudar o compartilhamento deste item. Peça a quem é dono ou gerente.', { reason: reason || 'semPermissao', status: 403 })
+      }
+      if (info.kind === 'fatal' && info.status === 400) {
+        // invalidSharingRequest e afins: a mensagem do Google vem em inglês.
+        throw new SobeDesceError('fatal', 'O Google não deixou liberar este item para qualquer pessoa. Tente pelo Google Drive, em Compartilhar.', { reason, status: 400 })
+      }
+      throw err
+    }
   }
 
   /**

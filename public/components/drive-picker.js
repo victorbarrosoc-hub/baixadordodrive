@@ -1,15 +1,23 @@
 // Seletor de pasta do Drive (para Comparar e para escolher onde enviar). Reaproveita a tabela do Drive em modo pasta.
-import { html, useMemo, useState } from '/vendor/preact-htm.js'
+import { html, useEffect, useMemo, useState } from '/vendor/preact-htm.js'
 import { attempt } from '../lib/api.js'
 import { promptDialog } from '../lib/modals.js'
+import { storage, useDebounced } from '../lib/ui.js'
+import { esquecerDestino, recentes } from '../lib/destinos.js'
 import { Icon } from './icons.js'
-import { Button } from './common.js'
+import { Button, Spinner } from './common.js'
 import { useStore } from '../lib/store.js'
 import { ProxyChoice, proxyPadrao } from './previa.js'
 import { Modal } from './modal.js'
 import { DriveTable } from './drive-table.js'
 import { Breadcrumb, SourceChips } from './drive.js'
-import { createDriveFolder, useDriveFolder, useSharedDrives } from './drive-data.js'
+import { createDriveFolder, useDriveFolder, useFolderSearch, useSharedDrives } from './drive-data.js'
+
+/** "Meu Drive / SERHS / 01 Brutos / Diária 02" → "em 01 Brutos" (a pasta de cima; o caminho todo fica na dica). */
+function parentOf(path) {
+  const parts = String(path).split(' / ')
+  return parts.length > 1 ? `em ${parts[parts.length - 2]}` : ''
+}
 
 function crumbsOf(data, drives) {
   const list = (data?.path || []).slice()
@@ -21,22 +29,62 @@ function crumbsOf(data, drives) {
   })
 }
 
-export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', subtitle, confirmLabel, initialFolderId = 'root', proxyChoice = false, onClose }) {
+/** Resultados de "Buscar pasta": nome e, embaixo, onde ela está (para diferenciar duas "Diária 02"). */
+function FolderResults({ search, term, onOpen }) {
+  if (search.loading && !search.items?.length) return html`<div class="table-msg"><${Spinner} size=${16} /><span>Procurando pastas…</span></div>`
+  if (search.error) return html`<div class="table-msg is-error"><${Icon} name="warning" size=${18} /><span>${search.error}</span></div>`
+  if (!search.items?.length) return html`<div class="table-msg"><div class="table-empty"><${Icon} name="search" size=${22} /><b>Nenhuma pasta com “${term}” no nome</b><span>O Drive acha pelo começo das palavras: tente outro pedaço do nome.</span></div></div>`
+  return html`<ul class="folder-results" aria-label="Pastas encontradas" aria-busy=${search.loading ? 'true' : 'false'}>
+    ${search.items.map((r) => {
+      const where = r.path?.length ? r.path.join(' / ') : null
+      return html`<li key=${r.id}>
+        <button type="button" class="folder-result" onClick=${() => onOpen(r)} title=${where ? `${where} / ${r.name}` : r.name}>
+          <${Icon} name="folder" size=${18} />
+          <span class="folder-result-text">
+            <span class="name">${r.name}</span>
+            <span class="sub">${where ? `em ${where}` : 'pasta compartilhada com você'}</span>
+          </span>
+          <${Icon} name="chevron-right" size=${14} class="folder-result-go" />
+        </button>
+      </li>`
+    })}
+  </ul>`
+}
+
+export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', subtitle, confirmLabel, initialFolderId = 'root', proxyChoice = false, destinos = false, onClose }) {
   const [folderId, setFolderId] = useState(initialFolderId || 'root')
+  const [query, setQuery] = useState('')
+  const q = useDebounced(query, 300).trim()
+  const [recent, setRecent] = useState(() => (destinos ? recentes(storage, accountId) : []))
   // Envio: "Gerar proxy dos vídeos" deste envio (marcado pelo ajuste; em "Perguntar", em destaque).
   const settings = useStore((s) => s.settings)
   const [proxy, setProxy] = useState(() => proxyPadrao(settings))
   const extra = proxyChoice ? { proxy } : {}
   const [selected, setSelected] = useState(new Set())
   const drives = useSharedDrives(accountId)
-  const { data, loading, error, reload } = useDriveFolder(accountId, folderId)
+  const { data, loading, error, errorStatus, reload } = useDriveFolder(accountId, folderId)
   const folder = data?.folder
   const sourceId = folder?.driveId || (data?.path?.[0] && drives.some((d) => d.id === data.path[0].id) ? data.path[0].id : 'root')
+  // Buscar pasta: no escopo aberto (Meu Drive ou o drive compartilhado da pasta atual).
+  const searching = !!q
+  const search = useFolderSearch(accountId, q, sourceId)
+  const scopeName = sourceId === 'root' ? 'Meu Drive' : drives.find((d) => d.id === sourceId)?.name || 'neste drive'
+
+  // A última pasta de destino sumiu (apagada, sem acesso): sai dos Recentes e o seletor abre no Meu Drive.
+  useEffect(() => {
+    if (error && errorStatus === 404 && !data && folderId === initialFolderId && folderId !== 'root') {
+      if (destinos) setRecent(esquecerDestino(storage, accountId, folderId))
+      setFolderId('root')
+    }
+  }, [error, errorStatus, folderId])
 
   const open = (it) => {
     setSelected(new Set())
+    setQuery('')
     setFolderId(it.isShortcut && it.shortcutTargetId ? it.shortcutTargetId : it.id)
   }
+  // Recente: um clique escolhe (é o destino de sempre).
+  const pickRecent = (r) => onClose({ id: r.id, name: r.name, path: r.path || r.name, driveId: r.driveId || null, ...extra })
   const byId = useMemo(() => new Map((data?.items || []).map((x) => [x.id, x])), [data])
   const chosenSub = [...selected].map((id) => byId.get(id)).find(Boolean)
   const crumbs = crumbsOf(data, drives)
@@ -87,13 +135,50 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
     <div class="picker-grid">
       <aside class="picker-side" aria-label="Drives">
         <div class="side-label">Drives</div>
-        <${SourceChips} vertical drives=${drives} current=${sourceId} onPick=${(id) => { setSelected(new Set()); setFolderId(id) }} />
+        <${SourceChips} vertical drives=${drives} current=${sourceId} onPick=${(id) => { setSelected(new Set()); setQuery(''); setFolderId(id) }} />
+        ${recent.length
+          ? html`<div class="side-label picker-recent-label">Recentes</div>
+              <ul class="picker-recent" aria-label="Pastas de destino recentes">
+                ${recent.map(
+                  (r) => html`<li key=${r.id}>
+                    <button type="button" class="picker-recent-item" onClick=${() => pickRecent(r)} title=${`Escolher ${r.path || r.name}`}>
+                      <${Icon} name="clock" size=${15} />
+                      <span class="picker-recent-text"><span class="name">${r.name}</span>${r.path && r.path !== r.name ? html`<span class="sub">${parentOf(r.path)}</span>` : null}</span>
+                    </button>
+                  </li>`,
+                )}
+              </ul>`
+          : null}
       </aside>
       <section class="picker-main">
         <div class="picker-bar">
-          <${Breadcrumb} path=${data?.path} folder=${folder} drives=${drives} onOpen=${(id) => { setSelected(new Set()); setFolderId(id) }} />
+          ${searching
+            ? html`<div class="crumbs"><span class="crumb is-current">Pastas com “${q}” em ${scopeName}</span>${search.loading ? html`<${Spinner} size=${14} />` : null}</div>`
+            : html`<${Breadcrumb} path=${data?.path} folder=${folder} drives=${drives} onOpen=${(id) => { setSelected(new Set()); setFolderId(id) }} />`}
+          <label class="search picker-search">
+            <${Icon} name="search" size=${15} />
+            <input
+              type="search"
+              placeholder="Buscar pasta"
+              value=${query}
+              onInput=${(e) => setQuery(e.currentTarget.value)}
+              onKeyDown=${(e) => {
+                if (e.key === 'Escape' && query) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setQuery('')
+                }
+              }}
+              aria-label=${`Buscar pasta em ${scopeName}`}
+              title=${`Procura pelo nome em ${scopeName} inteiro`}
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
         </div>
-        <${DriveTable}
+        ${searching
+          ? html`<div class="picker-results"><${FolderResults} search=${search} term=${q} onOpen=${open} /></div>`
+          : html`<${DriveTable}
           mode="folder"
           compact
           items=${data?.items || null}
@@ -105,7 +190,7 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
           onRetry=${reload}
           resetKey=${folderId}
           empty=${html`<div class="table-empty"><${Icon} name="folder" size=${22} /><b>Sem subpastas</b><span>Escolha esta mesma ou crie uma nova.</span></div>`}
-        />
+        />`}
         ${proxyChoice ? html`<div class="picker-proxy"><${ProxyChoice} checked=${proxy} onChange=${setProxy} ask=${settings?.proxyAoEnviar === 'perguntar'} /></div>` : null}
       </section>
     </div>
