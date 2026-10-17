@@ -203,7 +203,7 @@ async authHeader(): { authorization: 'Bearer …' }
 async about(): { user: { email, name, photoUrl, permissionId }, quota: { limit|null, usage, usageInDrive } }
 async listSharedDrives(): Array<{ id, name }>
 async getItem(fileId, { signal, resourceKey, media = false }): DriveItem   // media: também BROWSE_FIELDS (prévia)
-async listChildren(folderId, { signal, media = false }): DriveItem[]  // pagina tudo (pageSize 1000), trashed=false, ordena pastas primeiro + nome
+async listChildren(folderId, { signal, media = false, driveId, limit }): DriveItem[]  // pagina tudo (pageSize 1000), trashed=false, ordena pastas primeiro + nome; para em `limit`
 async getPath(folderId): Array<{ id, name }>                     // breadcrumb da raiz até a pasta (cache)
 async walk(folderId, { signal, onProgress, concurrency = 8 }): { root: DriveItem, items: DriveItem[] }
     // varre a árvore inteira; cada item ganha relPath relativo à pasta (sem o nome da raiz) e relDir.
@@ -211,8 +211,9 @@ async walk(folderId, { signal, onProgress, concurrency = 8 }): { root: DriveItem
     // atalhos para pasta NÃO são seguidos (evita ciclos). onProgress({ folders, files, bytes }).
 async findChild(parentId, name, { folder = null, signal } = {}): DriveItem|null   // escapa ' e \ na query
 async createFolder(name, parentId, { signal }): DriveItem
-async ensureFolderPath(rootId, relDir, { signal, cache }): string
+async ensureFolderPath(rootId, relDir, { signal, cache, onCreated }): string
     // cria/acha cada nível de relDir dentro de rootId e devolve o id da última pasta.
+    // onCreated(folderId): avisado quando um nível foi criado agora (pasta nova = vazia).
     // `cache` (Map) guarda promessas por `${rootId}/${prefixo}` para criação concorrente não duplicar pastas.
 async search(text, { signal, media = false }): DriveItem[]        // name contains, até 200 resultados
 async folderSize(folderId, { signal, onProgress, concurrency = 4 }): { bytes, files, folders, docs, shortcuts, pending: 0, root }
@@ -298,6 +299,7 @@ TaskContext = {
   limiter: BandwidthLimiter,       // da direção (down/up), global
   hasher: Hasher,
   folderCache: Map,                // (upload) para ensureFolderPath
+  folderListings?: FolderListings, // (upload) nomes já no Drive por pasta de destino (engine/folder-listings.js)
   persist(): void,                 // pede gravação (debounced) — chamar após mudar o registro
   onBytes(n): void,                // bytes que trafegaram agora (alimenta velocidade global e do item)
   log(...args): void,
@@ -364,6 +366,10 @@ Algoritmo:
    mesmo tamanho → conforme `uploadConflict`: 'skip' (se md5 local = md5 remoto, ou sem md5 remoto e
    mesmo tamanho) → `record.status='skipped'`, `note='Já estava no Drive'`, resolve; 'replace' →
    `replaceFileId = existente.id`; 'rename' → sobe com nome `uniqueName`.
+   Com `ctx.folderListings` (o manager sempre passa, um por conta): antes do `findChild`, uma consulta local à
+   listagem da pasta (uma `listChildren` por pasta, válida 10 min; pasta criada pelo app nasce vazia, sem listar;
+   arquivo criado pelo app entra na hora). "Não tem esse nome" dispensa o `findChild`; "tem" ou "pasta grande demais
+   (> 5.000 itens)" faz o `findChild` de sempre, então a decisão de conflito usa dados novos.
 4. Sessão: se não há (ou tem > 6 dias — a URI expira em 1 semana): POST `uploadInitUrl()` (ou PATCH `uploadUpdateUrl(replaceFileId)`)
    com `{ name, parents:[parentId] (só no create), modifiedTime: ISO(mtime) }`,
    headers `X-Upload-Content-Type` (pelo nome; padrão application/octet-stream) e

@@ -812,3 +812,33 @@ test('reabrir no meio de um download continua de onde parou e o arquivo fica ín
   const served = env.mock.stats().bytesServed
   assert.ok(served <= size - savedBytes + 4 * MiB, `baixou de novo o que já tinha: ${served} bytes servidos`)
 })
+
+test('dois lotes de envio para a mesma pasta: o segundo enxerga o que o primeiro criou (sem duplicar nome)', async t => {
+  const { env, dir, make } = await realSetup(t, {}, { maxConcurrentUploads: 1, uploadConflict: 'skip' })
+  const dest = env.mock.addFolder('Material bruto')
+  const camA = path.join(dir, 'CAM A', 'C0001.MXF')
+  const camB = path.join(dir, 'CAM B', 'C0001.MXF')
+  const copia = path.join(dir, 'copia', 'C0001.MXF')
+  const md5A = await randomFile(camA, 300 * 1024, 61)
+  const md5B = await randomFile(camB, 300 * 1024, 62)
+  await randomFile(copia, 300 * 1024, 61)
+  const { m } = await make()
+  const drive = m.driveFor(env.accountId)
+  const ids = []
+  for (const p of [camA, camB, copia]) {
+    const plan = await planUploads({ drive, accountId: env.accountId, paths: [p], destFolderId: dest.id })
+    await m.add({ batch: plan.batch, records: plan.records })
+    ids.push(plan.records[0].id)
+  }
+  await waitFor(() => ids.every(id => ['completed', 'skipped', 'failed'].includes(m.get(id)?.status)), { timeoutMs: 20_000 })
+  const [a, b, c] = ids.map(id => m.get(id))
+  assert.equal(a.status, 'completed')
+  assert.equal(b.status, 'completed')
+  assert.equal(b.name, 'C0001 (2).MXF', 'mesmo nome, conteúdo diferente: mantém os dois')
+  assert.equal(c.status, 'skipped', 'a cópia idêntica do primeiro já estava no Drive')
+  assert.equal(c.target.fileId, a.target.fileId)
+  const names = env.mock.listAll().filter(it => !it.isFolder && it.parents.includes(dest.id)).map(it => it.name).sort()
+  assert.deepEqual(names, ['C0001 (2).MXF', 'C0001.MXF'])
+  assert.equal(await env.mock.contentMd5(a.target.fileId), md5A)
+  assert.equal(await env.mock.contentMd5(b.target.fileId), md5B)
+})

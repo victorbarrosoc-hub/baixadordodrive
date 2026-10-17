@@ -145,7 +145,7 @@ function sameStat(local, st) {
 export class UploadTask extends EventEmitter {
   /**
    * @param {object} record TransferRecord (type 'upload'); é alterado no lugar.
-   * @param {object} ctx TaskContext { drive, settings, limiter, hasher, folderCache, persist, onBytes, log }
+   * @param {object} ctx TaskContext { drive, settings, limiter, hasher, folderCache, folderListings?, persist, onBytes, log }
    * @param {{ retryBaseMs?: number }} [opts] recuo base entre tentativas (os testes usam poucos ms).
    *   Também aceito em `ctx.retryBaseMs`.
    */
@@ -254,10 +254,13 @@ export class UploadTask extends EventEmitter {
         // 2. Pasta de destino (compartilhada entre tarefas pelo folderCache).
         if (!r.target.parentId) {
           this.phase = 'folder'
+          const listings = this.ctx.folderListings
           r.target.parentId = await this.ctx.drive.ensureFolderPath(r.target.rootId, r.target.relDir || '', {
             cache: this.#folderCache(),
             signal,
             driveId: r.target.driveId,
+            // Pasta criada agora está vazia: o conflito nem precisa procurar.
+            onCreated: listings ? id => listings.created(id) : undefined,
           })
           this.#persist()
         }
@@ -407,6 +410,10 @@ export class UploadTask extends EventEmitter {
     const r = this.record
     const drive = this.ctx.drive
     const name = toNFC(r.name)
+    // Listagem da pasta (uma por pasta, compartilhada): "não tem ninguém com esse nome" dispensa a busca. Quando tem
+    // (ou a pasta é grande demais para listar), a decisão é tomada com uma busca nova, exatamente como antes.
+    const listings = this.ctx.folderListings
+    if (listings && (await listings.has(drive, r.target.parentId, name, { signal, driveId: r.target.driveId })) === false) return false
     const existing = await drive.findChild(r.target.parentId, name, { folder: false, signal, driveId: r.target.driveId })
     if (!existing) return false
     // Registro pode trazer a própria regra (Referências: 'skip' — igual não sobe de novo, diferente ganha outro nome).
@@ -658,6 +665,9 @@ export class UploadTask extends EventEmitter {
     this.phase = 'verify'
     const item = toDriveItem(json)
     r.target.fileId = item.id
+    // O arquivo existe no Drive a partir de agora (mesmo que a conferência falhe): os próximos envios para a mesma
+    // pasta enxergam o nome.
+    if (r.target.parentId) this.ctx.folderListings?.added(r.target.parentId, item.name || r.name)
     r.bytesDone = this.size
     if (r.session) r.session.offset = this.size
     r.attempts = 0
@@ -735,6 +745,7 @@ export class UploadTask extends EventEmitter {
     const stale = r.target.parentId
     r.target.parentId = null
     this.#persist()
+    if (stale) this.ctx.folderListings?.forget(stale)
     const parts = splitRel(toNFC(r.target.relDir || ''))
     const cache = this.#folderCache()
     if (!cache || !parts.length) return

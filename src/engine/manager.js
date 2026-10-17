@@ -21,6 +21,7 @@ import { DriveClient } from '../google/drive.js'
 import { httpRequest, drain } from '../net/http.js'
 import { DownloadTask } from './download.js'
 import { UploadTask } from './upload.js'
+import { FolderListings } from './folder-listings.js'
 import { KeepAwake } from './power.js'
 import { RawThumbnailer } from '../media/raw-thumb.js'
 import { GeradorPrevias, PREVIA_PENDENTE } from '../media/previa-fila.js'
@@ -167,6 +168,7 @@ export class TransferManager extends EventEmitter {
     this.persisted = new Map() // id -> { uri, bytes } da última vez que pediu gravação
     this.drives = new Map()
     this.folderCaches = new Map()
+    this.folderListings = new Map() // conta -> FolderListings (nomes já no Drive, por pasta de destino do envio)
     this.dirty = new Set()
     this.removedQueue = []
     this.batchesDirty = false
@@ -778,6 +780,9 @@ export class TransferManager extends EventEmitter {
       let cache = this.folderCaches.get(rec.accountId)
       if (!cache) this.folderCaches.set(rec.accountId, (cache = new Map()))
       ctx.folderCache = cache
+      let listings = this.folderListings.get(rec.accountId)
+      if (!listings) this.folderListings.set(rec.accountId, (listings = new FolderListings()))
+      ctx.folderListings = listings
       if (this.taskOptions.upload?.retryBaseMs != null) ctx.retryBaseMs = this.taskOptions.upload.retryBaseMs
     }
     return ctx
@@ -970,6 +975,7 @@ export class TransferManager extends EventEmitter {
       if (!known.has(id)) {
         this.drives.delete(id)
         this.folderCaches.delete(id)
+        this.folderListings.delete(id)
       }
     }
     // Conta removida do app: o que é dela para já (e volta sozinho se a mesma conta for conectada de novo).
