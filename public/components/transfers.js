@@ -16,7 +16,7 @@ import { SequenceBar, Timeline } from './timeline.js'
 import { contaUrl, isCloudAccount } from '../lib/cloud.js'
 import { navigate } from '../lib/router.js'
 import { PreviaLine } from './previa.js'
-import { FILTER_TESTS, integrity, integrityLabel } from '../lib/transferencias.js'
+import { FILTER_TESTS, integrity, integrityLabel, sortRows } from '../lib/transferencias.js'
 
 /** "Conectar de novo" certo para a conta: OAuth deste computador, o site (Drive da conta) ou entrar na conta. */
 function ReauthLink({ t }) {
@@ -35,20 +35,9 @@ const FILTERS = [
   { value: 'failed', label: 'Com problema', test: FILTER_TESTS.failed },
 ]
 
-const RANK = { running: 0, verifying: 0, failed: 1, waiting: 2, paused: 3, queued: 4, completed: 5, skipped: 5, canceled: 6 }
 const FINISHED = new Set(['completed', 'skipped', 'canceled'])
 const MAX_ROWS = 200
 const BIG_BATCH = 40
-
-function sortRows(a, b) {
-  const r = (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9)
-  if (r) return r
-  if (a.status === 'queued') {
-    const p = (b.priority || 0) - (a.priority || 0)
-    if (p) return p
-  }
-  return (a.createdAt || 0) - (b.createdAt || 0) || (a.name < b.name ? -1 : 1)
-}
 
 export function statusInfo(t) {
   const up = t.type === 'upload'

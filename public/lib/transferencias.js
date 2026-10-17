@@ -1,6 +1,27 @@
 // Regras da tela Transferências sem interface (dá para testar no Node): filtros, integridade do lote e o rodapé
 // do medidor ("1,7 GB andando · 42 GB parados").
 
+const RANK = { running: 0, verifying: 0, failed: 1, waiting: 2, paused: 3, queued: 4, completed: 5, skipped: 5, canceled: 6 }
+
+/**
+ * Ordem das linhas de um lote: andando, com problema, esperando, pausado, na fila, concluído, cancelado.
+ * Na fila, a mesma ordem do motor: prioridade e, no envio, o maior arquivo primeiro (no mesmo lote e na mesma
+ * prioridade o motor sobe o maior antes); depois a ordem de entrada.
+ */
+export function sortRows(a, b) {
+  const r = (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9)
+  if (r) return r
+  if (a.status === 'queued') {
+    const p = (b.priority || 0) - (a.priority || 0)
+    if (p) return p
+    if (a.type === 'upload' && b.type === 'upload' && a.batchId === b.batchId) {
+      const s = (b.size || 0) - (a.size || 0)
+      if (s) return s
+    }
+  }
+  return (a.createdAt || 0) - (b.createdAt || 0) || (a.name < b.name ? -1 : 1)
+}
+
 /** Pausado com motivo (acesso vencido, disco cheio…): não volta sozinho, alguém precisa agir. */
 export function needsYou(t) {
   return t.status === 'paused' && !!t.error

@@ -2,7 +2,7 @@
 // que falta (public/lib/format.js → aprox, o mesmo do celular).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { FILTER_TESTS, integrity, integrityLabel, meterTotals, needsYou } from '../public/lib/transferencias.js'
+import { FILTER_TESTS, integrity, integrityLabel, meterTotals, needsYou, sortRows } from '../public/lib/transferencias.js'
 import { aprox } from '../public/lib/format.js'
 
 const t = (status, extra = {}) => ({ status, ...extra })
@@ -55,4 +55,12 @@ test('aprox: "faltam ~2 min" com o mesmo texto do celular', () => {
   assert.equal(aprox(30), 'menos de 1 min')
   assert.equal(aprox(7500), '~2 h 5 min')
   assert.equal(aprox(null), null)
+})
+
+test('ordem na fila do envio: prioridade, depois o maior primeiro (como o motor); download segue a ordem de entrada', () => {
+  const up = (name, size, extra = {}) => ({ name, size, type: 'upload', batchId: 'b', status: 'queued', createdAt: name.charCodeAt(0), ...extra })
+  const rows = [up('a', 10), up('b', 500), up('c', 50), up('d', 5, { priority: 1 }), up('e', 900, { status: 'running' }), up('f', 1, { status: 'completed' })]
+  assert.deepEqual(rows.slice().sort(sortRows).map((r) => r.name), ['e', 'd', 'b', 'c', 'a', 'f'])
+  const dl = (name, size) => ({ name, size, type: 'download', batchId: 'b', status: 'queued', createdAt: name.charCodeAt(0) })
+  assert.deepEqual([dl('a', 1), dl('b', 9)].sort(sortRows).map((r) => r.name), ['a', 'b'])
 })
