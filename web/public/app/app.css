@@ -3512,6 +3512,8 @@ html.has-preview .toasts {
 .pv-gframe {
   width: 100%;
   aspect-ratio: 16 / 9;
+  /* O player leve se desenha com pelo menos 300 px de altura no celular: menos que isso corta a barra e os controles. */
+  min-height: 300px;
   max-height: 70vh;
   margin: 0 auto;
   background: #000;
