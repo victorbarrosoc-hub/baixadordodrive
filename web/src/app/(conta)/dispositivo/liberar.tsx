@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, Laptop, Monitor } from "lucide-react";
+import { CircleCheck, Clock, Laptop, MapPin, Monitor } from "lucide-react";
 import Link from "next/link";
 import { useActionState } from "react";
 import { Aviso } from "@/components/conta/aviso";
@@ -53,6 +53,10 @@ export function Liberar({
   mac,
   email,
   jaLiberado,
+  pedidoEm,
+  lugar,
+  ip,
+  mesmaRede,
 }: {
   codigo: string;
   nome: string;
@@ -60,6 +64,13 @@ export function Liberar({
   mac: boolean;
   email: string;
   jaLiberado: boolean;
+  /** "há 2 minutos, às 14:32 (horário de Brasília)". */
+  pedidoEm: string;
+  /** "Natal, Brasil" (na Vercel) ou null. */
+  lugar: string | null;
+  ip: string | null;
+  /** O pedido veio do mesmo IP deste aparelho. */
+  mesmaRede: boolean;
 }) {
   const [liberar, acaoLiberar] = useActionState<EstadoForm, FormData>(acaoLiberarComputador, null);
   const [recusar, acaoRecusar] = useActionState<EstadoForm, FormData>(acaoRecusarComputador, null);
@@ -105,8 +116,36 @@ export function Liberar({
           <p className="text-[12px] font-medium tracking-[0.08em] text-ink-3 uppercase">Código</p>
           <p className="mt-1 font-mono text-[28px] font-semibold tracking-[0.18em] sm:text-[30px]">{codigo}</p>
         </div>
-        <p className="text-[14px] leading-relaxed text-pretty text-ink-2">Confira se é o mesmo código do computador. Só libere se foi você quem pediu.</p>
+        <dl className="grid w-full gap-2.5 text-left text-[14px] leading-snug">
+          <div className="flex items-start gap-2.5">
+            <Clock aria-hidden className="mt-px size-4 shrink-0 text-ink-3" />
+            <dt className="sr-only">Pedido feito</dt>
+            <dd className="text-ink-2">Pedido feito {pedidoEm}</dd>
+          </div>
+          <div className="flex items-start gap-2.5">
+            <MapPin aria-hidden className="mt-px size-4 shrink-0 text-ink-3" />
+            <dt className="sr-only">De onde</dt>
+            <dd className="min-w-0 text-ink-2 [overflow-wrap:anywhere]">
+              {lugar || ip ? (
+                <>
+                  De {[lugar, ip ? `IP ${ip}` : null].filter(Boolean).join(" · ")}
+                  <span className="block text-[13px] text-ink-3">
+                    {mesmaRede ? "A mesma rede deste aparelho." : "Outra rede, não a deste aparelho. Pelo celular no 4G, isso é normal."}
+                  </span>
+                </>
+              ) : (
+                "Não deu para saber de onde veio o pedido."
+              )}
+            </dd>
+          </div>
+        </dl>
+        <p className="text-[14px] leading-relaxed text-pretty text-ink-2">Confira se é o mesmo código que aparece no computador.</p>
       </Card>
+
+      <Aviso tom="erro">
+        <p className="font-medium">Só confirme se foi você que pediu agora, neste computador.</p>
+        <p className="text-[14px] text-ink-2">Se alguém mandou este link pedindo para você “confirmar o acesso”, toque em Não fui eu.</p>
+      </Aviso>
 
       {liberar?.erro ? (
         <Aviso tom="erro">

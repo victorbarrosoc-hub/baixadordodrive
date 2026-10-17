@@ -45,7 +45,7 @@ export default async function CriarConta({ searchParams }: Props) {
       <p className="mt-4 text-center text-[13px] leading-relaxed text-pretty text-ink-3">Com e-mail, você conecta o Drive depois, em Sua conta.</p>
       <p className="mt-12 text-center text-[15px] text-ink-2">
         Já tem conta?{" "}
-        <Link href={entrar} className="font-medium text-ink underline-offset-4 hover:underline">
+        <Link href={entrar} className="toque font-medium text-ink underline-offset-4 hover:underline">
           Entrar
         </Link>
       </p>

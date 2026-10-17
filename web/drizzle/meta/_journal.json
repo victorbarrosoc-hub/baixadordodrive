@@ -29,6 +29,13 @@
       "when": 1792175834918,
       "tag": "0003_acompanhar",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792235570713,
+      "tag": "0004_login_google",
+      "breakpoints": true
     }
   ]
 }

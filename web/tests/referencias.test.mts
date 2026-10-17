@@ -177,6 +177,9 @@ describe("recurso liberado", () => {
       assert.equal((await rColecoes.GET(pedido("/api/referencias/colecoes", comCookie(ana)))).status, 403, "e-mail da conta não faz admin");
       await amb.banco.db.insert(amb.banco.schema.contasGoogle).values({ id: "ga-admin", usuarioId: ana.id, googleSub: "ana-admin", email: "Ana.Drive@exemplo.com", refreshTokenEnc: "x" });
       process.env.SOBEDESCE_ADMINS = "ana.drive@exemplo.com";
+      assert.equal((await rColecoes.GET(pedido("/api/referencias/colecoes", comCookie(ana)))).status, 403, "Drive com e-mail não confirmado não faz admin");
+      const { eq } = await import("drizzle-orm");
+      await amb.banco.db.update(amb.banco.schema.contasGoogle).set({ emailVerificado: true }).where(eq(amb.banco.schema.contasGoogle.id, "ga-admin"));
       assert.equal((await rColecoes.GET(pedido("/api/referencias/colecoes", comCookie(ana)))).status, 200, "admin usa");
     } finally {
       delete process.env.SOBEDESCE_BETA_ABERTO;

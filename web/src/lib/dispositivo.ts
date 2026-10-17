@@ -9,6 +9,7 @@ import { db, schema } from "@/lib/db";
 import type { Plataforma } from "@/lib/db/schema";
 import { criarSessao, type UsuarioPublico } from "@/lib/auth/sessao";
 import { hashToken, novoId, novoToken } from "@/lib/auth/tokens";
+import type { Lugar } from "@/lib/http";
 import { siteUrl } from "@/lib/site";
 
 const { codigosDispositivo, usuarios } = schema;
@@ -48,7 +49,7 @@ export function nomeDoComputador(valor: unknown): string {
   return nome || "Computador";
 }
 
-export async function iniciar(entrada: { nome: unknown; plataforma: unknown }) {
+export async function iniciar(entrada: { nome: unknown; plataforma: unknown; lugar?: Lugar }) {
   const segredo = novoToken();
   const expiraEm = new Date(Date.now() + VALIDADE_CODIGO_MS);
   const nome = nomeDoComputador(entrada.nome);
@@ -58,11 +59,21 @@ export async function iniciar(entrada: { nome: unknown; plataforma: unknown }) {
     const codigo = novoCodigo();
     const r = await db
       .insert(codigosDispositivo)
-      .values({ id: novoId(), codigo, segredoHash: hashToken(segredo), nome, plataforma, expiraEm })
+      .values({
+        id: novoId(),
+        codigo,
+        segredoHash: hashToken(segredo),
+        nome,
+        plataforma,
+        expiraEm,
+        pedidoIp: entrada.lugar?.ip ?? null,
+        pedidoCidade: entrada.lugar?.cidade ?? null,
+        pedidoPais: entrada.lugar?.pais ?? null,
+      })
       .onConflictDoNothing({ target: codigosDispositivo.codigo })
       .returning({ id: codigosDispositivo.id });
     if (r.length) {
-      if (Math.random() < 0.05) await limparVencidos();
+      await limparVencidos();
       return { codigo, segredo, url: `${siteUrl()}/dispositivo?codigo=${codigo}`, intervalo: INTERVALO_S, expiraEm: expiraEm.getTime() };
     }
   }
@@ -109,7 +120,8 @@ export async function aguardar(segredo: unknown): Promise<ResultadoAguardar> {
 
   const levado = await db
     .update(codigosDispositivo)
-    .set({ usadoEm: agora })
+    // De onde veio o pedido só servia para a tela de liberar: sai junto.
+    .set({ usadoEm: agora, pedidoIp: null, pedidoCidade: null, pedidoPais: null })
     .where(and(eq(codigosDispositivo.id, c.id), isNull(codigosDispositivo.usadoEm), isNotNull(codigosDispositivo.usuarioId), gt(codigosDispositivo.expiraEm, agora)))
     .returning({ usuarioId: codigosDispositivo.usuarioId, nome: codigosDispositivo.nome, plataforma: codigosDispositivo.plataforma });
   if (levado.length === 0 || !levado[0].usuarioId) return { estado: "expirado" };
@@ -120,13 +132,57 @@ export async function aguardar(segredo: unknown): Promise<ResultadoAguardar> {
   return { estado: "pronto", token: sessao.token, usuario };
 }
 
-export type PedidoDispositivo = { codigo: string; nome: string; plataforma: Plataforma | null; expiraEm: Date; aprovado: boolean };
+export type PedidoDispositivo = {
+  codigo: string;
+  nome: string;
+  plataforma: Plataforma | null;
+  expiraEm: Date;
+  aprovado: boolean;
+  /** Quando e de onde o computador pediu (revisão A6: quem libera vê se o pedido é dele mesmo). */
+  criadoEm: Date;
+  lugar: Lugar;
+};
 
 /** Pedido ainda aberto (não usado, não vencido), para a tela de liberar. */
 export async function buscarPedido(codigo: string): Promise<PedidoDispositivo | null> {
   const c = await db.query.codigosDispositivo.findFirst({ where: eq(codigosDispositivo.codigo, codigo) });
   if (!c || c.usadoEm || c.expiraEm <= new Date()) return null;
-  return { codigo: c.codigo, nome: c.nome, plataforma: c.plataforma, expiraEm: c.expiraEm, aprovado: Boolean(c.usuarioId) };
+  return {
+    codigo: c.codigo,
+    nome: c.nome,
+    plataforma: c.plataforma,
+    expiraEm: c.expiraEm,
+    aprovado: Boolean(c.usuarioId),
+    criadoEm: c.criadoEm,
+    lugar: { ip: c.pedidoIp, cidade: c.pedidoCidade, pais: c.pedidoPais },
+  };
+}
+
+const NOMES_PAIS = (() => {
+  try {
+    return new Intl.DisplayNames(["pt-BR"], { type: "region" });
+  } catch {
+    return null;
+  }
+})();
+
+/** "Natal, Brasil", "Brasil", ou null quando não se sabe. */
+export function lugarLegivel(l: Pick<Lugar, "cidade" | "pais">): string | null {
+  let pais: string | null = null;
+  if (l.pais) {
+    try {
+      pais = NOMES_PAIS?.of(l.pais) ?? l.pais;
+    } catch {
+      pais = l.pais;
+    }
+  }
+  const partes = [l.cidade, pais].filter(Boolean);
+  return partes.length ? partes.join(", ") : null;
+}
+
+/** IPs iguais (o mesmo endereço de rede de quem está liberando)? */
+export function mesmaRede(a: string | null, b: string | null): boolean {
+  return Boolean(a && b && a === b);
 }
 
 /** Libera o computador para a conta. Só pedido aberto e ainda não liberado. */
@@ -144,6 +200,6 @@ export async function aprovar(codigo: string, usuarioId: string): Promise<boolea
 export async function cancelar(codigo: string): Promise<void> {
   await db
     .update(codigosDispositivo)
-    .set({ expiraEm: sql`now()` })
+    .set({ expiraEm: sql`now()`, pedidoIp: null, pedidoCidade: null, pedidoPais: null })
     .where(and(eq(codigosDispositivo.codigo, codigo), isNull(codigosDispositivo.usadoEm), isNull(codigosDispositivo.usuarioId)));
 }

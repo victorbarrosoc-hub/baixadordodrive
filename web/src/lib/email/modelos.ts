@@ -65,6 +65,21 @@ export function emailEsqueciSenha(para: string, nome: string, token: string): Em
   });
 }
 
+/** Primeira senha de uma conta criada pelo Google (revisão A5): só pelo e-mail, nunca só com a sessão aberta. */
+export function emailPrimeiraSenha(para: string, nome: string, token: string): Email {
+  const url = `${siteUrl()}/nova-senha?token=${encodeURIComponent(token)}`;
+  return montar(para, "Criar a senha da sua conta", {
+    previa: "O link vale por 1 hora e funciona uma vez.",
+    titulo: "Criar senha",
+    paragrafos: [
+      `Oi, ${primeiroNome(nome)}. Você pediu para criar uma senha na sua conta SOBEDESCE, para entrar também com o e-mail.`,
+      "O link abaixo vale por 1 hora e funciona uma vez. Ao salvar, os outros aparelhos e os computadores saem da conta.",
+    ],
+    botao: { texto: "Criar senha", url },
+    rodape: "Se não foi você, ignore este e-mail e entre com o Google para conferir a sua conta.",
+  });
+}
+
 export function emailContaApagada(para: string, nome: string): Email {
   return montar(para, "Sua conta foi apagada", {
     previa: "A conta, os Drives conectados e os computadores saíram da SOBEDESCE.",

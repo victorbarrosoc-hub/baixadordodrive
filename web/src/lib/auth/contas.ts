@@ -63,26 +63,36 @@ export async function entrarComSenha(entrada: { email: unknown; senha: unknown; 
   if (!email || !senha) return { ok: false, erro: "entrada", mensagem: "Preencha e-mail e senha." };
 
   const chaveEmail = `login:${email.slice(0, 254)}:${entrada.ip}`;
+  const chaveConta = `login-conta:${email.slice(0, 254)}`;
   const chaveIp = `login-ip:${entrada.ip}`;
-  const [porEmail, porIp] = await Promise.all([dentroDoLimite(chaveEmail, REGRAS.loginEmail), dentroDoLimite(chaveIp, REGRAS.loginIp)]);
-  if (!porEmail || !porIp) return { ok: false, erro: "devagar", mensagem: MENSAGEM_LIMITE };
+  const [porEmail, porConta, porIp] = await Promise.all([
+    dentroDoLimite(chaveEmail, REGRAS.loginEmail),
+    dentroDoLimite(chaveConta, REGRAS.loginConta),
+    dentroDoLimite(chaveIp, REGRAS.loginIp),
+  ]);
+  if (!porEmail || !porConta || !porIp) return { ok: false, erro: "devagar", mensagem: MENSAGEM_LIMITE };
 
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.email, email) });
   // Sem conta, confere contra um hash qualquer: a resposta demora o mesmo.
   const certo = senha.length <= SENHA_MAXIMA && (await conferirSenha(senha, usuario?.senhaHash ?? (await hashDeEnfeite())));
   if (!usuario || !certo) {
-    await registrarTentativa(chaveEmail, chaveIp);
+    await registrarTentativa(chaveEmail, chaveConta, chaveIp);
     return { ok: false, erro: "credenciais", mensagem: MENSAGEM_LOGIN };
   }
+  // O contador da conta não zera com um acerto: quem está testando senhas de outros IPs continua contado.
   await esquecerTentativas(chaveEmail);
   await db.update(usuarios).set({ ultimoLoginEm: new Date() }).where(eq(usuarios.id, usuario.id));
   const sessao = await criarSessao(usuario.id, "web");
   return { ok: true, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome }, token: sessao.token, expiraEm: sessao.expiraEm };
 }
 
+export const MENSAGEM_SEM_SENHA = "Esta conta ainda não tem senha. Para criar a primeira, use o link que mandamos por e-mail.";
+
 /**
  * Troca a senha e encerra tudo o que estava ligado na conta (lib/auth/encerrar.ts): outras sessões do site,
  * computadores, chave do Atalho e avisos no celular; os links pra IA só com `links`. A sessão atual continua.
+ * Conta sem senha (criada pelo Google) não cria a primeira por aqui (revisão A5): só uma sessão não prova quem é,
+ * e uma sessão roubada viraria login permanente. A primeira senha sai pelo link por e-mail (redefinir.ts).
  */
 export async function trocarSenha(entrada: {
   usuarioId: string;
@@ -100,9 +110,8 @@ export async function trocarSenha(entrada: {
   const chave = `senha:${entrada.usuarioId}`;
   if (!(await dentroDoLimite(chave, REGRAS.loginEmail))) return { ok: false, erro: "devagar", mensagem: MENSAGEM_LIMITE };
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, entrada.usuarioId) });
-  // Conta criada pelo Google não tem senha: a primeira é criada sem pedir a atual (a sessão já prova quem é).
-  const temSenha = Boolean(usuario?.senhaHash.startsWith("scrypt$"));
-  if (!usuario || (temSenha && !(await conferirSenha(atual, usuario.senhaHash)))) {
+  if (usuario && !usuario.senhaHash.startsWith("scrypt$")) return { ok: false, erro: "sem_senha", mensagem: MENSAGEM_SEM_SENHA };
+  if (!usuario || !(await conferirSenha(atual, usuario.senhaHash))) {
     await registrarTentativa(chave);
     return { ok: false, erro: "credenciais", campo: "senhaAtual", mensagem: "A senha atual não confere." };
   }

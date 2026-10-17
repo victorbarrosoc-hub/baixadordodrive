@@ -14,7 +14,8 @@ const VARIANTS: Record<Variant, string> = {
 };
 
 const SIZES: Record<Size, string> = {
-  sm: "h-9 px-4 text-[14px] gap-1.5",
+  // Desenho de 36 px; o toque (utilitário em globals.css) chega a 44 px.
+  sm: "toque h-9 px-4 text-[14px] gap-1.5",
   md: "h-11 px-5 text-[15px] gap-2",
   lg: "h-13 px-7 text-[17px] gap-2",
 };

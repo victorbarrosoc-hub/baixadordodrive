@@ -45,6 +45,53 @@
   --animate-fade: sd-fade 1.2s var(--ease-out-soft) both;
 }
 
+/*
+ * Tema escuro das telas de conta (/entrar, /criar-conta, /conta, /admin, /dispositivo, senha): mesmos nomes de token,
+ * valores do modo escuro da Apple. Vale só com o celular ou o computador no escuro e só nas páginas marcadas com
+ * data-tema="conta" (src/app/(conta)/layout.tsx); a home, a política e os termos continuam claros. O tema claro não
+ * muda nada: tudo aqui está dentro do @media.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:has([data-tema="conta"]) {
+    color-scheme: dark;
+    --color-bg: #000000;
+    --color-surface: #1c1c1e;
+    --color-surface-2: #2c2c2e;
+    --color-ink: #f5f5f7;
+    --color-ink-2: #aeaeb2;
+    --color-ink-3: #8e8e93;
+    --color-line: rgba(235, 235, 245, 0.14);
+    --color-line-strong: rgba(235, 235, 245, 0.26);
+    --color-primary: #f5f5f7;
+    --color-primary-fg: #0b0b0c;
+    --color-up-text: #b4a3ff;
+    --color-down: #0a84ff;
+    --color-down-text: #64b0ff;
+    --color-ok-text: #4cd471;
+    --color-warn-text: #ffb340;
+    --color-err-text: #ff6961;
+  }
+}
+
+/*
+ * Área de toque de 44 px (o mínimo da Apple) sem mudar o desenho: um ::before invisível, centrado no elemento,
+ * cresce até 44×44. Botões pequenos (size "sm") e links de texto das telas de conta.
+ */
+@utility toque {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    min-width: 44px;
+    min-height: 44px;
+    transform: translate(-50%, -50%);
+  }
+}
+
 @keyframes sd-rise {
   from {
     opacity: 0;
