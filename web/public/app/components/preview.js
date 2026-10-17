@@ -213,7 +213,7 @@ function DrivePlayer({ file, ratio, onOriginal }) {
       ></iframe>
     </div>
     <p class="pv-proxy-note">
-      <span>Player do Google Drive: cópia leve, começa rápido.</span>
+      <span>Reprodução em baixa resolução.</span>
       ${onOriginal ? html`<button type="button" class="link-btn pv-gdrive-orig" onClick=${onOriginal}>Tocar o original</button>` : null}
     </p>
   </div>`
@@ -393,13 +393,6 @@ function MediaStage({ file, kind, siblings, onZoom }) {
       onFail=${async (code) => setFail(code === 3 || code === 4 ? await whyFailed(file) : 'network')}
       autoPlay
     />`
-    // Pesado e fechado: toca o original, e diz como fazer começar rápido.
-    if (heavy && pub === false && !wantOrig) {
-      return html`<div class="pv-proxy">
-        ${player}
-        <p class="pv-proxy-note">Vídeo pesado: pode demorar a começar. Libere o link (abaixo) para tocar pelo player do Drive, que começa rápido.</p>
-      </div>`
-    }
     return player
   }
 
