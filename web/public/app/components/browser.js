@@ -565,10 +565,10 @@ function usePull(ref, active, onRefresh) {
 // busca começa uma corrente nova). Voltar pela tela (seta, trilha, gesto) usa history.go quando a corrente está
 // inteira; senão, empilha uma entrada nova (nunca volta para fora do app).
 //
-// No app da Tela de Início do iPhone (navigator.standalone) não há gesto de voltar: useEdgeSwipe faz um, como o do
-// UINavigationController. Só lá: no Safari o gesto é do próprio Safari (o nosso brigaria com ele), e no Android o
-// gesto da borda é do sistema (vira o botão voltar → popstate). Os dois caminhos acabam no mesmo history.go, então
-// não duplicam.
+// useSwipeBack faz o voltar arrastando de qualquer ponto da tela para a direita, como no iPhone. A faixa da borda
+// esquerda fica para o gesto do sistema (Safari, app da Tela de Início no iOS 26, Android), que vira popstate: com os
+// dois juntos apareciam duas telas por trás e a pasta podia voltar duas vezes. Os dois caminhos acabam no mesmo
+// history.go.
 
 const samePath = (a, b) => a.length === b.length && a.every((p, i) => p.id === b[i].id)
 const ours = (st, nav) => st?.sd === 'drive' && st.scope === nav.scope && Array.isArray(st.path) && samePath(st.path, nav.path)
@@ -581,10 +581,18 @@ const historyState = () => {
   }
 }
 
-/** O gesto próprio vale aqui? (app instalado no iPhone; o teste pode simular com navigator.standalone). */
-const edgeSwipeHere = () => isIOS && typeof navigator !== 'undefined' && navigator.standalone === true
+/** Tela de toque (iPhone, iPad, Android): o arrasto vale. Com mouse, não. */
+const swipeHere = () => {
+  if (isIOS) return true
+  try {
+    return matchMedia('(pointer: coarse)').matches
+  } catch {
+    return false
+  }
+}
+const isStandalone = () => typeof navigator !== 'undefined' && navigator.standalone === true
 
-const EDGE = 20 // px a partir da borda (depois da área segura)
+const EDGE = 24 // px da borda esquerda (depois da área segura) que ficam para o gesto do sistema
 let safeLeftPx = null
 function safeLeft() {
   if (safeLeftPx != null) return safeLeftPx
@@ -600,20 +608,31 @@ function safeLeft() {
   return safeLeftPx
 }
 
+/** O toque começou em algo que usa o arrasto lateral (campo de texto, controle, faixa já rolada)? */
+function ownsDrag(target) {
+  for (let el = target; el && el.nodeType === 1 && el !== document.body; el = el.parentElement) {
+    if (el.matches('input, textarea, select, [contenteditable="true"], [data-noswipe]')) return true
+    if (el.scrollLeft > 0 && el.scrollWidth > el.clientWidth) return true // arrastar para a direita rola ela de volta
+  }
+  return false
+}
+
 /**
- * Arrastar da borda esquerda para a direita volta uma pasta. O toque precisa começar nos primeiros EDGE px (depois da
- * área segura) e andar mais para o lado do que para baixo; só então a rolagem é segurada (touchmove não passivo, com
- * preventDefault só depois de travar no gesto). Começar na fileira de chips já rolada é dela, não nosso. A tela atual
- * acompanha o dedo (transform direto no elemento, sem redesenhar) e a de cima aparece por trás, deslocada e escurecida.
- * Soltou depois de 35% da largura ou rápido (> 0,5 px/ms): termina com --spring e volta; senão, desliza de volta.
+ * Arrastar para a direita, de qualquer ponto da tela, volta uma pasta. Só a faixa de EDGE px da borda esquerda fica de
+ * fora (é do sistema). O dedo precisa andar mais para o lado do que para baixo; só então a rolagem é segurada
+ * (touchmove não passivo, com preventDefault só depois de travar no gesto). Para a esquerda ou na vertical, não é com a
+ * gente. A tela atual acompanha o dedo (transform direto no elemento, sem redesenhar) e a de cima aparece por trás,
+ * deslocada e escurecida. Soltou depois de 35% da largura ou rápido (> 0,5 px/ms): termina com --spring e volta; senão,
+ * desliza de volta. Se o sistema voltar no meio (popstate), o nosso desiste sem voltar de novo.
  * Com "reduzir movimento": nada se mexe no arrasto; ao soltar além do limite, só volta.
  */
-function useEdgeSwipe({ enabled, screenRef, behindRef, onStart, onEnd, onBack }) {
+function useSwipeBack({ enabled, screenRef, behindRef, onStart, onEnd, onBack }) {
   const cb = useRef({ onStart, onEnd, onBack })
   cb.current = { onStart, onEnd, onBack }
   useEffect(() => {
     if (!enabled) return
     let g = null
+    let anim = null // a tela deslizando depois de soltar
     const W = () => window.innerWidth || 390
     const paint = (dx) => {
       const el = screenRef.current
@@ -648,10 +667,9 @@ function useEdgeSwipe({ enabled, screenRef, behindRef, onStart, onEnd, onBack })
     const start = (e) => {
       if (g || e.touches.length !== 1) return
       const t = e.touches[0]
-      if (t.clientX > safeLeft() + EDGE) return
+      if (t.clientX <= safeLeft() + EDGE) return
       if (document.documentElement.classList.contains('has-sheet')) return
-      const chips = e.target.closest?.('.dchips')
-      if (chips && chips.scrollLeft > 0) return
+      if (ownsDrag(e.target)) return
       g = { x0: t.clientX, y0: t.clientY, dx: 0, on: false, samples: [{ x: t.clientX, t: performance.now() }] }
     }
     const move = (e) => {
@@ -660,8 +678,8 @@ function useEdgeSwipe({ enabled, screenRef, behindRef, onStart, onEnd, onBack })
       const dx = t.clientX - g.x0
       const dy = t.clientY - g.y0
       if (!g.on) {
-        if (Math.abs(dy) > 10 && Math.abs(dy) > dx) return void (g = null) // rolagem: não é com a gente
-        if (dx < 10 || dx < Math.abs(dy) * 1.2) return
+        if (dx < -10 || (Math.abs(dy) > 10 && Math.abs(dy) > dx)) return void (g = null) // para a esquerda ou rolagem
+        if (dx < 12 || dx < Math.abs(dy) * 1.4) return
         g.on = true
         g.reduced = reducedMotion()
         g.x0 = t.clientX - 1 // sem salto: o arrasto começa de onde travou
@@ -690,10 +708,12 @@ function useEdgeSwipe({ enabled, screenRef, behindRef, onStart, onEnd, onBack })
       }
       transition(true)
       paint(done ? W() : 0)
-      let over = false
+      const a = { over: false }
+      anim = a
       const finish = () => {
-        if (over) return
-        over = true
+        if (a.over) return
+        a.over = true
+        anim = null
         if (done) {
           cb.current.onBack()
           // a pasta de cima entra no lugar antes de a tela voltar para o zero (sem piscar a pasta que saiu)
@@ -703,15 +723,26 @@ function useEdgeSwipe({ enabled, screenRef, behindRef, onStart, onEnd, onBack })
       screenRef.current?.addEventListener('transitionend', finish, { once: true })
       setTimeout(finish, 450)
     }
+    // O sistema voltou (gesto da borda, botão do Android) com o nosso no meio: desiste sem voltar outra vez.
+    const abort = () => {
+      if (!g?.on && !anim) return
+      if (anim) anim.over = true
+      anim = null
+      g = null
+      reset()
+    }
     document.addEventListener('touchstart', start, { passive: true })
     document.addEventListener('touchmove', move, { passive: false })
     document.addEventListener('touchend', end)
     document.addEventListener('touchcancel', end)
+    window.addEventListener('popstate', abort)
     return () => {
       document.removeEventListener('touchstart', start)
       document.removeEventListener('touchmove', move)
       document.removeEventListener('touchend', end)
       document.removeEventListener('touchcancel', end)
+      window.removeEventListener('popstate', abort)
+      abort()
     }
   }, [enabled])
 }
@@ -734,6 +765,7 @@ function SwipeBehind({ scope, path, prefs, innerRef }) {
   const shown = files ? files.filter((f) => !isMacJunk(f)).slice(0, 24) : null
   const view = prefs.view || (shown ? autoView(shown) : 'list')
   const title = folder ? folder.name : SCOPES.find((x) => x.id === scope)?.aria
+  const size = folder ? folderSizes.get(folder.id) : null // só o que já foi somado (aqui não começa conta nenhuma)
   const noop = () => {}
   return html`<div class="dswipe-behind" ref=${innerRef} aria-hidden="true" inert>
     <div class=${cx('screen', 'drive-screen', view === 'list' && 'is-list')}>
@@ -741,9 +773,43 @@ function SwipeBehind({ scope, path, prefs, innerRef }) {
         <div class="dtop-row">
           ${folder ? html`<span class="icon-btn dtop-back"><${Icon} name="chevron-left" size=${22} strokeWidth=${2} /></span>` : null}
           <h1 class="dtop-title">${title}</h1>
+          <div class="dtop-actions"><span class="icon-btn"><${Icon} name=${view === 'grid' ? 'list' : 'grid'} size=${20} /></span></div>
+        </div>
+        ${path.length
+          ? html`<nav class="crumbs dcrumbs">
+              <span class="crumb">${SCOPES.find((x) => x.id === scope)?.label}</span>
+              ${path.map(
+                (p, i) => html`<${Icon} name="chevron-right" size=${12} strokeWidth=${2} class="crumb-sep" />
+                  <span class=${cx('crumb', i === path.length - 1 && 'is-here')}>${p.name}</span>`,
+              )}
+            </nav>`
+          : html`<div class="scopes">
+              ${SCOPES.map((x) => html`<span class=${cx('scope', scope === x.id && 'is-on')}>${x.label}</span>`)}
+            </div>`}
+        <div class="search">
+          <${Icon} name="search" size=${17} />
+          <input type="search" tabindex="-1" readonly placeholder=${scope === 'mine' ? 'Buscar no Drive todo' : scope === 'drives' && path[0] ? `Buscar em todo o “${path[0].name}”` : `Buscar em ${SCOPES.find((x) => x.id === scope)?.aria}`} />
         </div>
       </header>
       <main class="drive-body">
+        ${scope === 'drives' && !path.length
+          ? null
+          : html`<${DriveTools} prefs=${prefs} filter="all" menu=${false} setMenu=${noop} onPrefs=${noop} onFilter=${noop} />`}
+        ${folder
+          ? html`<div class="dfolder">
+              ${size?.status === 'done'
+                ? html`<div class="dsize">
+                    <span class="dsize-text"><b>${total(size.bytes)}</b> · ${plural(size.files, 'arquivo', 'arquivos')}${size.folders ? ` em ${plural(size.folders, 'pasta', 'pastas')}` : ''}</span>
+                    <span class="dsize-act is-icon"><${Icon} name="refresh" size=${16} strokeWidth=${2} /></span>
+                  </div>`
+                : size && isLive(size)
+                  ? html`<div class="dsize is-live"><span class="spinner dsize-spin"></span><span class="dsize-text">Calculando… <b>${bytes(size.bytes)}</b></span></div>`
+                  : null}
+              ${folder.canAdd !== false && destOf(scope, path)
+                ? html`<span class="dhere"><span class="btn btn-sm dhere-btn"><${Icon} name="upload" size=${16} strokeWidth=${2} /><span>Enviar aqui</span></span></span>`
+                : null}
+            </div>`
+          : null}
         ${shown
           ? view === 'grid'
             ? html`<ul class="tiles">${shown.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${files} onOpen=${noop} />`)}</ul>`
@@ -923,12 +989,12 @@ export function DriveScreen({ active }) {
       history.back()
     }
   }
-  // Com o gesto próprio ligado, nenhum gesto lateral do navegador junto (seria voltar duas vezes).
+  // No app da Tela de Início, a página não balança para os lados (o arrasto de voltar é o único movimento lateral).
   useEffect(() => {
-    if (edgeSwipeHere()) document.documentElement.classList.add('is-ios-app')
+    if (isIOS && isStandalone()) document.documentElement.classList.add('is-ios-app')
   }, [])
-  const canSwipe = active && !preview && !search && nav.path.length > 0 && edgeSwipeHere()
-  useEdgeSwipe({
+  const canSwipe = active && !preview && !search && nav.path.length > 0 && swipeHere()
+  useSwipeBack({
     enabled: canSwipe,
     screenRef: root,
     behindRef,

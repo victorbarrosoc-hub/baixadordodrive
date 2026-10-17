@@ -97,14 +97,17 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
 - **Voltar de pasta (2.8.0):** cada pasta aberta é uma entrada do histórico (`history.pushState` com
   `{ sd: 'drive', scope, path, base }`), e a prévia aberta também: o gesto nativo do Safari e o botão voltar do
   Android voltam a pasta (ou fecham a prévia) em vez de sair do app; o `popstate` leva à pasta da entrada. A seta, a
-  trilha e o gesto usam `history.go` quando a corrente de entradas está inteira (senão empilham uma nova). No app da
-  Tela de Início do iPhone (`navigator.standalone`), onde o Safari não tem gesto de voltar, há um próprio
-  (`useEdgeSwipe`): o toque começa nos primeiros 20 px depois de `env(safe-area-inset-left)` e anda para a direita; a
-  tela acompanha o dedo e a pasta de cima aparece por trás (parallax de 30% e escurecimento). Soltou depois de 35% da
-  largura ou a mais de 0,5 px/ms: termina com `--spring` e volta; senão, desliza de volta. Só trava depois de andar
-  mais para o lado do que para baixo (rolagem vertical continua dela; a fileira de chips já rolada também), e lá o
-  `overscroll-behavior-x: none` evita voltar duas vezes. Com “reduzir movimento”, nada se mexe no arrasto: ao soltar
-  além do limite, só volta. Na raiz, nada.
+  trilha e o gesto usam `history.go` quando a corrente de entradas está inteira (senão empilham uma nova).
+- **Voltar arrastando (2.8.1):** em tela de toque, arrastar para a direita de **qualquer ponto** da tela volta uma pasta
+  (`useSwipeBack`), como no iOS 26. A faixa de 24 px depois de `env(safe-area-inset-left)` fica para o gesto do
+  sistema (Safari, app da Tela de Início no iOS 26, Android): na 2.8.0 o nosso começava lá e rodava junto com o do
+  iPhone, e apareciam duas telas por trás. Se o sistema voltar no meio do nosso (`popstate`), o nosso desiste sem voltar
+  outra vez. A tela acompanha o dedo e a pasta de cima aparece por trás (cabeçalho, trilha, busca e chips iguais aos
+  de verdade, parallax de 30% e escurecimento). Soltou depois de 35% da largura ou a mais de 0,5 px/ms: termina com
+  `--spring` e volta; senão, desliza de volta. Só trava depois de andar 12 px para a direita e mais para o lado do que
+  para baixo (1,4×); para a esquerda ou na vertical é rolagem. Não começa em campo de texto nem em faixa já rolada de
+  lado (chips, trilha). Com “reduzir movimento”, nada se mexe no arrasto: ao soltar além do limite, só volta. Na raiz,
+  na busca e com a prévia aberta, nada.
 - **Arquivos do Mac** (`._*`, `.DS_Store`): ocultos por padrão, com a linha “38 arquivos do Mac ocultos · Mostrar ·
   Limpar”. Limpar abre uma folha de confirmação que lista a pasta toda e só move para a lixeira do Drive
   (`files.update` com `trashed: true`, `supportsAllDrives`; recuperável por 30 dias) os que começam com `._` **e** têm
