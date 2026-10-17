@@ -114,6 +114,7 @@ function Meta({ it, waiting }) {
       return html`<span class="row-note is-wrap">${percent(progressOf(it))} enviado · escolha o arquivo de novo para continuar</span>`
     case 'done':
       return html`<span class="row-nums">${bytes(it.size)}</span>
+        ${it.sizeOk ? html`<span class="row-dot" aria-hidden="true">·</span><span class="row-note row-ok">tamanho confere</span>` : null}
         ${it.fileId
           ? html`<a class="row-link" href=${driveLink(it.fileId)} target="_blank" rel="noopener noreferrer" onClick=${(e) => e.stopPropagation()}>
               Abrir no Drive <${Icon} name="external" size=${13} />
@@ -193,7 +194,7 @@ export function ItemSheet({ id }) {
     </div>
     <div class="item-state">
       <${Pill} tone=${st.tone}>${st.label}</${Pill}>
-      <span class="sub">${it.status === 'failed' ? '' : percent(progressOf(it))}</span>
+      <span class="sub">${it.status === 'failed' ? '' : it.status === 'done' && it.sizeOk ? 'Tamanho confere com o Drive' : percent(progressOf(it))}</span>
     </div>
     ${it.status === 'failed' ? html`<p class="item-error">${it.error}</p>` : null}
     ${it.status === 'needsFile'
