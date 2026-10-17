@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Moldura } from "@/components/conta/moldura";
-import { exigirUsuario } from "@/lib/auth/atual";
-import { buscarPedido, normalizarCodigo } from "@/lib/dispositivo";
-import { NOME_PLATAFORMA } from "@/lib/tempo";
+import { exigirUsuario, ipAtual } from "@/lib/auth/atual";
+import { buscarPedido, lugarLegivel, mesmaRede, normalizarCodigo } from "@/lib/dispositivo";
+import { NOME_PLATAFORMA, tempoRelativo } from "@/lib/tempo";
 import { DigitarCodigo, Liberar, PedidoVencido } from "./liberar";
 
 export const metadata: Metadata = { title: "Conectar computador" };
@@ -32,9 +32,16 @@ export default async function Dispositivo({ searchParams }: Props) {
     );
   }
 
+  const agora = new Date();
+  const hora = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Fortaleza" }).format(pedido.criadoEm);
+  const ip = await ipAtual();
   return (
     <Moldura estreita titulo="Liberar computador" subtitulo="Ele entra na sua conta e usa os seus Drives.">
       <Liberar
+        pedidoEm={`${tempoRelativo(pedido.criadoEm, agora)}, às ${hora} (horário de Brasília)`}
+        lugar={lugarLegivel(pedido.lugar)}
+        ip={pedido.lugar.ip}
+        mesmaRede={mesmaRede(pedido.lugar.ip, ip)}
         codigo={pedido.codigo}
         nome={pedido.nome}
         plataforma={pedido.plataforma ? NOME_PLATAFORMA[pedido.plataforma] : null}

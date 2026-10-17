@@ -55,7 +55,7 @@ export default async function Entrar({ searchParams }: Props) {
 
       <p className="mt-12 text-center text-[15px] text-ink-2">
         Ainda não tem conta?{" "}
-        <Link href={comVolta("/criar-conta")} className="font-medium text-ink underline-offset-4 hover:underline">
+        <Link href={comVolta("/criar-conta")} className="toque font-medium text-ink underline-offset-4 hover:underline">
           Criar conta
         </Link>
       </p>

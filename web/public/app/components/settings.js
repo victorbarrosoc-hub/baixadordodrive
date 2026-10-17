@@ -2,7 +2,8 @@
 // sobem juntos e o tamanho do pedaço).
 import { html, useState } from '../vendor/preact-htm.js'
 import { ACCOUNT, CHUNK_AUTO, DEV, LAN, VERSION, getSettings, saveSettings } from '../lib/config.js'
-import { bytes } from '../lib/format.js'
+import { bytes, percent } from '../lib/format.js'
+import { fraction, isActive } from '../lib/computador.js'
 import { closeSheet, openSheet, useApp } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
 import { Icon } from './icons.js'
@@ -37,8 +38,16 @@ const NETWORKS = {
 }
 const networkOf = (s) => (s.chunkMiB === CHUNK_AUTO ? 'auto' : s.concurrency >= 3 ? 'wifi' : 'mobile')
 
+/** A linha de "No computador" em Ajustes: sempre aparece, mesmo sem nada nas últimas 24 h. */
+function pcSummary(pcs = []) {
+  const ativo = pcs.find((pc) => isActive(pc))
+  if (ativo) return `${ativo.nome} · ${percent(fraction(ativo.snapshot))}`
+  if (pcs.length) return pcs.length === 1 ? `${pcs[0].nome} · nada passando agora` : `${pcs.length} computadores · nada passando agora`
+  return 'Acompanhe o app do computador'
+}
+
 export function SettingsSheet() {
-  const { user, quota, lan, account, drives } = useApp((s) => ({ user: s.user, quota: s.quota, lan: s.lan, account: s.account, drives: s.drives }))
+  const { user, quota, lan, account, drives, pcs } = useApp((s) => ({ user: s.user, quota: s.quota, lan: s.lan, account: s.account, drives: s.drives, pcs: s.pc.computadores }))
   const [settings, setSettings] = useState(getSettings())
   const network = networkOf(settings)
 
@@ -88,7 +97,15 @@ export function SettingsSheet() {
               acima${lan?.deleteAfterUpload ? ' (e apaga a cópia do computador depois de conferir)' : ''}. A pasta padrão e a conta
               se trocam no computador, em Ajustes → Celular.
             </p>`
-        : html`<h3 class="list-label">Conta SOBEDESCE</h3>
+        : html`<h3 class="list-label">No computador</h3>
+      <ul class="group menu">
+        <li>
+          <button type="button" class="menu-item" onClick=${() => openSheet('computador')}>
+            <${Icon} name="laptop" /><span class="menu-text">Transferências do computador<small>${pcSummary(pcs)}</small></span><${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="menu-chev" />
+          </button>
+        </li>
+      </ul>
+      <h3 class="list-label">Conta SOBEDESCE</h3>
       <ul class="group menu">
         <li>
           <button type="button" class="menu-item" onClick=${() => openSheet('drives')}>

@@ -321,3 +321,36 @@ export async function setFolderOpen(folderId, open) {
     }
   }
 }
+
+// ───── motivo curto do erro (quadrado da coleção) ─────
+
+/**
+ * A mensagem do computador ("O Instagram pediu login: entre no Instagram pelo navegador de referências.") cabe no
+ * quadrado só como uma linha curta: "Instagram pediu login". A mensagem inteira continua na folha do item.
+ */
+export function motivoCurto(erro) {
+  const t = String(erro || '').trim()
+  if (!t) return 'Não baixou'
+  const login = /^(?:O |A )?(.+?) pediu login/i.exec(t)
+  if (login) return `${login[1][0].toUpperCase()}${login[1].slice(1)} pediu login`
+  const regras = [
+    [/privado ou removido/i, 'Privado ou removido'],
+    [/não está disponível no Brasil/i, 'Bloqueado no Brasil'],
+    [/não tem vídeo/i, 'Post sem vídeo'],
+    [/não é de um vídeo/i, 'Link sem vídeo'],
+    [/grande demais/i, 'Grande demais'],
+    [/limitou/i, 'Limite do site, tente depois'],
+    [/recusou/i, 'Recusado, tente depois'],
+    [/sem conexão/i, 'Sem conexão'],
+    [/ffmpeg/i, 'Faltou o ffmpeg'],
+    [/formato/i, 'Formato indisponível'],
+    [/coleção não existe/i, 'Coleção apagada'],
+    [/não deu para salvar/i, 'Não deu para salvar'],
+    [/não deu para baixar/i, 'Não deu para baixar'],
+  ]
+  for (const [re, curto] of regras) if (re.test(t)) return curto
+  const first = t.split(/[:.]/)[0].replace(/^(?:O|A) /, '').trim()
+  if (first.length <= 28) return first || 'Não baixou'
+  const cut = first.slice(0, 28)
+  return `${cut.slice(0, cut.lastIndexOf(' ') > 12 ? cut.lastIndexOf(' ') : 27).trimEnd()}…`
+}

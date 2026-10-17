@@ -96,8 +96,11 @@ export async function callback(req: Request): Promise<Response> {
     return ir(comParametro(volta, "google", "ok"));
   }
 
-  // Continuar com Google: conta Google já vinculada entra; nova cria a conta SOBEDESCE com este Drive.
-  let usuarioId = await donoDaContaGoogle(quem, temDrive ? tokens : { ...tokens, refresh: null });
+  // Continuar com Google: o Google de entrar de uma conta entra nela; um Google que só está conectado como Drive
+  // não abre a conta (revisão A3); um Google novo cria a conta SOBEDESCE com este Drive.
+  const entrada = await donoDaContaGoogle(quem, temDrive ? tokens : { ...tokens, refresh: null });
+  if (entrada.tipo === "nao_e_login") return falhar("google_nao_e_login");
+  let usuarioId = entrada.tipo === "ok" ? entrada.usuarioId : null;
   let criou = false;
   if (!usuarioId) {
     if (!temDrive) return falhar("google_sem_drive");

@@ -6,7 +6,8 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { EstadoContaGoogle } from "@/lib/db/schema";
-import { dentroDoLimite, REGRAS, registrarTentativa } from "@/lib/auth/limite";
+import { dentroDoLimite, esquecerTentativas, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "@/lib/auth/limite";
+import { conferirSenha } from "@/lib/auth/senha";
 import { novoId } from "@/lib/auth/tokens";
 import { abrir, ChaveErrada, selar } from "./cripto";
 import { GoogleError } from "./erros";
@@ -52,21 +53,38 @@ export type ResultadoVinculo = { ok: true; conta: Conta; nova: boolean } | { ok:
 /**
  * Grava a conta Google do consentimento na conta SOBEDESCE `usuarioId`.
  * Já é desta conta: atualiza tokens e perfil (é o "Reconectar"). É de outra: recusa sem gravar nada.
+ * O `email_verified` do Google é gravado a cada vez (admin exige e-mail confirmado).
+ * Um Drive novo nunca vira porta de entrada sozinho: `login` só no "Continuar com Google" que cria a conta.
  */
-export async function vincularConta(usuarioId: string, p: PerfilGoogle, tokens: Tokens & { refresh: string }): Promise<ResultadoVinculo> {
+export async function vincularConta(
+  usuarioId: string,
+  p: PerfilGoogle,
+  tokens: Tokens & { refresh: string },
+  opcoes: { login?: boolean } = {},
+): Promise<ResultadoVinculo> {
   const existente = await db.query.contasGoogle.findFirst({ where: eq(contasGoogle.googleSub, p.sub) });
   if (existente && existente.usuarioId !== usuarioId) return { ok: false, erro: "google_outra_conta" };
   if (existente) {
     await db
       .update(contasGoogle)
-      .set({ ...camposDosTokens(existente.id, tokens, tokens.refresh), email: p.email, nome: p.nome, fotoUrl: p.fotoUrl })
+      .set({ ...camposDosTokens(existente.id, tokens, tokens.refresh), email: p.email, nome: p.nome, fotoUrl: p.fotoUrl, emailVerificado: p.emailVerificado })
       .where(eq(contasGoogle.id, existente.id));
     return { ok: true, nova: false, conta: contaPublica({ ...existente, email: p.email, nome: p.nome, fotoUrl: p.fotoUrl, estado: "ok" }) };
   }
   const id = novoId();
   const inserida = await db
     .insert(contasGoogle)
-    .values({ id, usuarioId, googleSub: p.sub, email: p.email, nome: p.nome, fotoUrl: p.fotoUrl, ...camposDosTokens(id, tokens, tokens.refresh) })
+    .values({
+      id,
+      usuarioId,
+      googleSub: p.sub,
+      email: p.email,
+      nome: p.nome,
+      fotoUrl: p.fotoUrl,
+      emailVerificado: p.emailVerificado,
+      loginPermitido: opcoes.login === true,
+      ...camposDosTokens(id, tokens, tokens.refresh),
+    })
     .onConflictDoNothing({ target: contasGoogle.googleSub })
     .returning({ id: contasGoogle.id });
   if (inserida.length === 0) {
@@ -78,20 +96,71 @@ export async function vincularConta(usuarioId: string, p: PerfilGoogle, tokens: 
   return { ok: true, nova: true, conta: { id, email: p.email, nome: p.nome, fotoUrl: p.fotoUrl, estado: "ok" } };
 }
 
+export type ResultadoEntrada = { tipo: "ok"; usuarioId: string } | { tipo: "nao_vinculada" } | { tipo: "nao_e_login" };
+
 /**
- * "Entrar com Google": dono da conta Google, ou null se ela não está vinculada.
- * Aproveita o consentimento para renovar os tokens guardados (tira o "reconectar").
+ * "Entrar com Google" (revisão A3): só entra pelo Google marcado para entrar (`loginPermitido`): o que criou a conta
+ * ou o escolhido em /conta. Um Drive conectado a mais (de um cliente, de uma equipe) não abre a conta: "nao_e_login",
+ * sem mexer em nada. Pelo Google de entrar, aproveita o consentimento para renovar os tokens (tira o "reconectar").
  */
-export async function donoDaContaGoogle(p: PerfilGoogle, tokens: Tokens): Promise<string | null> {
+export async function donoDaContaGoogle(p: PerfilGoogle, tokens: Tokens): Promise<ResultadoEntrada> {
   const existente = await db.query.contasGoogle.findFirst({ where: eq(contasGoogle.googleSub, p.sub) });
-  if (!existente) return null;
-  const extras = { email: p.email, nome: p.nome, fotoUrl: p.fotoUrl, atualizadoEm: new Date() };
+  if (!existente) return { tipo: "nao_vinculada" };
+  if (!existente.loginPermitido) return { tipo: "nao_e_login" };
+  const extras = { email: p.email, nome: p.nome, fotoUrl: p.fotoUrl, emailVerificado: p.emailVerificado, atualizadoEm: new Date() };
   await db
     .update(contasGoogle)
     .set(tokens.refresh ? { ...camposDosTokens(existente.id, tokens, tokens.refresh), ...extras } : extras)
     .where(eq(contasGoogle.id, existente.id));
   await db.update(usuarios).set({ ultimoLoginEm: new Date() }).where(eq(usuarios.id, existente.usuarioId));
-  return existente.usuarioId;
+  return { tipo: "ok", usuarioId: existente.usuarioId };
+}
+
+/** Id do Google que entra na conta (null = nenhum: só e-mail e senha). */
+export async function googleDeEntrar(usuarioId: string): Promise<string | null> {
+  const l = await db.query.contasGoogle.findFirst({
+    where: and(eq(contasGoogle.usuarioId, usuarioId), eq(contasGoogle.loginPermitido, true)),
+    columns: { id: true },
+  });
+  return l?.id ?? null;
+}
+
+export type FalhaEntrada = { ok: false; erro: "sem_senha" | "credenciais" | "nao_encontrada" | "devagar"; mensagem: string; campo?: "senhaAtual" | "conta" };
+
+/**
+ * Troca o Google de entrar (ou desliga, com `contaId` null). Pede a senha atual: com uma sessão roubada, ninguém
+ * põe o próprio Google como porta de entrada. Conta sem senha (criada pelo Google) cria uma senha antes, pelo link
+ * por e-mail; assim ela nunca fica sem jeito de entrar.
+ */
+export async function trocarGoogleDeEntrar(entrada: { usuarioId: string; contaId: string | null; senhaAtual: unknown }): Promise<{ ok: true; conta: Conta | null } | FalhaEntrada> {
+  const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, entrada.usuarioId), columns: { id: true, senhaHash: true } });
+  if (!usuario) return { ok: false, erro: "nao_encontrada", mensagem: "Entre na sua conta para continuar." };
+  if (!usuario.senhaHash.startsWith("scrypt$")) {
+    return { ok: false, erro: "sem_senha", mensagem: "Crie uma senha antes de trocar o Google de entrar." };
+  }
+  const chave = `senha:${usuario.id}`;
+  if (!(await dentroDoLimite(chave, REGRAS.loginEmail))) return { ok: false, erro: "devagar", mensagem: MENSAGEM_LIMITE };
+  const senha = typeof entrada.senhaAtual === "string" ? entrada.senhaAtual : "";
+  if (!senha || !(await conferirSenha(senha, usuario.senhaHash))) {
+    await registrarTentativa(chave);
+    return { ok: false, erro: "credenciais", campo: "senhaAtual", mensagem: "A senha atual não confere." };
+  }
+  await esquecerTentativas(chave);
+
+  return db.transaction(async (t) => {
+    let escolhida: Linha | undefined;
+    if (entrada.contaId) {
+      [escolhida] = await t
+        .select()
+        .from(contasGoogle)
+        .where(and(eq(contasGoogle.id, entrada.contaId), eq(contasGoogle.usuarioId, usuario.id)));
+      if (!escolhida) return { ok: false as const, erro: "nao_encontrada" as const, campo: "conta" as const, mensagem: "Este Drive não está mais na sua conta." };
+    }
+    // Primeiro desliga todos (o índice único aceita no máximo um ligado por conta), depois liga o escolhido.
+    await t.update(contasGoogle).set({ loginPermitido: false }).where(and(eq(contasGoogle.usuarioId, usuario.id), eq(contasGoogle.loginPermitido, true)));
+    if (escolhida) await t.update(contasGoogle).set({ loginPermitido: true }).where(eq(contasGoogle.id, escolhida.id));
+    return { ok: true as const, conta: escolhida ? contaPublica(escolhida) : null };
+  });
 }
 
 /** Marca de conta criada pelo Google: não é um hash, então nenhuma senha confere até a pessoa criar uma (Esqueci a senha). */
@@ -118,7 +187,8 @@ export async function criarContaComGoogle(p: PerfilGoogle, tokens: Tokens & { re
     .onConflictDoNothing({ target: usuarios.email })
     .returning({ id: usuarios.id });
   if (criado.length === 0) return { ok: false, erro: "google_email_em_uso" };
-  const v = await vincularConta(usuarioId, p, tokens);
+  // O Google que cria a conta é o de entrar.
+  const v = await vincularConta(usuarioId, p, tokens, { login: true });
   if (!v.ok) {
     // Corrida rara: outra aba vinculou esta conta Google a outro usuário no meio do caminho.
     await db.delete(usuarios).where(eq(usuarios.id, usuarioId));
@@ -127,17 +197,26 @@ export async function criarContaComGoogle(p: PerfilGoogle, tokens: Tokens & { re
   return { ok: true, usuarioId };
 }
 
-/** Remove a conta: revoga no Google (melhor esforço) e apaga a linha. */
-export async function removerConta(usuarioId: string, contaId: string): Promise<boolean> {
+export type ResultadoRemocao = { ok: true } | { ok: false; erro: "nao_encontrada" | "google_de_entrar" };
+
+/**
+ * Remove a conta: revoga no Google (melhor esforço) e apaga a linha.
+ * O Google de entrar de uma conta sem senha não sai: seria a única porta de entrada dela.
+ */
+export async function removerConta(usuarioId: string, contaId: string): Promise<ResultadoRemocao> {
   const l = await db.query.contasGoogle.findFirst({ where: and(eq(contasGoogle.id, contaId), eq(contasGoogle.usuarioId, usuarioId)) });
-  if (!l) return false;
+  if (!l) return { ok: false, erro: "nao_encontrada" };
+  if (l.loginPermitido) {
+    const u = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId), columns: { senhaHash: true } });
+    if (!u?.senhaHash.startsWith("scrypt$")) return { ok: false, erro: "google_de_entrar" };
+  }
   try {
     await revogar(abrir(l.refreshTokenEnc, ctxRefresh(l.id)));
   } catch {
     // chave trocada: a linha sai do mesmo jeito
   }
   await db.delete(contasGoogle).where(and(eq(contasGoogle.id, contaId), eq(contasGoogle.usuarioId, usuarioId)));
-  return true;
+  return { ok: true };
 }
 
 export class ErroConta extends Error {

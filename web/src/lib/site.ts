@@ -51,7 +51,7 @@ export const SITE_URL = siteUrl();
 export const CONTATO_EMAIL = "contato@dissesim.com.br";
 
 /** Data da última revisão da Política de Privacidade e dos Termos. */
-export const LEGAL_ATUALIZADO_EM = "16 de outubro de 2026";
+export const LEGAL_ATUALIZADO_EM = "17 de outubro de 2026";
 
 /** Instaladores do app de computador (as rotas redirecionam para o arquivo da versão atual). */
 export const DOWNLOAD_MAC = "/baixar/mac";

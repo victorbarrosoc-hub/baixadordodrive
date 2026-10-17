@@ -1,5 +1,6 @@
 /**
- * Google contra o Google falso: vincular (e conta Google de outro usuário), recusar, entrar com Google,
+ * Google contra o Google falso: vincular (e conta Google de outro usuário), recusar, entrar com Google
+ * (só pelo Google de entrar: revisão A3), primeira senha só pelo e-mail (A5), e-mail confirmado gravado (A2),
  * token reaproveitado vs renovado (uma renovação por vez), invalid_grant → reconectar/409,
  * reconectar, remover (revoga) e `volta` externo recusado.
  */
@@ -154,7 +155,31 @@ describe("vincular", () => {
 });
 
 describe("entrar com Google", () => {
-  test("conta Google vinculada: cria a sessão do dono e vai para volta", async () => {
+  test("Drive conectado a uma conta não abre a conta: nada de sessão e nada muda no banco (A3)", async () => {
+    const { db, schema } = amb.banco;
+    const antes = (await db.select().from(schema.contasGoogle))[0];
+    assert.equal(antes.loginPermitido, false, "conectar um Drive não liga o login");
+    const r = await fluxo({ modo: "entrar", conta: CONTA_ANA, volta: "/app" });
+    assert.equal(r.destino, "/entrar?erro=google_nao_e_login&volta=%2Fapp");
+    assert.equal(cookiesDe(r.res!).get("sd_sessao"), undefined);
+    const depois = (await db.select().from(schema.contasGoogle))[0];
+    assert.equal(depois.refreshTokenEnc, antes.refreshTokenEnc, "os tokens guardados não mudam");
+    assert.equal(depois.atualizadoEm.getTime(), antes.atualizadoEm.getTime());
+    assert.equal((await db.select().from(schema.usuarios)).length, 2, "também não cria outra conta");
+  });
+
+  test("escolher o Google de entrar pede a senha atual; aí ele entra e cai na conta do dono", async () => {
+    const anaId = (await contasDe(victor.token))[0].id;
+    const semSenha = await contasGoogle.trocarGoogleDeEntrar({ usuarioId: victor.id, contaId: anaId, senhaAtual: "" });
+    assert.ok(!semSenha.ok && semSenha.erro === "credenciais");
+    const errada = await contasGoogle.trocarGoogleDeEntrar({ usuarioId: victor.id, contaId: anaId, senhaAtual: "nao e a senha" });
+    assert.ok(!errada.ok && errada.campo === "senhaAtual");
+    const deOutro = await contasGoogle.trocarGoogleDeEntrar({ usuarioId: edu.id, contaId: anaId, senhaAtual: "senha do edu!!" });
+    assert.ok(!deOutro.ok && deOutro.erro === "nao_encontrada", "Drive de outra pessoa não vira login");
+    const certa = await contasGoogle.trocarGoogleDeEntrar({ usuarioId: victor.id, contaId: anaId, senhaAtual: "senha do victor" });
+    assert.ok(certa.ok && certa.conta?.email === "ana@exemplo.com");
+    assert.equal(await contasGoogle.googleDeEntrar(victor.id), anaId);
+
     const r = await fluxo({ modo: "entrar", conta: CONTA_ANA, volta: "/app" });
     assert.equal(r.destino, "/app");
     const nova = cookiesDe(r.res!).get("sd_sessao");
@@ -164,7 +189,28 @@ describe("entrar com Google", () => {
     assert.equal((await res.json()).usuario.id, victor.id);
   });
 
-  test("conta Google nova: cria a conta SOBEDESCE com o Drive já conectado", async () => {
+  test("um segundo Drive conectado não vira porta de entrada; trocar o de entrar desliga o anterior", async () => {
+    const beto = { ...CONTA_BETO, sub: "223", email: "beto.cliente@exemplo.com" };
+    assert.equal((await fluxo({ modo: "vincular", conta: beto, sessao: victor.token })).destino, "/conta?google=ok");
+    const [ana, cliente] = await contasDe(victor.token);
+    assert.equal(await contasGoogle.googleDeEntrar(victor.id), ana.id, "o de entrar continua o mesmo");
+    assert.equal((await fluxo({ modo: "entrar", conta: beto })).destino, "/entrar?erro=google_nao_e_login");
+
+    const trocou = await contasGoogle.trocarGoogleDeEntrar({ usuarioId: victor.id, contaId: cliente.id, senhaAtual: "senha do victor" });
+    assert.ok(trocou.ok);
+    assert.equal((await fluxo({ modo: "entrar", conta: CONTA_ANA })).destino, "/entrar?erro=google_nao_e_login", "a Ana deixou de entrar");
+    assert.equal((await fluxo({ modo: "entrar", conta: beto, volta: "/app" })).destino, "/app");
+
+    // Nenhum: só e-mail e senha. Depois volta para a Ana e o Drive do cliente sai.
+    const nenhum = await contasGoogle.trocarGoogleDeEntrar({ usuarioId: victor.id, contaId: null, senhaAtual: "senha do victor" });
+    assert.ok(nenhum.ok && nenhum.conta === null);
+    assert.equal(await contasGoogle.googleDeEntrar(victor.id), null);
+    assert.equal((await fluxo({ modo: "entrar", conta: beto })).destino, "/entrar?erro=google_nao_e_login");
+    assert.ok((await contasGoogle.trocarGoogleDeEntrar({ usuarioId: victor.id, contaId: ana.id, senhaAtual: "senha do victor" })).ok);
+    assert.deepEqual(await contasGoogle.removerConta(victor.id, cliente.id), { ok: true });
+  });
+
+  test("conta Google nova: cria a conta com o Drive já conectado e é ele que entra", async () => {
     const r = await fluxo({ modo: "entrar", conta: { sub: "999", email: "Novo@Exemplo.com", name: "Novo Usuário" } });
     assert.equal(r.destino, "/conta?google=ok");
     const sessao = cookiesDe(r.res!).get("sd_sessao");
@@ -173,22 +219,57 @@ describe("entrar com Google", () => {
     assert.equal(corpo.usuario.email, "novo@exemplo.com");
     assert.equal(corpo.usuario.nome, "Novo Usuário");
     assert.deepEqual(corpo.contas.map((c: { email: string }) => c.email), ["novo@exemplo.com"]);
+    assert.equal(await contasGoogle.googleDeEntrar(corpo.usuario.id), corpo.contas[0].id, "quem criou a conta é o Google de entrar");
     // Entrar de novo pelo Google cai na mesma conta (não cria outra).
     const deNovo = await fluxo({ modo: "entrar", conta: { sub: "999", email: "novo@exemplo.com", name: "Novo Usuário" } });
     assert.equal(deNovo.destino, "/conta");
     const corpo2 = await (await eu.GET(pedido("/api/eu", { cookies: { sd_sessao: cookiesDe(deNovo.res!).get("sd_sessao")! } }))).json();
     assert.equal(corpo2.usuario.id, corpo.usuario.id);
     // Sem senha: nenhuma senha entra nessa conta até a pessoa criar uma.
-    const contas = await import("../src/lib/auth/contas");
     const tentativa = await contas.entrarComSenha({ email: "novo@exemplo.com", senha: "google", ip: "9.9.9.9" });
     assert.equal(tentativa.ok, false);
-    // Depois ela cria uma senha sem precisar da "atual" e passa a entrar também com o e-mail.
-    assert.equal(await contas.contaComSenha(corpo.usuario.id), false);
-    const criada = await contas.trocarSenha({ usuarioId: corpo.usuario.id, sessaoId: "nenhuma", senhaAtual: "", senhaNova: "uma senha nova longa", ip: "9.9.9.9" });
-    assert.equal(criada.ok, true);
-    assert.equal(await contas.contaComSenha(corpo.usuario.id), true);
-    const comSenha = await contas.entrarComSenha({ email: "novo@exemplo.com", senha: "uma senha nova longa", ip: "9.9.9.9" });
-    assert.equal(comSenha.ok, true);
+  });
+
+  test("conta só-Google: a primeira senha não sai só com a sessão; sai pelo link no e-mail (A5)", async () => {
+    const { db, schema } = amb.banco;
+    const { eq } = drizzle;
+    const [u] = await db.select().from(schema.usuarios).where(eq(schema.usuarios.email, "novo@exemplo.com"));
+    const s = await (await import("../src/lib/auth/sessao")).criarSessao(u.id, "web");
+    const atual = await (await import("../src/lib/auth/sessao")).autenticar({ cookie: s.token });
+    assert.ok(atual);
+
+    // Uma sessão (roubada ou não) não cria a senha direto.
+    assert.equal(await contas.contaComSenha(u.id), false);
+    const direto = await contas.trocarSenha({ usuarioId: u.id, sessaoId: atual.sessao.id, senhaAtual: "", senhaNova: "uma senha nova longa", ip: "9.9.9.9" });
+    assert.ok(!direto.ok && direto.erro === "sem_senha");
+    assert.equal(await contas.contaComSenha(u.id), false);
+    // Nem troca o Google de entrar (seria pôr o próprio Google como porta).
+    const troca = await contasGoogle.trocarGoogleDeEntrar({ usuarioId: u.id, contaId: null, senhaAtual: "" });
+    assert.ok(!troca.ok && troca.erro === "sem_senha");
+    // Nem remove o único Google de entrar (ficaria sem jeito de entrar).
+    const [drive] = await contasDe(s.token);
+    assert.deepEqual(await contasGoogle.removerConta(u.id, drive.id), { ok: false, erro: "google_de_entrar" });
+
+    // O link vai para o e-mail da conta (o que o Google confirmou).
+    const redefinir = await import("../src/lib/auth/redefinir");
+    let tarefa: Promise<unknown> = Promise.resolve();
+    const pedidoLink = await redefinir.pedirPrimeiraSenha({ usuarioId: u.id, ip: "9.9.9.9", depois: (t) => void (tarefa = t()) });
+    await tarefa;
+    assert.ok(pedidoLink.ok);
+    assert.match(pedidoLink.mensagem, /novo@exemplo\.com/);
+    const e = amb.resend.recebidos.at(-1)!;
+    assert.deepEqual(e.to, ["novo@exemplo.com"]);
+    assert.match(e.subject, /senha/i);
+    const token = /\/nova-senha\?token=([A-Za-z0-9_-]{43})/.exec(e.text)![1];
+    const criada = await redefinir.redefinirSenha({ token, senha: "uma senha nova longa" });
+    assert.ok(criada.ok);
+    assert.equal(await contas.contaComSenha(u.id), true);
+    assert.ok((await contas.entrarComSenha({ email: "novo@exemplo.com", senha: "uma senha nova longa", ip: "9.9.9.9" })).ok);
+    // E o Google dela continua entrando.
+    assert.equal((await fluxo({ modo: "entrar", conta: { sub: "999", email: "novo@exemplo.com", name: "Novo Usuário" }, volta: "/app" })).destino, "/app");
+    // Quem já tem senha não pede o link de "primeira senha".
+    const deNovo = await redefinir.pedirPrimeiraSenha({ usuarioId: u.id, ip: "9.9.9.9", depois: () => {} });
+    assert.ok(!deNovo.ok && deNovo.erro === "tem_senha");
   });
 
   test("conta Google nova com e-mail que já tem conta com senha: não toma a conta", async () => {
@@ -206,6 +287,18 @@ describe("entrar com Google", () => {
   test("recusar ao entrar volta para /entrar com a volta guardada", async () => {
     const r = await fluxo({ modo: "entrar", conta: CONTA_ANA, negar: true, volta: "/dispositivo?codigo=BCDF-GHJK" });
     assert.equal(r.destino, "/entrar?erro=google_recusado&volta=%2Fdispositivo%3Fcodigo%3DBCDF-GHJK");
+  });
+
+  test("e-mail confirmado pelo Google fica gravado a cada conexão (admin depende dele, A2)", async () => {
+    const { db, schema } = amb.banco;
+    const { eq } = drizzle;
+    const naoConfirmado = { sub: "555", email: "sem.confirmar@exemplo.com", name: "Sem Confirmar", verificado: false };
+    assert.equal((await fluxo({ modo: "vincular", conta: naoConfirmado, sessao: edu.token })).destino, "/conta?google=ok");
+    const linha = async () => (await db.select().from(schema.contasGoogle).where(eq(schema.contasGoogle.googleSub, "555")))[0];
+    assert.equal((await linha()).emailVerificado, false);
+    assert.equal((await fluxo({ modo: "vincular", conta: { ...naoConfirmado, verificado: true }, sessao: edu.token })).destino, "/conta?google=ok");
+    assert.equal((await linha()).emailVerificado, true, "reconectar depois de confirmar atualiza");
+    assert.deepEqual(await contasGoogle.removerConta(edu.id, (await linha()).id), { ok: true });
   });
 });
 
@@ -292,8 +385,11 @@ describe("token do Drive", () => {
 
   test("remover: revoga no Google e apaga a linha", async () => {
     const antes = amb.google.contadores.revogacoes;
-    assert.equal(await contasGoogle.removerConta(edu.id, anaId), false, "só o dono remove");
-    assert.equal(await contasGoogle.removerConta(victor.id, anaId), true);
+    assert.deepEqual(await contasGoogle.removerConta(edu.id, anaId), { ok: false, erro: "nao_encontrada" }, "só o dono remove");
+    // A Ana é o Google de entrar do Victor, mas ele tem senha: pode remover (fica só com e-mail e senha).
+    assert.equal(await contasGoogle.googleDeEntrar(victor.id), anaId);
+    assert.deepEqual(await contasGoogle.removerConta(victor.id, anaId), { ok: true });
+    assert.equal(await contasGoogle.googleDeEntrar(victor.id), null);
     assert.equal(amb.google.contadores.revogacoes, antes + 1);
     assert.equal((await contasDe(victor.token)).length, 0);
     assert.equal((await pedirToken(victor.token, anaId)).status, 404);

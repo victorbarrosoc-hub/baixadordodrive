@@ -1,10 +1,12 @@
 import "server-only";
 /**
  * Tela de admin (/admin): quem entrou na plataforma. Só para os e-mails de SOBEDESCE_ADMINS (separados por
- * vírgula; padrão: o do Victor). Vale SÓ o e-mail de um Google Drive conectado na conta (contas_google), que o
- * Google confirmou. O e-mail da conta SOBEDESCE não vale: criar conta não confirma o e-mail, e o padrão é público
- * (rodapé, política), então qualquer um criaria uma conta com ele e abriria /admin. Conta criada pelo "Continuar
- * com Google" já nasce com o Drive conectado, então continua admin por ele.
+ * vírgula; padrão: o do Victor). Vale SÓ o e-mail de um Google Drive conectado na conta (contas_google) E que o
+ * Google disse estar confirmado (email_verified, gravado ao conectar ou entrar). O e-mail da conta SOBEDESCE não
+ * vale: criar conta não confirma o e-mail, e o padrão é público (rodapé, política), então qualquer um criaria uma
+ * conta com ele e abriria /admin. Uma conta Google com e-mail não confirmado também não vale (dá para criar uma
+ * conta Google com um e-mail de outra pessoa sem confirmar). Conta criada pelo "Continuar com Google" já nasce com
+ * o Drive conectado e confirmado, então continua admin por ele.
  */
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
@@ -20,13 +22,19 @@ export function emailsAdmin(env: Record<string, string | undefined> = process.en
   return lista.length ? lista : PADRAO;
 }
 
-/** true se algum Drive conectado na conta tem um e-mail da lista de admins. O e-mail da conta é ignorado. */
+/** true se algum Drive conectado na conta, com e-mail confirmado pelo Google, está na lista de admins. O e-mail da conta é ignorado. */
 export async function ehAdmin(usuario: { id: string; email?: string }, admins = emailsAdmin()): Promise<boolean> {
   if (!admins.length) return false;
   const drive = await db
     .select({ id: schema.contasGoogle.id })
     .from(schema.contasGoogle)
-    .where(and(eq(schema.contasGoogle.usuarioId, usuario.id), inArray(sql`lower(${schema.contasGoogle.email})`, admins)))
+    .where(
+      and(
+        eq(schema.contasGoogle.usuarioId, usuario.id),
+        eq(schema.contasGoogle.emailVerificado, true),
+        inArray(sql`lower(${schema.contasGoogle.email})`, admins),
+      ),
+    )
     .limit(1);
   return drive.length > 0;
 }

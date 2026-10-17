@@ -4,7 +4,8 @@ import { useActionState } from "react";
 import { Enviar } from "@/components/conta/enviar";
 import { Field, Input } from "@/components/ui/field";
 import { SENHA_MINIMA } from "@/lib/auth/senha-regras";
-import { acaoTrocarNome, acaoTrocarSenha, type EstadoForm } from "../acoes";
+import type { Conta } from "@/lib/google/contas";
+import { acaoPedirPrimeiraSenha, acaoTrocarGoogleDeEntrar, acaoTrocarNome, acaoTrocarSenha, type EstadoForm } from "../acoes";
 
 function Retorno({ estado }: { estado: EstadoForm }) {
   if (estado?.ok) return <p role="status" className="text-[14px] text-ok-text">{estado.ok}</p>;
@@ -29,18 +30,38 @@ export function FormNome({ nome }: { nome: string }) {
   );
 }
 
+/**
+ * Conta criada pelo Google, ainda sem senha (revisão A5): a primeira senha não sai só com a sessão aberta.
+ * Mandamos um link para o e-mail da conta (o mesmo do "Esqueci a senha").
+ */
+export function FormPrimeiraSenha({ email }: { email: string }) {
+  const [estado, acao] = useActionState<EstadoForm>(acaoPedirPrimeiraSenha, null);
+  return (
+    <form action={acao} className="grid gap-4">
+      <p className="text-[15px] leading-relaxed text-pretty text-ink-2">
+        Mandamos um link para <span className="font-medium text-ink [overflow-wrap:anywhere]">{email}</span>. Nele você cria a senha. É para ninguém
+        com a sua sessão aberta criar uma senha no seu lugar.
+      </p>
+      <div className="flex flex-wrap items-center gap-4">
+        <Enviar variant="secondary" ocupado="Mandando…">
+          Mandar link para criar senha
+        </Enviar>
+        <Retorno estado={estado} />
+      </div>
+    </form>
+  );
+}
+
 /** `links`: quantos links pra IA (/r/…) estão ligados; com algum, a troca oferece desligar todos juntos. */
-export function FormSenha({ temSenha, links = 0 }: { temSenha: boolean; links?: number }) {
+export function FormSenha({ links = 0 }: { links?: number }) {
   const [estado, acao] = useActionState<EstadoForm, FormData>(acaoTrocarSenha, null);
   const erroDo = (campo: string) => (estado?.campo === campo ? estado.erro : null);
   return (
     <form action={acao} className="grid gap-5" key={estado?.ok ?? "senha"}>
-      {temSenha ? (
-        <Field label="Senha atual" htmlFor="senhaAtual" error={erroDo("senhaAtual")}>
-          <Input id="senhaAtual" name="senhaAtual" type="password" autoComplete="current-password" required aria-invalid={Boolean(erroDo("senhaAtual"))} />
-        </Field>
-      ) : null}
-      <Field label={temSenha ? "Senha nova" : "Senha"} htmlFor="senhaNova" hint={`Pelo menos ${SENHA_MINIMA} caracteres.`} error={erroDo("senhaNova")}>
+      <Field label="Senha atual" htmlFor="senhaAtual" error={erroDo("senhaAtual")}>
+        <Input id="senhaAtual" name="senhaAtual" type="password" autoComplete="current-password" required aria-invalid={Boolean(erroDo("senhaAtual"))} />
+      </Field>
+      <Field label="Senha nova" htmlFor="senhaNova" hint={`Pelo menos ${SENHA_MINIMA} caracteres.`} error={erroDo("senhaNova")}>
         <Input id="senhaNova" name="senhaNova" type="password" autoComplete="new-password" required minLength={SENHA_MINIMA} aria-invalid={Boolean(erroDo("senhaNova"))} />
       </Field>
       {links ? (
@@ -54,10 +75,63 @@ export function FormSenha({ temSenha, links = 0 }: { temSenha: boolean; links?: 
       ) : null}
       <div className="flex flex-wrap items-center gap-4">
         <Enviar variant="secondary" ocupado="Salvando…">
-          {temSenha ? "Trocar senha" : "Criar senha"}
+          Trocar senha
         </Enviar>
         <Retorno estado={estado} />
       </div>
     </form>
+  );
+}
+
+/**
+ * Qual Google entra na conta (revisão A3). Só um; os outros Drives servem para enviar e baixar.
+ * Trocar pede a senha atual. Sem senha (conta criada pelo Google), primeiro cria a senha.
+ */
+export function FormGoogleDeEntrar({ contas, entrar, temSenha }: { contas: Conta[]; entrar: string | null; temSenha: boolean }) {
+  const [estado, acao] = useActionState<EstadoForm, FormData>(acaoTrocarGoogleDeEntrar, null);
+  const atual = contas.find((c) => c.id === entrar) ?? null;
+  const erroDo = (campo: string) => (estado?.campo === campo ? estado.erro : null);
+  return (
+    <div className="grid gap-5">
+      <p className="text-[15px] leading-relaxed text-pretty text-ink-2">
+        {atual ? (
+          <>
+            Entra com <span className="font-medium text-ink [overflow-wrap:anywhere]">{atual.email}</span>.
+          </>
+        ) : (
+          "Nenhum Google entra nesta conta. Você entra com o e-mail e a senha."
+        )}
+      </p>
+      {!temSenha ? (
+        <p className="text-[14px] leading-relaxed text-pretty text-ink-3">Para trocar, crie uma senha antes (logo abaixo, em Senha).</p>
+      ) : contas.length ? (
+        <form action={acao} className="grid gap-5" key={estado?.ok ?? "entrar"}>
+          <Field label="Google de entrar" htmlFor="conta" error={erroDo("conta")}>
+            <select
+              id="conta"
+              name="conta"
+              defaultValue={entrar ?? ""}
+              className="h-12 w-full rounded-2xl bg-surface px-4 text-[16px] text-ink ring-1 ring-line-strong outline-none focus:ring-2 focus:ring-down"
+            >
+              {contas.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.email}
+                </option>
+              ))}
+              <option value="">Nenhum (só e-mail e senha)</option>
+            </select>
+          </Field>
+          <Field label="Senha atual" htmlFor="senhaAtualGoogle" error={erroDo("senhaAtual")}>
+            <Input id="senhaAtualGoogle" name="senhaAtual" type="password" autoComplete="current-password" required aria-invalid={Boolean(erroDo("senhaAtual"))} />
+          </Field>
+          <div className="flex flex-wrap items-center gap-4">
+            <Enviar variant="secondary" ocupado="Salvando…">
+              Salvar
+            </Enviar>
+            <Retorno estado={estado} />
+          </div>
+        </form>
+      ) : null}
+    </div>
   );
 }

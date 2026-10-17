@@ -53,7 +53,7 @@ export function Comando({ comando, rotulo, className }: { comando: string; rotul
       <button
         type="button"
         onClick={copiar}
-        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium text-ink-2 transition-colors hover:bg-ink/5 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-down"
+        className="toque inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium text-ink-2 transition-colors hover:bg-ink/5 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-down"
       >
         {estado === "copiado" ? <Check className="size-4 text-ok-text" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
         <span>{estado === "copiado" ? "Copiado" : "Copiar"}</span>

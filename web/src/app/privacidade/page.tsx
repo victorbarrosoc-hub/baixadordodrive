@@ -47,7 +47,8 @@ export default function PrivacidadePage() {
           </li>
           <li>
             <strong>Aparelhos conectados:</strong> o nome de cada computador que entrou na sua conta (por exemplo, “MacBook Pro de Ana”), o sistema, quando
-            entrou e o último uso. Assim você vê e desconecta cada um.
+            entrou e o último uso. Assim você vê e desconecta cada um. Enquanto o pedido de um computador espera a sua liberação, guardamos o endereço IP
+            e a cidade e o país aproximados de onde ele veio, para mostrar na tela de liberar. Isso some junto com o pedido, em até um dia.
           </li>
           <li>
             <strong>Sessão:</strong> um cookie essencial mantém você conectado no site. No banco fica só um hash dele. Não usamos cookies de publicidade nem
@@ -74,8 +75,8 @@ export default function PrivacidadePage() {
             inscrição.
           </li>
           <li>
-            <strong>Senha nova:</strong> quando você usa “Esqueci a senha”, guardamos por uma hora só o hash do link enviado. Depois de usado, ele não vale
-            mais.
+            <strong>Senha nova:</strong> quando você usa “Esqueci a senha” ou cria a primeira senha, guardamos só o hash do link enviado. Ele vale por uma
+            hora e é apagado depois de usado ou vencido.
           </li>
         </LegalList>
         <p>

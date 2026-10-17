@@ -1,8 +1,15 @@
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 
+/**
+ * HTTPS sempre, em todo o site e nos subdomínios (revisão A12: antes só /app/ mandava). Dois anos, como no /app/.
+ * Navegadores ignoram este cabeçalho em http://localhost, então o desenvolvimento local não muda.
+ */
+const HSTS = { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" };
+
 /** Cabeçalhos de segurança de todas as respostas. */
 const securityHeaders = [
+  HSTS,
   { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -42,7 +49,7 @@ const appHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), screen-wake-lock=(self)" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+  HSTS,
   { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
 ];
 const noCache = [{ key: "Cache-Control", value: "no-cache" }];
@@ -85,6 +92,8 @@ const nextConfig: NextConfig = {
     return [
       { source: "/", has: antigo, destination: "https://sobedesce.com/", permanent: true },
       { source: "/:pagina(privacidade|termos)", has: antigo, destination: "https://sobedesce.com/:pagina", permanent: true },
+      // /instalar (sem .sh/.ps1) não é página: leva para a seção de baixar da página inicial (id="baixar").
+      { source: "/instalar", destination: "/#baixar", permanent: false },
       // "/app" sem barra → "/app/". O Next aceita uma barra opcional no fim de toda origem; o (?!/) evita o laço.
       { source: "/:app(app(?!/))", destination: "/app/", permanent: true },
       // O padrão do Next (barra no fim → sem barra), menos em /app/.

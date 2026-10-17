@@ -15,8 +15,12 @@ Mudou algo aqui? Avise as outras frentes.
   (`https://www.googleapis.com/auth/drive`). O refresh token não vence mais em 7 dias, mas a tela
   continua lidando bem com "reconectar" (senha trocada, acesso removido).
 - Login: **conta própria da SOBEDESCE** (e-mail + senha). Dentro da conta, **"Conectar Google
-  Drive"** vincula uma ou mais contas Google. Depois de vinculada, a conta Google também serve
-  para **entrar** ("Entrar com Google").
+  Drive"** vincula uma ou mais contas Google. Só **uma** delas serve para **entrar** ("Entrar com
+  Google"): a que criou a conta, ou a escolhida em `/conta` → "Entrar com Google" (pede a senha atual).
+  Conectar outro Drive não abre a conta (`contas_google.login_permitido`, no máximo um por conta).
+  Conta criada pelo Google cria a primeira senha só pelo link no e-mail, nunca só com a sessão aberta.
+- Admin (`/admin`): e-mail de `SOBEDESCE_ADMINS` num Drive conectado **com e-mail confirmado pelo
+  Google** (`contas_google.email_verificado`, gravado a cada conexão ou entrada).
 - O **app de computador** também entra na conta (fluxo de dispositivo) e usa os Drives dela.
 - Visual: Apple + ElevenLabs. Calma, preto e branco, pílulas, muito respiro.
   Violeta (`up`) = envio, azul (`down`) = download. Tokens em `web/src/app/globals.css`
@@ -110,8 +114,9 @@ Referências (coleções, fila do computador, Atalho do iPhone e o link pra IA e
 Erros que o callback devolve em `?erro=` (textos em `web/src/components/conta/mensagens.ts`):
 `google_recusado` (access_denied), `google_sem_conta` (entrar com conta Google não vinculada: vai para
 `/entrar`), `google_outra_conta` (a conta Google já é de outro usuário; nada é gravado nem revogado),
-`google_sem_drive` (desmarcou o Drive no consentimento), `google_expirou` (cookie/state vencido ou
-trocado), `google_erro`, `google_config`. "Entrar com Google" também renova os tokens guardados
+`google_nao_e_login` (a conta Google está conectada como Drive, mas não é o Google de entrar daquela conta:
+não entra e nada é gravado), `google_sem_drive` (desmarcou o Drive no consentimento), `google_expirou` (cookie/state vencido ou
+trocado), `google_erro`, `google_config`. "Entrar com Google" (pelo Google de entrar) também renova os tokens guardados
 (tira o "reconectar"). Vincular de novo a mesma conta Google é o "Reconectar" (mesmo `id`).
 
 `/api/drive/token`: devolve o access token guardado se faltar mais de 5 min para vencer; senão

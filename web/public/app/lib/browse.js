@@ -43,18 +43,33 @@ export const SORTS = {
 }
 
 // ───── preferências do aparelho (grade/lista e ordem) ─────
+//
+// view: 'grid' | 'list' quando a pessoa escolheu no botão; null = automático (autoView): lista numa pasta só de
+// pastas, grade quando há foto ou vídeo. Antes da 2.6 a grade era o padrão e o app guardava 'grid' junto com a ordem,
+// mesmo sem ninguém escolher; por isso só vale o que veio com viewSet (ou 'list', que só existia escolhendo).
 
 const PREFS_KEY = 'sobedesce.browse'
 export function getPrefs() {
   const p = local.get(PREFS_KEY) || {}
+  const chosen = p.view === 'list' || (p.viewSet === true && p.view === 'grid')
   return {
-    view: p.view === 'list' ? 'list' : 'grid',
+    view: chosen ? p.view : null,
     sort: SORTS[p.sort] ? p.sort : 'name',
     flip: p.flip === true,
   }
 }
 export function savePrefs(p) {
-  local.set(PREFS_KEY, { view: p.view, sort: p.sort, flip: !!p.flip })
+  local.set(PREFS_KEY, { view: p.view || null, viewSet: Boolean(p.view), sort: p.sort, flip: !!p.flip })
+}
+
+/** Grade ou lista para o que está na tela: grade se tem foto ou vídeo (as miniaturas ajudam), lista se não. */
+export function autoView(files) {
+  return (files || []).some((f) => {
+    const k = kindOf(f)
+    return k === 'video' || k === 'image'
+  })
+    ? 'grid'
+    : 'list'
 }
 
 // ───── tipos ─────

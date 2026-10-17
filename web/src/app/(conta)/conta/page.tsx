@@ -15,11 +15,11 @@ import { podeUsar } from "@/lib/recursos";
 import { EntradaReferencias } from "@/components/conta/referencias";
 import { TransferenciasAgora } from "@/components/conta/transferencias";
 import { listarComputadores } from "@/lib/acompanhar/status";
-import { listarContas } from "@/lib/google/contas";
+import { googleDeEntrar, listarContas } from "@/lib/google/contas";
 import { NOME_PLATAFORMA, tempoRelativo } from "@/lib/tempo";
 import { Computadores } from "./computadores";
 import { Drives } from "./drives";
-import { FormNome, FormSenha } from "./forms";
+import { FormGoogleDeEntrar, FormNome, FormPrimeiraSenha, FormSenha } from "./forms";
 import { ApagarConta } from "./apagar";
 import { BotaoSair } from "./sair";
 
@@ -30,7 +30,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 export default async function Conta({ searchParams }: Props) {
   const { usuario } = await exigirUsuario("/conta");
   const q = await searchParams;
-  const [contas, dispositivos, temSenha, admin, referencias, computadores, links] = await Promise.all([
+  const [contas, dispositivos, temSenha, admin, referencias, computadores, links, entrar] = await Promise.all([
     listarContas(usuario.id),
     listarDispositivos(usuario.id),
     contaComSenha(usuario.id),
@@ -38,13 +38,14 @@ export default async function Conta({ searchParams }: Props) {
     podeUsar(usuario, "referencias"),
     listarComputadores(usuario.id),
     linksLigados(usuario.id),
+    googleDeEntrar(usuario.id),
   ]);
   const erro = typeof q.erro === "string" ? q.erro : undefined;
   const conectou = q.google === "ok";
   const primeiroNome = usuario.nome.split(" ")[0];
 
   return (
-    <Moldura titulo={`Olá, ${primeiroNome}`} subtitulo="Seus Drives e computadores ficam aqui." acao={<MenuConta admin={admin} />}>
+    <Moldura titulo={`Olá, ${primeiroNome}`} subtitulo="Seus Drives e computadores ficam aqui." acao={<MenuConta admin={admin} sair={false} />}>
       {conectou ? (
         <Aviso tom="ok" className="mb-10">
           <p>Google Drive conectado.</p>
@@ -66,7 +67,7 @@ export default async function Conta({ searchParams }: Props) {
 
       <Secao titulo="Google Drive" id="drives" descricao="As contas do Google que a SOBEDESCE usa para enviar e baixar.">
         <Card className="overflow-hidden">
-          <Drives contas={contas} />
+          <Drives contas={contas} entrar={entrar} />
           <div className={contas.length ? "border-t border-line px-5 py-4 sm:px-6" : "px-5 pb-6 sm:px-6"}>
             <BotaoGoogle modo="vincular" variant={contas.length ? "secondary" : "primary"} size="md" className="w-full sm:w-auto">
               {contas.length ? "Conectar outro Google Drive" : "Conectar Google Drive"}
@@ -77,6 +78,18 @@ export default async function Conta({ searchParams }: Props) {
           Na primeira vez, o Google avisa que ainda não verificou a SOBEDESCE. Toque em Avançado e depois em Acessar SOBEDESCE para continuar.
         </p>
       </Secao>
+
+      {contas.length || entrar ? (
+        <Secao
+          titulo="Entrar com Google"
+          id="entrar-google"
+          descricao="Só um Google abre a sua conta. Os outros Drives conectados servem para enviar e baixar, não para entrar."
+        >
+          <Card className="px-5 py-6 sm:px-6">
+            <FormGoogleDeEntrar contas={contas} entrar={entrar} temSenha={temSenha} />
+          </Card>
+        </Secao>
+      ) : null}
 
       <Secao titulo="Computadores" id="computadores" descricao="O app SOBEDESCE do computador entra na sua conta e usa os mesmos Drives.">
         <Card className="overflow-hidden">
@@ -107,7 +120,7 @@ export default async function Conta({ searchParams }: Props) {
             : "Você entra com o Google. Se quiser, crie uma senha para entrar também com o e-mail."
         }>
         <Card className="px-5 py-6 sm:px-6">
-          <FormSenha temSenha={temSenha} links={links} />
+          {temSenha ? <FormSenha links={links} /> : <FormPrimeiraSenha email={usuario.email} />}
         </Card>
       </Secao>
 

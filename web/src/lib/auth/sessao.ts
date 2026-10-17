@@ -3,12 +3,33 @@
  * (`Bearer sdd_...`); o banco guarda só o sha256. Expiração deslizante: web 30 dias, dispositivo 180.
  * Sem next/headers aqui: as rotas e os testes passam cookie e Authorization direto.
  */
-import { and, eq, gt, inArray, isNull, ne } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Plataforma, TipoSessao } from "@/lib/db/schema";
 import { FORMATO_TOKEN_DISPOSITIVO, FORMATO_TOKEN_WEB, hashToken, novoId, novoToken, PREFIXO_DISPOSITIVO } from "./tokens";
 
-const { sessoes, usuarios, dispositivoStatus } = schema;
+const { sessoes, usuarios, dispositivoStatus, redefinicoesSenha, codigosDispositivo } = schema;
+
+/**
+ * Limpeza do que a política de privacidade promete apagar: links de "Esqueci a senha" usados ou vencidos (uma hora)
+ * e pedidos de computador vencidos há mais de um dia (com o IP e a cidade de quem pediu). redefinir.ts e
+ * dispositivo.ts apagam no caminho de quem usa; aqui, de carona nos pedidos com sessão (no máximo a cada 15 minutos
+ * por instância, sem esperar), some também o que ninguém usou.
+ */
+const INTERVALO_LIMPEZA = 15 * 60_000;
+let ultimaLimpeza = 0;
+function limpezaDeCarona(agora: Date) {
+  if (agora.getTime() - ultimaLimpeza < INTERVALO_LIMPEZA) return;
+  ultimaLimpeza = agora.getTime();
+  void db
+    .delete(redefinicoesSenha)
+    .where(or(isNotNull(redefinicoesSenha.usadoEm), lt(redefinicoesSenha.expiraEm, agora)))
+    .catch(() => {});
+  void db
+    .delete(codigosDispositivo)
+    .where(lt(codigosDispositivo.expiraEm, new Date(agora.getTime() - DIA)))
+    .catch(() => {});
+}
 
 /** O andamento das transferências (docs/CONTAS.md §9) some junto com a sessão do computador. */
 async function apagarAndamento(linhas: { id: string }[]) {
@@ -97,6 +118,7 @@ export async function autenticar(credenciais: { cookie?: string | null; authoriz
     .where(and(eq(sessoes.tokenHash, hashToken(token)), eq(sessoes.tipo, tipo), isNull(sessoes.revogadaEm), gt(sessoes.expiraEm, agora)))
     .limit(1);
   if (!linha) return null;
+  limpezaDeCarona(agora);
 
   let expiraEm = linha.sessao.expiraEm;
   if (agora.getTime() - linha.sessao.ultimoUsoEm.getTime() > INTERVALO_DESLIZE) {

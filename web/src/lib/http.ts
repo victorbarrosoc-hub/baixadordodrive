@@ -83,6 +83,34 @@ export function ipDe(headers: Headers): string {
   return (encaminhado || "local").slice(0, 64);
 }
 
+export type Lugar = { ip: string | null; cidade: string | null; pais: string | null };
+
+/**
+ * De onde veio o pedido, aproximado: IP e, na Vercel, cidade e país pelos cabeçalhos que ela põe
+ * (x-vercel-ip-city vem codificado como URL; x-vercel-ip-country é o código ISO de 2 letras). Fora da Vercel esses
+ * cabeçalhos podem ter vindo de quem pediu, então só o IP vale. Só para mostrar na tela de liberar computador.
+ */
+export function lugarDe(headers: Headers, env: Record<string, string | undefined> = process.env): Lugar {
+  const ip = ipDe(headers);
+  const lugar: Lugar = { ip: ip === "local" ? null : ip, cidade: null, pais: null };
+  if (!env.VERCEL) return lugar;
+  const limpar = (v: string | null, max: number) => {
+    if (!v) return null;
+    let t = v;
+    try {
+      t = decodeURIComponent(v);
+    } catch {
+      // fica como veio
+    }
+    t = t.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, max);
+    return t || null;
+  };
+  lugar.cidade = limpar(headers.get("x-vercel-ip-city"), 80);
+  const pais = limpar(headers.get("x-vercel-ip-country"), 2)?.toUpperCase() ?? null;
+  lugar.pais = pais && /^[A-Z]{2}$/.test(pais) ? pais : null;
+  return lugar;
+}
+
 /** Origem do próprio site nesta requisição (Host ou X-Forwarded-Host). */
 export function origemDoPedido(headers: Headers, urlDoPedido?: string): string | null {
   const host = headers.get("x-forwarded-host")?.split(",")[0]?.trim() || headers.get("host")?.trim();
