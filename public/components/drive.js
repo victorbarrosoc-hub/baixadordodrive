@@ -23,7 +23,7 @@ import { hasVideoFiles, isVideoName, onPreviasDone, openPrevias, openProxyArquiv
 import { FolderSummary, calcSize, focusSize, getSize, sizeId, useSizes } from './drive-tamanho.js'
 import { copyDriveLink } from './link-share.js'
 import { DEFAULT_SORT, FILTERS, driveView, filterChips, keepVisible, normalizeSort, visibleSummary } from '../lib/ordenar.js'
-import { MacLine, SortMenu, TypeChips, openMacTrash } from './drive-ordenar.js'
+import { FilterMenu, MacLine, SortMenu, openMacTrash } from './drive-ordenar.js'
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
@@ -341,7 +341,10 @@ export function DriveScreen({ route }) {
             aria-label="Buscar no Drive"
           />
         </label>
-        <${SortMenu} sort=${sort} onSort=${setSort} />
+        <div class="drive-tools" role="group" aria-label="Ordenar e filtrar">
+          <${SortMenu} sort=${sort} onSort=${setSort} />
+          <${FilterMenu} chips=${chips} value=${shown.filter} onChange=${setFilter} />
+        </div>
         <${Segmented}
           size="sm"
           class="view-seg"
@@ -357,7 +360,9 @@ export function DriveScreen({ route }) {
         ${!searching && folder && folderId !== 'root' ? html`<${IconButton} icon="link" label="Copiar link da pasta" onClick=${copyFolderLink} />` : null}
         ${!searching && folder ? html`<a class="icon-btn" href=${folderId === 'root' ? 'https://drive.google.com/drive/my-drive' : driveFolderUrl(folderId)} target="_blank" rel="noopener" title="Abrir no navegador" aria-label="Abrir no navegador"><${Icon} name="external" /></a>` : null}
         <${MenuButton}
+          class="more-menu"
           label="Mais"
+          title="Mais ações da pasta"
           menuLabel="Mais ações da pasta"
           busy=${thumbsRunning || previasRunning}
           items=${[
@@ -373,7 +378,6 @@ export function DriveScreen({ route }) {
         <${Button} variant="primary" icon="upload" onClick=${uploadHere} disabled=${searching}>Enviar para esta pasta</${Button}>
       </div>
     </div>
-    ${items?.length && (chips.length > 2 || shown.filter !== 'all') ? html`<${TypeChips} chips=${chips} value=${shown.filter} onChange=${setFilter} />` : null}
     ${!searching && accountId
       ? html`<${FolderSummary}
           accountId=${accountId}
@@ -382,14 +386,12 @@ export function DriveScreen({ route }) {
           count=${shown.counts.all}
           ready=${!!folder && !error}
           filtro=${filtro}
-          onClearFilter=${() => setFilter('all')}
           extra=${macLine}
         />`
       : searching && items && (filtro || macLine)
-        ? html`<div class="drive-sum is-filtered" aria-live="polite">
-            ${filtro ? html`<span class="dsum-count"><b>${filtro}</b></span><button type="button" class="dsum-act" onClick=${() => setFilter('all')}>Mostrar tudo</button>` : null}
-            ${filtro && macLine ? html`<span class="dsum-sep" aria-hidden="true">·</span>` : null}
-            ${macLine}
+        ? html`<div class="drive-sum is-filtered">
+            <span class="dsum-main" aria-live="polite">${filtro ? html`<span class="dsum-count"><b>${filtro}</b></span>` : null}</span>
+            ${macLine ? html`<span class="dsum-end">${macLine}</span>` : null}
           </div>`
         : null}
     <div class=${cx('card', view === 'grid' ? 'card-grid' : 'card-table')}>

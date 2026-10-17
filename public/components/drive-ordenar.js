@@ -1,25 +1,29 @@
-// Tela Drive: o botão "Ordenar" (lista e grade), os chips de tipo (Tudo · Vídeos · Fotos · Áudio · Pastas · Outros), a
-// linha dos arquivos do Mac ocultos e a janela "Mover para a lixeira…" (com confirmação, progresso e recusa).
+// Tela Drive: os botões "Ordenar" e "Filtro" (lista e grade), o "N arquivos do Mac ocultos" da linha do total (com o
+// mini-menu Mostrar · Mover para a lixeira…) e a janela "Mover para a lixeira…" (com confirmação, progresso e recusa).
 // A lógica fica em lib/ordenar.js; aqui só a interface.
 import { html, useEffect, useRef, useState } from '/vendor/preact-htm.js'
 import { api, enc } from '../lib/api.js'
 import { registerModal, openModal } from '../lib/modals.js'
 import { bytes, count, plural } from '../lib/format.js'
 import { cx } from '../lib/ui.js'
-import { MAC_MAX_BYTES, SORTS, canTrashMac, chunks, macHiddenText, nextSort, sortLabel } from '../lib/ordenar.js'
+import { MAC_MAX_BYTES, SORTS, canTrashMac, chunks, filterButton, macHiddenText, nextSort, sortLabel } from '../lib/ordenar.js'
 import { Icon } from './icons.js'
 import { Button, MenuButton, Spinner } from './common.js'
 import { Modal } from './modal.js'
 
 const SORT_ICON = { name: 'list', modified: 'clock', size: 'disk', type: 'doc' }
+const FILTER_ICON = { all: 'stack', video: 'film', image: 'photo', audio: 'music', folder: 'folder', other: 'doc' }
+const TOOL = 'btn tool-btn'
 
-/** "Ordenar: Nome ↑" com o menu. Escolher a opção ativa inverte a direção. */
+/** "⇅ Nome ↑" (a dica e o nome acessível dizem "Ordenar: Nome: A a Z") com o menu. A opção ativa, de novo, inverte. */
 export function SortMenu({ sort, onSort }) {
   const { short, long } = sortLabel(sort)
   return html`<${MenuButton}
     class="sort-menu"
+    triggerClass=${TOOL}
     icon="sort"
-    label=${`Ordenar: ${short}`}
+    label=${short}
+    ariaLabel=${`Ordenar: ${long}`}
     title=${`Ordenar: ${long}`}
     menuLabel="Ordenar por"
     heading="Ordenar por"
@@ -38,49 +42,62 @@ export function SortMenu({ sort, onSort }) {
   />`
 }
 
-/** Chips de tipo, com quantos tem de cada. */
-export function TypeChips({ chips, value, onChange }) {
-  const onKey = (e) => {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
-    e.preventDefault()
-    const i = chips.findIndex((c) => c.value === value)
-    const next = chips[(i + (e.key === 'ArrowRight' ? 1 : chips.length - 1)) % chips.length]
-    onChange(next.value)
-    const el = e.currentTarget
-    requestAnimationFrame(() => el?.querySelector('[aria-checked="true"]')?.focus())
+/**
+ * "Filtro": funil + "Tudo" (só o funil com pouco espaço); com um tipo escolhido, "Vídeos" com o funil azul e um "×" que
+ * volta a Tudo. O menu lista os tipos que existem na pasta, com quantos tem de cada (filterChips).
+ */
+export function FilterMenu({ chips, value, onChange }) {
+  const { label, on, title } = filterButton(value)
+  const limpar = (e) => {
+    const trigger = e.currentTarget.parentElement?.querySelector('.menu-trigger')
+    onChange('all')
+    // o "×" some com o filtro: o foco passa para o botão Filtro
+    requestAnimationFrame(() => trigger?.focus({ preventScroll: true }))
   }
-  return html`<div class="type-chips" role="radiogroup" aria-label="Mostrar" onKeyDown=${onKey}>
-    ${chips.map(
-      (c) => html`<button
-        type="button"
-        role="radio"
-        aria-checked=${c.value === value ? 'true' : 'false'}
-        tabindex=${c.value === value ? 0 : -1}
-        class=${cx('type-chip', c.value === value && 'is-on')}
-        onClick=${() => onChange(c.value)}
-      >
-        <span>${c.label}</span>
-        <span class="type-chip-n">${count(c.count)}</span>
-      </button>`,
-    )}
-  </div>`
+  return html`<${MenuButton}
+    class=${cx('filter-menu', on && 'is-active')}
+    triggerClass=${TOOL}
+    icon="filter"
+    label=${label}
+    ariaLabel=${title}
+    title=${title}
+    menuLabel="Filtrar por tipo"
+    heading="Mostrar"
+    items=${chips.map((c) => ({
+      icon: FILTER_ICON[c.value],
+      label: c.label,
+      checked: c.value === value,
+      hint: count(c.count),
+      onSelect: () => onChange(c.value),
+    }))}
+  >
+    ${on
+      ? html`<button type="button" class="filter-clear" onClick=${limpar} aria-label="Limpar filtro (mostrar tudo)" title="Limpar filtro (mostrar tudo)">
+          <${Icon} name="x" size=${12} strokeWidth=${1.8} />
+        </button>`
+      : null}
+  </${MenuButton}>`
 }
 
-/** "38 arquivos do Mac ocultos · Mostrar · Mover para a lixeira…" (pedaço da linha do total). */
+/** "37 arquivos do Mac ocultos ⌄" no fim da linha do total: abre Mostrar/Ocultar e "Mover para a lixeira…". */
 export function MacLine({ mac, shown, onToggle, onTrash }) {
   if (!mac.length) return null
   const lixo = mac.filter(canTrashMac)
-  return html`<span class="dsum-mac">
-    <span title="Arquivos de controle do macOS (._, .DS_Store) e do Windows (Thumbs.db) que vieram junto com os originais">
-      ${shown ? `${plural(mac.length, 'arquivo', 'arquivos')} do Mac à vista` : macHiddenText(mac.length)}
-    </span>
-    <button type="button" class="dsum-act" onClick=${onToggle}>${shown ? 'Ocultar' : 'Mostrar'}</button>
-    ${onTrash && lixo.length
-      ? html`<button type="button" class="dsum-act" onClick=${() => onTrash(lixo)} title="Mover os arquivos de controle do Mac para a lixeira do Drive (com confirmação)">
-          <${Icon} name="trash" size=${13} /> Mover para a lixeira…
-        </button>`
-      : null}
-  </span>`
+  return html`<${MenuButton}
+    class="dsum-mac"
+    triggerClass="dsum-mac-link"
+    icon=${null}
+    label=${shown ? `${plural(mac.length, 'arquivo', 'arquivos')} do Mac à vista` : macHiddenText(mac.length)}
+    after=${html`<${Icon} name="chevron-down" size=${11} strokeWidth=${1.8} />`}
+    title="Arquivos de controle do macOS (._, .DS_Store) e do Windows (Thumbs.db) que vieram junto com os originais"
+    menuLabel="Arquivos do Mac"
+    items=${[
+      { icon: shown ? 'eye-off' : 'eye', label: shown ? 'Ocultar' : 'Mostrar', onSelect: onToggle },
+      onTrash && lixo.length
+        ? { icon: 'trash', label: 'Mover para a lixeira…', title: 'Mover os arquivos de controle do Mac para a lixeira do Drive (com confirmação)', onSelect: () => onTrash(lixo) }
+        : null,
+    ]}
+  />`
 }
 
 // ───── janela "Mover para a lixeira…" ─────
