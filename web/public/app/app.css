@@ -1090,25 +1090,7 @@ code {
   font-weight: 600;
 }
 
-/* tela acesa */
-.awake {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--up) 8%, var(--surface));
-}
-.awake b {
-  display: block;
-  font-size: 14.5px;
-  font-weight: 600;
-}
-.awake span {
-  display: block;
-  font-size: 13px;
-  color: var(--text-2);
-}
+/* tela acesa (o ponto da linha "Mantenha esta tela aberta" no medidor) */
 .awake-dot {
   position: relative;
   flex: none;
@@ -1330,11 +1312,15 @@ code {
   font-size: 12.5px;
 }
 .row-link {
+  /* 44 px de toque sem crescer a linha: sobra 12 px em cima e embaixo (a linha deixa vazar, ver .row.is-done) */
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   margin-left: auto;
-  min-height: 32px;
+  min-height: 44px;
+  margin-block: -12px;
   padding: 0 2px;
   color: var(--up-text);
   font-size: 14px;
@@ -1493,10 +1479,10 @@ code {
   max-width: 536px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 38px 1fr 36px;
+  grid-template-columns: 38px 1fr 44px;
   align-items: center;
-  gap: 10px;
-  padding: 12px 8px 12px 12px;
+  gap: 8px;
+  padding: 12px 4px 12px 12px;
   border-radius: 20px;
   background: var(--glass-2);
   -webkit-backdrop-filter: saturate(180%) blur(24px);
@@ -1540,8 +1526,8 @@ code {
 .install-x {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 999px;
   color: var(--text-3);
 }
@@ -2362,7 +2348,7 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
+  height: 44px;
   margin-top: 10px;
   padding: 0 4px 0 12px;
   border-radius: 12px;
@@ -2394,8 +2380,9 @@ code {
 .search-x {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
+  margin-right: -4px;
   border-radius: 999px;
   color: var(--text-3);
 }
@@ -2713,12 +2700,6 @@ code {
   font-size: 13px;
   font-weight: 500;
   z-index: 2;
-}
-.lrow-calc::before {
-  /* área de toque de 44 px sem aumentar o botão */
-  content: "";
-  position: absolute;
-  inset: -6px -4px;
 }
 .lrow-calc:active {
   opacity: 0.5;
@@ -4535,10 +4516,10 @@ html.has-preview .toasts {
    pelo menos var(--tap) × var(--tap), centrado (:where = especificidade zero: não briga com quem já posiciona o
    botão). Na trilha de pastas, que rola de lado e cortaria o ::after, a pílula ganha borda transparente em cima e
    embaixo e o fundo fica só dentro dela (background-clip). */
-:where(.icon-btn, .scope, .segmented-opt, .btn-sm, .mp-btn, .dsize-act, .sheet-head .link-btn) {
+:where(.icon-btn, .scope, .segmented-opt, .btn-sm, .mp-btn, .dsize-act, .sheet-head .link-btn, .lrow-calc) {
   position: relative;
 }
-:where(.icon-btn, .scope, .segmented-opt, .btn-sm, .mp-btn, .dsize-act, .sheet-head .link-btn)::after {
+:where(.icon-btn, .scope, .segmented-opt, .btn-sm, .mp-btn, .dsize-act, .sheet-head .link-btn, .lrow-calc)::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -4654,3 +4635,367 @@ html.has-preview .toasts {
   margin-top: 12px;
   color: var(--up-text);
 }
+
+/* ───────────── rodada 2: fila visível no iPhone SE, compartilhar link, buscar pasta ───────────── */
+
+/* a linha de done/skipped deixa o "Abrir no Drive" e o "Enviar mesmo assim" vazarem para ter 44 px de toque */
+.row.is-done .row-meta,
+.row.is-skipped .row-meta {
+  overflow: visible;
+}
+
+/* "Mantenha esta tela aberta" vira uma linha dentro do medidor */
+.meter-awake {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 2px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.meter-awake > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meter-awake b {
+  color: var(--text);
+  font-weight: 600;
+}
+.meter-awake .awake-dot {
+  width: 7px;
+  height: 7px;
+  margin: 0 2px;
+}
+.meter-awake .awake-dot::after {
+  inset: -4px;
+}
+
+/* com a fila andando: destino e "+ Adicionar" numa linha só */
+.main-body.is-compact {
+  gap: 12px;
+}
+.sendbar {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.dest.is-compact {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 10px 8px 10px;
+}
+.dest.is-compact.is-loading {
+  min-height: 56px;
+}
+.dest.is-compact .dest-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+.dest.is-compact .dest-eyebrow {
+  font-size: 10.5px;
+}
+.dest.is-compact .dest-name {
+  font-size: 15.5px;
+}
+.dest-chev {
+  flex: none;
+  color: var(--text-3);
+}
+.picker.is-compact {
+  flex: none;
+  display: flex;
+}
+.pick-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 56px;
+  padding: 0 16px 0 13px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--up-top), var(--up));
+  color: #fff;
+  font-size: 15.5px;
+  font-weight: 650;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.12s var(--ease), filter 0.15s;
+}
+.pick-add:active {
+  transform: scale(0.97);
+  filter: brightness(0.96);
+}
+.picker.is-compact:focus-within .pick-add {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+.pick-add.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* dica do app Arquivos depois da primeira vez: recolhida */
+.tip-more {
+  display: block;
+  padding: 0;
+}
+.tip-more summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 6px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--text-2);
+}
+.tip-more summary::-webkit-details-marker {
+  display: none;
+}
+.tip-more summary .icon {
+  margin: 0;
+}
+.tip-more p {
+  margin: -4px 6px 4px 29px;
+}
+
+/* compartilhar link */
+.share {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.share-acts {
+  /* "Compartilhar link" não cabe pela metade num celular: lado a lado só a partir de ~420 px */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.share-btn {
+  width: 100%;
+}
+.share-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.share-note.is-closed {
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--warn) 11%, var(--surface));
+}
+.share-note.is-closed > .icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warn-text);
+}
+.share-note.is-closed > div {
+  flex: 1;
+  min-width: 0;
+}
+.share-title {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+}
+.share-confirm b {
+  color: var(--text);
+  font-weight: 600;
+}
+.share-note.is-closed p {
+  margin: 2px 0 0;
+}
+.share-note.is-open {
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 13px;
+}
+.share-note.is-open .icon {
+  flex: none;
+  color: var(--ok-text);
+}
+.share-err {
+  color: var(--err-text);
+}
+.share-note.is-policy .share-err {
+  color: var(--text-2);
+}
+.share-open {
+  margin: 2px -4px -6px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+}
+.share-confirm {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--hairline-2);
+}
+.share-confirm p {
+  margin: 0;
+  color: var(--text-2);
+}
+.share-confirm-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.share-manual p {
+  margin: 0 4px 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.item-share {
+  margin: 0 0 14px;
+}
+.pv-share {
+  margin-top: 14px;
+}
+
+/* fim do lote: "3 arquivos em Diária 02 · Compartilhar pasta" */
+.batch {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  overflow: visible;
+}
+.batch-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.batch-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  color: var(--ok-text);
+}
+.batch-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.batch-text b {
+  font-size: 15.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-text .sub {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* seletor de destino: buscar pasta e recentes em cima */
+.fsearch {
+  flex: none;
+  padding: 0 16px 8px;
+}
+.fsearch .search {
+  margin-top: 0;
+}
+.fsearch-label {
+  margin-top: 6px;
+}
+.fchips {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+.fchips::-webkit-scrollbar {
+  display: none;
+}
+.fchips-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.fchip {
+  /* pílula de 32 px dentro de 44 px de toque (a linha rola de lado e cortaria um ::after) */
+  --chip-h: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: var(--tap);
+  max-width: 62vw;
+  padding: 0 12px 0 10px;
+  border-block: calc((var(--tap) - var(--chip-h)) / 2) solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+  background-color: var(--surface);
+  box-shadow: inset 0 0 0 0.5px var(--hairline-2);
+  font-size: 14px;
+  color: var(--text);
+}
+.fchip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fchip .icon {
+  flex: none;
+  color: var(--text-3);
+}
+.fchip.is-here {
+  background-color: color-mix(in srgb, var(--up) 14%, var(--surface));
+  color: var(--up-text);
+  font-weight: 600;
+}
+.fchip:active {
+  background-color: var(--fill-2);
+}
+.frow:disabled {
+  opacity: 1;
+}
+.frow .spinner {
+  flex: none;
+}
+
+/* referências: o motivo curto do erro no quadrado */
+.rpend-why {
+  max-width: 100%;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rtile.is-error .rpend-why {
+  color: var(--err-text);
+}
+

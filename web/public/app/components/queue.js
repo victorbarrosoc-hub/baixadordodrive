@@ -1,12 +1,13 @@
 // Fila de envios: cada arquivo é uma linha com ícone do tipo, nome, uma "timeline" (clipe com playhead, como no
 // app do computador), velocidade, tempo restante em timecode e o estado.
-import { html } from '../vendor/preact-htm.js'
+import { html, useEffect, useState } from '../vendor/preact-htm.js'
 import { LAN } from '../lib/config.js'
-import { bytes, fileKind, KIND_ICON, percent, speed, timecode } from '../lib/format.js'
-import { closeSheet, folderTrail, openSheet } from '../lib/state.js'
+import { fileLink, folderLink, linkAccess, openLink, openLinkError } from '../lib/drive.js'
+import { bytes, fileKind, KIND_ICON, percent, plural, speed, timecode } from '../lib/format.js'
+import { closeSheet, folderTrail, openSheet, toast } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
 import { Icon } from './icons.js'
-import { Pill, cx, useEngine } from './ui.js'
+import { Button, Pill, copyText, cx, useEngine } from './ui.js'
 
 const clamp01 = (x) => (x > 1 ? 1 : x < 0 ? 0 : x)
 const pct = (x) => `${(clamp01(x) * 100).toFixed(3)}%`
@@ -35,8 +36,140 @@ export function FileName({ name, class: klass = 'row-name' }) {
   return html`<span class=${cx(klass, 'fname')} title=${name}><span class="fname-head">${head}</span><span class="fname-tail">${end}</span></span>`
 }
 
-export function driveLink(fileId) {
-  return `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`
+export const driveLink = fileLink
+
+// ───── compartilhar link ─────
+
+/**
+ * Compartilhar o link de um arquivo ou pasta do Drive: o menu do sistema (navigator.share, no iPhone) e, sem ele,
+ * copiar. Ao abrir, confere quem consegue abrir o link; se for só quem tem acesso, avisa e oferece liberar para
+ * "qualquer pessoa com o link", sempre com uma confirmação na tela antes de mudar algo no Drive.
+ * `children` vai antes do botão, na mesma linha (o "Abrir no Drive" da prévia).
+ */
+export function ShareLink({ id, name, folder = false, label, variant = 'secondary', class: klass, children }) {
+  // undefined = conferindo; null = não deu para saber; { open: true|false|null, canShare, link }
+  const [acc, setAcc] = useState(undefined)
+  const [step, setStep] = useState(null) // null | 'confirm' | 'busy'
+  const [err, setErr] = useState(null) // { policy, text }
+  const [manual, setManual] = useState(null) // link para copiar à mão (o aparelho não deixou copiar)
+  useEffect(() => {
+    const ctl = new AbortController()
+    setAcc(undefined)
+    setStep(null)
+    setErr(null)
+    setManual(null)
+    linkAccess(id, { folder, signal: ctl.signal }).then(
+      (a) => !ctl.signal.aborted && setAcc(a),
+      () => !ctl.signal.aborted && setAcc(null),
+    )
+    return () => ctl.abort()
+  }, [id])
+  const link = acc?.link || (folder ? folderLink(id) : fileLink(id))
+  const copy = async () => {
+    if (await copyText(link)) toast('Link copiado', { tone: 'success' })
+    else setManual(link)
+  }
+  // O Safari só abre o menu de compartilhar dentro do toque: navigator.share é chamado na hora, sem nada antes.
+  // Fechar o menu (AbortError) é só cancelar; outra recusa cai no copiar.
+  const share = () => {
+    if (typeof navigator.share !== 'function') return copy()
+    let p
+    try {
+      p = navigator.share({ title: name, url: link })
+    } catch (e) {
+      p = Promise.reject(e)
+    }
+    Promise.resolve(p).catch((e) => {
+      // AbortError: a pessoa fechou o menu. InvalidStateError: já havia um menu aberto (toque duplo).
+      if (e?.name !== 'AbortError' && e?.name !== 'InvalidStateError') copy()
+    })
+  }
+  const liberar = async () => {
+    setStep('busy')
+    setErr(null)
+    try {
+      await openLink(id)
+      setAcc((a) => ({ ...(a || { canShare: true, link }), open: true }))
+      setStep(null)
+      toast('Liberado. Agora é só compartilhar', { tone: 'success' })
+    } catch (e) {
+      setErr(openLinkError(e))
+      setStep(null)
+    }
+  }
+  const what = folder ? 'o que está nesta pasta' : 'este arquivo'
+  return html`<div class=${cx('share', klass)}>
+    <div class="share-acts">
+      ${children}
+      <${Button} variant=${variant} class="share-btn" icon="share" onClick=${share}>${label || (folder ? 'Compartilhar pasta' : 'Compartilhar link')}</${Button}>
+    </div>
+    ${acc?.open === false
+      ? html`<div class=${cx('share-note', 'is-closed', err?.policy && 'is-policy')} role="status">
+          <${Icon} name="eye-off" size=${18} />
+          <div>
+            <b class="share-title">Só quem tem acesso consegue abrir</b>
+            ${err
+              ? html`<p class="share-err" role="alert">${err.text}</p>`
+              : !acc.canShare
+                ? html`<p>Você não pode mudar o compartilhamento deste item. Peça a quem é dono.</p>`
+                : null}
+            ${acc.canShare && !err?.policy
+              ? step === 'confirm' || step === 'busy'
+                ? html`<div class="share-confirm">
+                    <p><b>Qualquer pessoa com o link vai poder ver e baixar</b> ${what}.</p>
+                    <div class="share-confirm-acts">
+                      <${Button} variant="primary" size="sm" loading=${step === 'busy'} disabled=${step === 'busy'} onClick=${liberar}>Liberar</${Button}>
+                      <${Button} variant="secondary" size="sm" disabled=${step === 'busy'} onClick=${() => setStep(null)}>Cancelar</${Button}>
+                    </div>
+                  </div>`
+                : html`<button type="button" class="link-btn share-open" onClick=${() => (setErr(null), setStep('confirm'))}>Liberar para quem tiver o link</button>`
+              : null}
+          </div>
+        </div>`
+      : acc?.open
+        ? html`<p class="share-note is-open"><${Icon} name="link" size=${16} /> <span>Qualquer pessoa com o link consegue abrir.</span></p>`
+        : null}
+    ${manual
+      ? html`<div class="share-manual">
+          <p>Não consegui copiar sozinho. Toque e segure no link para copiar:</p>
+          <input class="input mono" type="text" readonly value=${manual} aria-label="Link" onFocus=${(e) => e.currentTarget.select()} />
+        </div>`
+      : null}
+  </div>`
+}
+
+/**
+ * Fim do lote: os arquivos de uma pasta terminaram todos. "3 arquivos em Diária 02 · Compartilhar pasta".
+ * Um cartão por pasta de destino (o Meu Drive e a raiz de um Drive compartilhado não se compartilham por link).
+ */
+export function BatchCards({ items }) {
+  if (LAN) return null
+  const groups = new Map()
+  for (const it of items) {
+    if (!it.folder) continue
+    const g = groups.get(it.folder.id) || { folder: it.folder, n: 0, open: 0, at: 0 }
+    if (it.status === 'done' || it.status === 'skipped') {
+      g.n++
+      g.at = Math.max(g.at, it.finishedAt || 0)
+    } else g.open++
+    groups.set(it.folder.id, g)
+  }
+  const done = [...groups.values()]
+    .filter((g) => g.n && !g.open && g.folder.id !== 'root' && g.folder.id !== g.folder.driveId)
+    .sort((a, b) => b.at - a.at)
+  if (!done.length) return null
+  return html`${done.map(
+    (g) => html`<section key=${g.folder.id} class="group batch" aria-label=${`Lote enviado para ${g.folder.name}`}>
+      <div class="batch-head">
+        <span class="batch-icon" aria-hidden="true"><${Icon} name="circle-check" size=${20} /></span>
+        <div class="batch-text">
+          <b>${plural(g.n, 'arquivo', 'arquivos')} em ${g.folder.name}</b>
+          <span class="sub">${folderTrail(g.folder, { skipLast: true }) || 'Meu Drive'}</span>
+        </div>
+      </div>
+      <${ShareLink} id=${g.folder.id} name=${g.folder.name} folder class="batch-share" />
+    </section>`,
+  )}`
 }
 
 export function progressOf(it) {
@@ -201,6 +334,9 @@ export function ItemSheet({ id }) {
     ${it.status === 'failed' ? html`<p class="item-error">${it.error}</p>` : null}
     ${it.status === 'needsFile'
       ? html`<p class="item-explain">A página foi recarregada no meio do envio. Escolha este mesmo arquivo de novo que ele continua de onde parou.</p>`
+      : null}
+    ${(it.status === 'done' || it.status === 'skipped') && it.fileId && !LAN
+      ? html`<${ShareLink} id=${it.fileId} name=${it.name} variant="primary" class="item-share" />`
       : null}
     ${it.status === 'mac'
       ? html`<p class="item-explain">O arquivo já está inteiro no ${LAN?.label || 'computador'}. O SOBEDESCE de lá está subindo pro Drive — pode fechar esta tela.</p>`

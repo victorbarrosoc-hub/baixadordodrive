@@ -1,7 +1,7 @@
 // Aba Drive: navegar no Meu Drive, Compartilhados comigo e Drives compartilhados, em grade com miniaturas ou em
 // lista; ordenar, buscar por nome, puxar para atualizar e carregar mais ao rolar. Tocar num arquivo abre a prévia.
 import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js'
-import { SCOPES, SORTS, folderSizes, getPrefs, isFolder, kindOf, knownProxy, listDrives, listPage, savePrefs, target } from '../lib/browse.js'
+import { SCOPES, SORTS, autoView, folderSizes, getPrefs, isFolder, kindOf, knownProxy, listDrives, listPage, savePrefs, target } from '../lib/browse.js'
 import { sizeIsBig } from '../lib/tamanho.js'
 import { bytes, count, duration, plural, shortDate } from '../lib/format.js'
 import { Icon } from './icons.js'
@@ -355,6 +355,11 @@ export function DriveScreen({ active }) {
   const where = useMemo(() => ({ scope: nav.scope, folder: search ? null : folder, driveId, search }), [nav, search])
   const list = useListing(where, prefs)
   useFolderSizes()
+  // Grade ou lista: o que a pessoa escolheu; sem escolha, pelo conteúdo (só pastas → lista; foto ou vídeo → grade).
+  // Enquanto carrega, fica a vista da última pasta (o esqueleto não pula de forma).
+  const lastAuto = useRef('list')
+  if (list.files) lastAuto.current = autoView(list.files)
+  const view = prefs.view || lastAuto.current
   const { pull, busy } = usePull(root, active && !preview, () => list.reload())
 
   useEffect(() => {
@@ -404,7 +409,7 @@ export function DriveScreen({ active }) {
   const files = list.files || []
   const empty = !list.loading && !list.error && list.files && !files.length
 
-  return html`<div class=${cx('screen', 'drive-screen', prefs.view === 'list' && 'is-list')} ref=${root}>
+  return html`<div class=${cx('screen', 'drive-screen', view === 'list' && 'is-list')} ref=${root}>
     <header class="topbar dtop">
       <div class="dtop-row">
         ${nav.path.length && !search
@@ -426,10 +431,10 @@ export function DriveScreen({ active }) {
           <button
             type="button"
             class="icon-btn"
-            onClick=${() => changePrefs({ view: prefs.view === 'grid' ? 'list' : 'grid' })}
-            aria-label=${prefs.view === 'grid' ? 'Ver em lista' : 'Ver em grade'}
+            onClick=${() => changePrefs({ view: view === 'grid' ? 'list' : 'grid' })}
+            aria-label=${view === 'grid' ? 'Ver em lista' : 'Ver em grade'}
           >
-            <${Icon} name=${prefs.view === 'grid' ? 'list' : 'grid'} size=${20} />
+            <${Icon} name=${view === 'grid' ? 'list' : 'grid'} size=${20} />
           </button>
         </div>
         ${menu ? html`<${SortMenu} prefs=${prefs} onChange=${(p) => changePrefs(p)} onClose=${() => setMenu(false)} />` : null}
@@ -500,7 +505,7 @@ export function DriveScreen({ active }) {
           </div>`
         : null}
       ${search ? html`<p class="drive-note">${list.loading ? 'Buscando…' : `${files.length}${list.next ? '+' : ''} ${files.length === 1 ? 'resultado' : 'resultados'} para “${search}”`}</p>` : null}
-      ${list.loading && !list.files ? html`<${SkeletonGrid} view=${prefs.view} />` : null}
+      ${list.loading && !list.files ? html`<${SkeletonGrid} view=${view} />` : null}
       ${list.error && !list.files
         ? html`<div class="drive-msg" role="alert">
             <${Icon} name="warning" size=${26} />
@@ -517,7 +522,7 @@ export function DriveScreen({ active }) {
           </div>`
         : null}
       ${files.length
-        ? prefs.view === 'grid'
+        ? view === 'grid'
           ? html`<ul class="tiles">${files.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${files} onOpen=${open} />`)}</ul>`
           : html`<ul class="group lrows">${files.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${files} onOpen=${open} driveId=${driveId} />`)}</ul>`
         : null}
