@@ -158,31 +158,6 @@ function Unsupported({ file, poster, reason, children }) {
   </div>`
 }
 
-/**
- * Vídeo pesado demais para tocar pela rede (ProRes, 4K de câmera): o Drive toca porque usa a cópia leve que ele
- * mesmo gera, e a API só entrega o original. Taxa = tamanho / duração; o limite é menor no celular.
- * O aviso só oferece "Tentar mesmo assim": o "Abrir no Drive" de sempre fica logo abaixo, nas ações da prévia.
- */
-function mbpsOf(file) {
-  const ms = Number(file.videoMediaMetadata?.durationMillis || 0)
-  const size = Number(file.size || 0)
-  return ms > 0 && size > 0 ? (size * 8) / (ms / 1000) / 1e6 : 0
-}
-const LIMIT_MBPS = () => (window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 768 ? 60 : 400)
-const isHeavy = (file) => mbpsOf(file) > LIMIT_MBPS()
-
-function HeavyNotice({ file, poster, onTry, stalled }) {
-  return html`<${Unsupported}
-    file=${file}
-    poster=${poster}
-    reason=${stalled
-      ? 'A rede não está dando conta deste vídeo. Em Abrir no Drive, o Google toca uma cópia leve dele.'
-      : 'Vídeo pesado demais para tocar pela rede. Em Abrir no Drive, o Google toca uma cópia leve dele.'}
-  >
-    <button type="button" class="btn btn-secondary btn-sm" onClick=${onTry}>Tentar mesmo assim</button>
-  </${Unsupported}>`
-}
-
 /** Pergunta ao SW o que houve quando o <video> falha: formato que não toca, ou acesso/rede. */
 async function whyFailed(file) {
   try {
@@ -230,10 +205,8 @@ function MediaStage({ file, kind, siblings, onZoom }) {
   const [proxyFail, setProxyFail] = useState(false)
   const proxyPoster = useThumb(proxy && proxy !== 'look' ? proxy : { id: '-' }, Math.min(1600, px))
   const playable = kind === 'video' || kind === 'audio' ? mayPlay(file) : false
-  // heavy: 'taxa' (pela conta) | 'trava' (travou tocando) | null; forced: a pessoa pediu para tentar mesmo assim.
-  const [heavy, setHeavy] = useState(() => (kind === 'video' && isHeavy(file) ? 'taxa' : null))
-  const [forced, setForced] = useState(false)
-  const needProxy = kind === 'video' && (fail === 'format' || wantsProxy(file) || (heavy && !forced))
+  // Vídeo pesado (4K de câmera) toca o original direto, sem aviso: se travar, o player espera carregar.
+  const needProxy = kind === 'video' && (fail === 'format' || wantsProxy(file))
   // Cópia leve (vídeo grande, qualquer codec): undefined = não olhou; 'look'; arquivo; null = não tem.
   const lite = kind === 'video' && wantsLite(file)
   const [liteP, setLiteP] = useState(undefined)
@@ -244,15 +217,12 @@ function MediaStage({ file, kind, siblings, onZoom }) {
   const pick = (leve) => {
     setStartAt(at.current || 0)
     setOrig(!leve)
-    if (!leve) setForced(true)
   }
   useEffect(() => {
     let alive = true
     setFail(null)
     setProxy(undefined)
     setProxyFail(false)
-    setHeavy(kind === 'video' && isHeavy(file) ? 'taxa' : null)
-    setForced(false)
     setLiteP(undefined)
     setLiteFail(false)
     setOrig(false)
@@ -301,6 +271,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
           startAt=${startAt}
           timeRef=${at}
           onFail=${() => setLiteFail(true)}
+          autoPlay
         />
         <p class="pv-proxy-note">${isPrevia(liteP) ? 'Proxy (cópia leve 1080p), para tocar sem travar. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
       </div>`
@@ -319,6 +290,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
         startAt=${startAt}
         timeRef=${at}
         onFail=${() => (setStartAt(at.current || 0), setOrig(false))}
+        autoPlay
       />
       <p class="pv-proxy-note">Original: pode travar se a rede não der conta.</p>
     </div>`
@@ -337,6 +309,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
         ratio=${ratio}
         badge="Proxy"
         onFail=${() => setProxyFail(true)}
+        autoPlay
       />
       <p class="pv-proxy-note">${isPrevia(proxy) ? 'Proxy (cópia leve 1080p). O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
     </div>`
@@ -344,7 +317,6 @@ function MediaStage({ file, kind, siblings, onZoom }) {
   if (kind === 'video' || kind === 'audio') {
     const art = poster || proxyPoster || null
     if (needProxy && (sw === undefined || proxy === 'look' || (proxy === undefined && sw))) return html`<div class="pv-wait"><span class="spinner"></span></div>`
-    if (heavy && !forced && fail !== 'format') return html`<${HeavyNotice} file=${file} poster=${art} stalled=${heavy === 'trava'} onTry=${() => setForced(true)} />`
     if (!playable || fail === 'format') return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.format} />`
     if (sw === false) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.nosw} />`
     if (fail) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT[fail] || FAIL_TEXT.network} />`
@@ -359,7 +331,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
       title=${file.name}
       ratio=${ratio}
       onFail=${async (code) => setFail(code === 3 || code === 4 ? await whyFailed(file) : 'network')}
-      onStall=${kind === 'video' && !forced ? () => setHeavy('trava') : null}
+      autoPlay
     />`
   }
 

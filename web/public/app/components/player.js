@@ -78,7 +78,7 @@ function Scrubber({ time, dur, buffered, onSeek, onScrub }) {
  * kind 'video' | 'audio'. `poster` (miniatura) aparece até o primeiro quadro. onFail(code) quando o navegador não
  * consegue tocar (formato ou rede): quem chama decide o aviso.
  */
-export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, startAt = 0, timeRef, onFail, onStall }) {
+export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, startAt = 0, timeRef, onFail, onStall, autoPlay = false }) {
   const wrap = useRef(null)
   const media = useRef(null)
   const hideTimer = useRef(0)
@@ -147,6 +147,18 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
     }
   }
 
+  // Começa a tocar assim que abre (e já vai carregando: preload auto). Sem som se o navegador barrar o som
+  // automático (iPhone sem toque recente): o botão de som fica à mão na barra.
+  useEffect(() => {
+    const m = media.current
+    if (!autoPlay || !m) return
+    m.play()?.catch?.((err) => {
+      if (err?.name !== 'NotAllowedError' || !media.current) return
+      media.current.muted = true
+      media.current.play()?.catch?.(() => {})
+    })
+  }, [src])
+
   // Travou: em espera por mais de 4 s, ou o tempo anda sem quadro novo (a imagem congela e o relógio segue).
   const stallTimer = useRef(0)
   const lastFrame = useRef({ media: 0, at: 0 })
@@ -199,7 +211,7 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
       ref=${media}
       class="mp-media"
       src=${src}
-      preload="metadata"
+      preload=${autoPlay ? 'auto' : 'metadata'}
       playsinline
       webkit-playsinline
       x-webkit-airplay="allow"
