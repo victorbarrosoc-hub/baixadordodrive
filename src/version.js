@@ -4,7 +4,7 @@
 //  - O build deste app vem de src/build-info.json, gravado pelo GitHub Actions (scripts/build-info.mjs).
 //    build 0 = versão de desenvolvimento (npm start, demo, testes): nunca pergunta nada ao site.
 //  - O site responde GET <site>/baixar/versao com o build mais novo do Release de teste (o versao.json, que só sobe
-//    depois dos dois instaladores). Confere ~10 s depois de abrir e a cada 6 h; sem internet ou resposta estranha,
+//    depois dos dois instaladores). Confere ~10 s depois de abrir e a cada 1 h; sem internet ou resposta estranha,
 //    fica quieto e tenta na próxima.
 //  - "Depois" guarda o build dispensado nos ajustes (versaoDispensada): o aviso só volta com um build ainda mais novo.
 //  - O versao.json traz o SHA-256 de cada instalador (sha256Mac/sha256Windows). Sem ele, só o Baixar.
@@ -15,7 +15,7 @@ import { requestJSON } from './net/http.js'
 
 const BUILD_INFO_FILE = new URL('./build-info.json', import.meta.url)
 const FIRST_DELAY_MS = 10_000
-const EVERY_MS = 6 * 60 * 60_000
+const EVERY_MS = 60 * 60_000
 const TIMEOUT_MS = 15_000
 
 const PLATAFORMAS = { darwin: 'mac', win32: 'windows' }
@@ -157,7 +157,7 @@ export class VersionChecker extends EventEmitter {
    * Lança Error com `status` (409) se não der: aí a interface oferece o Baixar.
    */
   async update() {
-    // A conferência pode ter até 6 h: pergunta de novo antes de baixar (o endereço de download entrega o mais novo).
+    // A conferência pode ter até 1 h: pergunta de novo antes de baixar (o endereço de download entrega o mais novo).
     if (this.updater && !this.updater.ocupado) await this.check()
     const st = this.status()
     if (!st.disponivel) throw Object.assign(new Error('Não há versão nova para instalar.'), { status: 409 })
