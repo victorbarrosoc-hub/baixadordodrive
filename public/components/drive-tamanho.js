@@ -173,10 +173,11 @@ export function sizeShort(v) {
   return ''
 }
 
-function detail(v, { shortcuts = true } = {}) {
+function detail(v, { shortcuts = true, docs = true } = {}) {
   if (!v) return ''
   const parts = [v.folders ? `${plural(v.files, 'arquivo', 'arquivos')} em ${plural(v.folders, 'pasta', 'pastas')}` : plural(v.files, 'arquivo', 'arquivos')]
-  if (v.docs) parts.push('documentos do Google não contam')
+  // Docs do Google não têm tamanho de arquivo: no texto da linha só quando há Doc na própria pasta; no resto, na dica.
+  if (v.docs && docs) parts.push('Docs do Google não entram na soma')
   if (v.shortcuts && shortcuts) parts.push(`${plural(v.shortcuts, 'atalho', 'atalhos')} fora da conta (não são seguidos)`)
   return parts.join(' · ')
 }
@@ -239,7 +240,8 @@ export function FolderSummary({ accountId, folderId, items, ready }) {
       </span>
       ${big ? html`<button type="button" class="dsum-act" onClick=${() => stopSize(accountId, folderId)}><${Icon} name="pause" size=${12} /> Parar</button>` : null}`
   } else if (v.status === 'done') {
-    body = html`<span class="dsum-total" title=${detail(v)}><b>${total(v.bytes)}</b> · ${detail(v, { shortcuts: false })}</span>
+    const docHere = !!items?.some((it) => it.isGoogleDoc)
+    body = html`<span class="dsum-total" title=${detail(v)}><b>${total(v.bytes)}</b> · ${detail(v, { shortcuts: false, docs: docHere })}</span>
       <button type="button" class="dsum-icon" onClick=${() => calcSize(accountId, folderId, { refresh: true })} title="Recalcular" aria-label="Recalcular o tamanho"><${Icon} name="refresh" size=${13} /></button>`
   } else if (v.status === 'stopped') {
     body = html`<span class="dsum-total">Pelo menos <b>${bytes(v.bytes)}</b> · ${count(v.files)}+ arquivos (parado)</span>

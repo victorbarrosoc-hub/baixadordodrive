@@ -14,6 +14,11 @@ export function contaUrl() {
   return getState().cloud?.contaUrl || `${siteUrl()}/conta`
 }
 
+/** Criar conta (web/src/app/(conta)/criar-conta), no navegador do sistema. */
+export function criarContaUrl() {
+  return `${siteUrl()}/criar-conta`
+}
+
 /** Pede o código e já abre o navegador na página de liberar o computador. */
 export async function cloudLogin({ open = true } = {}) {
   const res = await attempt(api.post('/api/cloud/login'))

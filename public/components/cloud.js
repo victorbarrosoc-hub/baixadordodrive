@@ -2,7 +2,8 @@
 // Usado nos Primeiros passos (tela de boas-vindas) e em Ajustes → Conta SOBEDESCE.
 import { html, useEffect, useState } from '/vendor/preact-htm.js'
 import { useStore } from '../lib/store.js'
-import { cloudCancel, cloudLogin, cloudLogout, cloudRefresh, contaUrl, openLoginPage } from '../lib/cloud.js'
+import { cloudCancel, cloudLogin, cloudLogout, cloudRefresh, contaUrl, criarContaUrl, openLoginPage } from '../lib/cloud.js'
+import { openExternal } from '../lib/desktop.js'
 import { confirmDialog } from '../lib/modals.js'
 import { cx } from '../lib/ui.js'
 import { Icon } from './icons.js'
@@ -74,6 +75,9 @@ export function CloudSignIn({ hero }) {
   return html`<div class=${cx('cloud-signin', hero && 'is-hero')}>
     ${cloud?.aviso ? html`<p class="cloud-problem"><${Icon} name="warning" size=${15} /> ${cloud.aviso}</p>` : null}
     <${Button} variant="primary" size=${hero ? 'xl' : 'sm'} icon=${hero ? 'user' : null} loading=${busy} onClick=${start}>Entrar com a conta SOBEDESCE</${Button}>
+    ${hero
+      ? html`<p class="cloud-signup">Ainda não tem conta? <button type="button" class="link" onClick=${() => openExternal(criarContaUrl())}>Criar no site</button></p>`
+      : null}
   </div>`
 }
 
