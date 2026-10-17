@@ -33,6 +33,8 @@ export const MEDIA_FIELDS =
 export const BROWSE_FIELDS = `${FILE_FIELDS},${MEDIA_FIELDS}`
 
 const LIST_FIELDS = `nextPageToken,files(${FILE_FIELDS})`
+// Varredura que precisa das marcas do app (Comparar: deixar de fora a pasta Proxy que o SOBEDESCE gerou).
+const LIST_APP_FIELDS = `nextPageToken,files(${FILE_FIELDS},appProperties)`
 const BROWSE_LIST_FIELDS = `nextPageToken,files(${BROWSE_FIELDS})`
 const ABOUT_FIELDS = 'user(displayName,emailAddress,permissionId,photoLink),storageQuota(limit,usage,usageInDrive)'
 const PAGE_SIZE = 1000
@@ -85,6 +87,8 @@ export function toDriveItem(f) {
     shortcutTargetMimeType: f.shortcutDetails?.targetMimeType ?? null,
     shortcutTargetResourceKey: f.shortcutDetails?.targetResourceKey ?? null,
     ...mediaInfo(f),
+    // Marcas do app (o proxy: { sobedesce: 'previa', original }). Só as nossas: o Drive devolve só as deste app.
+    ...(f?.appProperties && typeof f.appProperties === 'object' ? { appProperties: { ...f.appProperties } } : {}),
   }
 }
 
@@ -95,8 +99,6 @@ function mediaInfo(f) {
   if (!f || (f.hasThumbnail === undefined && f.thumbnailLink === undefined && !f.videoMediaMetadata && !f.imageMediaMetadata && !f.owners && !f.webViewLink)) return {}
   const out = { hasThumbnail: Boolean(f.hasThumbnail && f.thumbnailLink), thumbnailLink: f.thumbnailLink ?? null }
   if (f.iconLink) out.iconLink = f.iconLink
-  // Marcas do app (a prévia leve: { sobedesce: 'previa', original }). Só as nossas: o Drive devolve só as deste app.
-  if (f.appProperties && typeof f.appProperties === 'object') out.appProperties = { ...f.appProperties }
   if (f.webViewLink) out.webViewLink = f.webViewLink
   const owner = Array.isArray(f.owners) ? f.owners[0] : null
   if (owner) out.owner = { name: owner.displayName ?? null, email: owner.emailAddress ?? null }
@@ -470,13 +472,13 @@ export class DriveClient {
   }
 
   /** files.list com todas as páginas (páginas curtas, até vazias, podem vir com nextPageToken). */
-  async #list(q, { driveId = null, signal, limit = Infinity, pageSize = PAGE_SIZE, media = false } = {}) {
+  async #list(q, { driveId = null, signal, limit = Infinity, pageSize = PAGE_SIZE, media = false, appProps = false } = {}) {
     const out = []
     let pageToken
     do {
       const query = {
         q,
-        fields: media ? BROWSE_LIST_FIELDS : LIST_FIELDS,
+        fields: media ? BROWSE_LIST_FIELDS : appProps ? LIST_APP_FIELDS : LIST_FIELDS,
         pageSize: Math.min(pageSize, PAGE_SIZE),
         includeItemsFromAllDrives: 'true',
         supportsAllDrives: 'true',
@@ -714,8 +716,9 @@ export class DriveClient {
    * Cada item ganha relPath/relDir (NFC, '/') relativos à pasta varrida. Atalhos para arquivo ganham
    * `target` (DriveItem, ou null se o alvo sumiu); atalhos para pasta não são seguidos (evita ciclos).
    * `media: true` traz também os campos da prévia (hasThumbnail…): usado pelo "Gerar miniaturas".
+   * `appProps: true` traz só as marcas do app (`appProperties`), sem o peso da prévia: usado pelo Comparar.
    */
-  async walk(folderId, { signal, onProgress, concurrency = 8, media = false } = {}) {
+  async walk(folderId, { signal, onProgress, concurrency = 8, media = false, appProps = false } = {}) {
     if (signal?.aborted) throw abortError(signal)
     let root = await this.getItem(folderId, { signal })
     if (root.isShortcut && root.shortcutTargetId && root.shortcutTargetMimeType === FOLDER_MIME) {
@@ -766,7 +769,7 @@ export class DriveClient {
           const job = queue[head++]
           active++
           try {
-            const children = await this.#list(this.#childrenQuery(job.id), { driveId: job.driveId, signal: sig, media })
+            const children = await this.#list(this.#childrenQuery(job.id), { driveId: job.driveId, signal: sig, media, appProps })
             for (const child of children) {
               child.relDir = job.relDir
               child.relPath = joinRel(job.relDir, relSegment(child.name))

@@ -16,6 +16,7 @@ import { SequenceBar, Timeline } from './timeline.js'
 import { contaUrl, isCloudAccount } from '../lib/cloud.js'
 import { navigate } from '../lib/router.js'
 import { PreviaLine } from './previa.js'
+import { FILTER_TESTS, integrity, integrityLabel, sortRows } from '../lib/transferencias.js'
 
 /** "Conectar de novo" certo para a conta: OAuth deste computador, o site (Drive da conta) ou entrar na conta. */
 function ReauthLink({ t }) {
@@ -27,27 +28,16 @@ function ReauthLink({ t }) {
 }
 
 const FILTERS = [
-  { value: 'all', label: 'Tudo', test: () => true },
-  { value: 'active', label: 'Em andamento', test: (t) => t.status === 'running' || t.status === 'verifying' || t.status === 'waiting' || t.status === 'paused' },
-  { value: 'queued', label: 'Na fila', test: (t) => t.status === 'queued' },
-  { value: 'done', label: 'Concluídas', test: (t) => t.status === 'completed' || t.status === 'skipped' },
-  { value: 'failed', label: 'Com problema', test: (t) => t.status === 'failed' || t.verify?.state === 'mismatch' },
+  { value: 'all', label: 'Tudo', test: FILTER_TESTS.all },
+  { value: 'active', label: 'Em andamento', test: FILTER_TESTS.active },
+  { value: 'queued', label: 'Na fila', test: FILTER_TESTS.queued },
+  { value: 'done', label: 'Concluídas', test: FILTER_TESTS.done },
+  { value: 'failed', label: 'Com problema', test: FILTER_TESTS.failed },
 ]
 
-const RANK = { running: 0, verifying: 0, failed: 1, waiting: 2, paused: 3, queued: 4, completed: 5, skipped: 5, canceled: 6 }
 const FINISHED = new Set(['completed', 'skipped', 'canceled'])
 const MAX_ROWS = 200
 const BIG_BATCH = 40
-
-function sortRows(a, b) {
-  const r = (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9)
-  if (r) return r
-  if (a.status === 'queued') {
-    const p = (b.priority || 0) - (a.priority || 0)
-    if (p) return p
-  }
-  return (a.createdAt || 0) - (b.createdAt || 0) || (a.name < b.name ? -1 : 1)
-}
 
 export function statusInfo(t) {
   const up = t.type === 'upload'
@@ -59,7 +49,7 @@ export function statusInfo(t) {
     case 'queued':
       return { tone: 'neutral', label: 'Na fila', icon: 'clock' }
     case 'paused':
-      return { tone: t.error ? 'warning' : 'muted', label: t.error ? 'Pausado · precisa de você' : 'Pausado', icon: 'pause' }
+      return { tone: t.error ? 'warning' : 'muted', label: t.error ? 'Precisa de você' : 'Pausado', icon: 'pause' }
     case 'waiting':
       // Cota do Google (750 GB/dia, arquivo muito baixado) ou internet fora do ar: nos dois casos volta sozinho.
       return { tone: 'warning', label: t.error?.kind === 'quota' ? 'Aguardando cota' : 'Sem conexão', icon: 'clock', sub: t.retryAt ? `retoma às ${clock(t.retryAt)}` : null }
@@ -116,11 +106,15 @@ const TransferRow = memo(function TransferRow({ t, platform }) {
     message = html`<div class="trow-msg is-quiet"><span>${t.error.message}</span></div>`
   }
 
+  // A ação principal do estado fica sempre à vista (as outras aparecem ao passar o mouse). Com problema e
+  // acesso vencido já têm a sua na mensagem ("Tentar de novo", "Reconectar no site").
   const actions = []
+  const reauth = t.status === 'paused' && t.error?.kind === 'reauth'
   if (t.status === 'queued') actions.push(html`<${IconButton} icon="prioritize" label="Passar na frente" onClick=${() => transferAction('prioritize', [t.id])} />`)
   if (t.status === 'running' || t.status === 'queued' || t.status === 'waiting')
     actions.push(html`<${IconButton} icon="pause" label="Pausar" onClick=${() => transferAction('pause', [t.id])} />`)
-  if (t.status === 'paused') actions.push(html`<${IconButton} icon="play" label="Retomar" onClick=${() => transferAction('resume', [t.id])} />`)
+  if (t.status === 'paused')
+    actions.push(html`<${IconButton} icon="play" label="Retomar" class=${reauth ? null : 'is-primary'} onClick=${() => transferAction('resume', [t.id])} />`)
   if (t.status === 'waiting') actions.push(html`<${IconButton} icon="retry" label="Tentar agora" onClick=${() => transferAction('retry', [t.id])} />`)
   if (t.status === 'failed' || t.status === 'canceled') actions.push(html`<${IconButton} icon="retry" label="Tentar de novo" onClick=${() => transferAction('retry', [t.id])} />`)
   if (done && localPath) actions.push(html`<${IconButton} icon="reveal" label=${revealLabel(platform)} onClick=${() => reveal(localPath)} />`)
@@ -199,6 +193,8 @@ function BatchGroup({ group, rows, expanded, onToggle, limit, onMore, platform }
   const remaining = Math.max(0, sum.size - sum.done)
   const seqItems = useMemo(() => items.map((t) => ({ size: t.size || 0, done: t.status === 'completed' || t.status === 'skipped' ? t.size || 0 : t.bytesDone || 0, status: t.status })), [items])
   const id = `batch-${batch.id}`
+  const check = finished ? integrity(items) : null
+  const checkText = check ? integrityLabel(check) : null
 
   return html`<section class=${cx('batch card', !expanded && 'is-collapsed', finished && 'is-finished')} aria-labelledby=${id}>
     <header class="batch-head">
@@ -214,7 +210,14 @@ function BatchGroup({ group, rows, expanded, onToggle, limit, onMore, platform }
           <span class="batch-meta">${plural(items.length, 'arquivo', 'arquivos')} · ${bytes(sum.size)}</span>
         </div>
         <${SequenceBar} items=${seqItems} type=${type} />
-        <div class="batch-sub">${batchSubline(type, sum.by)}</div>
+        <div class="batch-sub">
+          ${batchSubline(type, sum.by)}
+          ${checkText
+            ? html`<span class=${cx('batch-check', check.checked === check.total ? 'is-ok' : check.mismatch ? 'is-warn' : 'is-partial')} title=${check.checked === check.total ? 'Todos os arquivos conferem com o original (MD5)' : 'Sem conferência: MD5 desligado em Ajustes, Doc Google ou arquivo sem MD5 no Drive'}>
+                <${Icon} name="shield" size=${12} strokeWidth=${1.7} />${checkText}
+              </span>`
+            : null}
+        </div>
       </div>
       <div class="batch-stats">
         <span class="batch-pct">${percent(sum.size ? sum.done / sum.size : finished ? 1 : 0)}</span>

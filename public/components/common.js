@@ -1,7 +1,7 @@
 // Peças básicas da interface: botões em pílula, controles no estilo macOS, ícones de arquivo, avatar.
 import { html, useEffect, useRef, useState } from '/vendor/preact-htm.js'
 import { Icon } from './icons.js'
-import { cx } from '../lib/ui.js'
+import { cx, useDismiss } from '../lib/ui.js'
 import { fileKind, initials } from '../lib/format.js'
 
 export function Button({ variant = 'secondary', size, icon, iconRight, children, class: klass, loading, disabled, type = 'button', ...rest }) {
@@ -29,6 +29,83 @@ export function IconButton({ icon, label, class: klass, size = 16, tone, ...rest
   return html`<button type="button" class=${cx('icon-btn', tone && `icon-btn-${tone}`, klass)} aria-label=${label} title=${label} ...${rest}>
     <${Icon} name=${icon} size=${size} />
   </button>`
+}
+
+/**
+ * Botão que abre um menu pequeno (ex.: "⋯ Mais" na barra do Drive).
+ * items: [{ icon, label, onSelect, title?, busy?, disabled? }]. Teclado: ↓/↑ andam, Esc fecha e volta o foco ao botão;
+ * clicar fora também fecha.
+ */
+export function MenuButton({ label, icon = 'more', items, busy, align = 'right', class: klass, menuLabel }) {
+  const [open, setOpen] = useState(false)
+  const wrap = useRef(null)
+  const trigger = useRef(null)
+  const list = items.filter(Boolean)
+  const close = (focusBack) => {
+    setOpen(false)
+    if (focusBack) trigger.current?.focus({ preventScroll: true })
+  }
+  useDismiss(wrap, (e) => close(e?.type === 'keydown'), open)
+  useEffect(() => {
+    if (open) wrap.current?.querySelector('.menu .menu-item:not(:disabled)')?.focus({ preventScroll: true })
+  }, [open])
+  const onKey = (e) => {
+    const els = [...(wrap.current?.querySelectorAll('.menu .menu-item:not(:disabled)') || [])]
+    const i = els.indexOf(document.activeElement)
+    if (e.key === 'Escape') {
+      // só fecha o menu (a tela não recebe o Esc: no Drive ele também limparia a seleção)
+      e.preventDefault()
+      e.stopPropagation()
+      close(true)
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      els[(i + (e.key === 'ArrowDown' ? 1 : els.length - 1)) % els.length]?.focus()
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      els[e.key === 'Home' ? 0 : els.length - 1]?.focus()
+    } else if (e.key === 'Tab') close(false)
+  }
+  const onTriggerKey = (e) => {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !open) {
+      e.preventDefault()
+      setOpen(true)
+    }
+  }
+  if (!list.length) return null
+  return html`<div class=${cx('menu-wrap', klass)} ref=${wrap}>
+    <button
+      type="button"
+      class=${cx('btn btn-secondary menu-trigger', open && 'is-open')}
+      aria-haspopup="menu"
+      aria-expanded=${open ? 'true' : 'false'}
+      ref=${trigger}
+      onClick=${() => setOpen(!open)}
+      onKeyDown=${onTriggerKey}
+    >
+      ${busy ? html`<${Spinner} size=${14} />` : html`<${Icon} name=${icon} size=${16} />`}
+      <span>${label}</span>
+    </button>
+    ${open
+      ? html`<div class=${cx('menu menu-pop', align === 'left' && 'is-left')} role="menu" aria-label=${menuLabel || label} onKeyDown=${onKey}>
+          ${list.map(
+            (it) => html`<button
+              type="button"
+              role="menuitem"
+              class="menu-item"
+              title=${it.title}
+              disabled=${it.disabled}
+              onClick=${() => {
+                close(false)
+                it.onSelect()
+              }}
+            >
+              ${it.busy ? html`<${Spinner} size=${14} />` : html`<${Icon} name=${it.icon} size=${15} />`}
+              <span class="menu-item-text">${it.label}</span>
+            </button>`,
+          )}
+        </div>`
+      : null}
+  </div>`
 }
 
 export function Spinner({ size = 16 }) {

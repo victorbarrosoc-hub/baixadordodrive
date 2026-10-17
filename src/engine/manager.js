@@ -387,6 +387,11 @@ export class TransferManager extends EventEmitter {
     let count = 0
     let bytes = 0
     let doneBytes = 0
+    // "Restantes" e ETA com a mesma conta: só o que anda sozinho (na fila, andando, conferindo, esperando a rede ou a
+    // cota). Pausado e com problema ficam à parte, em `parked`: não andam até alguém mexer.
+    let parked = 0
+    let parkedCount = 0
+    let problems = 0
     for (const r of this.records.values()) {
       const d = dirs[r.type]
       if (!d) continue
@@ -398,7 +403,12 @@ export class TransferManager extends EventEmitter {
       bytes += size
       const done = r.status === 'completed' || r.status === 'skipped' ? size : Math.min(size, this.#liveBytes(r))
       doneBytes += done
-      if (!FINISHED.has(r.status) && r.status !== 'failed') d.remaining += Math.max(0, size - done)
+      if (r.status === 'queued' || r.status === 'running' || r.status === 'verifying' || r.status === 'waiting') d.remaining += Math.max(0, size - done)
+      else if (r.status === 'paused' || r.status === 'failed') {
+        parked += Math.max(0, size - done)
+        parkedCount++
+        if (r.status === 'failed' || r.error) problems++
+      }
     }
     // ETA geral: a direção que vai demorar mais (cada uma tem a sua velocidade).
     let total = null
@@ -411,7 +421,7 @@ export class TransferManager extends EventEmitter {
     return {
       down: pub(dirs.download),
       up: pub(dirs.upload),
-      totals: { count, bytes, doneBytes },
+      totals: { count, bytes, doneBytes, remaining: dirs.download.remaining + dirs.upload.remaining, parked, parkedCount, problems },
       eta: total,
       history: this.history.slice(),
       keepAwake: !!this.keepAwake.active,

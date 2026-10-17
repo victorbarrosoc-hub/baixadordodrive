@@ -12,7 +12,7 @@ import { pickFolderPath, pickUploadPaths } from '../lib/desktop.js'
 import { FileDrop } from './drop.js'
 import { toast } from '../lib/toasts.js'
 import { Icon } from './icons.js'
-import { Button, IconButton, Segmented, Spinner } from './common.js'
+import { Button, IconButton, MenuButton, Segmented, Spinner } from './common.js'
 import { DriveTable, compare, isOpenable } from './drive-table.js'
 import { DriveGrid } from './drive-grid.js'
 import { DrivePreview } from './drive-preview.js'
@@ -286,17 +286,20 @@ export function DriveScreen({ route }) {
         />
         ${!searching ? html`<${IconButton} icon="refresh" label="Atualizar" onClick=${reload} class=${loading && data ? 'is-spinning' : ''} />` : null}
         ${!searching && folder ? html`<a class="icon-btn" href=${folderId === 'root' ? 'https://drive.google.com/drive/my-drive' : driveFolderUrl(folderId)} target="_blank" rel="noopener" title="Abrir no navegador" aria-label="Abrir no navegador"><${Icon} name="external" /></a>` : null}
-        ${!searching && folder && (hasRawFiles(items) || thumbsRunning)
-          ? html`<button type="button" class="btn btn-secondary" onClick=${() => openRawThumbs({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } })} title="Miniatura para os BRAW/R3D, a partir dos originais no computador">
-              ${thumbsRunning ? html`<${Spinner} size=${14} />` : html`<${Icon} name="photo" size=${16} />`}<span>Gerar miniaturas</span>
-            </button>`
-          : null}
-        ${!searching && folder && (hasVideoFiles(items, folder) || previasRunning)
-          ? html`<button type="button" class="btn btn-secondary" onClick=${() => openPrevias({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } })} title="Proxy (cópia leve 1080p, pasta Proxy) dos vídeos desta pasta, para a prévia tocar fluida">
-              ${previasRunning ? html`<${Spinner} size=${14} />` : html`<${Icon} name="film" size=${16} />`}<span>Gerar proxies da pasta</span>
-            </button>`
-          : null}
-        <${Button} icon="folder-plus" onClick=${newFolder} disabled=${searching}>Nova pasta</${Button}>
+        <${MenuButton}
+          label="Mais"
+          menuLabel="Mais ações da pasta"
+          busy=${thumbsRunning || previasRunning}
+          items=${[
+            !searching && folder && (hasRawFiles(items) || thumbsRunning)
+              ? { icon: 'photo', label: 'Gerar miniaturas', busy: thumbsRunning, title: 'Miniatura para os BRAW/R3D, a partir dos originais no computador', onSelect: () => openRawThumbs({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } }) }
+              : null,
+            !searching && folder && (hasVideoFiles(items, folder) || previasRunning)
+              ? { icon: 'film', label: 'Gerar proxies da pasta', busy: previasRunning, title: 'Proxy (cópia leve 1080p, pasta Proxy) dos vídeos desta pasta, para a prévia tocar fluida', onSelect: () => openPrevias({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } }) }
+              : null,
+            { icon: 'folder-plus', label: 'Nova pasta', disabled: searching, onSelect: newFolder },
+          ]}
+        />
         <${Button} variant="primary" icon="upload" onClick=${uploadHere} disabled=${searching}>Enviar para esta pasta</${Button}>
       </div>
     </div>

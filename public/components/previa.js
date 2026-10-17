@@ -153,7 +153,8 @@ const setProxy = (id, on) => attempt(api.post('/api/transfers/proxy', { ids: [id
  */
 export function PreviaLine({ t }) {
   const settings = useStore((s) => s.settings)
-  if (t.type !== 'upload' || t.referencia || !isVideoName(t.name) || t.status === 'canceled') return null
+  // Cancelado ou com problema: o chip "Proxy: sim" só faria ruído ao lado do erro.
+  if (t.type !== 'upload' || t.referencia || !isVideoName(t.name) || t.status === 'canceled' || t.status === 'failed') return null
   const p = t.previa
   const want = typeof t.proxy === 'boolean' ? t.proxy : proxyPadrao(settings)
   if (!FIM_ENVIO.has(t.status)) {

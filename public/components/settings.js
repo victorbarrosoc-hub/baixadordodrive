@@ -373,7 +373,7 @@ function LimitControl({ value, onChange, label }) {
   </div>`
 }
 
-export function SettingsScreen() {
+export function SettingsScreen({ route } = {}) {
   const settings = useStore((s) => s.settings)
   const accounts = useStore((s) => s.accounts)
   const activeId = useStore((s) => s.activeAccountId)
@@ -451,6 +451,22 @@ export function SettingsScreen() {
       toast('success', 'Conta removida.')
     }
   }
+
+  // #/ajustes/contas (menu da conta → "Conta e Drives"): rola até a seção e marca por um instante.
+  // Espera um quadro: a troca de rota volta a página para o topo depois deste efeito.
+  const section = route?.parts?.[1] || ''
+  useEffect(() => {
+    if (!section || !settings) return undefined
+    const t = setTimeout(() => {
+      const el = document.getElementById(section)
+      if (!el) return
+      el.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      el.classList.remove('is-flash')
+      void el.offsetWidth
+      el.classList.add('is-flash')
+    }, 30)
+    return () => clearTimeout(t)
+  }, [section, !!settings])
 
   if (!settings) return null
   const d = { ...settings, ...draft }

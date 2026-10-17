@@ -28,6 +28,7 @@ const REFRESH_EVERY_MS = 5 * 60_000
 const DEFAULT_INTERVAL_S = 3
 const MAX_INTERVAL_MS = 15_000
 const DEFAULT_LOGIN_TTL_MS = 10 * 60_000
+const READY_SHOWN_MS = 60_000 // "Pronto. Seus Drives apareceram aqui." fica na tela só esse tempo depois de entrar
 
 export const MSG_RECONNECT = 'Reconecte este Drive em sobedesce.com/conta'
 const MSG_SIGNED_OUT = 'Sua sessão na conta SOBEDESCE terminou. Entre de novo para usar seus Drives.'
@@ -120,10 +121,11 @@ function siteMessage(err, fallback) {
 export class CloudAuth extends EventEmitter {
   /**
    * @param {{ paths?: object, baseUrl?: string, deviceName?: string, platform?: string,
-   *   refreshEveryMs?: number, retryBaseMs?: number, pollMs?: number|null, log?: Function }} [opts]
+   *   refreshEveryMs?: number, retryBaseMs?: number, pollMs?: number|null, readyShownMs?: number, log?: Function }} [opts]
    *   `pollMs`: intervalo fixo entre consultas do login (só testes; o normal é o `intervalo` do site, mínimo 1 s).
+   *   `readyShownMs`: por quanto tempo o login fica "pronto" (o aviso de sucesso) antes de voltar a "nenhum".
    */
-  constructor({ paths = dataPaths(), baseUrl, deviceName = null, platform = process.platform, refreshEveryMs = REFRESH_EVERY_MS, retryBaseMs = 400, pollMs = null, log } = {}) {
+  constructor({ paths = dataPaths(), baseUrl, deviceName = null, platform = process.platform, refreshEveryMs = REFRESH_EVERY_MS, retryBaseMs = 400, pollMs = null, readyShownMs = READY_SHOWN_MS, log } = {}) {
     super()
     this.paths = paths
     this.file = paths.cloud
@@ -133,6 +135,8 @@ export class CloudAuth extends EventEmitter {
     this.refreshEveryMs = refreshEveryMs
     this.retryBaseMs = retryBaseMs
     this.pollMs = pollMs
+    this.readyShownMs = readyShownMs
+    this.readyTimer = null
     this.log = log || ((...args) => console.warn('[conta]', ...args))
     this.session = null // { token, usuario, contas, entrouEm, atualizadoEm }
     this.tokens = new Map() // contaId -> { token, expiresAt, at }
@@ -183,6 +187,7 @@ export class CloudAuth extends EventEmitter {
   close() {
     this.closed = true
     this.#stopTimer()
+    clearTimeout(this.readyTimer)
     this.login?.ac.abort()
   }
 
@@ -371,6 +376,17 @@ export class CloudAuth extends EventEmitter {
     login.estado = estado
     login.mensagem = mensagem
     login.segredo = null
+    // O aviso de sucesso é para a hora em que entrou: depois de um tempo o login volta a "nenhum" sozinho
+    // (antes ficava "pronto" até sair da conta e o aviso aparecia em Ajustes horas depois).
+    if (estado === 'pronto') {
+      clearTimeout(this.readyTimer)
+      this.readyTimer = setTimeout(() => {
+        if (this.login !== login || login.estado !== 'pronto') return
+        this.login = null
+        this.#emitStatus()
+      }, this.readyShownMs)
+      this.readyTimer.unref?.()
+    }
     this.#emitStatus()
   }
 

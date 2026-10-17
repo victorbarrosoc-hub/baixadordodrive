@@ -366,6 +366,9 @@ function Results({ jobId, result, onReset }) {
       ? html`<p class="cmp-note"><${Icon} name="info" size=${14} /> ${plural(s.elsewhere, 'arquivo já está', 'arquivos já estão')} no Drive, mas em outra pasta — contam como “Já no Drive”.
           <button type="button" class="link" onClick=${() => pickTile('synced')}>Ver quais</button></p>`
       : null}
+    ${s.proxies
+      ? html`<p class="cmp-note"><${Icon} name="film" size=${14} /> ${plural(s.proxies, 'proxy gerado', 'proxies gerados')} pelo SOBEDESCE (pasta Proxy) ${s.proxies === 1 ? 'ficou' : 'ficaram'} de fora do “Só no Drive”.</p>`
+      : null}
 
     <section class=${cx('card cmp-actions', allGood && 'is-good')}>
       ${allGood
