@@ -220,7 +220,7 @@ function MobileGroups({ d, set, accounts, activeId, home, platform }) {
 
   const folderLabel = d.mobileFolderId ? d.mobileFolderName || 'Pasta escolhida' : 'Meu Drive'
   return html`
-    <${Group} title="Celular" icon="drop" tone="up" foot=${on ? firewallNote(platform) : 'O iPhone manda os arquivos pela rede local; o SOBEDESCE daqui sobe pro Drive na velocidade do computador.'}>
+    <${Group} id="celular" title="Celular" icon="drop" tone="up" foot=${on ? firewallNote(platform) : 'O iPhone manda os arquivos pela rede local; o SOBEDESCE daqui sobe pro Drive na velocidade do computador.'}>
       <${Row} label="Receber do celular (mesmo Wi-Fi)" desc=${`O celular abre o SOBEDESCE pelo QR code e manda os arquivos para ${where}, que sobe pro Drive. Se o Wi-Fi cair, continua de onde parou.`}>
         <${Switch} label="Receber do celular" checked=${on} onChange=${(v) => set('mobileReceive', v, { now: true })} />
       </${Row}>
@@ -373,6 +373,108 @@ function LimitControl({ value, onChange, label }) {
   </div>`
 }
 
+/** Ajustes → Avançado: onde os tokens dos Drives e a sessão da conta ficam guardados (src/util/segredos.js). */
+function protecaoTexto(app) {
+  if (app?.protecao !== 'sistema') return 'Num arquivo que só o seu usuário lê. Este computador não ofereceu um cofre do sistema.'
+  const cofre = app.platform === 'darwin' ? 'no Keychain do macOS' : app.platform === 'win32' ? 'com a proteção de dados do Windows' : 'no chaveiro do sistema'
+  return `Os acessos aos Drives, a sessão da conta e os logins do navegador de referências ficam cifrados ${cofre}.`
+}
+
+// ───── Índice lateral (janelas a partir de 1280 px; abaixo disso fica escondido pelo CSS) ─────
+
+// Cada item marca o trecho da página que começa na seção dele e vai até a do próximo (ex.: "Velocidade" cobre
+// Velocidade, Limite de banda e Segurança e retomada; "Avançado" cobre o avançado e as chaves do Google).
+const INDICE = [
+  { id: 'contas', label: 'Conta', icon: 'cloud' },
+  { id: 'velocidade', label: 'Velocidade', icon: 'bolt' },
+  { id: 'arquivos', label: 'Arquivos', icon: 'folder' },
+  { id: 'celular', label: 'Celular', icon: 'drop' },
+  { id: 'aparencia', label: 'Aparência', icon: 'sun' },
+  { id: 'atualizacoes', label: 'Atualizações', icon: 'circle-down' },
+  { id: 'avancado', label: 'Avançado', icon: 'sliders' },
+]
+const LINHA_ATIVA = 120 // px do topo: a seção cujo título passou desta linha é a "visível"
+
+/** Qual item do índice está na tela: a última seção que já passou da linha; no fim da página, a última que aparece. */
+function secaoVisivel() {
+  let ativo = INDICE[0].id
+  for (const s of INDICE) {
+    const el = document.getElementById(s.id)
+    if (el && el.getBoundingClientRect().top <= LINHA_ATIVA) ativo = s.id
+  }
+  const fim = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4
+  if (fim) {
+    const ultimo = document.getElementById(INDICE[INDICE.length - 1].id)
+    if (ultimo && ultimo.getBoundingClientRect().top < window.innerHeight) ativo = INDICE[INDICE.length - 1].id
+  }
+  return ativo
+}
+
+function useSecaoVisivel(pronto) {
+  const [ativo, setAtivo] = useState(INDICE[0].id)
+  const clicado = useRef(null) // depois de um clique, fica marcado o clicado até a rolagem suave terminar
+  const solta = useRef(null)
+  useEffect(() => {
+    if (!pronto) return undefined
+    let quadro = 0
+    const medir = () => {
+      quadro = 0
+      if (clicado.current) {
+        clearTimeout(solta.current)
+        solta.current = setTimeout(() => (clicado.current = null), 180)
+        return
+      }
+      setAtivo(secaoVisivel())
+    }
+    const aoRolar = () => {
+      if (!quadro) quadro = requestAnimationFrame(medir)
+    }
+    medir()
+    window.addEventListener('scroll', aoRolar, { passive: true })
+    window.addEventListener('resize', aoRolar)
+    return () => {
+      cancelAnimationFrame(quadro)
+      clearTimeout(solta.current)
+      window.removeEventListener('scroll', aoRolar)
+      window.removeEventListener('resize', aoRolar)
+    }
+  }, [pronto])
+  const ir = (id) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    if (el.tagName === 'DETAILS') el.open = true
+    clicado.current = id
+    clearTimeout(solta.current)
+    solta.current = setTimeout(() => (clicado.current = null), 900) // sem rolagem (já estava lá): solta sozinho
+    setAtivo(id)
+    const reduzir = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    el.scrollIntoView({ block: 'start', behavior: reduzir ? 'auto' : 'smooth' })
+  }
+  return [ativo, ir]
+}
+
+function IndiceAjustes({ ativo, onIr }) {
+  return html`<nav class="settings-index" aria-label="Seções dos ajustes">
+    <ul>
+      ${INDICE.map(
+        (s) => html`<li key=${s.id}>
+          <a
+            href=${`#/ajustes/${s.id}`}
+            class=${cx('settings-index-item', ativo === s.id && 'is-on')}
+            aria-current=${ativo === s.id ? 'location' : undefined}
+            onClick=${(e) => {
+              e.preventDefault()
+              onIr(s.id)
+            }}
+          >
+            <${Icon} name=${s.icon} size=${15} strokeWidth=${1.8} /><span>${s.label}</span>
+          </a>
+        </li>`,
+      )}
+    </ul>
+  </nav>`
+}
+
 export function SettingsScreen({ route } = {}) {
   const settings = useStore((s) => s.settings)
   const accounts = useStore((s) => s.accounts)
@@ -468,6 +570,8 @@ export function SettingsScreen({ route } = {}) {
     return () => clearTimeout(t)
   }, [section, !!settings])
 
+  const [secao, irPara] = useSecaoVisivel(Boolean(settings))
+
   if (!settings) return null
   const d = { ...settings, ...draft }
   const chunkOpts = CHUNKS.some((c) => c.value === d.uploadChunkSize) ? CHUNKS : [...CHUNKS, { value: d.uploadChunkSize, label: `${Math.round(d.uploadChunkSize / MiB)} MB` }]
@@ -482,12 +586,14 @@ export function SettingsScreen({ route } = {}) {
       </div>
     </header>
 
+    <div class="settings-layout">
+    <${IndiceAjustes} ativo=${secao} onIr=${irPara} />
     <div class="settings">
       <${Group} id="contas" title="Conta SOBEDESCE" icon="cloud" tone="up" foot="Os arquivos vão direto deste computador para o Google. O site só guarda o acesso aos seus Drives.">
         <${CloudAccountRows} />
       </${Group}>
 
-      <${Group} title="Velocidade" icon="bolt" tone="down">
+      <${Group} id="velocidade" title="Velocidade" icon="bolt" tone="down">
         <${Row} label="Downloads ao mesmo tempo" desc="Quantos arquivos baixam juntos.">
           <${Stepper} label="Downloads ao mesmo tempo" value=${d.maxConcurrentDownloads} min=${1} max=${16} onChange=${(v) => set('maxConcurrentDownloads', v)} />
         </${Row}>
@@ -496,34 +602,6 @@ export function SettingsScreen({ route } = {}) {
         </${Row}>
       </${Group}>
 
-      <details class="sgroup sgroup-details" id="avancado">
-        <summary>
-          <h2 class="sgroup-title">
-            <span class="sgroup-icon tone-neutral"><${Icon} name="sliders" size=${14} strokeWidth=${1.8} /></span>Avançado
-            <span class="sgroup-summary-hint">pedaço de upload, conexões por arquivo</span>
-            <${Icon} name="chevron-right" size=${14} class="sgroup-chev" />
-          </h2>
-        </summary>
-        <div class="sgroup-box">
-          <${Row} label="Tamanho do pedaço de upload" desc="Contínuo manda o resto do arquivo numa requisição só, como o Google recomenda. Pedaços ajudam em redes que derrubam conexões longas; se cair, continua de onde o Google confirmou.">
-            <${Select} label="Tamanho do pedaço de upload" value=${d.uploadChunkSize} options=${chunkOpts} onChange=${(v) => set('uploadChunkSize', Number(v), { now: true })} />
-          </${Row}>
-          <${Row} label="Conexões por arquivo" desc="Cada arquivo baixado vem em pedaços paralelos. Entre 8 e 16 costuma encher a banda.">
-            <${Slider}
-              label="Conexões por arquivo"
-              value=${d.connectionsPerDownload}
-              min=${1}
-              max=${32}
-              onInput=${(v) => set('connectionsPerDownload', v)}
-              format=${(v) => `${v}`}
-            />
-          </${Row}>
-          <${Row} label="Refazer conexões lentas" desc="Às vezes o Google segura uma conexão; o SOBEDESCE reabre as que ficam bem para trás.">
-            <${Switch} label="Refazer conexões lentas" checked=${d.restartSlowConnections} onChange=${(v) => set('restartSlowConnections', v, { now: true })} />
-          </${Row}>
-        </div>
-        <p class="sgroup-foot">O padrão já serve para quase toda rede. Mexa aqui se o envio cair muito ou não encher a banda.</p>
-      </details>
 
       <${Group} title="Limite de banda" icon="gauge" tone="up" foot="Útil para não ocupar a internet do escritório inteiro. Desligado, vai na velocidade máxima.">
         <${Row} label="Limitar download">
@@ -551,7 +629,7 @@ export function SettingsScreen({ route } = {}) {
         </${Row}>
       </${Group}>
 
-      <${Group} title="Arquivos" icon="folder" tone="neutral">
+      <${Group} id="arquivos" title="Arquivos" icon="folder" tone="neutral">
         <${Row} label="Pasta padrão dos downloads" desc=${html`<span class="mono-path" title=${d.downloadDir}>${tildify(d.downloadDir, roots?.home)}</span>`}>
           <${Button} size="sm" onClick=${chooseDownloadDir}>Escolher…</${Button}>
         </${Row}>
@@ -588,7 +666,7 @@ export function SettingsScreen({ route } = {}) {
 
       <${MobileGroups} d=${d} set=${set} accounts=${accounts} activeId=${activeId} home=${roots?.home} platform=${app?.platform} />
 
-      <${Group} title="Aparência" icon="sun" tone="warning">
+      <${Group} id="aparencia" title="Aparência" icon="sun" tone="warning">
         <${Row} label="Tema">
           <${Segmented}
             label="Tema"
@@ -603,9 +681,39 @@ export function SettingsScreen({ route } = {}) {
         </${Row}>
       </${Group}>
 
-      <${Group} title="Atualizações" icon="circle-down" tone="down" foot="O SOBEDESCE avisa quando sai uma versão nova. Atualizar baixa, confere e troca o app sozinho; Baixar abre o instalador no navegador. Seus ajustes e a fila continuam.">
+      <${Group} id="atualizacoes" title="Atualizações" icon="circle-down" tone="down" foot="O SOBEDESCE avisa quando sai uma versão nova. Atualizar baixa, confere e troca o app sozinho; Baixar abre o instalador no navegador. Seus ajustes e a fila continuam.">
         <${VersionRow} />
       </${Group}>
+
+      <details class="sgroup sgroup-details" id="avancado">
+        <summary>
+          <h2 class="sgroup-title">
+            <span class="sgroup-icon tone-neutral"><${Icon} name="sliders" size=${14} strokeWidth=${1.8} /></span>Avançado
+            <span class="sgroup-summary-hint">pedaço de upload, conexões por arquivo</span>
+            <${Icon} name="chevron-right" size=${14} class="sgroup-chev" />
+          </h2>
+        </summary>
+        <div class="sgroup-box">
+          <${Row} label="Tamanho do pedaço de upload" desc="Contínuo manda o resto do arquivo numa requisição só, como o Google recomenda. Pedaços ajudam em redes que derrubam conexões longas; se cair, continua de onde o Google confirmou.">
+            <${Select} label="Tamanho do pedaço de upload" value=${d.uploadChunkSize} options=${chunkOpts} onChange=${(v) => set('uploadChunkSize', Number(v), { now: true })} />
+          </${Row}>
+          <${Row} label="Conexões por arquivo" desc="Cada arquivo baixado vem em pedaços paralelos. Entre 8 e 16 costuma encher a banda.">
+            <${Slider}
+              label="Conexões por arquivo"
+              value=${d.connectionsPerDownload}
+              min=${1}
+              max=${32}
+              onInput=${(v) => set('connectionsPerDownload', v)}
+              format=${(v) => `${v}`}
+            />
+          </${Row}>
+          <${Row} label="Refazer conexões lentas" desc="Às vezes o Google segura uma conexão; o SOBEDESCE reabre as que ficam bem para trás.">
+            <${Switch} label="Refazer conexões lentas" checked=${d.restartSlowConnections} onChange=${(v) => set('restartSlowConnections', v, { now: true })} />
+          </${Row}>
+          ${app?.desktop ? html`<${Row} label="Onde ficam os acessos" desc=${protecaoTexto(app)} />` : null}
+        </div>
+        <p class="sgroup-foot">O padrão já serve para quase toda rede. Mexa aqui se o envio cair muito ou não encher a banda.</p>
+      </details>
 
       <${Group} title="Drives só neste computador" icon="laptop" tone="neutral">
         ${localAccounts.map(
@@ -642,6 +750,7 @@ export function SettingsScreen({ route } = {}) {
         : null}
 
       <p class="about">${app?.name || 'SOBEDESCE'} ${app?.version ? `· versão ${app.version}` : ''} · tudo roda neste computador, direto com o Google.</p>
+    </div>
     </div>
   </div>`
 }

@@ -8,11 +8,10 @@
 // para o app abrir sem internet e as transferências da fila acharem a conta delas.
 // Ids das contas da nuvem no motor: `nuvem:<id>` (o AuthManager encaminha esses ids para cá).
 import os from 'node:os'
-import fs from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { dataPaths, cloudUrl } from '../config.js'
-import { readJSON, writeJSONAtomic } from '../util/store.js'
+import { ArquivoSecreto } from '../util/segredos.js'
 import { httpRequest, HttpError } from '../net/http.js'
 import { backoffDelay, isAbortError, sleep } from '../util/backoff.js'
 import { classifyError, SobeDesceError } from './errors.js'
@@ -125,10 +124,12 @@ export class CloudAuth extends EventEmitter {
    *   `pollMs`: intervalo fixo entre consultas do login (só testes; o normal é o `intervalo` do site, mínimo 1 s).
    *   `readyShownMs`: por quanto tempo o login fica "pronto" (o aviso de sucesso) antes de voltar a "nenhum".
    */
-  constructor({ paths = dataPaths(), baseUrl, deviceName = null, platform = process.platform, refreshEveryMs = REFRESH_EVERY_MS, retryBaseMs = 400, pollMs = null, readyShownMs = READY_SHOWN_MS, log } = {}) {
+  constructor({ paths = dataPaths(), baseUrl, deviceName = null, platform = process.platform, refreshEveryMs = REFRESH_EVERY_MS, retryBaseMs = 400, pollMs = null, readyShownMs = READY_SHOWN_MS, log, segredos = null } = {}) {
     super()
     this.paths = paths
     this.file = paths.cloud
+    // Com a guarda do sistema (app de desktop), a sessão fica em cloud.cifrado.json (src/util/segredos.js).
+    this.arquivo = new ArquivoSecreto(paths.cloud, { guarda: segredos })
     this.baseUrl = String(baseUrl || cloudUrl()).replace(/\/+$/, '')
     this.deviceName = deviceName
     this.platform = platform
@@ -157,7 +158,7 @@ export class CloudAuth extends EventEmitter {
   async init() {
     if (this.loaded) return
     this.loading ??= (async () => {
-      const raw = await readJSON(this.file, null).catch(() => null)
+      const raw = await this.arquivo.ler(null).catch(() => null)
       // Token de outro servidor (ex.: um teste apontou para o site falso) não vale aqui.
       if (raw && typeof raw.token === 'string' && raw.token.startsWith('sdd_') && (!raw.servidor || raw.servidor === this.baseUrl)) {
         this.session = {
@@ -251,11 +252,7 @@ export class CloudAuth extends EventEmitter {
   async #save() {
     const s = this.session
     if (!s) return
-    await writeJSONAtomic(
-      this.file,
-      { versao: 1, servidor: this.baseUrl, token: s.token, usuario: s.usuario, contas: s.contas, entrouEm: s.entrouEm, atualizadoEm: s.atualizadoEm },
-      { mode: 0o600 },
-    )
+    await this.arquivo.gravar({ versao: 1, servidor: this.baseUrl, token: s.token, usuario: s.usuario, contas: s.contas, entrouEm: s.entrouEm, atualizadoEm: s.atualizadoEm })
   }
 
   // ─────────── HTTP ───────────
@@ -466,7 +463,7 @@ export class CloudAuth extends EventEmitter {
     this.notice = notice
     this.#stopTimer()
     if (this.login?.estado === 'pronto') this.login = null
-    await fs.rm(this.file, { force: true }).catch(err => this.log('não consegui apagar a sessão da conta:', err?.message))
+    await this.arquivo.apagar().catch(err => this.log('não consegui apagar a sessão da conta:', err?.message))
     if (had) this.#emitAccounts()
     this.#emitStatus()
   }

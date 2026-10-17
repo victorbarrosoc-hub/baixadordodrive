@@ -5,6 +5,7 @@
 // no CI por scripts/ytdlp-baixar.mjs); o baixado para desenvolvimento (build/yt-dlp/<os>[-<arch>]/); o do sistema.
 // ffmpeg: a busca da prévia leve (ffmpegCandidates de src/media/previa.js): SOBEDESCE_FFMPEG, <Resources>/ffmpeg/,
 // build/ffmpeg/<os>-<arch>/, Homebrew e PATH. O yt-dlp segue a mesma ideia, com <Resources>/yt-dlp/.
+// QuickJS (JavaScript dos desafios do YouTube no app de desktop): SOBEDESCE_QJS, <Resources>/quickjs/, build/quickjs/.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,12 +53,47 @@ export function ytdlpCandidates({ env = process.env, platform = process.platform
   if (env.SOBEDESCE_YTDLP) add(env.SOBEDESCE_YTDLP, 'env')
   const app = dir => add(P.join(dir, exe), 'app', { versaoArquivo: P.join(dir, 'versao.txt') })
   if (resourcesPath) app(P.join(resourcesPath, 'yt-dlp'))
-  // Empacotado sem asar: o código fica em <Resources>/app/src, o yt-dlp em <Resources>/yt-dlp.
+  // Empacotado: o código fica em <Resources>/app.asar (ou app/), o yt-dlp em <Resources>/yt-dlp.
   app(P.join(appRoot, '..', 'yt-dlp'))
   app(P.join(appRoot, 'build', 'yt-dlp', ytdlpBundleDir(platform, arch)))
   if (platform === 'darwin') for (const p of ['/opt/homebrew/bin/yt-dlp', '/usr/local/bin/yt-dlp']) add(p, 'sistema')
   for (const dir of pathDirs(env, platform)) add(P.join(dir, exe), 'sistema')
   return out
+}
+
+/** Nome do executável do QuickJS dentro do app. */
+export const quickjsExe = platform => (platform === 'win32' ? 'qjs.exe' : 'qjs')
+
+/**
+ * Candidatos ao QuickJS-ng, o interpretador de JavaScript que o yt-dlp usa nos desafios do YouTube dentro do app de
+ * desktop. Antes era o próprio Electron com ELECTRON_RUN_AS_NODE=1, mas o fusível RunAsNode agora fica desligado
+ * (ninguém usa o app como um Node com as permissões dele). Baixado no CI por scripts/quickjs-baixar.mjs para
+ * build/quickjs/<os>-<arch>/ e posto pelo electron-builder em <Resources>/quickjs/.
+ * Ordem: SOBEDESCE_QJS, <Resources>/quickjs/, <app>/../quickjs/, build/quickjs/<os>-<arch>/.
+ */
+export function quickjsCandidates({ env = process.env, platform = process.platform, arch = process.arch, resourcesPath = process.resourcesPath, appRoot = APP_ROOT } = {}) {
+  const exe = quickjsExe(platform)
+  const P = platform === 'win32' ? path.win32 : path.posix
+  const out = []
+  const add = (p, origem) => {
+    if (p && !out.some(c => c.path === p)) out.push({ path: p, origem })
+  }
+  if (env.SOBEDESCE_QJS) add(env.SOBEDESCE_QJS, 'env')
+  if (resourcesPath) add(P.join(resourcesPath, 'quickjs', exe), 'app')
+  add(P.join(appRoot, '..', 'quickjs', exe), 'app')
+  add(P.join(appRoot, 'build', 'quickjs', `${osTag(platform)}-${arch}`, exe), 'app')
+  return out
+}
+
+/**
+ * Interpretador de JavaScript para o yt-dlp (`--js-runtimes nome:caminho`).
+ * Fora do Electron (npm start, testes): o próprio Node. No Electron: o QuickJS que vem no app; sem ele, null (o yt-dlp
+ * procura um deno/node do sistema sozinho). Nunca o executável do Electron: o fusível RunAsNode está desligado.
+ */
+export function jsRuntimePadrao({ electron = Boolean(process.versions.electron), execPath = process.execPath, candidatos } = {}) {
+  if (!electron) return { nome: 'node', path: execPath, env: {} }
+  const qjs = primeiro(candidatos ?? quickjsCandidates())
+  return qjs ? { nome: 'quickjs', path: qjs.path, env: {} } : null
 }
 
 /** Candidatos ao ffmpeg: a mesma busca da prévia leve (src/media/previa.js), reaproveitada aqui. */

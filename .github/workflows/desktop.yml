@@ -1,13 +1,20 @@
 # Gera o app de desktop num Mac e num Windows de verdade (na nuvem do GitHub).
 # Os instaladores ficam em "Releases" → "SOBEDESCE · versão de teste". Uma tag v* (ex.: v0.1.0) também publica um Release.
 # Em branches que não são a main, o app só é gerado quando a mensagem do commit tem [build] (e fica como artefato, fora do Release)
-# (o Mac na nuvem consome os minutos gratuitos do GitHub 10× mais rápido).
+# (o Mac na nuvem consome os minutos gratuitos do GitHub 10× mais rápido). Pull requests para a main também geram o app
+# e rodam o teste de fumaça (sem publicar nada), a não ser que só mexam no site, na documentação ou em textos .md.
 name: App de desktop
 
 on:
   push:
     branches: [main, "claude/**"]
     tags: ["v*"]
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "web/**"
+      - "docs/**"
+      - "**/*.md"
   workflow_dispatch:
 
 # Só leitura por padrão (revisão de segurança, A8). Escrita só nos jobs que publicam no Release (app, versao e release).
@@ -80,7 +87,47 @@ jobs:
       - run: node scripts/ytdlp-baixar.mjs
       # ffmpeg da prévia leve (versões fixas, conferidas por SHA-256) em build/ffmpeg/; o electron-builder põe em Resources/ffmpeg.
       - run: node scripts/ffmpeg-baixar.mjs
+      # QuickJS-ng (versão fixa, SHA-256) em build/quickjs/: o JavaScript dos desafios do YouTube para o yt-dlp, já que o
+      # fusível RunAsNode desligado não deixa mais usar o próprio Electron como Node.
+      - run: node scripts/quickjs-baixar.mjs
       - run: ${{ matrix.build }}
+      # Teste de fumaça do app empacotado (desktop/smoke.js): abre o app de verdade com --smoke, sobe o motor (código no
+      # app.asar, worker do MD5, interface), roda ffmpeg, yt-dlp e QuickJS de dentro do app, cifra e decifra no cofre do
+      # sistema, escreve "SMOKE OK" e sai com 0. Qualquer outra coisa falha o job antes de publicar (os passos de
+      # publicar vêm depois). Também mostra os fusíveis gravados no executável.
+      # Mac: um Keychain temporário e destravado evita a janela de senha no CI; se o cofre mesmo assim não responder,
+      # o teste marca AVISO (só o Windows exige o cofre).
+      - if: matrix.plataforma == 'mac'
+        name: Teste de fumaça (Mac)
+        timeout-minutes: 8
+        run: |
+          security create-keychain -p smoke smoke.keychain-db || true
+          security set-keychain-settings smoke.keychain-db || true
+          security unlock-keychain -p smoke smoke.keychain-db || true
+          security list-keychains -d user -s smoke.keychain-db || true
+          security default-keychain -d user -s smoke.keychain-db || true
+          npx --no-install electron-fuses read --app dist/mac-universal/SOBEDESCE.app
+          export SOBEDESCE_SMOKE_SAIDA="$RUNNER_TEMP/smoke.txt"
+          code=0
+          dist/mac-universal/SOBEDESCE.app/Contents/MacOS/SOBEDESCE --smoke || code=$?
+          echo "--- resultado (saída $code) ---"
+          cat "$SOBEDESCE_SMOKE_SAIDA" || true
+          test "$code" -eq 0
+          grep -q '^SMOKE OK$' "$SOBEDESCE_SMOKE_SAIDA"
+      - if: matrix.plataforma == 'windows'
+        name: Teste de fumaça (Windows)
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          npx --no-install electron-fuses read --app dist/win-unpacked/SOBEDESCE.exe
+          $env:SOBEDESCE_SMOKE_SAIDA = Join-Path $env:RUNNER_TEMP 'smoke.txt'
+          $p = Start-Process -FilePath 'dist\win-unpacked\SOBEDESCE.exe' -ArgumentList '--smoke' -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(300000)) { $p.Kill($true); Write-Error 'o teste de fumaça passou de 5 minutos'; exit 1 }
+          Write-Output "--- resultado (saída $($p.ExitCode)) ---"
+          Get-Content $env:SOBEDESCE_SMOKE_SAIDA -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { exit 1 }
+          if (-not (Select-String -Path $env:SOBEDESCE_SMOKE_SAIDA -Pattern '^SMOKE OK$' -Quiet)) { exit 1 }
       # SHA-256 do instalador (main): o job "versao" junta os dois no versao.json. O app ("Atualizar") e os
       # instaladores de uma linha do site (/instalar.sh e /instalar.ps1) só instalam se o download bater com ele.
       - if: github.ref == 'refs/heads/main'

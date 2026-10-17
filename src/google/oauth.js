@@ -4,7 +4,7 @@
 import { EventEmitter } from 'node:events'
 import crypto from 'node:crypto'
 import { dataPaths, endpoints, DRIVE_SCOPE } from '../config.js'
-import { readJSON, writeJSONAtomic } from '../util/store.js'
+import { ArquivoSecreto } from '../util/segredos.js'
 import { requestJSON, HttpError } from '../net/http.js'
 import { backoffDelay, sleep } from '../util/backoff.js'
 import { classifyError, SobeDesceError } from './errors.js'
@@ -116,11 +116,16 @@ export class AuthManager extends EventEmitter {
    * @param {{ paths?: ReturnType<typeof dataPaths>, cloud?: import('./cloud-auth.js').CloudAuth|null }} [opts]
    *   `cloud`: contas da conta SOBEDESCE. Aparecem junto das locais (ids 'nuvem:<id>', source 'nuvem') e os
    *   tokens delas vêm do site. Sem `cloud`, só as contas conectadas neste computador.
+   *   `segredos`: guarda do sistema (src/util/segredos.js; no app de desktop, o safeStorage do Electron). Com ela,
+   *   accounts.json e credentials.json viram accounts.cifrado.json e credentials.cifrado.json. Sem ela, JSON 0600.
    */
-  constructor({ paths = dataPaths(), cloud = null } = {}) {
+  constructor({ paths = dataPaths(), cloud = null, segredos = null } = {}) {
     super()
     this.paths = paths
     this.cloud = cloud
+    this.arquivoContas = new ArquivoSecreto(paths.accounts, { guarda: segredos })
+    this.arquivoCliente = new ArquivoSecreto(paths.credentials, { guarda: segredos })
+    this.protecao = 'arquivo'
     cloud?.on('accounts', () => this.emit('accounts', this.listAccounts()))
     this.client = null // { clientId, clientSecret }
     this.accounts = [] // com refreshToken: nunca sai daqui sem passar por publicAccount()
@@ -134,15 +139,17 @@ export class AuthManager extends EventEmitter {
   async init() {
     if (this.loaded) return
     this.loading ??= (async () => {
-      const cred = await readJSON(this.paths.credentials, null)
+      const cred = await this.arquivoCliente.ler(null)
       try {
         this.client = cred ? parseClientCredentials(cred) : null
       } catch {
         this.client = null
       }
-      const raw = await readJSON(this.paths.accounts, null)
+      const raw = await this.arquivoContas.ler(null)
       const list = Array.isArray(raw?.accounts) ? raw.accounts : []
       this.accounts = list.filter(a => a && a.id != null && typeof a.refreshToken === 'string' && a.refreshToken && !isCloudAccountId(String(a.id))).map(normalizeAccount)
+      // Onde os segredos ficam (para Ajustes → Avançado): 'sistema' (Keychain/DPAPI) ou 'arquivo' (JSON 0600).
+      this.protecao = await this.arquivoContas.protecao()
       await this.cloud?.init()
       this.loaded = true
     })().finally(() => {
@@ -170,7 +177,7 @@ export class AuthManager extends EventEmitter {
     await this.#ready()
     const next = parseClientCredentials(input)
     const previous = this.client?.clientId ?? null
-    await writeJSONAtomic(this.paths.credentials, next, { mode: 0o600 })
+    await this.arquivoCliente.gravar(next)
     this.client = next
     // Refresh token só vale com o cliente que o emitiu: com outra chave, a conta precisa reconectar.
     // Se a pessoa voltar para a chave antiga, as contas dela voltam a funcionar.
@@ -237,7 +244,7 @@ export class AuthManager extends EventEmitter {
         clientId: a.clientId,
       })),
     }
-    await writeJSONAtomic(this.paths.accounts, data, { mode: 0o600 })
+    await this.arquivoContas.gravar(data)
   }
 
   // ─────────── login ───────────

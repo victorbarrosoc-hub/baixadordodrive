@@ -1,8 +1,13 @@
 // Roda o motor dentro de um "utility process" do Electron (processo Node separado da janela).
 // Assim um pico de trabalho do motor nunca trava a interface, e um travamento do motor não derruba a janela.
 import { startApp } from '../src/index.js'
+import { guardaPorMensagens } from '../src/util/segredos.js'
 
 const parent = process.parentPort
+
+// Cofre do sistema (safeStorage do Electron, só no processo principal): tokens e sessão cifrados (src/util/segredos.js).
+const guarda = guardaPorMensagens(msg => parent.postMessage(msg))
+const smoke = process.env.SOBEDESCE_SMOKE === '1'
 
 let app = null
 let stopping = false
@@ -40,7 +45,21 @@ function pedirCookies(dominios) {
 parent.on('message', event => {
   if (event.data?.type === 'shutdown') stop()
   else if (event.data?.type === 'cookies-resposta') pedidos.get(event.data.id)?.(event.data.cookies)
+  else if (event.data?.type === 'cofre-resposta') guarda.receber(event.data)
+  else if (event.data?.type === 'smoke' && smoke) rodarSmoke(event.data)
 })
+
+/** `SOBEDESCE --smoke` (desktop/smoke.js): confere o motor de dentro do app empacotado e devolve o resultado. */
+async function rodarSmoke({ exigirBinarios = false, exigirCofre = false } = {}) {
+  let checks
+  try {
+    const { verificar } = await import('./smoke.js')
+    checks = await verificar({ app, guarda, exigirBinarios, exigirCofre })
+  } catch (err) {
+    checks = [{ nome: 'smoke', ok: false, detalhe: err?.stack || String(err) }]
+  }
+  parent.postMessage({ type: 'smoke-resultado', checks })
+}
 
 try {
   // Sem o aviso de terminal ("aperte Ctrl+C"): aqui a saída vai só para o motor.log.
@@ -49,7 +68,7 @@ try {
   const appExe = process.env.SOBEDESCE_APP_EXE || ''
   const appPid = Number(process.env.SOBEDESCE_APP_PID) || 0
   const updaterOptions = appExe && appPid ? { appExe, appPid, handoff: ({ script }) => parent.postMessage({ type: 'update-handoff', script }) } : {}
-  app = await startApp({ open: false, desktop: true, quiet: true, updaterOptions })
+  app = await startApp({ open: false, desktop: true, quiet: true, segredos: guarda, updaterOptions })
   app.referencias?.setCookieProvider(pedirCookies)
   console.log(`[motor] pronto em ${app.url} · dados em ${app.paths.root}`)
   parent.postMessage({ type: 'ready', url: app.url, port: app.port })

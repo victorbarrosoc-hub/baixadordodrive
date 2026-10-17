@@ -8,8 +8,29 @@ directories:
   output: dist
   buildResources: build
 
-# Sem asar: o motor usa worker_threads e serve a interface direto do disco.
-asar: false
+# Código dentro do app.asar (o Electron lê de lá: ESM, utilityProcess, worker_threads, fs do motor). Com os fusíveis
+# abaixo, o app só carrega o código de dentro do asar e confere o hash dele (gravado no Info.plist no Mac e no .exe no
+# Windows): mexer no JavaScript instalado faz o app não abrir, em vez de rodar código trocado. Os executáveis (ffmpeg,
+# yt-dlp, QuickJS) ficam fora, em extraResources, e não precisam de asarUnpack.
+asar: true
+
+# Fusíveis do Electron (@electron/fuses, aplicados pelo electron-builder logo antes de assinar). Revisão de segurança A9.
+#  - runAsNode: false → ninguém usa o executável do app como um Node (ELECTRON_RUN_AS_NODE) com as permissões dele.
+#    O yt-dlp das Referências usava isso para o JavaScript do YouTube; agora usa o QuickJS que vai junto.
+#  - enableNodeOptionsEnvironmentVariable / enableNodeCliInspectArguments: false → NODE_OPTIONS e --inspect não entram.
+#  - enableCookieEncryption: true → os cookies do navegador de Referências (login do Instagram…) ficam cifrados com a
+#    chave do sistema (Keychain/DPAPI). Na primeira abertura com isso, o app apaga os cookies antigos em texto puro e a
+#    pessoa entra de novo no Instagram uma vez (desktop/cookies-cifrados.js). Ligar é sem volta: desligar de novo
+#    deixaria os cookies ilegíveis.
+#  - onlyLoadAppFromAsar + enableEmbeddedAsarIntegrityValidation: só o app.asar, conferido pelo hash.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+
 files:
   - package.json
   - desktop/**/*
@@ -36,6 +57,12 @@ extraResources:
     to: ffmpeg
   - from: build/ffmpeg-licencas
     to: ffmpeg-licencas
+  # QuickJS-ng: o JavaScript dos desafios do YouTube para o yt-dlp (scripts/quickjs-baixar.mjs, o CI roda antes do dist).
+  # Um por arquitetura, como o ffmpeg (no Mac o @electron/universal junta os dois).
+  - from: build/quickjs/${os}-${arch}
+    to: quickjs
+  - from: build/quickjs-licenca
+    to: quickjs-licenca
 
 mac:
   target:

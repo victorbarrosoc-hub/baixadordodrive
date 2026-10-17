@@ -1,0 +1,2 @@
+QuickJS-ng 0.17.0 (https://github.com/quickjs-ng/quickjs), licença MIT (LICENSE.txt).
+O SOBEDESCE usa este interpretador de JavaScript só para o yt-dlp resolver os desafios do YouTube nas Referências.

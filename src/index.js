@@ -139,10 +139,12 @@ function banner(url, root) {
  *   TransferManager/startServer/MobileReceiver/CloudAuth/VersionChecker (os testes trocam peças, ex.: mobileOptions { port: 0, host: '127.0.0.1' }).
  *   `updaterOptions` vai para o Updater (src/updater.js), que só existe com `handoff` (o app de desktop empacotado
  *   passa: é o processo principal do Electron quem roda a troca e fecha o app).
+ *   `segredos`: guarda do sistema para tokens e sessão (src/util/segredos.js); o app de desktop passa a do safeStorage
+ *   do Electron (desktop/engine.js). Sem ela, JSON 0600 como sempre.
  * @returns {Promise<{ url: string, port: number, manager: TransferManager, auth: AuthManager, settings: Settings,
  *   hasher: Hasher, paths: object, server: object, mobile: MobileReceiver, versao: VersionChecker, shutdown(): Promise<void> }>}
  */
-export async function startApp({ home, port, open = true, desktop = false, quiet = false, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {}, versionOptions = {}, updaterOptions = {}, referenciasOptions = {}, acompanharOptions = {} } = {}) {
+export async function startApp({ home, port, open = true, desktop = false, quiet = false, segredos = null, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {}, versionOptions = {}, updaterOptions = {}, referenciasOptions = {}, acompanharOptions = {} } = {}) {
   const root = home ? path.resolve(home) : dataDir()
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
   const paths = dataPaths(root)
@@ -154,7 +156,8 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     settings = new Settings(paths.settings)
     await settings.load()
     // Conta SOBEDESCE (fluxo de dispositivo): os Drives dela aparecem junto das contas conectadas neste computador.
-    auth = new AuthManager({ paths, cloud: new CloudAuth({ paths, ...cloudOptions }) })
+    // `segredos`: guarda do sistema (no app de desktop, o safeStorage do Electron pelo processo principal; src/util/segredos.js).
+    auth = new AuthManager({ paths, segredos, cloud: new CloudAuth({ paths, segredos, ...cloudOptions }) })
     await auth.init()
     hasher = new Hasher({ cacheFile: paths.hashCache, workers: 2 })
     manager = new TransferManager({ settings, auth, hasher, paths, ...managerOptions })
