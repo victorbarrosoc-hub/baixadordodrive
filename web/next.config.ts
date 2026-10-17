@@ -36,7 +36,8 @@ const appCsp = [
   `img-src ${appImg.join(" ")}`,
   "media-src 'self'",
   // Vídeo pesado aberto a qualquer pessoa com o link: o player do próprio Drive (components/preview.js, DrivePlayer).
-  "frame-src https://drive.google.com",
+  // Com a conta Google no aparelho, ele passa por accounts.google.com antes de tocar: bloquear o desvio = quadro branco.
+  "frame-src https://*.google.com https://*.googleusercontent.com",
   "font-src 'self'",
   "manifest-src 'self'",
   "worker-src 'self'",

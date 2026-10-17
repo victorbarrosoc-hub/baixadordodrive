@@ -143,11 +143,17 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   já vai carregando). Se o navegador barrar o som automático, toca sem som e o botão de som fica na barra. Não há mais
   aviso de “vídeo pesado demais” nem “Tentar mesmo assim”: o 4K de câmera toca o original direto e, se a rede não der
   conta, o player só espera carregar.
+- **Carregando com a marca (2.8.6):** enquanto o vídeo quer tocar e ainda não tem dados (ou parou para carregar), o
+  player mostra as duas barras do ícone como medidor (`BufferMark`): a violeta enche de baixo para cima e a azul de
+  cima para baixo, na proporção dos próximos 4 s já carregados, com um brilho correndo dentro delas. Embaixo, a
+  porcentagem e “começa em ~N s” (pela velocidade com que o trecho carregado cresce, média móvel a cada 300 ms);
+  antes dos primeiros bytes, “conectando…”. Pausado (autoplay barrado), some e o play volta.
 - **Player do Drive (2.8.5):** o Drive toca rápido porque usa a cópia leve que ele mesmo gera (a API só entrega o
   original). Vídeo **pesado** (taxa acima de 40 Mbit/s no celular, 200 no computador) **sem proxy** e aberto para
   “qualquer pessoa com o link” (`permissionIds` com `anyoneWithLink`, conferido junto com a busca do proxy): a prévia
-  mostra o player do próprio Drive num iframe (`drive.google.com/file/d/<id>/preview`, CSP `frame-src
-  https://drive.google.com`), com “Reprodução em baixa resolução.” e o botão “Tocar o original” embaixo. Fechado:
+  mostra o player do próprio Drive num iframe sem sandbox (`drive.google.com/file/d/<id>/preview`, CSP `frame-src
+  https://*.google.com https://*.googleusercontent.com`: com a conta Google no aparelho ele passa por
+  accounts.google.com, e bloquear o desvio deixava o quadro branco no iPhone), com “Reprodução em baixa resolução.” e o botão “Tocar o original” embaixo. Fechado:
   toca o original (o iframe pediria login do Google, que o iPhone não leva para dentro do app); liberar o link pela
   prévia troca para o player do Drive na hora (evento `sd-link-aberto`). Com proxy, continua o nosso player com Proxy | Original.
 - **Baixar** (no topo, azul), **Abrir no Drive** e **Compartilhar** (Web Share, com o link do Drive). Acima de 1 GB

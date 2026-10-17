@@ -133,10 +133,10 @@ describe('sw.js /app/stream/', () => {
     sw = load(tabs)
   })
 
-  test('cache e versão do app subiram (2.8.5 / sobedesce-app-v20)', () => {
-    assert.match(SRC, /const CACHE = 'sobedesce-app-v20'/)
+  test('cache e versão do app subiram (2.8.6 / sobedesce-app-v21)', () => {
+    assert.match(SRC, /const CACHE = 'sobedesce-app-v21'/)
     const cfg = fs.readFileSync(new URL('../web/public/app/lib/config.js', import.meta.url), 'utf8')
-    assert.match(cfg, /export const VERSION = '2\.8\.5'/)
+    assert.match(cfg, /export const VERSION = '2\.8\.6'/)
     const lib = fs.readFileSync(new URL('../web/public/app/lib/stream.js', import.meta.url), 'utf8')
     assert.match(lib, /p\.set\('k', KEY\)/, 'a página põe a chave em todo endereço')
     assert.match(lib, /d\.k !== KEY/, 'a página só entrega o token com a chave dela')
