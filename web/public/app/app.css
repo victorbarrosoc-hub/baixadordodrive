@@ -3817,6 +3817,76 @@ html.has-preview .toasts {
   color: var(--text-3);
 }
 
+/* procurar referência: abre o app (ou o site) da rede; na volta, "Voltou do Instagram?" cola o link */
+.rsrc {
+  margin: 14px 0 0;
+}
+.rsrc-label {
+  margin: 0 0 8px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.rsrc-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.rsrc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card), inset 0 0 0 1px var(--hairline);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: transform 0.12s var(--ease), background-color 0.15s var(--ease);
+}
+.rsrc-btn:active {
+  transform: scale(0.97);
+  background: var(--fill);
+}
+.rsrc-btn .icon {
+  flex: none;
+  color: var(--text-3);
+}
+.rsrc-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rsrc-hint {
+  margin: 8px 0 0 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-3);
+}
+.rback {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 6px 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card), inset 0 0 0 1px var(--down);
+  animation: rise 0.3s var(--ease) both;
+}
+.rback .rtip-icon {
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+  color: var(--down-text);
+}
+.rback-x {
+  flex: none;
+  color: var(--text-3);
+}
+
 /* dentro da coleção: grade de 3 colunas, retrato (como os Salvos) */
 .rtiles {
   display: grid;
