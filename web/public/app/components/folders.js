@@ -1,8 +1,9 @@
-// Escolher a pasta de destino: Recentes (um toque), Meu Drive e drives compartilhados; nova pasta. Abaixo das pastas,
-// os arquivos que já estão ali (só para ver, apagados), para conferir o lugar antes de enviar.
+// Escolher a pasta de destino: Recentes (um toque, sempre no topo), Buscar pasta (no Drive todo), Meu Drive e drives
+// compartilhados; nova pasta. Abre na última pasta usada. Abaixo das pastas, os arquivos que já estão ali (só para ver,
+// apagados), para conferir o lugar antes de enviar.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { LAN } from '../lib/config.js'
-import { createFolder, listFolders, listSharedDrives } from '../lib/drive.js'
+import { createFolder, folderMeta, folderPath, listFolders, listSharedDrives, myDriveId, searchFolders } from '../lib/drive.js'
 import { isFolder, kindOf, listPage } from '../lib/browse.js'
 import { bytes } from '../lib/format.js'
 import { closeSheet, folderTrail, getRecents, pushRecent, setState, toast, useApp } from '../lib/state.js'
@@ -210,10 +211,103 @@ function FolderList({ path, driveId, onEnter, creating, setCreating }) {
   </div>`
 }
 
+/** Recentes numa linha que rola de lado, em cima de qualquer pasta aberta (no Início elas já são a primeira lista). */
+function RecentChips({ account, here, onPick }) {
+  const recents = getRecents(account)
+  if (!recents.length) return null
+  return html`<div class="fchips" role="group" aria-label="Recentes">
+    <span class="fchips-label">Recentes</span>
+    ${recents.map(
+      (r) => html`<button
+        key=${r.id}
+        type="button"
+        class=${cx('fchip', here?.id === r.id && 'is-here')}
+        onClick=${() => onPick(r)}
+        aria-label=${`Enviar para ${r.name} (${folderTrail(r) || 'recente'})`}
+      >
+        <${Icon} name="clock" size=${14} /><span>${r.name}</span>
+      </button>`,
+    )}
+  </div>`
+}
+
+/** De onde é a pasta achada na busca: o nome da pasta de cima ("em SERHS Grand Hotel"). */
+async function parentLabel(f, signal) {
+  const pid = f.parents?.[0]
+  if (!pid) return f.driveId ? 'Drive compartilhado' : 'Compartilhada com você'
+  if (pid === 'root') return 'Meu Drive'
+  const root = await myDriveId(signal).catch(() => null)
+  if (pid === root) return 'Meu Drive'
+  const m = await folderMeta(pid, signal)
+  if (m) return m.name
+  return f.driveId ? 'Drive compartilhado' : 'Compartilhada com você'
+}
+
+function FolderSearch({ text, onOpen, onRetry, opening }) {
+  const [st, setSt] = useState({ loading: true })
+  const [where, setWhere] = useState({})
+  useEffect(() => {
+    const ctl = new AbortController()
+    setSt({ loading: true })
+    setWhere({})
+    searchFolders(text, ctl.signal).then(
+      (files) => {
+        if (ctl.signal.aborted) return
+        setSt({ files })
+        // O pai de cada resultado, aos poucos (uma consulta por pai diferente, guardada).
+        for (const f of files) {
+          parentLabel(f, ctl.signal).then(
+            (label) => !ctl.signal.aborted && setWhere((w) => ({ ...w, [f.id]: label })),
+            () => {},
+          )
+        }
+      },
+      (error) => !ctl.signal.aborted && setSt({ error }),
+    )
+    return () => ctl.abort()
+  }, [text])
+  const files = st.files || []
+  return html`<h3 class="list-label fsearch-label">${st.loading ? 'Buscando…' : st.error ? 'Busca' : `${files.length}${files.length >= 30 ? '+' : ''} ${files.length === 1 ? 'pasta' : 'pastas'} com “${text}”`}</h3>
+    <ul class="group flist" aria-busy=${st.loading ? 'true' : 'false'}>
+      ${st.loading ? html`<${SkeletonRows} n=${4} />` : null}
+      ${st.error ? html`<${ErrorRow} error=${st.error} onRetry=${onRetry} />` : null}
+      ${st.files && !files.length
+        ? html`<li class="frow-msg is-empty">
+            <${Icon} name="search" size=${22} />
+            <p>Nenhuma pasta com esse nome. A busca do Drive procura pelo começo das palavras.</p>
+          </li>`
+        : null}
+      ${files.map(
+        (f) => html`<li key=${f.id}>
+          <button type="button" class="frow" onClick=${() => onOpen(f)} disabled=${Boolean(opening)}>
+            <span class="frow-icon" aria-hidden="true"><${Icon} name="folder" size=${20} /></span>
+            <span class="frow-text">
+              <span class="frow-name">${f.name}</span>
+              <span class="frow-sub">${where[f.id] ? `em ${where[f.id]}` : '…'}</span>
+            </span>
+            ${opening === f.id ? html`<span class="spinner" aria-hidden="true"></span>` : html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="frow-chev" />`}
+          </button>
+        </li>`,
+      )}
+    </ul>`
+}
+
 export function FolderSheet() {
   const { dest, account } = useApp((s) => ({ dest: s.dest, account: s.user?.emailAddress }))
-  const [nav, setNav] = useState(() => (dest && dest.path?.length ? { path: dest.path, driveId: dest.driveId } : { path: [], driveId: null }))
+  // Abre na última pasta usada: o destino de agora ou, sem ele, a mais recente.
+  const [nav, setNav] = useState(() => {
+    const last = dest?.path?.length ? dest : getRecents(account)[0]
+    return last?.path?.length ? { path: last.path, driveId: last.driveId || null } : { path: [], driveId: null }
+  })
   const [creating, setCreating] = useState(false)
+  const [query, setQuery] = useState('')
+  const [search, setSearch] = useState('')
+  const [opening, setOpening] = useState(null) // id do resultado da busca que está montando o caminho
+  const [retry, setRetry] = useState(0)
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(query.trim()), 350)
+    return () => clearTimeout(t)
+  }, [query])
   const bodyRef = useRef(null)
   const crumbsRef = useRef(null)
   const atHome = nav.path.length === 0
@@ -228,6 +322,23 @@ export function FolderSheet() {
     setNav({ path, driveId })
     bodyRef.current?.scrollTo?.(0, 0)
   }
+  const clearSearch = () => {
+    setQuery('')
+    setSearch('')
+  }
+  // Resultado da busca: monta o caminho (Meu Drive › … › pasta) e abre a pasta, para conferir ou entrar mais.
+  const openFound = async (f) => {
+    setOpening(f.id)
+    try {
+      const folder = await folderPath(f)
+      clearSearch()
+      go(folder.path, folder.driveId)
+    } catch (err) {
+      toast(err?.status === 0 ? 'Sem conexão com o Google.' : 'Não consegui abrir esta pasta.', { tone: 'error' })
+    }
+    setOpening(null)
+  }
+  const searching = Boolean(search) && !LAN
   const choose = (folder) => {
     setState({ dest: folder })
     pushRecent(folder, account)
@@ -237,37 +348,66 @@ export function FolderSheet() {
   return html`<${SheetHead}
       title="Destino"
       left=${html`<button type="button" class="link-btn" onClick=${closeSheet}>Cancelar</button>`}
-      right=${!atHome && !LAN
+      right=${!atHome && !LAN && !searching
         ? html`<button type="button" class="link-btn" onClick=${() => setCreating(true)} disabled=${creating}>Nova pasta</button>`
         : null}
     />
-    <nav class="crumbs" aria-label="Caminho" ref=${crumbsRef}>
-      <button type="button" class=${cx('crumb', atHome && 'is-here')} onClick=${() => go([], null)} aria-current=${atHome ? 'location' : undefined}>
-        <${Icon} name="home" size=${15} /> Início
-      </button>
-      ${nav.path.map(
-        (p, i) => html`<${Icon} name="chevron-right" size=${12} strokeWidth=${2} class="crumb-sep" />
-          <button
-            type="button"
-            class=${cx('crumb', i === nav.path.length - 1 && 'is-here')}
-            onClick=${() => go(nav.path.slice(0, i + 1), nav.driveId)}
-            aria-current=${i === nav.path.length - 1 ? 'location' : undefined}
-          >
-            ${p.name}
-          </button>`,
-      )}
-    </nav>
+    ${LAN
+      ? null
+      : html`<div class="fsearch">
+          <label class="search">
+            <${Icon} name="search" size=${17} />
+            <input
+              type="search"
+              placeholder="Buscar pasta"
+              aria-label="Buscar pasta no Drive todo"
+              value=${query}
+              enterkeyhint="search"
+              autocomplete="off"
+              autocorrect="off"
+              spellcheck=${false}
+              onInput=${(e) => setQuery(e.currentTarget.value)}
+              onKeyDown=${(e) => e.key === 'Enter' && (setSearch(query.trim()), e.currentTarget.blur())}
+            />
+            ${query
+              ? html`<button type="button" class="search-x" onClick=${clearSearch} aria-label="Limpar busca">
+                  <${Icon} name="circle-x" size=${17} />
+                </button>`
+              : null}
+          </label>
+        </div>`}
+    ${searching || atHome ? null : html`<${RecentChips} account=${account} here=${here} onPick=${choose} />`}
+    ${searching
+      ? null
+      : html`<nav class="crumbs" aria-label="Caminho" ref=${crumbsRef}>
+          <button type="button" class=${cx('crumb', atHome && 'is-here')} onClick=${() => go([], null)} aria-current=${atHome ? 'location' : undefined}>
+            <${Icon} name="home" size=${15} /> Início
+          </button>
+          ${nav.path.map(
+            (p, i) => html`<${Icon} name="chevron-right" size=${12} strokeWidth=${2} class="crumb-sep" />
+              <button
+                type="button"
+                class=${cx('crumb', i === nav.path.length - 1 && 'is-here')}
+                onClick=${() => go(nav.path.slice(0, i + 1), nav.driveId)}
+                aria-current=${i === nav.path.length - 1 ? 'location' : undefined}
+              >
+                ${p.name}
+              </button>`,
+          )}
+        </nav>`}
     <div class="sheet-body sheet-scroll" ref=${bodyRef}>
-      ${atHome
-        ? html`<${Home} account=${account} onOpen=${go} onPick=${choose} />`
-        : html`<${FolderList}
-            key=${here.id}
-            path=${nav.path}
-            driveId=${nav.driveId}
-            creating=${creating}
-            setCreating=${setCreating}
-            onEnter=${(f) => go([...nav.path, { id: f.id, name: f.name }], nav.driveId)}
-          />`}
+      ${searching
+        ? html`<${FolderSearch} key=${`${search}#${retry}`} text=${search} onOpen=${openFound} onRetry=${() => setRetry((n) => n + 1)} opening=${opening} />`
+        : atHome
+          ? html`<${Home} account=${account} onOpen=${go} onPick=${choose} />`
+          : html`<${FolderList}
+              key=${here.id}
+              path=${nav.path}
+              driveId=${nav.driveId}
+              creating=${creating}
+              setCreating=${setCreating}
+              onEnter=${(f) => go([...nav.path, { id: f.id, name: f.name }], nav.driveId)}
+            />`}
     </div>
     <footer class="sheet-foot">
       <${Button} variant="up" size="lg" class="btn-block" disabled=${atHome} onClick=${() => here && choose(here)}>

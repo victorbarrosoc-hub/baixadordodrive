@@ -10,7 +10,7 @@ import { Icon } from './icons.js'
 import { Button, cx, reducedMotion } from './ui.js'
 import { MediaPlayer } from './player.js'
 import { KindGlyph } from './thumb.js'
-import { FileName } from './queue.js'
+import { FileName, ShareLink } from './queue.js'
 
 const BIG = 1e9 // acima disso, avisa antes de baixar no celular
 const IMAGE_STREAM_MAX = 60e6 // foto sem miniatura: abre o arquivo em si até este tamanho
@@ -546,13 +546,6 @@ export function Preview({ files, index, onIndex, onClose, extra }) {
     setConfirm(false)
     streamReady().then((ok) => (ok ? startDownload(file) : toast(FAIL_TEXT.nosw, { tone: 'error', ms: 4200 })))
   }
-  const share = async () => {
-    try {
-      await navigator.share({ title: file.name, url: driveUrl(file) })
-    } catch {
-      // cancelado
-    }
-  }
   const dl = canDownload(file)
   const media = kind === 'video' || kind === 'image' || kind === 'audio'
 
@@ -592,14 +585,11 @@ export function Preview({ files, index, onIndex, onClose, extra }) {
         <section class="pv-info">
           ${extra ? extra(raw) : null}
           <${Info} file=${file} kind=${kind} />
-          <div class="pv-actions">
+          <${ShareLink} key=${file.id} id=${file.id} name=${file.name} class="pv-share">
             <a class="btn btn-secondary pv-act" href=${driveUrl(file)} target="_blank" rel="noopener noreferrer">
               <${Icon} name="external" size=${17} /><span>Abrir no Drive</span>
             </a>
-            ${typeof navigator.share === 'function'
-              ? html`<${Button} variant="secondary" class="pv-act" icon="share" onClick=${share}>Compartilhar</${Button}>`
-              : null}
-          </div>
+          </${ShareLink}>
           ${dl && Number(file.size) > BIG
             ? html`<p class="pv-hint"><${Icon} name="laptop" size=${15} /> <span>Arquivo grande. No computador, o app SOBEDESCE baixa muito mais rápido.</span></p>`
             : null}

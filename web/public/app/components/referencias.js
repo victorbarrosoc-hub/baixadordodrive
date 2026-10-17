@@ -199,8 +199,9 @@ function Home({ onOpen }) {
 function PendingTile({ it }) {
   const err = it.status === 'erro'
   const label = err ? 'Não baixou' : it.status === 'baixando' ? 'Baixando no computador…' : 'Aguardando o computador baixar…'
+  const motivo = err ? refs.motivoCurto(it.erro) : null
   return html`<li>
-    <button type="button" class=${cx('rtile', 'is-pending', err && 'is-error')} onClick=${() => openSheet('refItem', { id: it.id })} aria-label=${`${it.plataforma || 'Link'}: ${label}`}>
+    <button type="button" class=${cx('rtile', 'is-pending', err && 'is-error')} onClick=${() => openSheet('refItem', { id: it.id })} aria-label=${`${it.plataforma || 'Link'}: ${label}${motivo ? `. ${motivo}` : ''}. Ver detalhes`}>
       <span class="rtile-media">
         <span class="rpend">
           ${err
@@ -210,6 +211,7 @@ function PendingTile({ it }) {
               : html`<${Icon} name="clock" size=${22} strokeWidth=${1.6} />`}
           <span class="rpend-plat">${it.plataforma || 'Link'}</span>
           <span class="rpend-text">${label}</span>
+          ${motivo ? html`<span class="rpend-why">${motivo}</span>` : null}
         </span>
       </span>
     </button>

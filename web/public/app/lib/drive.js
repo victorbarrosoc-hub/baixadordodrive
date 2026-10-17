@@ -2,6 +2,7 @@
 // No modo Wi-Fi (LAN) as pastas vêm do computador, que fala com o Google por nós.
 import { ENDPOINTS, LAN } from './config.js'
 import { getToken, invalidate } from './auth.js'
+import { getState } from './state.js'
 import { lanDrives, lanFolders } from './lan.js'
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
@@ -193,6 +194,160 @@ export async function createUploadSession(file, folder, signal) {
   const uri = res.headers.get('Location')
   if (!uri) throw new DriveError(0, 'noLocation', 'O Google não devolveu o endereço do envio.')
   return uri
+}
+
+// ───── compartilhar link ─────
+//
+// "Compartilhar link" (ficha do envio, prévia e fim do lote): o link do Drive só abre para quem tem acesso. O app confere
+// se o item já está aberto para "qualquer pessoa com o link" e, se a pessoa confirmar na tela, cria essa permissão
+// (anyone/reader) direto no Google, como a pasta das Referências já faz.
+
+const ANYONE_IDS = ['anyoneWithLink', 'anyone']
+
+export function fileLink(id) {
+  return `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`
+}
+export function folderLink(id) {
+  return `https://drive.google.com/drive/folders/${encodeURIComponent(id)}`
+}
+
+/**
+ * Quem consegue abrir o link: { open: true | false | null, canShare, link }. `open: null` = o Google não disse (quem só
+ * lê o item nem sempre vê as permissões): o app não afirma nada e não oferece liberar.
+ */
+export async function linkAccess(id, { folder = false, signal } = {}) {
+  const r = await call(`/files/${encodeURIComponent(id)}`, {
+    query: { supportsAllDrives: true, fields: 'id,permissionIds,capabilities(canShare),webViewLink' },
+    signal,
+    retries: 2,
+  })
+  const ids = Array.isArray(r.permissionIds) ? r.permissionIds : null
+  return {
+    open: ids ? ids.some((p) => ANYONE_IDS.includes(p)) : null,
+    canShare: r.capabilities?.canShare !== false,
+    link: r.webViewLink || (folder ? folderLink(id) : fileLink(id)),
+  }
+}
+
+/** Libera para "qualquer pessoa com o link" (só leitura, sem aparecer em buscas). Só depois da confirmação na tela. */
+export function openLink(id) {
+  return call(`/files/${encodeURIComponent(id)}/permissions`, {
+    method: 'POST',
+    query: { supportsAllDrives: true, fields: 'id' },
+    body: { type: 'anyone', role: 'reader', allowFileDiscovery: false },
+    retries: 1,
+  })
+}
+
+// Recusas de política (Google Workspace da empresa, Drive compartilhado só para o domínio): o app não tem como
+// contornar, só explicar.
+const POLICY = new Set([
+  'publishOutNotPermitted',
+  'domainPolicy',
+  'teamDriveDomainUsersOnlyRestriction',
+  'teamDrivesSharingRestrictionNotAllowed',
+  'cannotShareTeamDriveTopFolderWithAnyoneOrDomains',
+  'cannotShareTeamDriveWithNonGoogleAccounts',
+  'sharingNotSupported',
+])
+
+/** Erro do Liberar → { policy, text } em linguagem de gente. */
+export function openLinkError(err) {
+  const reason = err?.reason || ''
+  if (POLICY.has(reason) || /policy|domain|organi[sz]ation/i.test(err?.message || '')) {
+    return { policy: true, text: 'A política do Google da sua empresa não deixa abrir para qualquer pessoa. Compartilhe com o e-mail de quem vai ver, pelo Drive.' }
+  }
+  if (err?.status === 0) return { policy: false, text: 'Sem conexão com o Google. Confira a internet e tente de novo.' }
+  if (reason === 'sharingRateLimitExceeded' || err?.status === 429) return { policy: false, text: 'O Google limitou os compartilhamentos agora. Tente de novo daqui a pouco.' }
+  if (err?.status === 403 || err?.status === 404) return { policy: false, text: 'Você não pode mudar o compartilhamento deste item. Peça a quem é dono.' }
+  return { policy: false, text: 'Não consegui liberar agora. Tente de novo.' }
+}
+
+// ───── buscar pasta (seletor de destino) ─────
+
+const rootIds = new Map() // Drive escolhido → Promise<id do Meu Drive> (trocar de conta troca o Meu Drive)
+/** O id de verdade do "Meu Drive" (os pais vêm com ele, não com o apelido 'root'). */
+export function myDriveId(signal) {
+  const key = getState().drive?.id || '-'
+  if (!rootIds.has(key)) {
+    rootIds.set(
+      key,
+      call('/files/root', { query: { fields: 'id' }, signal }).then(
+        (r) => r.id,
+        (err) => {
+          rootIds.delete(key)
+          throw err
+        },
+      ),
+    )
+  }
+  return rootIds.get(key)
+}
+
+/** Pastas com esse nome (começo das palavras, como a busca do Drive) em tudo o que a conta vê. */
+export async function searchFolders(text, signal) {
+  const clean = String(text || '').trim()
+  if (!clean) return []
+  const r = await call('/files', {
+    query: {
+      q: `name contains '${q(clean)}' and mimeType = '${FOLDER_MIME}' and trashed = false`,
+      corpora: 'allDrives',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 30,
+      fields: 'files(id,name,driveId,parents)',
+    },
+    signal,
+  })
+  return r.files || []
+}
+
+const folderInfo = new Map() // id → Promise<{ id, name, parents, driveId } | null>
+/** Nome e pai de uma pasta (null se a conta não enxerga). Guardado enquanto a página está aberta. */
+export function folderMeta(id, signal) {
+  if (!folderInfo.has(id)) {
+    const p = call(`/files/${encodeURIComponent(id)}`, { query: { supportsAllDrives: true, fields: 'id,name,parents,driveId' }, signal, retries: 1 }).then(
+      (r) => r,
+      (err) => {
+        if (err?.status === 404 || err?.status === 403) return null
+        folderInfo.delete(id)
+        throw err
+      },
+    )
+    folderInfo.set(id, p)
+  }
+  return folderInfo.get(id)
+}
+
+/**
+ * Caminho de uma pasta achada na busca, no formato do destino ({ id, name, driveId, path }). Sobe pelos pais até o
+ * Meu Drive, a raiz do Drive compartilhado ou a última pasta que a conta enxerga (compartilhada com ela).
+ */
+export async function folderPath(f, signal) {
+  const root = await myDriveId(signal).catch(() => null)
+  const chain = [{ id: f.id, name: f.name }]
+  let parent = f.parents?.[0] || null
+  let top = null // 'mine' | 'drive' | null
+  for (let i = 0; parent && i < 25; i++) {
+    if (parent === 'root' || parent === root) {
+      top = 'mine'
+      break
+    }
+    if (f.driveId && parent === f.driveId) {
+      top = 'drive'
+      break
+    }
+    const m = await folderMeta(parent, signal)
+    if (!m) break
+    chain.unshift({ id: m.id, name: m.name })
+    parent = m.parents?.[0] || null
+  }
+  if (top === 'mine') chain.unshift({ id: 'root', name: 'Meu Drive' })
+  else if (top === 'drive') {
+    const d = await folderMeta(f.driveId, signal).catch(() => null)
+    chain.unshift({ id: f.driveId, name: d?.name || 'Drive compartilhado' })
+  }
+  return { id: f.id, name: f.name, driveId: f.driveId || null, path: chain }
 }
 
 export { call as driveCall, FOLDER_MIME }

@@ -1,7 +1,7 @@
 // Tela principal: destino no topo, o botão grande de escolher arquivos e a fila.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import * as auth from '../lib/auth.js'
-import { ACCOUNT, DEV, LAN } from '../lib/config.js'
+import { ACCOUNT, DEV, LAN, local } from '../lib/config.js'
 import { about, isRetryable } from '../lib/drive.js'
 import { lanInfo } from '../lib/lan.js'
 import { bytes, initials, plural, speed, timecode } from '../lib/format.js'
@@ -9,7 +9,7 @@ import { MY_DRIVE, folderTrail, getRecents, getState, openSheet, pushRecent, set
 import { engine, summarize } from '../lib/uploader.js'
 import { Icon, Wordmark } from './icons.js'
 import { Button, cx, useEngine } from './ui.js'
-import { FileName, QueueRow, SequenceBar } from './queue.js'
+import { BatchCards, FileName, QueueRow, SequenceBar } from './queue.js'
 import { InstallHint } from './install-hint.js'
 import { isIOS } from '../lib/platform.js'
 import { ComputerCard } from './computador.js'
@@ -88,7 +88,7 @@ function useAccount() {
   return user
 }
 
-function Header({ user, sum, items, waiting }) {
+function Header({ user, sum, items, waiting, awake }) {
   const active = sum.pending + sum.paused > 0
   const allPaused = sum.pending === 0 && sum.paused > 0
   const label = allPaused ? 'Pausado' : sum.speed > 0 ? speed(sum.speed) : waiting ? 'Esperando a conta' : 'Preparando…'
@@ -120,21 +120,38 @@ function Header({ user, sum, items, waiting }) {
             </button>
           </div>
           <${SequenceBar} items=${items} />
+          ${sum.running
+            ? html`<p class="meter-awake" role="status">
+                <span class="awake-dot" aria-hidden="true"></span>
+                <span><b>Mantenha esta tela aberta</b> · ${awake ? 'ela fica acesa sozinha' : 'se bloquear, o envio pausa'}</span>
+              </p>`
+            : null}
         </div>`
       : null}
   </header>`
 }
 
-function Destination({ dest }) {
+function Destination({ dest, compact }) {
   if (!dest) {
-    return html`<div class="dest is-loading" aria-busy="true"><span class="skeleton skeleton-line"></span></div>`
+    return html`<div class=${cx('dest', 'is-loading', compact && 'is-compact')} aria-busy="true"><span class="skeleton skeleton-line"></span></div>`
   }
   const trail = folderTrail(dest, { skipLast: true })
   const isShared = Boolean(dest.driveId)
+  const icon = dest.id === 'root' ? 'disk' : isShared && dest.path?.length === 1 ? 'shared-drive' : 'folder'
+  if (compact) {
+    return html`<button type="button" class="dest is-compact" onClick=${() => openSheet('folders')} aria-label=${`Destino: ${folderTrail(dest)}. Trocar pasta`}>
+      <span class="dest-icon" aria-hidden="true"><${Icon} name=${icon} size=${18} /></span>
+      <span class="dest-text">
+        <span class="dest-eyebrow">Enviar para</span>
+        <span class="dest-name">${dest.name}</span>
+      </span>
+      <${Icon} name="chevron-right" size=${15} strokeWidth=${2} class="dest-chev" />
+    </button>`
+  }
   return html`<button type="button" class="dest" onClick=${() => openSheet('folders')} aria-label=${`Destino: ${folderTrail(dest)}. Trocar pasta`}>
     <span class="dest-eyebrow">Enviar para</span>
     <span class="dest-row">
-      <span class="dest-icon" aria-hidden="true"><${Icon} name=${dest.id === 'root' ? 'disk' : isShared && dest.path?.length === 1 ? 'shared-drive' : 'folder'} size=${22} /></span>
+      <span class="dest-icon" aria-hidden="true"><${Icon} name=${icon} size=${22} /></span>
       <span class="dest-text">
         <span class="dest-name">${dest.name}</span>
         ${trail ? html`<span class="dest-trail">${trail}</span>` : html`<span class="dest-trail">${isShared ? 'Drive compartilhado' : 'Pasta principal do seu Drive'}</span>`}
@@ -144,19 +161,43 @@ function Destination({ dest }) {
   </button>`
 }
 
-function Picker({ dest, account }) {
+// Dica do app Arquivos (iPhone): aparece aberta até a primeira escolha; depois fica recolhida num toque.
+const TIP_KEY = 'sobedesce.dicaArquivos'
+
+function FilesTip() {
+  const [seen] = useState(() => local.get(TIP_KEY) === 'vista')
+  const text = html`Para vídeos no tamanho original, escolha pelo app <b>Arquivos</b>; pela Fototeca o iPhone às vezes converte.`
+  if (!seen) return html`<p class="tip"><${Icon} name="info" size=${15} /> <span>${text}</span></p>`
+  return html`<details class="tip tip-more">
+    <summary><${Icon} name="info" size=${15} /> <span>Vídeo no tamanho original?</span></summary>
+    <p>${text}</p>
+  </details>`
+}
+
+/** O botão grande de escolher arquivos; com a fila andando, vira o "+ Adicionar" ao lado do destino. */
+function Picker({ dest, account, compact }) {
   const input = useRef(null)
   const onChange = (e) => {
     const files = [...(e.currentTarget.files || [])]
     e.currentTarget.value = ''
     if (!files.length || !dest) return
+    if (isIOS) local.set(TIP_KEY, 'vista')
     const r = engine.addFiles(files, dest)
     pushRecent(dest, account)
     if (r.resumed) toast(r.resumed === 1 ? 'Continuando de onde parou' : `${r.resumed} envios continuando de onde pararam`, { tone: 'success' })
     if (r.dupes) toast(r.dupes === 1 ? 'Esse arquivo já está na fila' : `${r.dupes} arquivos já estavam na fila`)
   }
+  const field = html`<input ref=${input} id="file-input" class="offscreen" type="file" multiple onChange=${onChange} disabled=${!dest} />`
+  if (compact) {
+    return html`<div class="picker is-compact">
+      ${field}
+      <label for="file-input" class=${cx('pick-add', !dest && 'is-disabled')} aria-label="Adicionar arquivos">
+        <${Icon} name="plus" size=${18} strokeWidth=${2.2} /><span>Adicionar</span>
+      </label>
+    </div>`
+  }
   return html`<div class="picker">
-    <input ref=${input} id="file-input" class="offscreen" type="file" multiple onChange=${onChange} disabled=${!dest} />
+    ${field}
     <label for="file-input" class=${cx('pick', !dest && 'is-disabled')}>
       <span class="pick-icon" aria-hidden="true"><${Icon} name="upload" size=${24} strokeWidth=${1.8} /></span>
       <span class="pick-text">
@@ -164,9 +205,7 @@ function Picker({ dest, account }) {
         <span>Vídeos, fotos, qualquer tamanho</span>
       </span>
     </label>
-    ${isIOS
-      ? html`<p class="tip"><${Icon} name="info" size=${15} /> <span>Para vídeos no tamanho original, escolha pelo app <b>Arquivos</b>; pela Fototeca o iPhone às vezes converte.</span></p>`
-      : null}
+    ${isIOS ? html`<${FilesTip} />` : null}
   </div>`
 }
 
@@ -190,16 +229,6 @@ function ResumeNotice({ items, n, canPick }) {
       ${canPick
         ? html`<label for="file-input" class="btn btn-secondary btn-sm resume-btn"><${Icon} name="upload" size=${15} /><span>Escolher de novo</span></label>`
         : null}
-    </div>
-  </div>`
-}
-
-function AwakeNote({ awake }) {
-  return html`<div class="awake" role="status">
-    <span class="awake-dot" aria-hidden="true"></span>
-    <div>
-      <b>Mantenha esta tela aberta enquanto sobe</b>
-      <span>${awake ? 'A tela fica acesa sozinha até terminar.' : 'Se bloquear, o envio pausa e continua quando você voltar.'}</span>
     </div>
   </div>`
 }
@@ -275,18 +304,23 @@ export function MainScreen() {
   const items = engine.items
   const sum = summarize(items)
   const hasFinished = sum.finished > 0
-  const running = sum.running > 0
+  // Fila andando (ou pausada no meio): o topo encolhe para a fila aparecer sem rolar, até no iPhone SE.
+  const compact = sum.pending + sum.paused > 0
 
   const waiting = issue === 'rede'
   const reconnect = issue === 'reconectar'
   return html`<div class=${cx('screen', 'main', waiting && 'has-tap-pill')}>
-    <${Header} user=${user} sum=${sum} items=${items} waiting=${waiting} />
-    <main class="main-body">
+    <${Header} user=${user} sum=${sum} items=${items} waiting=${waiting} awake=${awake} />
+    <main class=${cx('main-body', compact && 'is-compact')}>
       ${LAN ? null : html`<${ComputerCard} />`}
-      <${Destination} dest=${dest} />
+      ${compact
+        ? html`<div class="sendbar">
+            <${Destination} dest=${dest} compact />
+            <${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} compact />
+          </div>`
+        : html`<${Destination} dest=${dest} />`}
       ${reconnect ? html`<${ReconnectNotice} drive=${drive} message=${authError} />` : null}
-      <${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} />
-      ${running ? html`<${AwakeNote} awake=${awake} />` : null}
+      ${compact ? null : html`<${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} />`}
       ${LAN ? html`<${LanNotices} lan=${lan} sum=${sum} />` : null}
 
       ${engine.notice
@@ -301,6 +335,8 @@ export function MainScreen() {
         : null}
 
       ${sum.waitingFile ? html`<${ResumeNotice} items=${items} n=${sum.waitingFile} canPick=${Boolean(dest) && !lan?.noAccount && !reconnect} />` : null}
+
+      ${compact ? null : html`<${BatchCards} items=${items} />`}
 
       ${items.length
         ? html`<section class="queue" aria-label="Envios">
@@ -328,6 +364,6 @@ export function MainScreen() {
           <span>Sem resposta da conta. Tentando de novo</span>
         </div>`
       : null}
-    <${InstallHint} />
+    ${sum.pending ? null : html`<${InstallHint} />`}
   </div>`
 }
