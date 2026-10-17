@@ -8,6 +8,7 @@ import http from 'node:http'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { TransferManager } from '../src/engine/manager.js'
+import { eta } from '../src/util/meter.js'
 import { Settings, dataPaths } from '../src/config.js'
 import { readJSON } from '../src/util/store.js'
 import { HttpError, closeHttp } from '../src/net/http.js'
@@ -194,6 +195,43 @@ test('respeita os limites por direção, a ordem da fila e muda na hora quando o
   st = m.stats()
   assert.equal(st.down.active, 1)
   assert.equal(st.totals.count, 7)
+})
+
+test('stats.totals: "restantes" com a mesma conta do ETA (só o que anda) e o parado à parte, com os problemas', async t => {
+  const ctl = fakeTasks()
+  const dir = await makeTmpDir()
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const { m } = await makeManager(t, { ctl, settings: { maxConcurrentDownloads: 1 } })
+  await m.add({ batch: batch('b1'), records: ['r1', 'q1', 'p1', 'p2', 'f1', 'c1', 'x1'].map(id => dl(dir, id)) })
+  await waitFor(() => ctl.live.has('r1'))
+  ctl.tasks.get('r1').record.bytesDone = 250 // andando: faltam 750
+  for (let i = 0; i < 5; i++) ctl.ctxs.get('r1').onBytes(50) // dá velocidade ao medidor
+  const set = (id, patch) => Object.assign(m.records.get(id), patch)
+  set('p1', { status: 'paused', bytesDone: 400 }) // pausado à mão: 600 parados, sem problema
+  set('p2', { status: 'paused', bytesDone: 100, error: { message: 'O acesso expirou.', kind: 'reauth' } }) // precisa de você: 900
+  set('f1', { status: 'failed', error: { message: 'Sumiu do disco.', kind: 'fatal' } }) // com problema: 1000
+  set('c1', { status: 'completed', bytesDone: 1000 })
+  set('x1', { status: 'canceled' })
+
+  const st = m.stats()
+  assert.equal(st.totals.count, 6, 'cancelado não conta')
+  assert.equal(st.totals.bytes, 6000)
+  assert.equal(st.totals.remaining, 750 + 1000, 'andando (750) + na fila (1000)')
+  assert.equal(st.totals.parked, 600 + 900 + 1000)
+  assert.equal(st.totals.parkedCount, 3)
+  assert.equal(st.totals.problems, 2, 'o que falhou e o pausado que precisa de você')
+  assert.equal(st.totals.doneBytes, 250 + 400 + 100 + 1000)
+  // ETA com a mesma base: o que anda dividido pela velocidade (o parado não entra).
+  assert.ok(st.down.speed > 0)
+  assert.equal(st.eta, eta(st.totals.remaining, st.down.speed))
+
+  // Tudo parado: nada anda, nada de ETA.
+  set('r1', { status: 'paused' })
+  set('q1', { status: 'paused' })
+  const st2 = m.stats()
+  assert.equal(st2.totals.remaining, 0)
+  assert.equal(st2.eta, null)
+  assert.equal(st2.totals.parkedCount, 5)
 })
 
 test('prioridade: "passar na frente" vai para o começo da fila; pausado volta para a fila', async t => {

@@ -207,6 +207,7 @@ export async function compareFolders({ drive, localPath, driveFolderId, mode = '
     drive
       .walk(driveFolderId, {
         signal: sig,
+        appProps: true, // a marca do proxy gerado pelo app: ele fica fora do Só no Drive
         onProgress: p => {
           driveFiles = p.files
           if (localDone) report({ phase: 'drive', done: p.files, total: 0, current: '' })
@@ -278,6 +279,9 @@ export async function compareFolders({ drive, localPath, driveFolderId, mode = '
       resourceKey: src.resourceKey ?? null,
       canDownload: src.canDownload !== false,
       shortcut: it.isShortcut,
+      // Proxy que o próprio SOBEDESCE gerou (Proxy/<nome>.mp4): pode ser par de um arquivo local, mas sozinho
+      // não é "Só no Drive" (nem entra no "Baixar o que só está no Drive").
+      previa: !it.isShortcut && isPreviaMark(it),
       claimed: false,
     })
   }
@@ -412,19 +416,30 @@ export async function compareFolders({ drive, localPath, driveFolderId, mode = '
   // 6c. Só no Drive. Pastas que só mudam maiúscula/minúscula entram na grafia local (a árvore não duplica).
   const localDirSet = new Set(scan.dirs)
   const localCase = caseMapper(localDirSet)
+  let proxies = 0
+  const proxyDirs = new Set()
   for (const r of remotes) {
     if (r.claimed) continue
+    if (r.previa) {
+      proxies++
+      proxyDirs.add(r.relDir)
+      continue
+    }
     const relDir = localCase(r.relDir)
     const relPath = joinRel(relDir, r.name)
     files.push({ relPath, relDir, name: r.name, status: 'only-drive', remote: remoteView(r, rootDisplay, relPath, true) })
   }
   report({ phase: 'match', done: entries.length, total: entries.length, current: '' }, true)
 
+  // A pasta Proxy que só tem os proxies do app sai da árvore também (senão viraria uma pasta vazia "só no Drive").
+  if (proxyDirs.size) pruneProxyDirs(proxyDirs, { remoteDirSet, localDirSet, items: tree.items, remotes })
+
   sortByPath(files, x => x.relPath)
   const folders = aggregateFolders(files, { localDirs: localDirSet, remoteDirs: remoteDirSet, localCase, rootName: scan.root.name })
   const summary = summarize(files)
   summary.ignored = ignored
   summary.skipped = scan.skipped.length
+  if (proxies) summary.proxies = proxies // proxies do app deixados de fora do "Só no Drive"
 
   const result = {
     id: newId('cmp'),
@@ -440,6 +455,25 @@ export async function compareFolders({ drive, localPath, driveFolderId, mode = '
   }
   if (persist) await saveCompare(result, paths ?? dataPaths())
   return result
+}
+
+/** É o proxy gerado pelo SOBEDESCE (appProperties.sobedesce = 'previa')? Mesma marca de src/media/previa-fila.js. */
+function isPreviaMark(it) {
+  return it?.appProperties?.sobedesce === 'previa'
+}
+
+/**
+ * Tira de `remoteDirSet` a pasta onde, no Drive, só há proxies do app que ficaram sem par. Fica a pasta que existe
+ * no computador ou que tem qualquer outra coisa dentro no Drive (arquivo, Doc, atalho, subpasta).
+ */
+function pruneProxyDirs(proxyDirs, { remoteDirSet, localDirSet, items, remotes }) {
+  const ignoredIds = new Set(remotes.filter(r => r.previa && !r.claimed).map(r => r.id))
+  const busy = new Set() // pastas com algo que conta logo dentro
+  for (const it of items) {
+    if (hasJunkSegment(it.relPath)) continue
+    if (it.isFolder || !ignoredIds.has(it.id)) busy.add(it.relDir || '')
+  }
+  for (const d of proxyDirs) if (d && !busy.has(d) && !localDirSet.has(d)) remoteDirSet.delete(d)
 }
 
 /** Parte do Drive que vai no resultado (o que o planner precisa para baixar/substituir, sem inchar o JSON). */

@@ -9,6 +9,7 @@ import { setupDrive, makeTmpDir, randomFile } from './helpers.js'
 import { DriveClient } from '../src/google/drive.js'
 import { Hasher } from '../src/engine/hasher.js'
 import { compareFolders, loadCompare, comparePaths } from '../src/engine/compare.js'
+import { planDownloadsFromCompare } from '../src/engine/planner.js'
 import { closeHttp } from '../src/net/http.js'
 import { isAbortError } from '../src/util/backoff.js'
 
@@ -465,4 +466,48 @@ test('desempenho: ~5 mil arquivos locais × 5 mil no Drive comparam em menos de 
   assert.equal(result.folders.length, FOLDERS + 1)
   assert.ok(ms < 10_000, `comparação levou ${Math.round(ms)} ms`)
   t.diagnostic(`5k × 5k: ${Math.round(ms)} ms (${s.synced} iguais, ${s.missing} faltando, ${s.different} diferentes, ${s.onlyDrive} só no Drive)`)
+})
+
+test('proxies que o app gerou (pasta Proxy, appProperties.sobedesce = previa) ficam fora do "Só no Drive"', async t => {
+  const env = await setup(t)
+  const m = env.mock
+  const top = m.addFolder('Diária 02', 'root')
+  const brutos = m.addFolder('Brutos', top.id)
+  m.addFile('A.mov', brutos.id, { size: 300, seed: 1 })
+  const prx = m.addFolder('Proxy', brutos.id)
+  const pa = m.addFile('A.mp4', prx.id, { size: 40, seed: 2, appProperties: { sobedesce: 'previa', original: 'x' } })
+  const pb = m.addFile('B.mp4', prx.id, { size: 41, seed: 3, appProperties: { sobedesce: 'previa' } })
+  // Pasta Proxy com algo feito à mão: o arquivo à mão continua "só no Drive" e a pasta fica.
+  const outro = m.addFolder('Outro', top.id)
+  const prx2 = m.addFolder('Proxy', outro.id)
+  const pc = m.addFile('C.mp4', prx2.id, { size: 42, seed: 4, appProperties: { sobedesce: 'previa' } })
+  m.addFile('manual.mp4', prx2.id, { size: 43, seed: 5 })
+  // Proxy do app que também está no computador: continua sendo par (não vira "falta subir").
+  const clip = m.addFolder('Clip', top.id)
+  const prx3 = m.addFolder('Proxy', clip.id)
+  m.addFile('D.mp4', prx3.id, { size: 44, seed: 6, appProperties: { sobedesce: 'previa' } })
+  m.addFile('Velho.mov', top.id, { size: 45, seed: 7 })
+
+  const local = path.join(env.dir, 'Diária 02')
+  await randomFile(path.join(local, 'Brutos', 'A.mov'), 300, 1)
+  await randomFile(path.join(local, 'Clip', 'Proxy', 'D.mp4'), 44, 6)
+
+  const result = await compareFolders({ drive: env.drive, localPath: local, driveFolderId: top.id, mode: 'quick', hasher: env.hasher, paths: env.paths })
+  const f = byPath(result)
+  const ids = new Set(result.files.map(x => x.remote?.id).filter(Boolean))
+  for (const p of [pa, pb, pc]) assert.ok(!ids.has(p.id), `${p.name} não aparece na lista`)
+  assert.equal(f['Outro/Proxy/manual.mp4'].status, 'only-drive', 'arquivo sem a marca do app segue "só no Drive"')
+  assert.equal(f['Velho.mov'].status, 'only-drive')
+  assert.equal(f['Clip/Proxy/D.mp4'].status, 'synced', 'proxy do app com par no computador continua par')
+  assert.equal(f['Brutos/A.mov'].status, 'synced')
+  assert.equal(result.summary.onlyDrive, 2)
+  assert.equal(result.summary.proxies, 3)
+  const dirs = folderMap(result)
+  assert.equal(dirs['Brutos/Proxy'], undefined, 'pasta Proxy só com proxies do app sai da árvore')
+  assert.ok(dirs['Outro/Proxy'], 'pasta Proxy com outra coisa dentro fica')
+  assert.equal(dirs['Brutos'].state, 'complete')
+
+  // "Baixar o que só está no Drive": só os dois de verdade.
+  const plan = planDownloadsFromCompare(result, { accountId: env.accountId })
+  assert.deepEqual(plan.records.map(r => r.name).sort(), ['Velho.mov', 'manual.mp4'])
 })

@@ -127,6 +127,26 @@ test('código vencido e cancelar o login', async t => {
   cloud.close()
 })
 
+test('"Pronto. Seus Drives apareceram aqui." some sozinho: o login volta a "nenhum" depois de mostrado', async t => {
+  const home = await makeTmpDir()
+  const site = await startMockCloud()
+  t.after(async () => {
+    await site.close().catch(() => {})
+    await fs.rm(home, { recursive: true, force: true })
+  })
+  const cloud = new CloudAuth({ paths: dataPaths(home), baseUrl: site.url, ...FAST, readyShownMs: 150 })
+  await cloud.init()
+  const statuses = []
+  cloud.on('status', s => statuses.push(s.login.estado))
+  await signIn(cloud, site)
+  assert.equal(cloud.status().login.estado, 'pronto')
+  await waitFor(() => cloud.status().login.estado === 'nenhum', { message: 'o "pronto" não sumiu' })
+  assert.equal(statuses.at(-1), 'nenhum', 'a interface fica sabendo (evento status)')
+  assert.equal(cloud.status().conectado, true, 'continua na conta')
+  assert.equal(cloud.listAccounts().length, 2)
+  cloud.close()
+})
+
 test('tokens: cache, uma requisição por vez por conta, rede fora → retry, 401 da nuvem → sai da conta', async t => {
   const home = await makeTmpDir()
   const site = await startMockCloud()
