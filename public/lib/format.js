@@ -62,6 +62,17 @@ export function timecode(sec) {
 }
 
 /** Contagem com separador de milhar: 3.000 */
+/** Tempo que falta, em palavras (o mesmo texto do celular): "menos de 1 min", "~14 min", "~2 h 5 min". */
+export function aprox(sec) {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) return null
+  if (sec < 60) return 'menos de 1 min'
+  const min = Math.round(sec / 60)
+  if (min < 60) return `~${min} min`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m ? `~${h} h ${m} min` : `~${h} h`
+}
+
 export function count(n) {
   return NF0.format(Number(n) || 0)
 }

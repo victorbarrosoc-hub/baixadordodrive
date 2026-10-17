@@ -95,7 +95,7 @@ function AccountMenu({ accounts, active, onClose }) {
           )}`
       : null}
     <div class="menu-sep"></div>
-    <button type="button" class="menu-item" role="menuitem" onClick=${() => { navigate('ajustes'); onClose() }}><${Icon} name="cloud" size=${15} /><span class="menu-item-text">Conta e Drives</span></button>
+    <button type="button" class="menu-item" role="menuitem" onClick=${() => { navigate('ajustes/contas'); onClose() }}><${Icon} name="cloud" size=${15} /><span class="menu-item-text">Conta e Drives</span></button>
     <button type="button" class="menu-item" role="menuitem" onClick=${() => { navigate('ajustes'); onClose() }}><${Icon} name="sliders" size=${15} /><span class="menu-item-text">Ajustes</span></button>
   </div>`
 }

@@ -13,7 +13,7 @@ import { copyText } from '../lib/mobile.js'
 import { openExternal } from '../lib/desktop.js'
 import { driveFileUrl } from '../lib/actions.js'
 import { clipTime, findProxy, fullImage, knownProxy, previewKind, proxyWorth, streamUrl, thumbUrl, tryPlayAudio, tryPlayVideo } from '../lib/media.js'
-import { isPreviaItem } from './previa.js'
+import { isPreviaItem, isVideoName, openProxyArquivo } from './previa.js'
 import { Icon } from './icons.js'
 import { Button, IconButton, Spinner, FileIcon } from './common.js'
 
@@ -413,7 +413,7 @@ function Content({ accountId, item, keysRef, onDownload }) {
   const kind = previewKind(item)
   const ext = extOf(item.name).toUpperCase()
   const original = streamUrl(accountId, item)
-  // Pesado: taxa (tamanho/duração) alta demais para tocar pela rede, ou travou tocando. O Drive toca uma cópia leve.
+  // Pesado: taxa (tamanho/duração) alta demais para tocar pela rede, ou travou tocando.
   const [heavy, setHeavy] = useState(() => kind === 'video' && mbpsOf(item) > HEAVY_MBPS)
   const known = knownProxy(accountId, item.id)
   // Vídeo grande: a cópia leve primeiro ('lite-look' procura; 'lite' toca). Sem cópia, segue as regras de antes.
@@ -460,7 +460,8 @@ function Content({ accountId, item, keysRef, onDownload }) {
     findProxy(accountId, item).then((p) => {
       if (!alive) return
       setProxy(p)
-      setMode(p ? 'proxy-play' : heavy ? 'heavy' : 'fail')
+      // Formato que o navegador nunca toca (BRAW, R3D…) é 'fail' mesmo pesado: "Tentar mesmo assim" não teria como dar certo.
+      setMode(p ? 'proxy-play' : heavy && tryPlayVideo(item) ? 'heavy' : 'fail')
     })
     return () => {
       alive = false
@@ -524,15 +525,21 @@ function Content({ accountId, item, keysRef, onDownload }) {
       <div class="pother-text"><span class="pwait"><${Spinner} size=${14} /> Procurando o proxy da câmera…</span></div>
     </div>`
   }
+  // Sem proxy para tocar: gerar um aqui mesmo (cópia leve 1080p na pasta Proxy) ou baixar o original.
+  // RAW de câmera (BRAW, R3D…) fica de fora: o ffmpeg não decodifica; o proxy dele é o que a câmera grava.
+  const gerar = kind === 'video' && isVideoName(item.name) && !isPreviaItem(item) && !proxy
+    ? html`<${Button} variant="secondary" icon="film" onClick=${() => openProxyArquivo({ accountId, item })} title="Proxy (cópia leve 1080p, na pasta Proxy) para a prévia tocar fluida">Gerar proxy</${Button}>`
+    : null
+  const sizeText = `${ext || 'Arquivo'}${item.size != null ? ` · ${bytes(item.size)}` : ''}`
   if (kind === 'video' && mode === 'heavy') {
     return html`<${Other}
       item=${item}
       poster=${bigPoster}
       title="Vídeo pesado demais para tocar pela rede"
-      text=${`${ext || 'Arquivo'}${item.size != null ? ` · ${bytes(item.size)}` : ''}. O Google Drive toca uma cópia leve dele.`}
+      text=${`${sizeText}. Gere um proxy para a prévia tocar fluida, ou baixe o original.`}
       actions=${html`<div class="pother-acts">
         <${Button} variant="primary" class="btn-down" icon="download" onClick=${onDownload}>Baixar original</${Button}>
-        <${Button} variant="secondary" icon="external" onClick=${() => openExternal(item.webViewLink || driveFileUrl(item.id))}>Ver no Google Drive</${Button}>
+        ${gerar}
         <${Button}
           variant="ghost"
           onClick=${() => {
@@ -549,8 +556,15 @@ function Content({ accountId, item, keysRef, onDownload }) {
       item=${item}
       poster=${bigPoster}
       title="Este formato não toca na prévia"
-      text=${`${ext || 'Arquivo'}${item.size != null ? ` · ${bytes(item.size)}` : ''}. Baixe para abrir no seu editor.`}
-      actions=${html`<${Button} variant="primary" class="btn-down" icon="download" onClick=${onDownload}>Baixar original</${Button}>`}
+      text=${gerar
+        ? `${sizeText}. Gere um proxy para ver aqui, ou baixe o original para abrir no seu editor.`
+        : kind === 'video' && !isVideoName(item.name)
+          ? `${sizeText}. RAW de câmera: a prévia toca o proxy da câmera quando ele está no Drive. Baixe o original para abrir no seu editor.`
+          : `${sizeText}. Baixe para abrir no seu editor.`}
+      actions=${html`<div class="pother-acts">
+        <${Button} variant="primary" class="btn-down" icon="download" onClick=${onDownload}>Baixar original</${Button}>
+        ${gerar}
+      </div>`}
     />`
   }
   if (kind === 'audio') {

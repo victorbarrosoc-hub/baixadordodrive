@@ -154,6 +154,17 @@ function Aviso() {
   </div>`
 }
 
+/** O site pediu login (Instagram, TikTok…): o caminho é entrar pelo navegador de referências, não tentar de novo às cegas. */
+function pedeLogin(codigo, mensagem) {
+  return codigo === 'login' || /pediu login/i.test(mensagem || '')
+}
+
+/** "Abrir navegador" na própria linha, já no link que falhou (só no app de desktop). */
+function AbrirNavegador({ url }) {
+  if (!bridge?.abrirNavegador) return null
+  return html`<${Button} size="sm" variant="primary" icon="globe" onClick=${() => bridge.abrirNavegador(url || null)} title="Entre na sua conta no navegador de referências e salve de lá">Abrir navegador</${Button}>`
+}
+
 /** Linha de um download em andamento (ou que deu erro). */
 function TrabalhoLinha({ t, mostrarColecao }) {
   const ativo = ATIVAS.has(t.fase)
@@ -172,6 +183,7 @@ function TrabalhoLinha({ t, mostrarColecao }) {
     </div>
     <div class="ref-job-actions">
       ${ativo && t.fase !== 'concluindo' ? html`<${IconButton} icon="x" label="Cancelar" onClick=${() => attempt(cancelarTrabalho(t.id))} />` : null}
+      ${t.fase === 'erro' && pedeLogin(t.erro?.codigo, t.erro?.mensagem) ? html`<${AbrirNavegador} url=${t.url} />` : null}
       ${!ativo && t.fase !== 'pronto' ? html`<${Button} size="sm" icon="retry" onClick=${() => attempt(tentarTrabalho(t.id))}>Tentar de novo</${Button}>` : null}
       ${!ativo ? html`<${IconButton} icon="x" label="Tirar da lista" onClick=${() => attempt(removerTrabalho(t.id))} />` : null}
       ${!ativo && t.fase === 'erro' ? html`<${IconButton} icon="external" label="Abrir o link original" onClick=${() => openExternal(t.url)} />` : null}
@@ -192,6 +204,7 @@ function FilaLinha({ i, onMudou }) {
       <span class="ref-job-status">${erro ? i.erro || 'Não deu para salvar.' : i.status === 'baixando' ? 'Baixando em outro computador' : 'Na fila: o computador baixa em instantes'}</span>
     </div>
     <div class="ref-job-actions">
+      ${erro && pedeLogin(null, i.erro) ? html`<${AbrirNavegador} url=${i.url} />` : null}
       ${erro ? html`<${Button} size="sm" icon="retry" onClick=${async () => (await attempt(tentarItemFila(i.id))) && onMudou?.()}>Tentar de novo</${Button}>` : null}
       <${IconButton} icon="external" label="Abrir o link original" onClick=${() => openExternal(i.url)} />
       ${i.status !== 'baixando' ? html`<${IconButton} icon="x" label="Tirar da fila" onClick=${async () => (await attempt(cancelarItemFila(i.id))) && onMudou?.()} />` : null}
@@ -279,7 +292,6 @@ function Colecoes({ estado }) {
             >Crie uma coleção por projeto ou por ideia: “Clipes”, “Luz natural”, “Campanha verão”.</${EmptyState}>`
           : html`<div class="ref-cols">
               ${colecoes.map((c) => html`<${ColecaoCard} key=${c.id} c=${c} versao=${estado.versoes?.[c.id] || 0} />`)}
-              <button type="button" class="ref-col ref-col-new" onClick=${novas}><span class="ref-cover ref-cover-new"><${Icon} name="plus" size=${26} /></span><div class="ref-col-meta"><b>Nova coleção</b><span class="sub">Uma pasta nova no Drive</span></div></button>
             </div>`}
   `
 }

@@ -1,5 +1,5 @@
 // SOBEDESCE — interface. Preact + htm sem build.
-import { html, render, useEffect } from '/vendor/preact-htm.js'
+import { html, render, useEffect, useRef } from '/vendor/preact-htm.js'
 import { start, useStore } from './lib/store.js'
 import { startDesktopIntegration } from './lib/desktop.js'
 import { startCloudWatch } from './lib/cloud.js'
@@ -45,7 +45,7 @@ function Shell({ route }) {
       screen = html`<${CompareScreen} />`
       break
     case 'ajustes':
-      screen = html`<${SettingsScreen} />`
+      screen = html`<${SettingsScreen} route=${route} />`
       break
     default:
       screen = html`<${TransfersScreen} />`
@@ -63,6 +63,11 @@ function App() {
   const oauthWait = useStore((s) => s.oauthWait)
   const justSignedIn = useStore((s) => s.cloud?.login?.estado === 'pronto')
   const route = useRoute()
+  // O "pronto" do login some sozinho depois de um minuto (motor): quem ainda está lendo a tela de boas-vindas
+  // não é jogado para Transferências por isso; sai pelo botão Começar.
+  const keepWelcome = useRef(false)
+  if (justSignedIn && route.name === 'inicio') keepWelcome.current = true
+  else if (route.name !== 'inicio') keepWelcome.current = false
   // Sem nenhum Drive (da conta SOBEDESCE ou só deste computador): Primeiros passos.
   const needsSetup = status === 'ready' && accounts.length === 0
   const inSetup = needsSetup || route.name === 'inicio'
@@ -72,7 +77,7 @@ function App() {
     // Já tem Drive e alguém abriu #/inicio sem querer trocar a chave nem conectar um Drive local → Transferências.
     // Logo depois de entrar na conta, a tela fica para mostrar o "Pronto" (o botão Começar segue).
     const sub = route.parts[1]
-    if (!needsSetup && route.name === 'inicio' && sub !== 'chave' && sub !== 'local' && !justSignedIn) navigate('transferencias', { replace: true })
+    if (!needsSetup && route.name === 'inicio' && sub !== 'chave' && sub !== 'local' && !justSignedIn && !keepWelcome.current) navigate('transferencias', { replace: true })
     if (needsSetup && route.name !== 'inicio') navigate('inicio', { replace: true })
   }, [status, needsSetup, route.name, route.parts[1], justSignedIn])
 

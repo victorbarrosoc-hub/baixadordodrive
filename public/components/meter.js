@@ -2,11 +2,12 @@
 // forma de onda estéreo — download acima da linha central (azul), upload espelhado abaixo (violeta).
 import { html, useMemo } from '/vendor/preact-htm.js'
 import { useStore } from '../lib/store.js'
-import { bits, bytes, plural, speedParts, timecode } from '../lib/format.js'
+import { aprox, bits, bytes, clock, plural, speedParts } from '../lib/format.js'
 import { Icon } from './icons.js'
 import { Button } from './common.js'
 import { cx, memo } from '../lib/ui.js'
 import { transferAction } from '../lib/actions.js'
+import { meterTotals } from '../lib/transferencias.js'
 
 const W = 1200
 const H = 168
@@ -141,8 +142,9 @@ function Readout({ dir, data }) {
 export const MeterHero = memo(function MeterHero({ doneCount, totalCount, canPause, canResume }) {
   const stats = useStore((s) => s.stats)
   const lost = useStore((s) => s.conn === 'lost')
-  const remaining = Math.max(0, (stats.totals?.bytes || 0) - (stats.totals?.doneBytes || 0))
+  const tot = meterTotals(stats.totals)
   const moving = (stats.down?.speed || 0) + (stats.up?.speed || 0) > 0
+  const eta = moving && tot.moving > 0 ? stats.eta : null
   return html`<section class=${cx('hero card', lost && 'is-stale')} aria-label="Velocidade agora" title=${lost ? 'Sem contato com o motor — os números podem estar desatualizados' : undefined}>
     <div class="hero-top">
       <${Readout} dir="down" data=${stats.down || {}} />
@@ -157,10 +159,16 @@ export const MeterHero = memo(function MeterHero({ doneCount, totalCount, canPau
       <div class="hero-totals">
         ${totalCount
           ? html`<span><b>${doneCount}</b> de ${plural(totalCount, 'arquivo', 'arquivos')}</span>
-              <span class="dot-sep"></span>
-              <span><b>${bytes(remaining)}</b> restantes</span>
-              ${moving && stats.eta != null
-                ? html`<span class="dot-sep"></span><span>termina em <span class="tc">${timecode(stats.eta)}</span></span>`
+              ${tot.moving > 0 || !tot.parked
+                ? html`<span class="dot-sep"></span><span><b>${bytes(tot.moving)}</b> ${tot.parked ? 'andando' : 'restantes'}</span>`
+                : null}
+              ${tot.parked
+                ? html`<span class="dot-sep"></span><span class="hero-parked" title="Pausados e com problema não andam sozinhos: não entram no tempo que falta">
+                    <b>${bytes(tot.parked)}</b> ${tot.parkedCount === 1 ? 'parado' : 'parados'}${tot.problems ? html` <span class="tone-warning">(${tot.problems} com problema)</span>` : null}
+                  </span>`
+                : null}
+              ${eta != null
+                ? html`<span class="dot-sep"></span><span title=${`Termina por volta de ${clock(Date.now() + eta * 1000)}`}>faltam <b>${aprox(eta)}</b>${eta >= 600 ? html`<span class="hero-clock"> · ${endsAt(eta)}</span>` : null}</span>`
                 : null}`
           : html`<span>Tudo em dia por aqui</span>`}
       </div>
@@ -171,6 +179,12 @@ export const MeterHero = memo(function MeterHero({ doneCount, totalCount, canPau
     </div>
   </section>`
 })
+
+/** "termina ~14:32" ou "termina amanhã ~09:10". */
+function endsAt(eta) {
+  const c = clock(Date.now() + eta * 1000)
+  return c.includes(' às ') ? `termina ${c.replace(' às ', ' ~')}` : `termina ~${c}`
+}
 
 const DAILY_UPLOAD = 750e9 // limite do Google por conta, a cada 24 h
 
