@@ -51,6 +51,13 @@ export class ArquivoSecreto {
     this.log = log || ((...a) => console.warn('[cofre]', ...a))
     this.preservar = false // há um cifrado que não foi lido (não abriu, ou ficou para trás): antes de gravar por cima, guarda uma cópia
     this.disponivelCache = null
+    this.fila = Promise.resolve() // gravar/apagar em ordem: um "apagar" (sair da conta) nunca perde para uma gravação antiga
+  }
+
+  #emFila(fn) {
+    const next = this.fila.catch(() => {}).then(fn)
+    this.fila = next
+    return next
   }
 
   /** A guarda funciona agora? (pergunta uma vez por arquivo; falha = indisponível) */
@@ -139,8 +146,12 @@ export class ArquivoSecreto {
     return dados
   }
 
-  /** Grava os dados (cifrados, se der; senão JSON 0600). */
-  async gravar(dados) {
+  /** Grava os dados (cifrados, se der; senão JSON 0600). As gravações e o apagar vão em ordem. */
+  gravar(dados) {
+    return this.#emFila(() => this.#gravar(dados))
+  }
+
+  async #gravar(dados) {
     if (await this.#disponivel()) {
       try {
         await this.#gravarCifrado(dados)
@@ -154,8 +165,8 @@ export class ArquivoSecreto {
   }
 
   /** Apaga as duas formas (sair da conta, remover o último Drive). */
-  async apagar() {
-    await Promise.all([fs.rm(this.file, { force: true }), fs.rm(this.cifrado, { force: true })])
+  apagar() {
+    return this.#emFila(() => Promise.all([fs.rm(this.file, { force: true }), fs.rm(this.cifrado, { force: true })]))
   }
 }
 
