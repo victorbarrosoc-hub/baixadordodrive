@@ -4,7 +4,7 @@
  * a cifra de uma linha não abre em outra.
  * Sem a chave em produção, só `selar`/`abrir` lançam (nada lança no import).
  */
-import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 
 export class ChaveErrada extends Error {
   constructor() {
@@ -75,4 +75,18 @@ export function selarCookie(texto: string, contexto: string): string {
 
 export function abrirCookie(selado: string, contexto: string): string {
   return decifrar(chavePara("oauth"), selado, contexto);
+}
+
+/**
+ * Assinatura curta (HMAC-SHA256 com a chave derivada do `uso`, 128 bits em base64url) para valores que só precisam
+ * provar que saíram daqui, como o cookie de aparelho. Sem a chave em produção, lança (quem chama decide o que fazer).
+ */
+export function assinar(texto: string, uso: string): string {
+  return createHmac("sha256", chavePara(uso)).update(texto, "utf8").digest().subarray(0, 16).toString("base64url");
+}
+
+export function assinaturaConfere(texto: string, assinatura: string, uso: string): boolean {
+  const esperada = Buffer.from(assinar(texto, uso));
+  const veio = Buffer.from(String(assinatura ?? ""));
+  return veio.length === esperada.length && timingSafeEqual(veio, esperada);
 }

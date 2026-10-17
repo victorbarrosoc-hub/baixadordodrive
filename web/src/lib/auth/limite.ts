@@ -1,7 +1,8 @@
 /**
  * Limite de tentativas (tabela `tentativas`): conta linhas da chave numa janela de tempo.
  * Chaves: "login:<email>:<ip>", "login-conta:<email>", "login-ip:<ip>", "criar:<ip>", "disp-iniciar:<ip>", "disp-codigo:<ip>",
- * "esqueci:<email>", "esqueci-ip:<ip>", "apagar:<usuario>", "senha:<usuario>", "atalho:<id>", "atalho-ip:<ip>".
+ * "esqueci:<email>", "esqueci-ip:<ip>", "apagar:<usuario>", "senha:<usuario>", "atalho:<id>", "atalho-ip:<ip>",
+ * "aviso-tentativas:<usuario>" (o e-mail de muitas senhas erradas, um por dia).
  * Limpeza preguiçosa: de vez em quando apaga o que tem mais de um dia.
  */
 import { and, count, eq, gte, isNotNull, lt, or } from "drizzle-orm";
@@ -27,6 +28,8 @@ export const REGRAS = {
   /** Atalho do iPhone: links por chave e chaves erradas por IP. */
   atalhoUso: { max: 120, janelaMs: 60 * 60_000 },
   atalhoErro: { max: 20, janelaMs: 15 * 60_000 },
+  /** E-mail "muitas senhas erradas" (lib/email/avisos.ts): no máximo um por conta a cada 24 horas. */
+  avisoTentativas: { max: 1, janelaMs: 24 * 60 * 60_000 },
 } satisfies Record<string, Regra>;
 
 /** true = ainda pode tentar. */

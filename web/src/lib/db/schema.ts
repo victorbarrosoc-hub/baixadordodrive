@@ -142,6 +142,25 @@ export const redefinicoesSenha = pgTable(
   (t) => [index("redefinicoes_senha_usuario_idx").on(t.usuarioId)],
 );
 
+/**
+ * Aparelhos (navegadores) que já entraram em cada conta, para o aviso de entrada nova (lib/auth/aparelho.ts).
+ * O cookie `sd_aparelho` leva só um id aleatório assinado; aqui fica só o sha256 dele, sem nome, sistema nem lugar.
+ * Sai depois de 400 dias sem uso (a vida do cookie) e junto com a conta.
+ */
+export const aparelhos = pgTable(
+  "aparelhos",
+  {
+    id: text().primaryKey(),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    aparelhoHash: text().notNull(),
+    criadoEm: agora(),
+    vistoEm: agora(),
+  },
+  (t) => [uniqueIndex("aparelhos_usuario_aparelho_idx").on(t.usuarioId, t.aparelhoHash)],
+);
+
 // ───── Referências (docs/REFERENCIAS.md) ─────
 
 /** Coleções de referências: uma pasta em "SOBEDESCE Referências/<nome>" no Drive da pessoa. */

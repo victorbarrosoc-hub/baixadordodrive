@@ -55,6 +55,11 @@ export default function PrivacidadePage() {
             ferramentas de rastreamento.
           </li>
           <li>
+            <strong>Aparelhos que já entraram:</strong> um cookie essencial (<code className="font-mono text-[14px]">sd_aparelho</code>) guarda um número
+            aleatório que identifica o navegador, sem nome, e-mail ou lugar. No banco fica só um hash desse número, ligado à sua conta, para avisar por
+            e-mail quando ela abre num aparelho novo. Some depois de 400 dias sem uso ou quando você apaga a conta.
+          </li>
+          <li>
             <strong>Segurança:</strong> para impedir abuso, registramos por pouco tempo as tentativas de entrar, de criar conta e de pedir senha nova
             (e-mail e endereço IP, com data e hora). Esses registros são apagados depois.
           </li>
@@ -146,8 +151,8 @@ export default function PrivacidadePage() {
       <LegalSection title="Com quem compartilhamos">
         <p>
           Com ninguém, para nenhum fim comercial. Não vendemos, não alugamos e não compartilhamos os seus dados. Eles ficam em provedores que operam o
-          serviço para nós: a Vercel (hospedagem do site), a Neon (banco de dados) e a Resend (envio dos e-mails da conta, como o link de senha nova, a
-          confirmação de conta apagada e o aviso de computador conectado; ela recebe o seu e-mail, o seu nome e o texto da mensagem). Os avisos no celular passam pelo serviço de notificações do seu navegador (Apple, Google, Mozilla ou Microsoft), cifrados de ponta a ponta. E, claro, no Google,
+          serviço para nós: a Vercel (hospedagem do site), a Neon (banco de dados) e a Resend (envio dos e-mails da conta: o link de senha nova, a
+          confirmação de conta apagada e os avisos de segurança descritos abaixo; ela recebe o seu e-mail, o seu nome e o texto da mensagem). Os avisos no celular passam pelo serviço de notificações do seu navegador (Apple, Google, Mozilla ou Microsoft), cifrados de ponta a ponta. E, claro, no Google,
           quando você conecta o Drive.
         </p>
         <p>Só entregaríamos dados se uma lei ou ordem judicial obrigasse.</p>
@@ -185,6 +190,18 @@ export default function PrivacidadePage() {
           Todo o tráfego usa HTTPS. Senhas ficam só como hash, os tokens do Google ficam cifrados e o cookie de sessão não pode ser lido por scripts da
           página. Sessões do site vencem depois de 30 dias sem uso, e as dos computadores, depois de 180 dias sem uso.
         </p>
+        <p>Mandamos um aviso por e-mail quando:</p>
+        <LegalList>
+          <li>
+            a conta abre num aparelho ou navegador que ela ainda não tinha usado, com a senha ou com o Google. O aviso diz quando, o navegador e o
+            sistema, e a cidade e o país aproximados, que vêm da rede de quem entrou (o endereço IP não vai no e-mail);
+          </li>
+          <li>a senha é trocada, refeita pelo link de Esqueci a senha ou criada pela primeira vez;</li>
+          <li>o Google que abre a conta é trocado ou removido;</li>
+          <li>um computador é liberado na conta;</li>
+          <li>alguém erra a senha da conta muitas vezes e a entrada com senha fica pausada (no máximo um aviso por dia).</li>
+        </LegalList>
+        <p>Esses avisos são parte da segurança da conta e não levam senha, código nem link de acesso.</p>
       </LegalSection>
 
       <LegalSection title="Por quanto tempo">

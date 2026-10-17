@@ -6,8 +6,10 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { ipDe, origemConfere, origemDoPedido } from "@/lib/http";
+import { depoisDaResposta } from "@/lib/depois";
+import { ipDe, lugarDe, origemConfere, origemDoPedido } from "@/lib/http";
 import { cookieSeguro, origensDoSite } from "@/lib/site";
+import { COOKIE_APARELHO, conferirAparelho, opcoesCookieAparelho } from "./aparelho";
 import { autenticar, COOKIE_SESSAO, opcoesCookieSessao, type Autenticado } from "./sessao";
 import { voltaSegura } from "./volta";
 
@@ -46,4 +48,22 @@ export async function apagarCookieSessao(): Promise<void> {
 
 export async function ipAtual(): Promise<string> {
   return ipDe(await headers());
+}
+
+/**
+ * Depois de um login que deu certo (Server Action): confere o aparelho, grava o cookie `sd_aparelho` e, num
+ * aparelho que a conta ainda não usou, manda o aviso de entrada nova depois da resposta (lib/auth/aparelho.ts).
+ * `avisar` false: criar conta e senha refeita (só aprende o aparelho).
+ */
+export async function marcarAparelho(usuarioId: string, o: { via: "senha" | "google"; avisar: boolean }): Promise<void> {
+  const [h, c] = await Promise.all([headers(), cookies()]);
+  const valor = await conferirAparelho({
+    usuarioId,
+    cookie: c.get(COOKIE_APARELHO)?.value,
+    via: o.via,
+    entrada: { userAgent: h.get("user-agent"), lugar: lugarDe(h) },
+    avisar: o.avisar,
+    depois: depoisDaResposta,
+  });
+  if (valor) c.set(COOKIE_APARELHO, valor, opcoesCookieAparelho(cookieSeguro(origemDoPedido(h))));
 }

@@ -9,6 +9,8 @@ import type { EstadoContaGoogle } from "@/lib/db/schema";
 import { dentroDoLimite, esquecerTentativas, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "@/lib/auth/limite";
 import { conferirSenha } from "@/lib/auth/senha";
 import { novoId } from "@/lib/auth/tokens";
+import { emSegundoPlano, type Depois } from "@/lib/depois";
+import { avisarGoogleDeEntrar } from "@/lib/email/avisos";
 import { abrir, ChaveErrada, selar } from "./cripto";
 import { GoogleError } from "./erros";
 import { renovarAcesso, revogar, type PerfilGoogle, type Tokens } from "./oauth";
@@ -132,7 +134,13 @@ export type FalhaEntrada = { ok: false; erro: "sem_senha" | "credenciais" | "nao
  * põe o próprio Google como porta de entrada. Conta sem senha (criada pelo Google) cria uma senha antes, pelo link
  * por e-mail; assim ela nunca fica sem jeito de entrar.
  */
-export async function trocarGoogleDeEntrar(entrada: { usuarioId: string; contaId: string | null; senhaAtual: unknown }): Promise<{ ok: true; conta: Conta | null } | FalhaEntrada> {
+export async function trocarGoogleDeEntrar(entrada: {
+  usuarioId: string;
+  contaId: string | null;
+  senhaAtual: unknown;
+  /** Para o e-mail de Google de entrar trocado ou removido (padrão: em segundo plano). */
+  depois?: Depois;
+}): Promise<{ ok: true; conta: Conta | null } | FalhaEntrada> {
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, entrada.usuarioId), columns: { id: true, senhaHash: true } });
   if (!usuario) return { ok: false, erro: "nao_encontrada", mensagem: "Entre na sua conta para continuar." };
   if (!usuario.senhaHash.startsWith("scrypt$")) {
@@ -147,7 +155,11 @@ export async function trocarGoogleDeEntrar(entrada: { usuarioId: string; contaId
   }
   await esquecerTentativas(chave);
 
-  return db.transaction(async (t) => {
+  const r = await db.transaction(async (t) => {
+    const [anterior] = await t
+      .select({ id: contasGoogle.id, email: contasGoogle.email })
+      .from(contasGoogle)
+      .where(and(eq(contasGoogle.usuarioId, usuario.id), eq(contasGoogle.loginPermitido, true)));
     let escolhida: Linha | undefined;
     if (entrada.contaId) {
       [escolhida] = await t
@@ -159,8 +171,16 @@ export async function trocarGoogleDeEntrar(entrada: { usuarioId: string; contaId
     // Primeiro desliga todos (o índice único aceita no máximo um ligado por conta), depois liga o escolhido.
     await t.update(contasGoogle).set({ loginPermitido: false }).where(and(eq(contasGoogle.usuarioId, usuario.id), eq(contasGoogle.loginPermitido, true)));
     if (escolhida) await t.update(contasGoogle).set({ loginPermitido: true }).where(eq(contasGoogle.id, escolhida.id));
-    return { ok: true as const, conta: escolhida ? contaPublica(escolhida) : null };
+    return { ok: true as const, conta: escolhida ? contaPublica(escolhida) : null, anterior: anterior ?? null };
   });
+  if (!r.ok) return r;
+  const { anterior, conta } = r;
+  // Só avisa quando mudou mesmo (escolher o mesmo de novo não manda nada).
+  if ((anterior?.id ?? null) !== (conta?.id ?? null)) {
+    const usuarioId = usuario.id;
+    (entrada.depois ?? emSegundoPlano)(() => avisarGoogleDeEntrar(usuarioId, { novo: conta?.email ?? null, anterior: anterior?.email ?? null }));
+  }
+  return { ok: true, conta };
 }
 
 /** Marca de conta criada pelo Google: não é um hash, então nenhuma senha confere até a pessoa criar uma (Esqueci a senha). */
@@ -203,7 +223,7 @@ export type ResultadoRemocao = { ok: true } | { ok: false; erro: "nao_encontrada
  * Remove a conta: revoga no Google (melhor esforço) e apaga a linha.
  * O Google de entrar de uma conta sem senha não sai: seria a única porta de entrada dela.
  */
-export async function removerConta(usuarioId: string, contaId: string): Promise<ResultadoRemocao> {
+export async function removerConta(usuarioId: string, contaId: string, depois: Depois = emSegundoPlano): Promise<ResultadoRemocao> {
   const l = await db.query.contasGoogle.findFirst({ where: and(eq(contasGoogle.id, contaId), eq(contasGoogle.usuarioId, usuarioId)) });
   if (!l) return { ok: false, erro: "nao_encontrada" };
   if (l.loginPermitido) {
@@ -215,7 +235,12 @@ export async function removerConta(usuarioId: string, contaId: string): Promise<
   } catch {
     // chave trocada: a linha sai do mesmo jeito
   }
-  await db.delete(contasGoogle).where(and(eq(contasGoogle.id, contaId), eq(contasGoogle.usuarioId, usuarioId)));
+  const apagada = await db
+    .delete(contasGoogle)
+    .where(and(eq(contasGoogle.id, contaId), eq(contasGoogle.usuarioId, usuarioId)))
+    .returning({ id: contasGoogle.id });
+  // Era o Google de entrar: a conta passa a abrir só com e-mail e senha, e o dono fica sabendo.
+  if (apagada.length && l.loginPermitido) depois(() => avisarGoogleDeEntrar(usuarioId, { novo: null, anterior: l.email }));
   return { ok: true };
 }
 

@@ -7,7 +7,7 @@ import { refresh } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { apagarCookieSessao, gravarCookieSessao, ipAtual, origemDaAcaoConfere, usuarioAtual } from "@/lib/auth/atual";
+import { apagarCookieSessao, gravarCookieSessao, ipAtual, marcarAparelho, origemDaAcaoConfere, usuarioAtual } from "@/lib/auth/atual";
 import { apagarConta } from "@/lib/auth/apagar";
 import { frase as fraseEncerrado } from "@/lib/auth/encerrar";
 import { criarConta, entrarComSenha, trocarNome, trocarSenha } from "@/lib/auth/contas";
@@ -15,7 +15,8 @@ import { dentroDoLimite, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "@/l
 import { COOKIE_SESSAO, revogarDispositivo, revogarPorToken } from "@/lib/auth/sessao";
 import { pedirPrimeiraSenha, pedirRedefinicao, redefinirSenha } from "@/lib/auth/redefinir";
 import { voltaSegura } from "@/lib/auth/volta";
-import { aprovar, buscarPedido, cancelar, normalizarCodigo } from "@/lib/dispositivo";
+import { depoisDaResposta } from "@/lib/depois";
+import { aprovar, buscarPedido, cancelar, lugarLegivel, normalizarCodigo } from "@/lib/dispositivo";
 import { avisarComputadorConectado } from "@/lib/email/avisos";
 import { removerConta, trocarGoogleDeEntrar } from "@/lib/google/contas";
 import { ehAdmin } from "@/lib/admin";
@@ -37,9 +38,10 @@ const texto = (fd: FormData, campo: string) => {
 
 export async function acaoEntrar(_: EstadoForm, fd: FormData): Promise<EstadoForm> {
   if (!(await origemDaAcaoConfere())) return RECUSADO;
-  const r = await entrarComSenha({ email: texto(fd, "email"), senha: texto(fd, "senha"), ip: await ipAtual() });
+  const r = await entrarComSenha({ email: texto(fd, "email"), senha: texto(fd, "senha"), ip: await ipAtual(), depois: depoisDaResposta });
   if (!r.ok) return { erro: r.mensagem, valores: { email: texto(fd, "email") } };
   await gravarCookieSessao(r.token);
+  await marcarAparelho(r.usuario.id, { via: "senha", avisar: true });
   redirect(voltaSegura(texto(fd, "volta")));
 }
 
@@ -48,6 +50,7 @@ export async function acaoCriarConta(_: EstadoForm, fd: FormData): Promise<Estad
   const r = await criarConta({ nome: texto(fd, "nome"), email: texto(fd, "email"), senha: texto(fd, "senha"), ip: await ipAtual() });
   if (!r.ok) return { erro: r.mensagem, campo: r.campo, valores: { nome: texto(fd, "nome"), email: texto(fd, "email") } };
   await gravarCookieSessao(r.token);
+  await marcarAparelho(r.usuario.id, { via: "senha", avisar: false });
   redirect(voltaSegura(texto(fd, "volta")));
 }
 
@@ -86,6 +89,7 @@ export async function acaoTrocarSenha(_: EstadoForm, fd: FormData): Promise<Esta
     senhaNova: texto(fd, "senhaNova"),
     ip: await ipAtual(),
     links: texto(fd, "links") === "1",
+    depois: depoisDaResposta,
   });
   if (!r.ok) return { erro: r.mensagem, campo: r.campo };
   refresh();
@@ -106,7 +110,7 @@ export async function acaoTrocarGoogleDeEntrar(_: EstadoForm, fd: FormData): Pro
   const atual = await sessaoDoSite();
   if (!atual) return RECUSADO;
   const conta = texto(fd, "conta");
-  const r = await trocarGoogleDeEntrar({ usuarioId: atual.usuario.id, contaId: conta || null, senhaAtual: texto(fd, "senhaAtual") });
+  const r = await trocarGoogleDeEntrar({ usuarioId: atual.usuario.id, contaId: conta || null, senhaAtual: texto(fd, "senhaAtual"), depois: depoisDaResposta });
   if (!r.ok) return { erro: r.mensagem, campo: r.campo };
   refresh();
   return { ok: r.conta ? `Pronto. Agora ${r.conta.email} entra na conta.` : "Pronto. Nenhum Google entra na conta: só e-mail e senha." };
@@ -115,7 +119,7 @@ export async function acaoTrocarGoogleDeEntrar(_: EstadoForm, fd: FormData): Pro
 export async function acaoRemoverDrive(contaId: string): Promise<EstadoForm> {
   const atual = await sessaoDoSite();
   if (!atual) return RECUSADO;
-  const r = await removerConta(atual.usuario.id, String(contaId));
+  const r = await removerConta(atual.usuario.id, String(contaId), depoisDaResposta);
   if (!r.ok && r.erro === "google_de_entrar") {
     return { erro: "É com este Google que você entra na conta. Crie uma senha antes de removê-lo." };
   }
@@ -144,7 +148,8 @@ export async function acaoLiberarComputador(_: EstadoForm, fd: FormData): Promis
   }
   if (!(await aprovar(codigo, atual.usuario.id))) return { erro: "Este computador já foi liberado ou o código venceu." };
   const usuarioId = atual.usuario.id;
-  after(() => avisarComputadorConectado(usuarioId, { nome: pedido.nome, plataforma: pedido.plataforma }));
+  const onde = lugarLegivel(pedido.lugar);
+  depoisDaResposta(() => avisarComputadorConectado(usuarioId, { nome: pedido.nome, plataforma: pedido.plataforma, onde }));
   return { ok: "liberado" };
 }
 
@@ -165,9 +170,10 @@ export async function acaoEsqueciSenha(_: EstadoForm, fd: FormData): Promise<Est
 
 export async function acaoNovaSenha(_: EstadoForm, fd: FormData): Promise<EstadoForm> {
   if (!(await origemDaAcaoConfere())) return RECUSADO;
-  const r = await redefinirSenha({ token: texto(fd, "token"), senha: texto(fd, "senha") });
+  const r = await redefinirSenha({ token: texto(fd, "token"), senha: texto(fd, "senha"), depois: depoisDaResposta });
   if (!r.ok) return { erro: r.mensagem, campo: r.campo };
   await gravarCookieSessao(r.token);
+  await marcarAparelho(r.usuario.id, { via: "senha", avisar: false });
   redirect("/conta?senha=nova");
 }
 

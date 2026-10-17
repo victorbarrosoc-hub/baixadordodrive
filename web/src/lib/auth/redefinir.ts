@@ -6,6 +6,8 @@
  */
 import { and, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
+import { emSegundoPlano, type Depois } from "@/lib/depois";
+import { avisarSenhaMudou } from "@/lib/email/avisos";
 import { emailDisponivel, enviarEmail } from "@/lib/email/enviar";
 import { emailEsqueciSenha, emailPrimeiraSenha } from "@/lib/email/modelos";
 import { emailValido, normalizarEmail, type Entrou, type Falha } from "./contas";
@@ -31,7 +33,7 @@ export async function apagarLinksVencidos(agora = new Date()): Promise<number> {
 }
 
 /** Agenda trabalho depois da resposta (Next: `after`); nos testes roda na hora. */
-export type Depois = (tarefa: () => Promise<unknown>) => void;
+export type { Depois };
 export const naHora: Depois = (t) => void t();
 
 /**
@@ -103,7 +105,13 @@ export const MENSAGEM_LINK_VENCIDO = "Este link venceu ou já foi usado. Peça o
  * Usa o link: grava a senha, encerra tudo (sessões do site e dos computadores, chave do Atalho, avisos no celular;
  * links pra IA só com `links`) e abre uma sessão nova.
  */
-export async function redefinirSenha(entrada: { token: unknown; senha: unknown; links?: boolean }): Promise<(Entrou & { encerrado: Encerrado }) | Falha> {
+export async function redefinirSenha(entrada: {
+  token: unknown;
+  senha: unknown;
+  links?: boolean;
+  /** Para o e-mail "a senha mudou" (padrão: em segundo plano). */
+  depois?: Depois;
+}): Promise<(Entrou & { encerrado: Encerrado }) | Falha> {
   const senha = typeof entrada.senha === "string" ? entrada.senha : "";
   if (senha.length < SENHA_MINIMA) return { ok: false, erro: "entrada", campo: "senha", mensagem: `A senha precisa de pelo menos ${SENHA_MINIMA} caracteres.` };
   if (senha.length > SENHA_MAXIMA) return { ok: false, erro: "entrada", campo: "senha", mensagem: "Senha longa demais." };
@@ -118,6 +126,7 @@ export async function redefinirSenha(entrada: { token: unknown; senha: unknown; 
   if (usado.length === 0) return { ok: false, erro: "link", mensagem: MENSAGEM_LINK_VENCIDO };
   const { usuarioId } = usado[0];
 
+  const antes = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId), columns: { senhaHash: true } });
   const senhaHash = await hashSenha(senha);
   await db.update(usuarios).set({ senhaHash, atualizadoEm: agora, ultimoLoginEm: agora }).where(eq(usuarios.id, usuarioId));
   const encerrado = await encerrarAcessos(usuarioId, { links: entrada.links === true });
@@ -128,5 +137,7 @@ export async function redefinirSenha(entrada: { token: unknown; senha: unknown; 
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.id, usuarioId), columns: { id: true, email: true, nome: true } });
   if (!usuario) return { ok: false, erro: "link", mensagem: MENSAGEM_LINK_VENCIDO };
   const sessao = await criarSessao(usuario.id, "web");
+  const como = antes?.senhaHash.startsWith("scrypt$") ? "redefinida" : "criada";
+  (entrada.depois ?? emSegundoPlano)(() => avisarSenhaMudou(usuarioId, como, agora));
   return { ok: true, usuario, token: sessao.token, expiraEm: sessao.expiraEm, encerrado };
 }

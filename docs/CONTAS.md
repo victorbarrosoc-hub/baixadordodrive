@@ -64,6 +64,9 @@ Redirect do Google: `https://sobedesce.vercel.app/api/google/callback`
   `consultadoEm` (última consulta do `/aguardar`, para o 429), `expiraEm` (10 min), `criadoEm`.
 - `redefinicoesSenha`: "Esqueci a senha". `id`, `usuarioId`, `tokenHash` (sha256, único), `expiraEm` (1 h),
   `usadoEm` (uso único), `criadoEm`.
+- `aparelhos`: navegadores que já entraram em cada conta (aviso de entrada nova). `id`, `usuarioId`,
+  `aparelhoHash` (sha256 do id do cookie `sd_aparelho`; único por conta), `criadoEm`, `vistoEm`. Sai depois de
+  400 dias sem uso e com a conta.
 - `tentativas`: limite de tentativas (login por e-mail+IP, criação de conta por IP, código de
   dispositivo por IP). `id` (identity), `chave`, `quando`. Limpeza preguiçosa.
   Regras atuais (`web/src/lib/auth/limite.ts`): login 8 erros/15 min por e-mail+IP e 40/15 min por IP;
@@ -87,6 +90,11 @@ Migrações em `web/drizzle/` (`npm run db:generate`). Na Vercel o `vercel-build
   O navegador manda Origin sozinho em `fetch` POST da mesma origem: a PWA `/app` não precisa fazer nada.
 - `web/src/proxy.ts` regrava o cookie (mais 30 dias) em `/conta`, `/dispositivo` e `/app/*`.
 - Trocar a senha encerra as outras sessões (site e computadores) e mantém a atual.
+- Aparelho: cookie `sd_aparelho` = `v1.<id>.<assinatura>` (id aleatório de 128 bits, HMAC com a chave derivada da
+  `SOBEDESCE_KEY`), `httpOnly`, `sameSite=lax`, 400 dias. Só identifica o navegador (`web/src/lib/auth/aparelho.ts`).
+  Entrar (senha ou Google) num aparelho que a conta não tem em `aparelhos` → grava e manda "Entrada nova". Criar a
+  conta, refazer a senha pelo link e `/api/eu` com o cookie do site gravam sem avisar. Sem chave, o login segue sem
+  o cookie e sem o aviso.
 
 ## 5. API (JSON, `Cache-Control: no-store`)
 
@@ -162,8 +170,17 @@ Downloads do desktop: Release `versao-de-teste` do GitHub
   (a home mostra "Conta apagada."). Conta sem senha (só Google, se um dia existir): vale um login
   feito há menos de 15 min.
 - **E-mails** (`web/src/lib/email/`, HTML preto e branco + texto, enviados depois da resposta com `after`):
-  senha nova, conta apagada (confirmação) e computador conectado (nome, sistema, quando, "Se não foi
-  você, desconecte em Sua conta").
+  senha nova, conta apagada (confirmação) e os avisos de segurança (`web/src/lib/email/avisos.ts`):
+  - **Entrada nova** (aparelho que a conta não usou, por senha ou Google): quando, navegador e sistema
+    resumidos do user-agent, cidade e país aproximados (`x-vercel-ip-city`/`x-vercel-ip-country`, só na Vercel),
+    como entrou e o botão "Não fui eu" → `/conta?aviso=nao-fui-eu` (passo a passo: trocar a senha encerra tudo).
+  - **Senha trocada**, **refeita pelo link** ou **criada** (conta só-Google): "Não fui eu" → `/esqueci-a-senha`.
+  - **Google de entrar trocado** ou **removido** (desligado em Sua conta ou junto com o Drive).
+  - **Computador conectado** (nome, sistema, quando e o lugar aproximado do pedido).
+  - **Muitas senhas erradas**: a conta bateu em `loginConta`; no máximo um por conta a cada 24 h
+    (`aviso-tentativas:<usuario>` em `tentativas`).
+  Nenhum aviso lança: erro de banco ou do Resend vira uma linha de log, e sem `RESEND_API_KEY` em produção nada
+  sai. Nunca levam IP, token, senha ou link com segredo.
 
 ## 9. Acompanhar pelo celular
 
