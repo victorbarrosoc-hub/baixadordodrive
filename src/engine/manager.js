@@ -19,8 +19,9 @@ import { PART_SUFFIX, toNFC, uniqueName } from '../util/paths.js'
 import { classifyError } from '../google/errors.js'
 import { DriveClient } from '../google/drive.js'
 import { httpRequest, drain } from '../net/http.js'
-import { DownloadTask } from './download.js'
+import { DownloadTask, DOWNLOAD_DEFAULTS } from './download.js'
 import { UploadTask } from './upload.js'
+import { FolderListings } from './folder-listings.js'
 import { KeepAwake } from './power.js'
 import { RawThumbnailer } from '../media/raw-thumb.js'
 import { GeradorPrevias, PREVIA_PENDENTE } from '../media/previa-fila.js'
@@ -44,6 +45,11 @@ const ACTION_WAIT_MS = 5000 // pausar/cancelar espera a tarefa parar por até is
 const SHUTDOWN_WAIT_MS = 8000 // o app precisa sair em até 10 s
 const DELETE_TIMEOUT_MS = 10_000
 const MAX_TIMER_MS = 2 ** 31 - 1
+const MiB = 1024 * 1024
+// Downloads pequenos (1 ou 2 conexões cada) andam em mais arquivos ao mesmo tempo, até o orçamento de conexões
+// (maxConcurrentDownloads × connectionsPerDownload) e no máximo isso de arquivos.
+const MAX_SMALL_DOWNLOADS = 16
+const MAX_CONNECTIONS = 32
 
 /** Cota de download do arquivo: esperas crescentes (repetir logo não adianta). */
 export const QUOTA_DELAYS = Object.freeze([15 * MINUTE, HOUR, 4 * HOUR, 24 * HOUR])
@@ -167,6 +173,7 @@ export class TransferManager extends EventEmitter {
     this.persisted = new Map() // id -> { uri, bytes } da última vez que pediu gravação
     this.drives = new Map()
     this.folderCaches = new Map()
+    this.folderListings = new Map() // conta -> FolderListings (nomes já no Drive, por pasta de destino do envio)
     this.dirty = new Set()
     this.removedQueue = []
     this.batchesDirty = false
@@ -689,11 +696,19 @@ export class TransferManager extends EventEmitter {
     return Math.max(1, Math.floor(Number(n) || 1))
   }
 
-  /** a vem antes de b na fila? (prioridade maior, depois mais antigo) */
+  /**
+   * a vem antes de b na fila? Prioridade maior ("passar na frente"), depois o lote mais antigo. Dentro do mesmo lote
+   * de envio, o MAIOR arquivo primeiro: o gigante não fica sozinho num fluxo só no fim do lote. Empate = ordem do plano.
+   */
   #before(a, b) {
     const pa = Number(a.priority) || 0
     const pb = Number(b.priority) || 0
     if (pa !== pb) return pa > pb
+    if (a.type === 'upload' && b.type === 'upload' && a.batchId && a.batchId === b.batchId) {
+      const sa = Number(a.size) || 0
+      const sb = Number(b.size) || 0
+      if (sa !== sb) return sa > sb
+    }
     return (a.createdAt || 0) < (b.createdAt || 0)
   }
 
@@ -706,36 +721,100 @@ export class TransferManager extends EventEmitter {
     return best
   }
 
+  /** Ordem de quem fica quando o limite diminui: conferindo o MD5 primeiro, depois a ordem da fila. */
+  #keepOrder(a, b) {
+    const va = a.record.status === 'verifying' ? 0 : 1
+    const vb = b.record.status === 'verifying' ? 0 : 1
+    if (va !== vb) return va - vb
+    return this.#before(a.record, b.record) ? -1 : this.#before(b.record, a.record) ? 1 : 0
+  }
+
+  /** Limite reduzido: volta para 'queued' na hora (o progresso fica gravado). */
+  #requeue(e) {
+    e.after = 'queued'
+    e.record.status = 'queued'
+    e.ac.abort()
+    this.#touch(e.record)
+  }
+
   #schedule() {
     if (!this.started || this.closing) return
-    for (const type of TYPES) {
-      const limit = this.#limit(type)
-      // Limite reduzido: os últimos da fila voltam para 'queued' na hora (o progresso fica gravado).
-      const live = [...this.entries.values()].filter(e => e.type === type && !e.after)
-      if (live.length > limit) {
-        live.sort((a, b) => {
-          const va = a.record.status === 'verifying' ? 0 : 1
-          const vb = b.record.status === 'verifying' ? 0 : 1
-          if (va !== vb) return va - vb
-          return this.#before(a.record, b.record) ? -1 : this.#before(b.record, a.record) ? 1 : 0
-        })
-        for (const e of live.slice(limit)) {
-          e.after = 'queued'
-          e.record.status = 'queued'
-          e.ac.abort()
-          this.#touch(e.record)
-        }
-      }
-      let busy = 0
-      for (const e of this.entries.values()) if (e.type === type) busy++
-      while (busy < limit) {
-        const next = this.#pickNext(type)
-        if (!next) break
-        this.#start(next)
-        busy++
-      }
-    }
+    this.#scheduleUploads()
+    this.#scheduleDownloads()
     this.#updateKeepAwake()
+  }
+
+  #scheduleUploads() {
+    const limit = this.#limit('upload')
+    const live = [...this.entries.values()].filter(e => e.type === 'upload' && !e.after)
+    if (live.length > limit) {
+      live.sort((a, b) => this.#keepOrder(a, b))
+      for (const e of live.slice(limit)) this.#requeue(e)
+    }
+    let busy = 0
+    for (const e of this.entries.values()) if (e.type === 'upload') busy++
+    while (busy < limit) {
+      const next = this.#pickNext('upload')
+      if (!next) break
+      this.#start(next)
+      busy++
+    }
+  }
+
+  /**
+   * Quantas conexões um download vai usar, pelo tamanho (mesma conta do DownloadTask: segmentos iniciais de
+   * `minSegmentSize` e roubo só acima de `stealMinBytes`). `big` = 3 ou mais segmentos: conta no limite de arquivos.
+   */
+  #downloadCost(rec, st) {
+    const conns = Math.min(MAX_CONNECTIONS, Math.max(1, Math.floor(Number(st.connectionsPerDownload) || 1)))
+    const minSeg = Math.max(1, Number(st.minSegmentSize) || 64 * MiB)
+    const size = Number(rec.size)
+    // Doc do Google (exportação) e tamanho desconhecido: como sempre, um arquivo por vaga.
+    if (rec.source?.export || rec.size == null || !Number.isFinite(size) || size < 0 || size >= 2 * minSeg) return { big: true, conns }
+    const stealMin = Math.max(256 * 1024, Number(this.taskOptions.download?.stealMinBytes) || DOWNLOAD_DEFAULTS.stealMinBytes)
+    return { big: false, conns: Math.min(conns, Math.max(1, Math.ceil(size / minSeg), Math.ceil(size / stealMin))) }
+  }
+
+  /**
+   * Download por orçamento de conexões: arquivos grandes continuam limitados a `maxConcurrentDownloads`; os pequenos
+   * (1 ou 2 conexões cada) enchem o resto do orçamento (`maxConcurrentDownloads × connectionsPerDownload`), até 16
+   * arquivos. A ordem da fila manda: se o próximo não cabe, ninguém passa na frente dele. O limite de banda é global
+   * (o mesmo limitador para todos) e as chamadas de metadados passam pelo limitador da conta.
+   */
+  #scheduleDownloads() {
+    const st = this.settings.get()
+    const maxFiles = this.#limit('download')
+    const conns = Math.min(MAX_CONNECTIONS, Math.max(1, Math.floor(Number(st.connectionsPerDownload) || 1)))
+    const budget = maxFiles * conns
+    const fileCap = Math.max(maxFiles, MAX_SMALL_DOWNLOADS)
+    const fits = (use, c) => use.files < fileCap && use.conns + c.conns <= budget && (!c.big || use.big < maxFiles)
+    const take = (use, c) => {
+      use.files++
+      use.conns += c.conns
+      if (c.big) use.big++
+    }
+
+    // Ajuste reduzido: fica quem cabe, na ordem da fila (o primeiro sempre fica).
+    const live = [...this.entries.values()].filter(e => e.type === 'download' && !e.after)
+    live.sort((a, b) => this.#keepOrder(a, b))
+    const kept = { files: 0, conns: 0, big: 0 }
+    for (const e of live) {
+      const c = this.#downloadCost(e.record, st)
+      if (kept.files === 0 || fits(kept, c)) take(kept, c)
+      else this.#requeue(e)
+    }
+
+    // Vagas: conta também quem ainda está parando (a vaga só abre quando a tarefa solta o arquivo).
+    const used = { files: 0, conns: 0, big: 0 }
+    for (const e of this.entries.values()) if (e.type === 'download') take(used, this.#downloadCost(e.record, st))
+    for (;;) {
+      const next = this.#pickNext('download')
+      if (!next) break
+      const c = this.#downloadCost(next, st)
+      if (used.files > 0 && !fits(used, c)) break
+      this.#start(next)
+      take(used, c)
+    }
   }
 
   #start(rec) {
@@ -778,6 +857,9 @@ export class TransferManager extends EventEmitter {
       let cache = this.folderCaches.get(rec.accountId)
       if (!cache) this.folderCaches.set(rec.accountId, (cache = new Map()))
       ctx.folderCache = cache
+      let listings = this.folderListings.get(rec.accountId)
+      if (!listings) this.folderListings.set(rec.accountId, (listings = new FolderListings()))
+      ctx.folderListings = listings
       if (this.taskOptions.upload?.retryBaseMs != null) ctx.retryBaseMs = this.taskOptions.upload.retryBaseMs
     }
     return ctx
@@ -970,6 +1052,7 @@ export class TransferManager extends EventEmitter {
       if (!known.has(id)) {
         this.drives.delete(id)
         this.folderCaches.delete(id)
+        this.folderListings.delete(id)
       }
     }
     // Conta removida do app: o que é dela para já (e volta sozinho se a mesma conta for conectada de novo).

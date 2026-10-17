@@ -6,7 +6,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { setupDrive, md5File, waitFor } from './helpers.js'
-import { DownloadTask, loadSegments, formatBytes } from '../src/engine/download.js'
+import { DownloadTask, loadSegments, formatBytes, FRESH_PLAN_MS } from '../src/engine/download.js'
+import { planDownloads } from '../src/engine/planner.js'
 import { Settings } from '../src/config.js'
 import { BandwidthLimiter } from '../src/util/limiter.js'
 import { Hasher } from '../src/engine/hasher.js'
@@ -784,4 +785,143 @@ test('tempestade de pausas: pausa e retoma várias vezes seguidas, sempre com ta
   assert.ok(pauses >= 3, `pausas: ${pauses}`)
   await assertDone(e, rec, file.id)
   assert.equal(rec.verify.state, 'ok')
+})
+
+// ─────────── plano recém-feito: sem files.get antes de baixar ───────────
+
+const gets = e => e.mock.stats().requests['files.get'] || 0
+
+/** Plano de verdade (planner) de uma pasta do Drive, como o app faz ao clicar em "Baixar". */
+async function planFolder(e, folderId) {
+  const plan = await planDownloads({ drive: e.drive, accountId: e.accountId, items: [{ id: folderId }], destDir: e.destDir })
+  return plan.records
+}
+
+test('plano recém-feito: baixa sem files.get (uso único); retomada depois da pausa revalida', async t => {
+  const e = await env(t, { settings: { connectionsPerDownload: 2, minSegmentSize: 4 * MiB } })
+  const folder = e.mock.addFolder('Fotos')
+  const files = [0, 1, 2].map(i => e.mock.addFile(`IMG_${i}.CR3`, folder.id, { size: 2 * MiB + i, seed: 500 + i }))
+  const big = e.mock.addFile('A001.mov', folder.id, { size: 24 * MiB, seed: 510 })
+  const recs = await planFolder(e, folder.id)
+  assert.equal(recs.length, 4)
+  for (const r of recs) assert.ok(r.source.checkedAt > 0 && r.source.md5 && r.source.headRevisionId, 'plano marca os metadados lidos agora')
+
+  e.mock.resetStats()
+  for (const rec of recs.filter(r => r.name !== 'A001.mov')) {
+    const job = makeTask(e, rec)
+    await job.task.run()
+    assert.equal(job.task.counters.revalidateSkipped, 1)
+    assert.equal(rec.source.checkedAt, undefined, 'a marca é de uso único (sai do registro)')
+    assert.equal(job.snapshots.at(-1).source.checkedAt, undefined, 'e sai também do que vai para o disco')
+    assert.equal(rec.verify.state, 'ok')
+    await assertDone(e, rec, files.find(f => f.name === rec.name).id)
+  }
+  assert.equal(gets(e), 0, 'nenhum files.get: só o GET de mídia')
+  assert.equal(e.mock.stats().requests['files.media'], 3)
+
+  // Pausa no meio: a retomada (tarefa nova a partir do JSON gravado) pergunta ao Drive de novo.
+  e.mock.setOptions({ perConnectionBps: 4 * MiB })
+  const recBig = recs.find(r => r.name === 'A001.mov')
+  const job = makeTask(e, recBig)
+  await runAndPause(job, 0.3)
+  await waitMediaIdle(e)
+  assert.equal(gets(e), 0)
+  const saved = JSON.parse(JSON.stringify(job.snapshots.at(-1)))
+  assert.equal(saved.source.checkedAt, undefined)
+  e.mock.setOptions({ perConnectionBps: 0 })
+  const job2 = makeTask(e, saved)
+  await job2.task.run()
+  assert.equal(job2.task.counters.revalidateSkipped, 0)
+  assert.equal(gets(e), 1, 'retomada revalida')
+  await assertDone(e, saved, big.id)
+})
+
+test('plano recém-feito e o arquivo mudou no Drive antes do download: o motor percebe (tamanho e MD5)', async t => {
+  const e = await env(t, { settings: { connectionsPerDownload: 3, minSegmentSize: 2 * MiB } })
+  const folder = e.mock.addFolder('Entregas')
+  const sizeA = e.mock.addFile('corte-tamanho.mov', folder.id, { size: 8 * MiB, seed: 520 })
+  const sameSize = e.mock.addFile('corte-mesmo-tamanho.mov', folder.id, { size: 6 * MiB, seed: 521 })
+  const recs = await planFolder(e, folder.id)
+  const recA = recs.find(r => r.name === 'corte-tamanho.mov')
+  const recB = recs.find(r => r.name === 'corte-mesmo-tamanho.mov')
+
+  // Tamanho diferente: o Content-Range (total) denuncia; a mesma execução revalida e baixa a versão nova.
+  e.mock.updateContent(sizeA.id, { size: 5 * MiB, seed: 530 })
+  const jobA = makeTask(e, recA)
+  const resetsA = []
+  jobA.task.on('reset', r => resetsA.push(r.reason))
+  await jobA.task.run()
+  assert.deepEqual(resetsA, ['remoteChanged'])
+  assert.equal(recA.size, 5 * MiB)
+  assert.equal(recA.source.md5, await e.mock.contentMd5(sizeA.id))
+  assert.equal(recA.verify.state, 'ok')
+  await assertDone(e, recA, sizeA.id)
+
+  // Mesmo tamanho, conteúdo novo: só o MD5 do fim denuncia. Vira "arquivo mudou" (a fila tenta de novo sozinha),
+  // não "veio diferente"; a tentativa seguinte revalida e baixa a versão nova.
+  e.mock.updateContent(sameSize.id, { size: 6 * MiB, seed: 531 })
+  const jobB = makeTask(e, recB)
+  const resetsB = []
+  jobB.task.on('reset', r => resetsB.push(r.reason))
+  e.mock.resetStats()
+  await assert.rejects(jobB.task.run(), err => {
+    assert.equal(err.name, 'SobeDesceError')
+    assert.equal(err.kind, 'retry')
+    assert.equal(err.reason, 'remoteChanged')
+    return true
+  })
+  assert.deepEqual(resetsB, ['remoteChanged'])
+  assert.equal(gets(e), 1, 'um files.get só depois do MD5 diferente')
+  assert.equal(recB.verify, null, 'não fica marcado como "chegou diferente"')
+  assert.equal(recB.bytesDone, 0)
+  await assert.rejects(fs.access(recB.dest.tempPath), 'temporário apagado')
+  const jobB2 = makeTask(e, recB)
+  await jobB2.task.run()
+  assert.equal(jobB2.task.counters.revalidateSkipped, 0)
+  assert.equal(recB.source.md5, await e.mock.contentMd5(sameSize.id))
+  assert.equal(recB.verify.state, 'ok')
+  await assertDone(e, recB, sameSize.id)
+
+  // MD5 errado de verdade (o Drive não mudou): continua "veio diferente" (fatal), como sempre.
+  const lie = '0123456789abcdef0123456789abcdef'
+  e.mock.addFile('mentira.bin', folder.id, { size: 3 * MiB, seed: 532, md5: lie })
+  const recLie = (await planFolder(e, folder.id)).find(r => r.name === 'mentira.bin')
+  assert.ok(recLie.source.checkedAt)
+  await assert.rejects(makeTask(e, recLie).task.run(), err => err.kind === 'fatal' && err.reason === 'checksumMismatch')
+  assert.equal(recLie.verify.state, 'mismatch')
+})
+
+test('sem plano recém-feito revalida como sempre: plano velho, sem revisão, item vindo da tela ou com progresso', async t => {
+  const e = await env(t)
+  const folder = e.mock.addFolder('Pasta')
+  const f = e.mock.addFile('som.wav', folder.id, { size: 1 * MiB, seed: 540 })
+  const fresh = async () => (await planFolder(e, folder.id))[0]
+  const cases = {
+    velho: r => (r.source.checkedAt = Date.now() - FRESH_PLAN_MS - 1000),
+    futuro: r => (r.source.checkedAt = Date.now() + 60_000),
+    semRevisao: r => (r.source.headRevisionId = null),
+    semMd5: r => (r.source.md5 = null),
+    comProgresso: r => (r.segments = [{ start: 0, end: r.size - 1, pos: 1 }]),
+    conferenciaPendente: r => (r.verify = { state: 'pending', expected: r.source.md5, actual: null }),
+  }
+  for (const [name, mutate] of Object.entries(cases)) {
+    await fs.rm(e.destDir, { recursive: true, force: true })
+    const rec = await fresh()
+    mutate(rec)
+    e.mock.resetStats()
+    const job = makeTask(e, rec)
+    await job.task.run()
+    assert.equal(job.task.counters.revalidateSkipped, 0, name)
+    assert.equal(gets(e), 1, `${name}: revalidou`)
+    assert.equal(rec.source.checkedAt, undefined, name)
+    await assertDone(e, rec, f.id)
+  }
+
+  // Item escolhido na tela (metadados da listagem que a tela tinha): o plano não marca nada.
+  const fromScreen = (await e.drive.listChildren(folder.id))[0]
+  const plan = await planDownloads({ drive: e.drive, accountId: e.accountId, items: [fromScreen], destDir: path.join(e.destDir, 'tela') })
+  assert.equal(plan.records[0].source.checkedAt, undefined)
+  // Escolhido só pelo id: o plano busca agora, então marca.
+  const byId = await planDownloads({ drive: e.drive, accountId: e.accountId, items: [{ id: f.id }], destDir: path.join(e.destDir, 'id') })
+  assert.ok(byId.records[0].source.checkedAt > 0)
 })

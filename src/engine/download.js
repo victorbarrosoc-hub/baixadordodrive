@@ -23,6 +23,9 @@ const MAX_CONNECTIONS = 32
 const EMPTY_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
 const MAX_REMOTE_RESTARTS = 3
 const MIN_STEAL = 256 * 1024
+// Plano recém-feito (metadados lidos do Drive há menos disso, com md5 e revisão): a primeira rodada não pergunta de
+// novo ao Drive. Se o arquivo mudou nesse meio-tempo, o Content-Range (tamanho) ou o MD5 do fim denunciam.
+export const FRESH_PLAN_MS = 30 * 60_000
 
 /** Ajustes finos (os testes encurtam alguns). Os valores padrão são os do contrato. */
 export const DOWNLOAD_DEFAULTS = Object.freeze({
@@ -243,7 +246,7 @@ export class DownloadTask extends EventEmitter {
     this.log = typeof ctx?.log === 'function' ? ctx.log : noop
     this.meter = new SpeedMeter()
     /** Contadores para diagnóstico (e testes). */
-    this.counters = { requests: 0, failures: 0, steals: 0, stalls: 0, slowRestarts: 0, authRefreshes: 0, rangeMismatches: 0, resets: 0, singleStream: 0 }
+    this.counters = { requests: 0, failures: 0, steals: 0, stalls: 0, slowRestarts: 0, authRefreshes: 0, rangeMismatches: 0, resets: 0, singleStream: 0, revalidateSkipped: 0 }
     this.running = false
     this.segs = null // segmentos vivos durante a execução
     this.conns = new Set() // requisições em andamento (o vigia confere cada uma)
@@ -261,6 +264,7 @@ export class DownloadTask extends EventEmitter {
     this.lastCheckpoint = 0
     this.exportBytes = 0
     this.verifyBytes = 0
+    this.trustedPlan = false // esta execução baixou sem revalidar (plano recém-feito)
   }
 
   // ─────────── para a interface ───────────
@@ -345,7 +349,12 @@ export class DownloadTask extends EventEmitter {
   async #runSegmented(signal) {
     const rec = this.record
     this.#resetRunState()
-    await this.#revalidate(signal)
+    if (this.#freshPlan()) {
+      this.trustedPlan = true
+      this.counters.revalidateSkipped++
+    } else {
+      await this.#revalidate(signal)
+    }
     if (signal?.aborted) throw abortError(signal)
     if (rec.size === 0) return 'empty'
     const size = rec.size
@@ -938,6 +947,50 @@ export class DownloadTask extends EventEmitter {
 
   // ─────────── antes de baixar ───────────
 
+  /**
+   * Dá para começar sem o files.get? Só na PRIMEIRA execução de um plano recém-feito: `source.checkedAt` é de uso
+   * único (sai do registro aqui), então retomada, nova tentativa, troca de tamanho e MD5 diferente revalidam como sempre.
+   */
+  #freshPlan() {
+    const rec = this.record
+    const src = rec.source
+    const at = Number(src.checkedAt)
+    if (src.checkedAt !== undefined) {
+      delete src.checkedAt
+      this.#persist()
+    }
+    if (!(at > 0) || this.forceReset) return false
+    const age = Date.now() - at
+    if (!(age >= 0 && age < FRESH_PLAN_MS)) return false
+    if (!src.md5 || !src.headRevisionId || !(rec.size > 0)) return false
+    // Progresso de uma rodada anterior: a retomada sempre confere se o arquivo continua o mesmo.
+    if (Array.isArray(rec.segments) && rec.segments.some(s => Number(s?.pos) > Number(s?.start))) return false
+    if (rec.verify) return false
+    return true
+  }
+
+  /**
+   * MD5 não conferiu numa execução que não revalidou: o arquivo pode ter mudado no Drive depois do plano (mesmo
+   * tamanho). Pergunta agora; se mudou, é "arquivo mudou" (volta para a fila e baixa a versão nova), não defeito.
+   */
+  async #changedSincePlan(signal, expected) {
+    if (!this.trustedPlan) return false
+    const rec = this.record
+    const src = rec.source
+    try {
+      const item = await this.ctx.drive.getItem(src.fileId, { signal, resourceKey: src.resourceKey || undefined })
+      return (
+        (item.size != null && item.size !== rec.size) ||
+        (!!item.md5 && String(item.md5).toLowerCase() !== expected) ||
+        (!!src.headRevisionId && !!item.headRevisionId && item.headRevisionId !== src.headRevisionId)
+      )
+    } catch (err) {
+      if (isAbortError(err)) throw err
+      this.log('download: não consegui conferir se o arquivo mudou no Drive', err?.message)
+      return false
+    }
+  }
+
   /** Confere o arquivo no Drive: se mudou (tamanho, md5 ou revisão), joga fora o que já foi baixado. */
   async #revalidate(signal) {
     const rec = this.record
@@ -1082,8 +1135,14 @@ export class DownloadTask extends EventEmitter {
         await fs.rm(rec.dest.tempPath, { force: true }).catch(noop)
         rec.segments = []
         rec.bytesDone = 0
-        rec.verify = { state: 'mismatch', expected, actual }
+        rec.verify = null
         rec.updatedAt = Date.now()
+        if (await this.#changedSincePlan(signal, expected)) {
+          this.#persist()
+          this.#noteReset('remoteChanged')
+          throw new SobeDesceError('retry', 'O arquivo mudou no Drive durante o download. Vou tentar de novo.', { reason: 'remoteChanged' })
+        }
+        rec.verify = { state: 'mismatch', expected, actual }
         this.#persist()
         throw new SobeDesceError('fatal', 'O arquivo baixado veio diferente do original (MD5 não confere). Tente de novo.', { reason: 'checksumMismatch' })
       }

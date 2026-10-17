@@ -203,7 +203,7 @@ async authHeader(): { authorization: 'Bearer …' }
 async about(): { user: { email, name, photoUrl, permissionId }, quota: { limit|null, usage, usageInDrive } }
 async listSharedDrives(): Array<{ id, name }>
 async getItem(fileId, { signal, resourceKey, media = false }): DriveItem   // media: também BROWSE_FIELDS (prévia)
-async listChildren(folderId, { signal, media = false }): DriveItem[]  // pagina tudo (pageSize 1000), trashed=false, ordena pastas primeiro + nome
+async listChildren(folderId, { signal, media = false, driveId, limit }): DriveItem[]  // pagina tudo (pageSize 1000), trashed=false, ordena pastas primeiro + nome; para em `limit`
 async getPath(folderId): Array<{ id, name }>                     // breadcrumb da raiz até a pasta (cache)
 async walk(folderId, { signal, onProgress, concurrency = 8 }): { root: DriveItem, items: DriveItem[] }
     // varre a árvore inteira; cada item ganha relPath relativo à pasta (sem o nome da raiz) e relDir.
@@ -211,8 +211,9 @@ async walk(folderId, { signal, onProgress, concurrency = 8 }): { root: DriveItem
     // atalhos para pasta NÃO são seguidos (evita ciclos). onProgress({ folders, files, bytes }).
 async findChild(parentId, name, { folder = null, signal } = {}): DriveItem|null   // escapa ' e \ na query
 async createFolder(name, parentId, { signal }): DriveItem
-async ensureFolderPath(rootId, relDir, { signal, cache }): string
+async ensureFolderPath(rootId, relDir, { signal, cache, onCreated }): string
     // cria/acha cada nível de relDir dentro de rootId e devolve o id da última pasta.
+    // onCreated(folderId): avisado quando um nível foi criado agora (pasta nova = vazia).
     // `cache` (Map) guarda promessas por `${rootId}/${prefixo}` para criação concorrente não duplicar pastas.
 async search(text, { signal, media = false }): DriveItem[]        // name contains, até 200 resultados
 async folderSize(folderId, { signal, onProgress, concurrency = 4 }): { bytes, files, folders, docs, shortcuts, pending: 0, root }
@@ -298,6 +299,7 @@ TaskContext = {
   limiter: BandwidthLimiter,       // da direção (down/up), global
   hasher: Hasher,
   folderCache: Map,                // (upload) para ensureFolderPath
+  folderListings?: FolderListings, // (upload) nomes já no Drive por pasta de destino (engine/folder-listings.js)
   persist(): void,                 // pede gravação (debounced) — chamar após mudar o registro
   onBytes(n): void,                // bytes que trafegaram agora (alimenta velocidade global e do item)
   log(...args): void,
@@ -318,7 +320,10 @@ Algoritmo:
 0. `size === 0`: cria o arquivo vazio sem nenhuma requisição (Range em arquivo vazio falha).
 1. Google Doc nativo (`source.export`): uma conexão, sem Range, escreve no tempPath e renomeia.
 2. Revalida metadados (`getItem`): se `md5`/`size`/`headRevisionId` mudou desde a criação do registro,
-   zera segmentos e recomeça (senão juntaria pedaços de duas versões). Confere espaço livre (`fs.statfs`) >= bytes restantes, senão fatal ENOSPC.
+   zera segmentos e recomeça (senão juntaria pedaços de duas versões). Exceção: a PRIMEIRA execução de um plano
+   recém-feito (`source.checkedAt` < 30 min, com `md5` e `headRevisionId`, sem progresso) pula o `getItem`; a marca
+   é de uso único. Se o arquivo mudou depois do plano, o `Content-Range` (tamanho) ou o MD5 do fim denunciam (neste
+   caso o MD5 diferente vira `retry`/`remoteChanged`, não `checksumMismatch`). Confere espaço livre (`fs.statfs`) >= bytes restantes, senão fatal ENOSPC.
 3. Abre `tempPath` (`r+` se existe e segmentos têm progresso, senão cria e `truncate(size)` → arquivo esparso).
    Se o arquivo temporário sumiu ou é menor que `size`, recomeça do zero.
 4. Segmentos iniciais: `n = clamp(ceil(size / minSegmentSize), 1, connectionsPerDownload)` partes iguais.
@@ -361,6 +366,10 @@ Algoritmo:
    mesmo tamanho → conforme `uploadConflict`: 'skip' (se md5 local = md5 remoto, ou sem md5 remoto e
    mesmo tamanho) → `record.status='skipped'`, `note='Já estava no Drive'`, resolve; 'replace' →
    `replaceFileId = existente.id`; 'rename' → sobe com nome `uniqueName`.
+   Com `ctx.folderListings` (o manager sempre passa, um por conta): antes do `findChild`, uma consulta local à
+   listagem da pasta (uma `listChildren` por pasta, válida 10 min; pasta criada pelo app nasce vazia, sem listar;
+   arquivo criado pelo app entra na hora). "Não tem esse nome" dispensa o `findChild`; "tem" ou "pasta grande demais
+   (> 5.000 itens)" faz o `findChild` de sempre, então a decisão de conflito usa dados novos.
 4. Sessão: se não há (ou tem > 6 dias — a URI expira em 1 semana): POST `uploadInitUrl()` (ou PATCH `uploadUpdateUrl(replaceFileId)`)
    com `{ name, parents:[parentId] (só no create), modifiedTime: ISO(mtime) }`,
    headers `X-Upload-Content-Type` (pelo nome; padrão application/octet-stream) e
@@ -434,7 +443,11 @@ download que voltou para trás pedem gravação "logo" (`#saveUrgent`: em 50 ms�
 Livro-razão de uso: a cada byte confirmado, soma no balde da hora atual por conta/direção
 (`usage.json`, guarda 25 h) → `stats.usage` mostra "612 de 750 GB nas últimas 24 h".
 Agendamento: respeita `maxConcurrentDownloads` / `maxConcurrentUploads` (lidos ao vivo), ordem da fila
-(prioridade, depois createdAt). Ao concluir/falhar, agenda o próximo. Erros: 'retry' (estourou as tentativas da tarefa:
+(prioridade, depois createdAt; dentro do mesmo lote de envio, o maior arquivo primeiro). Download por orçamento de
+conexões: arquivo grande (≥ 2 × `minSegmentSize`, ou Doc exportado) conta no limite de `maxConcurrentDownloads`;
+arquivo pequeno conta as conexões que vai usar, e entram arquivos até `maxConcurrentDownloads × connectionsPerDownload`
+conexões e no máximo 16 arquivos. Se o próximo da fila não cabe, ninguém passa na frente dele.
+Ao concluir/falhar, agenda o próximo. Erros: 'retry' (estourou as tentativas da tarefa:
 internet/Google fora do ar) → 'waiting' com `retryAt` crescente (1, 2, 5, 10, 15 min…; recomeça se houve avanço) e
 volta sozinho; depois de 16 esperas seguidas sem avanço → 'failed'; 'quota' → 'waiting' com `retryAt` e reagenda sozinho; 'reauth' → 'paused' com erro
 "Conecte a conta de novo"; 'fatal'/'notfound' → 'failed'. `cancel` de download apaga o `tempPath`;
