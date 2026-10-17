@@ -46,6 +46,8 @@ const SHUTDOWN_WAIT_MS = 8000 // o app precisa sair em até 10 s
 const DELETE_TIMEOUT_MS = 10_000
 const MAX_TIMER_MS = 2 ** 31 - 1
 const MiB = 1024 * 1024
+const DAILY_UPLOAD_BYTES = 750 * 1e9 // limite de envio do Google por conta, em 24 h
+const FEED_WAKE_MS = 100 // celular mandou mais para um envio em fluxo parado: reagenda no máximo 10×/s
 // Downloads pequenos (1 ou 2 conexões cada) andam em mais arquivos ao mesmo tempo, até o orçamento de conexões
 // (maxConcurrentDownloads × connectionsPerDownload) e no máximo isso de arquivos.
 const MAX_SMALL_DOWNLOADS = 16
@@ -174,6 +176,8 @@ export class TransferManager extends EventEmitter {
     this.drives = new Map()
     this.folderCaches = new Map()
     this.folderListings = new Map() // conta -> FolderListings (nomes já no Drive, por pasta de destino do envio)
+    this.feeds = new Map() // id -> arquivo ainda chegando do celular (envio em fluxo, src/mobile/receiver.js)
+    this.feedWake = null
     this.dirty = new Set()
     this.removedQueue = []
     this.batchesDirty = false
@@ -296,6 +300,7 @@ export class TransferManager extends EventEmitter {
   shutdown() {
     this.shutdownP ??= (async () => {
       this.closing = true
+      clearTimeout(this.feedWake)
       for (const t of this.timers) clearInterval(t)
       this.timers = []
       for (const t of this.waitTimers.values()) clearTimeout(t)
@@ -346,6 +351,60 @@ export class TransferManager extends EventEmitter {
       this.drives.set(accountId, d)
     }
     return d
+  }
+
+  // ─────────── recepção do celular em fluxo ───────────
+
+  /**
+   * Um envio desta conta começaria agora? Vaga de envio livre, ninguém da fila na frente e a conta fora do limite
+   * diário (nenhum envio dela esperando a cota e o uso de 24 h + `size` dentro dos 750 GB). É o que a recepção do
+   * celular pergunta antes de subir enquanto o arquivo chega; com "não", recebe tudo e só depois enfileira.
+   */
+  canStartUpload(accountId, size = 0) {
+    if (!this.started || this.closing) return false
+    let busy = 0
+    for (const e of this.entries.values()) if (e.type === 'upload') busy++
+    if (busy >= this.#limit('upload') || this.#pickNext('upload')) return false
+    for (const r of this.records.values()) {
+      if (r.type === 'upload' && r.accountId === accountId && r.status === 'waiting' && r.error?.reason === 'uploadLimitExceeded') return false
+    }
+    const used = this.#usageSummary(Date.now())[accountId]?.up24h || 0
+    return used + (Number(size) || 0) <= DAILY_UPLOAD_BYTES
+  }
+
+  /**
+   * Liga ao envio `id` (record.local.growing) o arquivo que ainda está chegando. Sem feed, o envio não começa; com
+   * feed, só começa quando há algo novo para mandar (ou o arquivo terminou de chegar).
+   */
+  attachFeed(id, feed) {
+    this.feeds.set(id, feed)
+    feed.onAdvance = () => this.#feedAdvanced(id)
+    this.#schedule()
+  }
+
+  detachFeed(id) {
+    const feed = this.feeds.get(id)
+    if (feed && feed.onAdvance) feed.onAdvance = null
+    this.feeds.delete(id)
+  }
+
+  #feedAdvanced(id) {
+    const rec = this.records.get(id)
+    if (!rec) return
+    this.dirty.add(id) // o "chegando do celular" da linha
+    if (rec.status !== 'queued' || this.entries.has(id) || this.feedWake) return
+    this.feedWake = setTimeout(() => {
+      this.feedWake = null
+      this.#schedule()
+    }, FEED_WAKE_MS)
+    this.feedWake.unref?.()
+  }
+
+  /** Envio em fluxo parado (celular sem mandar nada novo depois do ponto confirmado) espera fora da vaga. */
+  #feedBlocked(r) {
+    if (!r.local?.growing) return false
+    const feed = this.feeds.get(r.id)
+    return !feed || !feed.startable(r.session?.offset ?? 0)
   }
 
   /** Destinos já reservados por downloads da fila (para o planejador não repetir). */
@@ -726,6 +785,7 @@ export class TransferManager extends EventEmitter {
     let best = null
     for (const r of this.records.values()) {
       if (r.type !== type || r.status !== 'queued' || this.entries.has(r.id) || this.busy.has(r.id)) continue
+      if (type === 'upload' && this.#feedBlocked(r)) continue
       if (!best || this.#before(r, best)) best = r
     }
     return best
@@ -839,7 +899,8 @@ export class TransferManager extends EventEmitter {
     rec.retryAt = null
     this.#touch(rec)
     this.#saveSoon()
-    if (rec.type === 'upload') this.#thumb('prepare', rec)
+    // Ainda chegando do celular: o frame sai do arquivo final, quando o envio terminar.
+    if (rec.type === 'upload' && !rec.local?.growing) this.#thumb('prepare', rec)
     entry.promise = (async () => {
       let failure = null
       try {
@@ -864,6 +925,7 @@ export class TransferManager extends EventEmitter {
       log: this.log,
     }
     if (rec.type === 'upload') {
+      ctx.feed = this.feeds.get(rec.id) || null
       let cache = this.folderCaches.get(rec.accountId)
       if (!cache) this.folderCaches.set(rec.accountId, (cache = new Map()))
       ctx.folderCache = cache
@@ -931,6 +993,13 @@ export class TransferManager extends EventEmitter {
 
   #fail(rec, err) {
     const { info, error } = errorInfo(err)
+    if (info.reason === 'waitingPhone') {
+      // Celular parado no meio do arquivo: solta a vaga; volta sozinho quando chegar mais (#feedBlocked).
+      rec.status = 'queued'
+      rec.error = null
+      rec.retryAt = null
+      return
+    }
     if (info.kind === 'quota') return this.#wait(rec, info, error)
     if (info.kind === 'reauth') {
       rec.status = 'paused'
@@ -1252,6 +1321,7 @@ export class TransferManager extends EventEmitter {
   }
 
   #forget(id) {
+    this.detachFeed(id)
     if (!this.records.delete(id)) return
     this.persisted.delete(id)
     this.dirty.delete(id)
@@ -1395,6 +1465,11 @@ export class TransferManager extends EventEmitter {
     out.bytesDone = rec.size != null ? Math.min(rec.size, bytesDone) : bytesDone
     out.speed = speed
     out.eta = speed > 0 && rec.size != null ? eta(rec.size - out.bytesDone, speed) : null
+    // Chegando do celular e subindo ao mesmo tempo: quanto já chegou (a linha mostra os dois progressos).
+    if (rec.type === 'upload' && rec.local?.growing) {
+      const feed = this.feeds.get(rec.id)
+      if (feed && !feed.complete) out.receive = { bytes: Math.max(0, Math.min(rec.size ?? feed.size, Number(feed.ready) || 0)), size: feed.size }
+    }
     if (rec.type === 'download') {
       let segs = null
       if (live && typeof live.liveSegments === 'function') {
