@@ -8,6 +8,9 @@ import { Icon } from './icons.js'
 import { Button, cx } from './ui.js'
 import { Preview } from './preview.js'
 import { KindGlyph, Thumb } from './thumb.js'
+import { FileName } from './queue.js'
+import { MY_DRIVE, getState, pushRecent, setState, setTab, toast } from '../lib/state.js'
+import { engine } from '../lib/uploader.js'
 
 // Listas já abertas (voltar para uma pasta não pisca). Vale enquanto a página está aberta.
 const lists = new Map()
@@ -102,7 +105,7 @@ function Tile({ f, siblings, onOpen }) {
         ${dur ? html`<span class="tile-badge">${duration(dur)}</span>` : null}
         ${kind === 'video' && !dur && f.thumbnailLink ? html`<span class="tile-badge is-icon"><${Icon} name="play" size=${10} /></span>` : null}
       </span>
-      <span class="tile-name">${f.name}</span>
+      ${kind === 'folder' ? html`<span class="tile-name">${f.name}</span>` : html`<${FileName} name=${f.name} class="tile-name is-file" />`}
       <span class="tile-meta">${kind === 'folder' ? (f.isDrive ? 'Drive' : folderMeta(f, 'Pasta')) : f.size != null ? bytes(Number(f.size)) : shortDate(f.modifiedTime)}</span>
     </button>
   </li>`
@@ -118,7 +121,7 @@ function Row({ f, siblings, onOpen, driveId }) {
     <button type="button" class="lrow" onClick=${() => onOpen(f)}>
       <span class="lrow-media"><${Thumb} file=${f} from=${thumbSource(f, kind, siblings)} px=${48} kind=${kind} small /></span>
       <span class="lrow-text">
-        <span class="lrow-name">${f.name}</span>
+        <${FileName} name=${f.name} class="lrow-name" />
         <span class="lrow-meta">${metaOf(f, kind)}${dur ? html` · <span class="tc">${duration(dur)}</span>` : null}</span>
       </span>
       ${kind === 'folder' ? html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="lrow-chev" />` : null}
@@ -129,6 +132,51 @@ function Row({ f, siblings, onOpen, driveId }) {
         </button>`
       : null}
   </li>`
+}
+
+/**
+ * Destino de envio para a pasta aberta na aba Drive, no mesmo formato do seletor de destino (lib/state.js MY_DRIVE):
+ * caminho a partir da raiz do drive. Em "Comigo" o caminho começa na pasta compartilhada.
+ */
+function destOf(scope, path) {
+  const folder = path[path.length - 1]
+  if (!folder) return null
+  const trail = path.map((p) => ({ id: p.id, name: p.name }))
+  return {
+    id: folder.id,
+    name: folder.name,
+    driveId: scope === 'drives' ? path[0].id : folder.driveId || null,
+    path: scope === 'mine' ? [...MY_DRIVE.path, ...trail] : trail,
+  }
+}
+
+/**
+ * "Enviar aqui": a pasta aberta vira o destino e o seletor de arquivos abre na hora (o toque no rótulo é o gesto que
+ * o iPhone exige). Escolhidos os arquivos, a fila começa e o app vai para a aba Enviar, onde se vê o andamento.
+ */
+function SendHere({ scope, path }) {
+  const dest = destOf(scope, path)
+  if (!dest) return null
+  const id = 'drive-send-input'
+  const onChange = (e) => {
+    const files = [...(e.currentTarget.files || [])]
+    e.currentTarget.value = ''
+    if (!files.length) return
+    const account = getState().user?.emailAddress
+    setState({ dest })
+    pushRecent(dest, account)
+    const r = engine.addFiles(files, dest)
+    setTab('send')
+    const n = r.added + r.resumed
+    if (n) toast(n === 1 ? `Enviando para ${dest.name}` : `${n} arquivos indo para ${dest.name}`, { tone: 'success' })
+    if (r.dupes) toast(r.dupes === 1 ? 'Esse arquivo já está na fila' : `${r.dupes} arquivos já estavam na fila`)
+  }
+  return html`<span class="dhere">
+    <input id=${id} class="offscreen" type="file" multiple onChange=${onChange} />
+    <label for=${id} class="btn btn-sm dhere-btn" aria-label=${`Enviar arquivos para ${dest.name}`}>
+      <${Icon} name="upload" size=${16} strokeWidth=${2} /><span>Enviar aqui</span>
+    </label>
+  </span>`
 }
 
 function SkeletonGrid({ view }) {
@@ -338,7 +386,8 @@ export function DriveScreen({ active }) {
     if (isFolder(f)) {
       const t = target(f)
       const base = search ? [] : nav.path
-      const entry = { id: t.id, name: f.name, driveId: f.driveId || null }
+      // canAdd: o Google diz se dá para pôr arquivos ali (sem isso, "Enviar aqui" não aparece).
+      const entry = { id: t.id, name: f.name, driveId: f.driveId || null, canAdd: Boolean(t.shortcut) || f.capabilities?.canAddChildren !== false }
       // Dentro de um resultado de busca: a pasta vira o novo começo da trilha.
       go(nav.scope, f.isDrive ? [entry] : [...base, entry])
       return
@@ -349,7 +398,9 @@ export function DriveScreen({ active }) {
 
   const scopeLabel = SCOPES.find((s) => s.id === nav.scope)?.aria
   const title = search ? 'Busca' : folder ? folder.name : scopeLabel
-  const placeholder = nav.scope === 'drives' && nav.path[0] ? `Buscar em ${nav.path[0].name}` : `Buscar em ${scopeLabel}`
+  // A busca não fica na pasta aberta: em Meu Drive procura em tudo o que a conta vê; num Drive compartilhado, nele todo.
+  const placeholder =
+    nav.scope === 'mine' ? 'Buscar no Drive todo' : nav.scope === 'drives' && nav.path[0] ? `Buscar em todo o “${nav.path[0].name}”` : `Buscar em ${scopeLabel}`
   const files = list.files || []
   const empty = !list.loading && !list.error && list.files && !files.length
 
@@ -442,7 +493,12 @@ export function DriveScreen({ active }) {
     </div>
 
     <main class="drive-body" aria-busy=${list.loading ? 'true' : 'false'}>
-      ${folder && !search ? html`<${FolderSize} folder=${folder} driveId=${driveId} active=${active} />` : null}
+      ${folder && !search
+        ? html`<div class="dfolder">
+            <${FolderSize} folder=${folder} driveId=${driveId} active=${active} />
+            ${folder.canAdd !== false ? html`<${SendHere} scope=${nav.scope} path=${nav.path} />` : null}
+          </div>`
+        : null}
       ${search ? html`<p class="drive-note">${list.loading ? 'Buscando…' : `${files.length}${list.next ? '+' : ''} ${files.length === 1 ? 'resultado' : 'resultados'} para “${search}”`}</p>` : null}
       ${list.loading && !list.files ? html`<${SkeletonGrid} view=${prefs.view} />` : null}
       ${list.error && !list.files

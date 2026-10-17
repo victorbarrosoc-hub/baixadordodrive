@@ -132,6 +132,6 @@ if (DEV || LAN) {
   window.__sobedesce = {
     getState,
     items: () =>
-      engine.items.map(({ id, name, size, status, offset, error, fileId, note, drive }) => ({ id, name, size, status, offset, error, fileId, note, drive })),
+      engine.items.map(({ id, name, size, status, offset, error, fileId, note, drive, chunk, sizeOk }) => ({ id, name, size, status, offset, error, fileId, note, drive, chunk, sizeOk })),
   }
 }

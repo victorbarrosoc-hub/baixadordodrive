@@ -161,6 +161,7 @@ function Unsupported({ file, poster, reason, children }) {
 /**
  * Vídeo pesado demais para tocar pela rede (ProRes, 4K de câmera): o Drive toca porque usa a cópia leve que ele
  * mesmo gera, e a API só entrega o original. Taxa = tamanho / duração; o limite é menor no celular.
+ * O aviso só oferece "Tentar mesmo assim": o "Abrir no Drive" de sempre fica logo abaixo, nas ações da prévia.
  */
 function mbpsOf(file) {
   const ms = Number(file.videoMediaMetadata?.durationMillis || 0)
@@ -175,10 +176,9 @@ function HeavyNotice({ file, poster, onTry, stalled }) {
     file=${file}
     poster=${poster}
     reason=${stalled
-      ? 'A rede não está dando conta deste vídeo. O Google Drive toca uma cópia leve dele.'
-      : 'Vídeo pesado demais para tocar pela rede. O Google Drive toca uma cópia leve dele.'}
+      ? 'A rede não está dando conta deste vídeo. Em Abrir no Drive, o Google toca uma cópia leve dele.'
+      : 'Vídeo pesado demais para tocar pela rede. Em Abrir no Drive, o Google toca uma cópia leve dele.'}
   >
-    <a class="btn btn-primary btn-sm" href=${driveUrl(file)} target="_blank" rel="noopener noreferrer">Ver no Google Drive</a>
     <button type="button" class="btn btn-secondary btn-sm" onClick=${onTry}>Tentar mesmo assim</button>
   </${Unsupported}>`
 }

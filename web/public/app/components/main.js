@@ -9,7 +9,7 @@ import { MY_DRIVE, folderTrail, getRecents, getState, openSheet, pushRecent, set
 import { engine, summarize } from '../lib/uploader.js'
 import { Icon, Wordmark } from './icons.js'
 import { Button, cx, useEngine } from './ui.js'
-import { QueueRow, SequenceBar } from './queue.js'
+import { FileName, QueueRow, SequenceBar } from './queue.js'
 import { InstallHint } from './install-hint.js'
 import { isIOS } from '../lib/platform.js'
 import { ComputerCard } from './computador.js'
@@ -170,6 +170,30 @@ function Picker({ dest, account }) {
   </div>`
 }
 
+/**
+ * Envios que ficaram pela metade (a página recarregou): o botão abre o mesmo seletor do Escolher arquivos e a lista
+ * diz quais arquivos escolher. Ao escolher, os que batem (nome, tamanho, data) continuam de onde pararam.
+ */
+const RESUME_NAMES = 4
+function ResumeNotice({ items, n, canPick }) {
+  const names = items.filter((it) => it.status === 'needsFile').map((it) => it.name)
+  const shown = names.slice(0, names.length > RESUME_NAMES ? RESUME_NAMES - 1 : RESUME_NAMES)
+  return html`<div class="notice notice-soft resume">
+    <${Icon} name="refresh" size=${20} />
+    <div>
+      <b>${n === 1 ? 'Um envio ficou pela metade' : `${n} envios ficaram pela metade`}</b>
+      <p>Escolha ${n === 1 ? 'o mesmo arquivo' : 'os mesmos arquivos'} de novo: continua de onde parou.</p>
+      <ul class="resume-names" aria-label="Arquivos para escolher de novo">
+        ${shown.map((name, i) => html`<li key=${i}><${FileName} name=${name} class="resume-name" /></li>`)}
+        ${names.length > shown.length ? html`<li class="resume-more">e mais ${names.length - shown.length}</li>` : null}
+      </ul>
+      ${canPick
+        ? html`<label for="file-input" class="btn btn-secondary btn-sm resume-btn"><${Icon} name="upload" size=${15} /><span>Escolher de novo</span></label>`
+        : null}
+    </div>
+  </div>`
+}
+
 function AwakeNote({ awake }) {
   return html`<div class="awake" role="status">
     <span class="awake-dot" aria-hidden="true"></span>
@@ -276,15 +300,7 @@ export function MainScreen() {
           </div>`
         : null}
 
-      ${sum.waitingFile
-        ? html`<div class="notice notice-soft">
-            <${Icon} name="refresh" size=${20} />
-            <div>
-              <b>${sum.waitingFile === 1 ? 'Um envio ficou pela metade' : `${sum.waitingFile} envios ficaram pela metade`}</b>
-              <p>Escolha ${sum.waitingFile === 1 ? 'o mesmo arquivo' : 'os mesmos arquivos'} de novo: continua de onde parou.</p>
-            </div>
-          </div>`
-        : null}
+      ${sum.waitingFile ? html`<${ResumeNotice} items=${items} n=${sum.waitingFile} canPick=${Boolean(dest) && !lan?.noAccount && !reconnect} />` : null}
 
       ${items.length
         ? html`<section class="queue" aria-label="Envios">
