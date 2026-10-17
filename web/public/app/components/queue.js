@@ -91,6 +91,8 @@ export function ShareLink({ id, name, folder = false, label, variant = 'secondar
       await openLink(id)
       setAcc((a) => ({ ...(a || { canShare: true, link }), open: true }))
       setStep(null)
+      // A prévia aberta deste arquivo troca para o player do Drive (vídeo pesado) sem precisar reabrir.
+      window.dispatchEvent(new CustomEvent('sd-link-aberto', { detail: { id } }))
       toast('Liberado. Agora é só compartilhar', { tone: 'success' })
     } catch (e) {
       setErr(openLinkError(e))

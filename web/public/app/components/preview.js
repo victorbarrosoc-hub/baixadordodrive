@@ -3,6 +3,7 @@
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { canDownload, driveUrl, findProxy, getFile, isGoogleDoc, isPrevia, kindOf, mayPlay, showsAsImage, target, wantsLite, wantsProxy } from '../lib/browse.js'
 import { loadThumb, streamReady, streamUrl } from '../lib/stream.js'
+import { linkAccess } from '../lib/drive.js'
 import { bytes, duration, extOf, fullDate } from '../lib/format.js'
 import { toast } from '../lib/state.js'
 import { isIOS } from '../lib/platform.js'
@@ -183,6 +184,41 @@ const FAIL_TEXT = {
   nosw: 'A prévia precisa do app atualizado. Feche e abra o SOBEDESCE de novo.',
 }
 
+// ───── vídeo pesado: o player do próprio Drive ─────
+//
+// O Drive toca rápido porque usa a cópia leve que ele mesmo gera (e se ajusta à internet); a API só entrega o original.
+// Vídeo pesado sem proxy, aberto para "qualquer pessoa com o link": a prévia mostra o player do Drive num iframe
+// (drive.google.com/file/d/<id>/preview). Fechado: toca o original (o iframe pediria login do Google, que o iPhone não
+// leva para dentro do app).
+
+/** Taxa do vídeo em Mbit/s (tamanho / duração); 0 se não dá para saber. */
+function mbpsOf(file) {
+  const ms = Number(file.videoMediaMetadata?.durationMillis || 0)
+  const size = Number(file.size || 0)
+  return ms > 0 && size > 0 ? (size * 8) / (ms / 1000) / 1e6 : 0
+}
+const HEAVY_MBPS = () => (window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 768 ? 40 : 200)
+const isHeavy = (file) => mbpsOf(file) > HEAVY_MBPS()
+
+function DrivePlayer({ file, ratio, onOriginal }) {
+  return html`<div class="pv-proxy pv-gdrive">
+    <div class="pv-gframe" style=${ratio ? `aspect-ratio:${ratio}` : ''}>
+      <iframe
+        src=${`https://drive.google.com/file/d/${encodeURIComponent(file.id)}/preview`}
+        title=${file.name}
+        allow="autoplay; fullscreen; picture-in-picture"
+        allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"
+        sandbox="allow-scripts allow-same-origin allow-presentation"
+      ></iframe>
+    </div>
+    <p class="pv-proxy-note">
+      <span>Player do Google Drive: cópia leve, começa rápido.</span>
+      ${onOriginal ? html`<button type="button" class="link-btn pv-gdrive-orig" onClick=${onOriginal}>Tocar o original</button>` : null}
+    </p>
+  </div>`
+}
+
 /** "Prévia leve | Original" no canto do player (o primeiro diz se é a cópia do app ou o proxy da câmera). */
 function LiteSwitch({ proxy, on, canOriginal, onPick }) {
   return html`<div class="mp-switch" role="group" aria-label="O que tocar">
@@ -212,6 +248,10 @@ function MediaStage({ file, kind, siblings, onZoom }) {
   const [liteP, setLiteP] = useState(undefined)
   const [liteFail, setLiteFail] = useState(false)
   const [orig, setOrig] = useState(false) // a pessoa tocou em "Original"
+  // Vídeo pesado: o arquivo está aberto para qualquer pessoa com o link? (undefined = conferindo). E a pessoa pediu o original?
+  const heavy = kind === 'video' && isHeavy(file)
+  const [pub, setPub] = useState(undefined)
+  const [wantOrig, setWantOrig] = useState(false)
   const at = useRef(0)
   const [startAt, setStartAt] = useState(0)
   const pick = (leve) => {
@@ -227,8 +267,22 @@ function MediaStage({ file, kind, siblings, onZoom }) {
     setLiteFail(false)
     setOrig(false)
     setStartAt(0)
+    setPub(undefined)
+    setWantOrig(false)
     streamReady().then((ok) => alive && setSw(ok))
+    // Junto com a busca do proxy: o player do Drive só entra se não houver proxy.
+    if (kind === 'video' && isHeavy(file)) {
+      linkAccess(file.id).then(
+        (a) => alive && setPub(a?.open === true),
+        () => alive && setPub(false),
+      )
+    }
     return () => (alive = false)
+  }, [file.id])
+  useEffect(() => {
+    const on = (e) => e.detail?.id === file.id && setPub(true)
+    window.addEventListener('sd-link-aberto', on)
+    return () => window.removeEventListener('sd-link-aberto', on)
   }, [file.id])
   useEffect(() => {
     if (!lite || !sw || liteP !== undefined) return
@@ -317,13 +371,19 @@ function MediaStage({ file, kind, siblings, onZoom }) {
   if (kind === 'video' || kind === 'audio') {
     const art = poster || proxyPoster || null
     if (needProxy && (sw === undefined || proxy === 'look' || (proxy === undefined && sw))) return html`<div class="pv-wait"><span class="spinner"></span></div>`
+    if (heavy && !wantOrig && fail !== 'format') {
+      const vm = file.videoMediaMetadata
+      const ratio = vm?.width && vm?.height ? `${vm.width} / ${vm.height}` : null
+      if (pub === undefined) return html`<div class="pv-wait"><span class="spinner"></span></div>`
+      if (pub) return html`<${DrivePlayer} file=${file} ratio=${ratio} onOriginal=${playable ? () => setWantOrig(true) : null} />`
+    }
     if (!playable || fail === 'format') return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.format} />`
     if (sw === false) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.nosw} />`
     if (fail) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT[fail] || FAIL_TEXT.network} />`
     if (sw === undefined) return html`<div class="pv-wait"><span class="spinner"></span></div>`
     const vm = file.videoMediaMetadata
     const ratio = vm?.width && vm?.height ? `${vm.width} / ${vm.height}` : null
-    return html`<${MediaPlayer}
+    const player = html`<${MediaPlayer}
       key=${file.id}
       kind=${kind}
       src=${streamUrl(file)}
@@ -333,6 +393,14 @@ function MediaStage({ file, kind, siblings, onZoom }) {
       onFail=${async (code) => setFail(code === 3 || code === 4 ? await whyFailed(file) : 'network')}
       autoPlay
     />`
+    // Pesado e fechado: toca o original, e diz como fazer começar rápido.
+    if (heavy && pub === false && !wantOrig) {
+      return html`<div class="pv-proxy">
+        ${player}
+        <p class="pv-proxy-note">Vídeo pesado: pode demorar a começar. Libere o link (abaixo) para tocar pelo player do Drive, que começa rápido.</p>
+      </div>`
+    }
+    return player
   }
 
   if (kind === 'image') {

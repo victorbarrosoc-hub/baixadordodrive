@@ -143,6 +143,13 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   já vai carregando). Se o navegador barrar o som automático, toca sem som e o botão de som fica na barra. Não há mais
   aviso de “vídeo pesado demais” nem “Tentar mesmo assim”: o 4K de câmera toca o original direto e, se a rede não der
   conta, o player só espera carregar.
+- **Player do Drive (2.8.5):** o Drive toca rápido porque usa a cópia leve que ele mesmo gera (a API só entrega o
+  original). Vídeo **pesado** (taxa acima de 40 Mbit/s no celular, 200 no computador) **sem proxy** e aberto para
+  “qualquer pessoa com o link” (`permissionIds` com `anyoneWithLink`, conferido junto com a busca do proxy): a prévia
+  mostra o player do próprio Drive num iframe (`drive.google.com/file/d/<id>/preview`, CSP `frame-src
+  https://drive.google.com`), com “Tocar o original” embaixo. Fechado: toca o original com a dica de liberar o link
+  (o iframe pediria login do Google, que o iPhone não leva para dentro do app); liberar pela prévia troca para o
+  player do Drive na hora (evento `sd-link-aberto`). Com proxy, continua o nosso player com Proxy | Original.
 - **Baixar** (no topo, azul), **Abrir no Drive** e **Compartilhar** (Web Share, com o link do Drive). Acima de 1 GB
   avisa antes: no celular a tela precisa ficar aberta, e no computador o app SOBEDESCE baixa muito mais rápido.
   Documentos do Google não têm bytes: só “Abrir”.

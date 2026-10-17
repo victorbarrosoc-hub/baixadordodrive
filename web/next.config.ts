@@ -35,6 +35,8 @@ const appCsp = [
   `connect-src ${appConnect.join(" ")}`,
   `img-src ${appImg.join(" ")}`,
   "media-src 'self'",
+  // Vídeo pesado aberto a qualquer pessoa com o link: o player do próprio Drive (components/preview.js, DrivePlayer).
+  "frame-src https://drive.google.com",
   "font-src 'self'",
   "manifest-src 'self'",
   "worker-src 'self'",
