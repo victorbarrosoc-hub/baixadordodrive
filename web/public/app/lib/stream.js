@@ -4,11 +4,22 @@
 // /app/stream/<id> e o service worker (sw.js) busca no Google com o token, repassando o Range (o Safari só toca
 // vídeo com resposta 206). O token não fica guardado em lugar nenhum: o SW pede para a página quando precisa
 // (postMessage com MessageChannel) e guarda só na memória dele, que some quando ele dorme.
+//
+// Chave da aba (k): cada abertura do app sorteia uma chave e põe em todo endereço de stream. O SW manda a chave junto
+// do pedido de token, e a página só entrega o token se a chave for a dela (devolvendo a chave na resposta). Assim um
+// link /app/stream/<id> vindo de fora (WhatsApp, e-mail, outro site) não usa o token de ninguém.
 import { ENDPOINTS, LAN } from './config.js'
 import { expiresAt, getToken, invalidate } from './auth.js'
 import { sizedThumb } from './browse.js'
 
 const STREAM_BASE = new URL('../stream/', import.meta.url).pathname // "/app/stream/"
+
+function newKey() {
+  const b = new Uint8Array(16)
+  crypto.getRandomValues(b)
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
+}
+const KEY = newKey() // só desta aba, só na memória
 
 /** Endereço servido pelo SW. `download` = salvar (Content-Disposition: attachment). */
 export function streamUrl(file, { download = false } = {}) {
@@ -17,6 +28,7 @@ export function streamUrl(file, { download = false } = {}) {
   if (file.mimeType) p.set('t', file.mimeType)
   p.set('n', file.name || 'arquivo')
   if (download) p.set('download', '1')
+  p.set('k', KEY)
   return `${STREAM_BASE}${encodeURIComponent(file.id)}?${p}`
 }
 
@@ -39,7 +51,7 @@ export function streamReady(timeout = 4000) {
 }
 
 let bridged = false
-/** Responde aos pedidos de token do SW. Só o SW desta origem consegue mandar mensagem para cá. */
+/** Responde aos pedidos de token do SW. Só o SW desta origem consegue mandar mensagem para cá, e só com a chave desta aba. */
 export function startBridge() {
   if (bridged || !swOk()) return
   bridged = true
@@ -47,10 +59,11 @@ export function startBridge() {
     const d = e.data
     const port = e.ports?.[0]
     if (!d || d.type !== 'sd-token' || !port) return
+    if (d.k !== KEY) return port.postMessage({ ok: false, reason: 'chave' })
     try {
       if (d.stale) invalidate(d.stale)
       const token = await getToken()
-      port.postMessage({ ok: true, token, api: ENDPOINTS.api, expiresAt: expiresAt() })
+      port.postMessage({ ok: true, k: KEY, token, api: ENDPOINTS.api, expiresAt: expiresAt() })
     } catch (err) {
       port.postMessage({ ok: false, reason: err?.reconnect ? 'reconectar' : err?.signedOut ? 'sessao' : 'erro' })
     }

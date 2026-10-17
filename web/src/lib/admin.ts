@@ -1,7 +1,10 @@
 import "server-only";
 /**
  * Tela de admin (/admin): quem entrou na plataforma. Só para os e-mails de SOBEDESCE_ADMINS (separados por
- * vírgula; padrão: o do Victor). Vale o e-mail da conta SOBEDESCE ou o de um Google Drive conectado nela.
+ * vírgula; padrão: o do Victor). Vale SÓ o e-mail de um Google Drive conectado na conta (contas_google), que o
+ * Google confirmou. O e-mail da conta SOBEDESCE não vale: criar conta não confirma o e-mail, e o padrão é público
+ * (rodapé, política), então qualquer um criaria uma conta com ele e abriria /admin. Conta criada pelo "Continuar
+ * com Google" já nasce com o Drive conectado, então continua admin por ele.
  */
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
@@ -17,9 +20,9 @@ export function emailsAdmin(env: Record<string, string | undefined> = process.en
   return lista.length ? lista : PADRAO;
 }
 
-/** true se a conta (pelo próprio e-mail ou por um Drive conectado) está na lista de admins. */
-export async function ehAdmin(usuario: { id: string; email: string }, admins = emailsAdmin()): Promise<boolean> {
-  if (admins.includes(usuario.email.toLowerCase())) return true;
+/** true se algum Drive conectado na conta tem um e-mail da lista de admins. O e-mail da conta é ignorado. */
+export async function ehAdmin(usuario: { id: string; email?: string }, admins = emailsAdmin()): Promise<boolean> {
+  if (!admins.length) return false;
   const drive = await db
     .select({ id: schema.contasGoogle.id })
     .from(schema.contasGoogle)

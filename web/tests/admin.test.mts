@@ -1,5 +1,6 @@
-/** Tela de admin: quem é admin (e-mail da conta ou de um Drive conectado), lista, resumo e busca. */
+/** Tela de admin: quem é admin (só pelo e-mail de um Drive conectado), lista, resumo e busca. */
 import assert from "node:assert/strict";
+import { eq } from "drizzle-orm";
 import { after, before, describe, test } from "node:test";
 import { prepararAmbiente } from "./ambiente.mjs";
 
@@ -39,10 +40,25 @@ describe("admin", () => {
     assert.deepEqual(admin.emailsAdmin({ SOBEDESCE_ADMINS: " A@x.com, b@y.com ," }), ["a@x.com", "b@y.com"]);
   });
 
-  test("é admin pelo e-mail do Drive conectado (sem diferenciar maiúsculas) ou pelo da conta", async () => {
+  test("é admin pelo e-mail do Drive conectado (sem diferenciar maiúsculas)", async () => {
     assert.equal(await admin.ehAdmin({ id: "u-victor", email: "victor@exemplo.com" }), true);
     assert.equal(await admin.ehAdmin({ id: "u-ana", email: "ana@exemplo.com" }), false);
-    assert.equal(await admin.ehAdmin({ id: "u-ana", email: "ana@exemplo.com" }, ["ana@exemplo.com"]), true);
+    assert.equal(await admin.ehAdmin({ id: "u-ana", email: "ana@exemplo.com" }, ["ana.drive@exemplo.com"]), true);
+    assert.equal(await admin.ehAdmin({ id: "u-ana", email: "ana@exemplo.com" }, []), false);
+  });
+
+  test("o e-mail da conta não vale: criar conta não confirma o e-mail (e o padrão é público)", async () => {
+    // Alguém cria uma conta com o e-mail padrão de admin, sem Drive conectado: não é admin.
+    await db.db.insert(db.schema.usuarios).values({ id: "u-intruso", email: "contato@dissesim.com.br", nome: "Intruso", senhaHash: "scrypt$16384$8$1$x$y" });
+    try {
+      assert.equal(await admin.ehAdmin({ id: "u-intruso", email: "contato@dissesim.com.br" }), false);
+      assert.equal(await admin.ehAdmin({ id: "u-ana", email: "ana@exemplo.com" }, ["ana@exemplo.com"]), false, "e-mail da conta na lista não basta");
+      // Conectar um Drive de outro e-mail também não dá admin.
+      await db.db.insert(db.schema.contasGoogle).values({ id: "g-intruso", usuarioId: "u-intruso", googleSub: "s-intruso", email: "intruso@gmail.com", refreshTokenEnc: "x" });
+      assert.equal(await admin.ehAdmin({ id: "u-intruso", email: "contato@dissesim.com.br" }), false);
+    } finally {
+      await db.db.delete(db.schema.usuarios).where(eq(db.schema.usuarios.id, "u-intruso"));
+    }
   });
 
   test("lista, resumo e computadores (sessão revogada não conta)", async () => {

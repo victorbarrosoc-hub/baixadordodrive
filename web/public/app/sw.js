@@ -5,9 +5,14 @@
 //     cabeçalho Authorization; aqui a requisição vai para o Google com o token, repassando o Range (o Safari só toca
 //     vídeo com 206), e volta em streaming — nada é guardado. O token vem da página (postMessage com MessageChannel,
 //     lib/stream.js) e fica só na memória deste SW, que some quando ele dorme.
+//     Segurança (o arquivo é de quem subiu, não nosso): só atende pedidos de mídia ou fetch da página, nunca a
+//     abertura do endereço numa aba (a não ser o Baixar, que sai sempre como anexo). O tipo só passa se for vídeo,
+//     áudio ou imagem (sem SVG); o resto vira application/octet-stream + attachment. Toda resposta leva CSP sandbox,
+//     CORP same-origin e nosniff. E o endereço precisa da chave `k` da aba que o gerou: o SW só usa o token se a
+//     página confirmar a chave (quem manda um link de fora não sabe a chave).
 //  3. Avisos (Web Push): "Pronto: 8 arquivos enviados do MacBook…" quando o computador termina; o toque abre
 //     /app/#computador (ou a folha, se o app já estiver aberto).
-const CACHE = 'sobedesce-app-v10'
+const CACHE = 'sobedesce-app-v12'
 const SCOPE = new URL('./', self.location).pathname // "/app/"
 const STREAM = SCOPE + 'stream/'
 const GOOGLE_API = 'https://www.googleapis.com/drive/v3'
@@ -100,9 +105,20 @@ self.addEventListener('fetch', (event) => {
   )
 })
 
-// ───── /app/stream/<id>?s=<tamanho>&t=<tipo>&n=<nome>[&download=1] ─────
+// ───── /app/stream/<id>?s=<tamanho>&t=<tipo>&n=<nome>&k=<chave>[&download=1] ─────
 
-let tok = null // { value, api, expiresAt } — só em memória
+const toks = new Map() // chave da aba → { value, api, expiresAt } — só em memória
+const MAX_TOKS = 16
+const KEY_RE = /^[0-9a-f]{32}$/
+// Quem pode pedir o stream: <video>, <audio>, <img>, <track> e fetch() da página (destination vazio).
+const MEDIA_DEST = new Set(['video', 'audio', 'image', 'track', ''])
+// Toda resposta de /app/stream/: nada de rodar como página do site, nem ser lida por outra origem.
+const GUARD = {
+  'Content-Security-Policy': "sandbox; default-src 'none'",
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'X-Content-Type-Options': 'nosniff',
+  'Cache-Control': 'no-store',
+}
 
 /** A página só pode apontar para o Google (ou, no modo de teste em 127.0.0.1, para um Drive falso em loopback). */
 function allowedApi(api) {
@@ -115,11 +131,13 @@ function allowedApi(api) {
   }
 }
 
+/** Quem perguntar: a aba que fez o pedido; se ela não vem (navegação do Baixar, player de mídia sem clientId), as
+ *  abas do app. Só a dona da chave responde com o token (lib/stream.js). */
 async function pages(event) {
   const out = []
   if (event.clientId) {
     const c = await self.clients.get(event.clientId)
-    if (c) out.push(c)
+    if (c) return [c]
   }
   const all = await self.clients.matchAll({ type: 'window' })
   all.sort((a, b) => Number(b.focused) - Number(a.focused) || Number(b.visibilityState === 'visible') - Number(a.visibilityState === 'visible'))
@@ -127,7 +145,7 @@ async function pages(event) {
   return out
 }
 
-function ask(client, stale) {
+function ask(client, k, stale) {
   return new Promise((resolve) => {
     const ch = new MessageChannel()
     const t = setTimeout(() => resolve(null), 20_000)
@@ -135,20 +153,27 @@ function ask(client, stale) {
       clearTimeout(t)
       resolve(e.data)
     }
-    client.postMessage({ type: 'sd-token', stale: stale || null }, [ch.port2])
+    client.postMessage({ type: 'sd-token', k, stale: stale || null }, [ch.port2])
   })
 }
 
-async function token(event, stale) {
-  if (!stale && tok && tok.expiresAt - Date.now() > 60_000) return tok
-  tok = null
+async function token(event, k, stale) {
+  const cached = toks.get(k)
+  if (!stale && cached && cached.expiresAt - Date.now() > 60_000) return cached
+  toks.delete(k)
   for (const c of await pages(event)) {
-    const r = await ask(c, stale)
-    if (r?.ok && r.token && allowedApi(r.api)) {
-      tok = { value: String(r.token), api: r.api, expiresAt: Number(r.expiresAt) || Date.now() + 10 * 60_000 }
-      return tok
+    const r = await ask(c, k, stale)
+    if (!r) continue
+    // Só vale a resposta que devolve a mesma chave: aba de outra sessão diz "chave" e aba antiga (sem chave) não conta.
+    if (r.ok) {
+      if (r.k !== k || !r.token || !allowedApi(r.api)) continue
+      const t = { value: String(r.token), api: r.api, expiresAt: Number(r.expiresAt) || Date.now() + 10 * 60_000 }
+      toks.set(k, t)
+      if (toks.size > MAX_TOKS) toks.delete(toks.keys().next().value)
+      return t
     }
-    if (r && !r.ok) return { error: r.reason || 'erro' }
+    if (r.reason === 'chave') continue
+    return { error: r.reason || 'erro' }
   }
   return { error: 'sem-pagina' }
 }
@@ -176,8 +201,16 @@ function disposition(kind, name) {
   return `${kind}; filename="${ascii}"; filename*=UTF-8''${utf}`
 }
 
+/** "video/mp4" etc. se o tipo é mídia que o navegador só mostra (sem SVG, que roda script); senão null. */
+function mediaType(type) {
+  const base = String(type || '').split(';')[0].trim().toLowerCase()
+  if (!/^(video|audio|image)\/[a-z0-9][a-z0-9.+-]*$/.test(base)) return null
+  if (base.includes('svg') || base.includes('xml')) return null
+  return base
+}
+
 function fail(status, message) {
-  return new Response(message, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } })
+  return new Response(message, { status, headers: { ...GUARD, 'Content-Type': 'text/plain; charset=utf-8' } })
 }
 
 async function stream(event, url) {
@@ -187,17 +220,24 @@ async function stream(event, url) {
   } catch {
     id = ''
   }
-  if (!id || /[/?#]/.test(id)) return fail(404, 'Arquivo não encontrado.')
+  const req = event.request
   const p = url.searchParams
+  const download = p.get('download') === '1'
+  // Abrir o endereço numa aba (link de fora, iframe) não mostra nada: só o Baixar navega, e sai como anexo.
+  if (req.mode === 'navigate' ? !download || req.destination !== 'document' : !MEDIA_DEST.has(req.destination)) {
+    return fail(403, 'Abra o arquivo pelo SOBEDESCE.')
+  }
+  const k = p.get('k') || ''
+  if (!KEY_RE.test(k)) return fail(403, 'Abra o arquivo pelo SOBEDESCE.')
+  if (!id || /[/?#]/.test(id)) return fail(404, 'Arquivo não encontrado.')
   const size = p.has('s') && /^\d+$/.test(p.get('s')) ? Number(p.get('s')) : null
   const type = p.get('t') || 'application/octet-stream'
   const name = p.get('n') || 'arquivo'
-  const download = p.get('download') === '1'
-  const range = event.request.headers.get('Range')
+  const range = req.headers.get('Range')
 
   let stale = null
   for (let attempt = 0; attempt < 2; attempt++) {
-    const t = await token(event, stale)
+    const t = await token(event, k, stale)
     if (t.error) return fail(t.error === 'reconectar' ? 409 : 401, t.error === 'reconectar' ? 'Reconecte o Google Drive na sua conta.' : 'Abra o SOBEDESCE para continuar.')
     const headers = { Authorization: `Bearer ${t.value}` }
     if (range) headers.Range = range
@@ -210,7 +250,7 @@ async function stream(event, url) {
         referrerPolicy: 'no-referrer',
         // Prévia: se o player desiste do pedaço (pulou para outro ponto), o pedido ao Google para junto. Download
         // não: o navegador passa o pedido para o gerenciador de downloads e o sinal original é cancelado.
-        signal: download ? undefined : event.request.signal,
+        signal: download ? undefined : req.signal,
       })
     } catch {
       return fail(504, 'Sem conexão com o Google.')
@@ -220,17 +260,17 @@ async function stream(event, url) {
       continue
     }
     if (!up.ok) {
-      const h = { 'Cache-Control': 'no-store' }
+      const h = { ...GUARD }
       const cr = up.headers.get('Content-Range')
       if (up.status === 416) h['Content-Range'] = cr || (size != null ? `bytes */${size}` : 'bytes */*')
       return new Response(null, { status: up.status, headers: h })
     }
 
-    const h = new Headers()
-    h.set('Content-Type', up.headers.get('Content-Type') || type)
+    const h = new Headers(GUARD)
+    // Baixar: sempre anexo e octet-stream. Prévia: o tipo só passa se for mídia; o resto também vira anexo.
+    const media = download ? null : mediaType(up.headers.get('Content-Type') || type)
+    h.set('Content-Type', media || 'application/octet-stream')
     h.set('Accept-Ranges', 'bytes')
-    h.set('Cache-Control', 'no-store')
-    h.set('X-Content-Type-Options', 'nosniff')
     const len = up.headers.get('Content-Length')
     if (len) h.set('Content-Length', len)
     if (up.status === 206) {
@@ -248,7 +288,7 @@ async function stream(event, url) {
     } else if (!len && size != null) {
       h.set('Content-Length', String(size))
     }
-    h.set('Content-Disposition', disposition(download ? 'attachment' : 'inline', name))
+    h.set('Content-Disposition', disposition(media ? 'inline' : 'attachment', name))
     return new Response(up.body, { status: up.status, statusText: up.status === 206 ? 'Partial Content' : 'OK', headers: h })
   }
   return fail(401, 'O Google recusou o acesso.')

@@ -115,7 +115,7 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   avisa antes: no celular a tela precisa ficar aberta, e no computador o app SOBEDESCE baixa muito mais rápido.
   Documentos do Google não têm bytes: só “Abrir”.
 
-### Streaming pelo service worker (`/app/stream/<id>?s=<tamanho>&t=<tipo>&n=<nome>[&download=1]`)
+### Streaming pelo service worker (`/app/stream/<id>?s=<tamanho>&t=<tipo>&n=<nome>&k=<chave>[&download=1]`)
 
 `<video>`, `<audio>`, `<img>` e links não mandam `Authorization`. A página aponta para `/app/stream/<id>` e o
 `sw.js` busca `files/<id>?alt=media&supportsAllDrives=true` com `Authorization: Bearer` e o mesmo `Range`,
@@ -124,6 +124,22 @@ vai para o cache). O Safari só toca vídeo se o servidor responder Range com 20
 `Content-Range` (CORS), o SW refaz pelo pedido + tamanho (`s`). Com `download=1`, `Content-Disposition: attachment`
 com o nome em UTF-8 (RFC 6266); o Baixar é uma navegação para esse endereço (sem o atributo `download`: no Chromium
 o download com `download` + resposta do SW era cancelado).
+
+**Segurança (achado A1 da revisão, 2.5.1):** o arquivo é de quem subiu, não nosso, então o SW nunca deixa ele virar
+página do site:
+- **Só mídia ou fetch da página.** Navegação (link aberto numa aba, iframe) recebe 403, a não ser o Baixar
+  (`download=1`, `destination: document`). Fora da navegação, só `destination` `video`, `audio`, `image`, `track`
+  ou vazio (`fetch()`).
+- **Tipo:** fora do Baixar, só `video/*`, `audio/*` e `image/*` sem SVG passam (inline). O resto (HTML, SVG,
+  XHTML...) e todo Baixar saem como `application/octet-stream` + `attachment`.
+- **Cabeçalhos em toda resposta do stream** (inclusive erro): `Content-Security-Policy: sandbox; default-src 'none'`,
+  `Cross-Origin-Resource-Policy: same-origin`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`.
+- **Chave da aba (`k`):** `lib/stream.js` sorteia 128 bits por abertura do app e põe em todo endereço. O SW manda a
+  chave no pedido de token (`sd-token`), a página só responde com o token se a chave for a dela e devolve a chave na
+  resposta; o SW ignora resposta sem a chave certa (aba da versão antiga) e guarda o token por chave. Pedido com
+  `clientId` pergunta só àquela aba; sem `clientId` (navegação do Baixar, player do Safari) pergunta às abas do app.
+  Link de fora não tem a chave e não usa o token de ninguém. Aba aberta da 2.5.0 depois do SW novo: a prévia falha
+  até reabrir o app.
 
 O token **não fica guardado**: o SW pede à página (`postMessage` com `MessageChannel`, tipo `sd-token`; quem
 responde é `lib/stream.js` com o `getToken()` de sempre) e guarda só na memória dele, que some quando o navegador
