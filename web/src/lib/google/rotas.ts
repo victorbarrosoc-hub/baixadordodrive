@@ -2,9 +2,11 @@
  * Lógica de /api/google/conectar e /api/google/callback (as rotas só repassam o Request).
  * Erros voltam como ?erro=<codigo> para a tela; os textos estão em src/components/conta/mensagens.ts.
  */
+import { COOKIE_APARELHO, conferirAparelho, opcoesCookieAparelho } from "@/lib/auth/aparelho";
 import { autenticar, COOKIE_SESSAO, criarSessao, opcoesCookieSessao } from "@/lib/auth/sessao";
 import { voltaSegura } from "@/lib/auth/volta";
-import { ipDe, lerCookie, origemDoPedido, redirecionar, serializarCookie } from "@/lib/http";
+import { depoisDaResposta, type Depois } from "@/lib/depois";
+import { ipDe, lerCookie, lugarDe, origemDoPedido, redirecionar, serializarCookie } from "@/lib/http";
 import { cookieSeguro } from "@/lib/site";
 import { googleConfigurado, redirectUri } from "./config";
 import { criarContaComGoogle, donoDaContaGoogle, vincularConta } from "./contas";
@@ -55,7 +57,8 @@ export async function conectar(req: Request): Promise<Response> {
   return redirecionar(urlDeConsentimento({ state, desafio, origem: retorno.origin }), 302, [cookie]);
 }
 
-export async function callback(req: Request): Promise<Response> {
+/** `depois`: onde vai o aviso de entrada nova (a rota usa o `after` do Next; os testes passam o deles). */
+export async function callback(req: Request, depois: Depois = depoisDaResposta): Promise<Response> {
   const url = new URL(req.url);
   const seguro = cookieSeguro(origemDoPedido(req.headers, req.url));
   const limpar = serializarCookie(COOKIE_OAUTH, "", { maxAge: 0, path: "/api/google", secure: seguro });
@@ -113,8 +116,22 @@ export async function callback(req: Request): Promise<Response> {
   const sessao = await criarSessao(usuarioId, "web");
   const o = opcoesCookieSessao(seguro);
   const cookieSessao = serializarCookie(COOKIE_SESSAO, sessao.token, { maxAge: o.maxAge, path: o.path, secure: o.secure });
+  // Aparelho que a conta ainda não usou: aviso de entrada nova (conta que acabou de nascer só aprende o aparelho).
+  const aparelho = await conferirAparelho({
+    usuarioId,
+    cookie: lerCookie(req, COOKIE_APARELHO),
+    via: "google",
+    entrada: { userAgent: req.headers.get("user-agent"), lugar: lugarDe(req.headers) },
+    avisar: !criou,
+    depois,
+  });
+  const cookies = [cookieSessao];
+  if (aparelho) {
+    const a = opcoesCookieAparelho(seguro);
+    cookies.push(serializarCookie(COOKIE_APARELHO, aparelho, { maxAge: a.maxAge, path: a.path, secure: a.secure }));
+  }
   // No celular, quem só entrou (sem pedir outra página) vai direto para o envio.
   const celular = /iPhone|iPad|iPod|Android|Mobile/i.test(req.headers.get("user-agent") ?? "");
   const destino = volta === "/conta" && celular ? "/app/" : criou ? comParametro(volta, "google", "ok") : volta;
-  return ir(destino, [cookieSessao]);
+  return ir(destino, cookies);
 }

@@ -5,6 +5,8 @@
  */
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
+import { emSegundoPlano, type Depois } from "@/lib/depois";
+import { avisarMuitasTentativas, avisarSenhaMudou } from "@/lib/email/avisos";
 import { dentroDoLimite, esquecerTentativas, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "./limite";
 import { conferirSenha, hashDeEnfeite, hashSenha, SENHA_MAXIMA, SENHA_MINIMA } from "./senha";
 import { encerrarAcessos, type Encerrado } from "./encerrar";
@@ -57,7 +59,11 @@ export async function criarConta(entrada: { nome: unknown; email: unknown; senha
   return { ok: true, usuario: { id, email, nome }, token: sessao.token, expiraEm: sessao.expiraEm };
 }
 
-export async function entrarComSenha(entrada: { email: unknown; senha: unknown; ip: string }): Promise<Entrou | Falha> {
+/**
+ * Entrar com e-mail e senha. `depois` (padrão: em segundo plano) recebe o aviso de muitas senhas erradas: ele roda
+ * depois da resposta, então nem o tempo nem a resposta contam se a conta existe.
+ */
+export async function entrarComSenha(entrada: { email: unknown; senha: unknown; ip: string; depois?: Depois }): Promise<Entrou | Falha> {
   const email = normalizarEmail(entrada.email);
   const senha = typeof entrada.senha === "string" ? entrada.senha : "";
   if (!email || !senha) return { ok: false, erro: "entrada", mensagem: "Preencha e-mail e senha." };
@@ -70,6 +76,13 @@ export async function entrarComSenha(entrada: { email: unknown; senha: unknown; 
     dentroDoLimite(chaveConta, REGRAS.loginConta),
     dentroDoLimite(chaveIp, REGRAS.loginIp),
   ]);
+  const depois = entrada.depois ?? emSegundoPlano;
+  // A conta bateu no limite de senhas erradas (de qualquer rede): o dono fica sabendo (um e-mail por dia, no máximo).
+  const avisarSeNoLimite = () =>
+    depois(async () => {
+      if (!(await dentroDoLimite(chaveConta, REGRAS.loginConta))) await avisarMuitasTentativas(email.slice(0, 254));
+    });
+  if (!porConta) avisarSeNoLimite();
   if (!porEmail || !porConta || !porIp) return { ok: false, erro: "devagar", mensagem: MENSAGEM_LIMITE };
 
   const usuario = await db.query.usuarios.findFirst({ where: eq(usuarios.email, email) });
@@ -77,6 +90,7 @@ export async function entrarComSenha(entrada: { email: unknown; senha: unknown; 
   const certo = senha.length <= SENHA_MAXIMA && (await conferirSenha(senha, usuario?.senhaHash ?? (await hashDeEnfeite())));
   if (!usuario || !certo) {
     await registrarTentativa(chaveEmail, chaveConta, chaveIp);
+    avisarSeNoLimite();
     return { ok: false, erro: "credenciais", mensagem: MENSAGEM_LOGIN };
   }
   // O contador da conta não zera com um acerto: quem está testando senhas de outros IPs continua contado.
@@ -101,6 +115,8 @@ export async function trocarSenha(entrada: {
   senhaNova: unknown;
   ip: string;
   links?: boolean;
+  /** Para o e-mail "a senha mudou" (padrão: em segundo plano). */
+  depois?: Depois;
 }): Promise<{ ok: true; encerrado: Encerrado } | Falha> {
   const atual = typeof entrada.senhaAtual === "string" ? entrada.senhaAtual : "";
   const nova = typeof entrada.senhaNova === "string" ? entrada.senhaNova : "";
@@ -118,6 +134,8 @@ export async function trocarSenha(entrada: {
   await db.update(usuarios).set({ senhaHash: await hashSenha(nova), atualizadoEm: new Date() }).where(eq(usuarios.id, usuario.id));
   const encerrado = await encerrarAcessos(usuario.id, { manterSessao: entrada.sessaoId, links: entrada.links === true });
   await esquecerTentativas(chave);
+  const usuarioId = usuario.id;
+  (entrada.depois ?? emSegundoPlano)(() => avisarSenhaMudou(usuarioId, "trocada"));
   return { ok: true, encerrado };
 }
 

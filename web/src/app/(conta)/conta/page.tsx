@@ -46,7 +46,45 @@ export default async function Conta({ searchParams }: Props) {
 
   return (
     <Moldura titulo={`Olá, ${primeiroNome}`} subtitulo="Seus Drives e computadores ficam aqui." acao={<MenuConta admin={admin} sair={false} />}>
-      {conectou ? (
+      {q.aviso === "nao-fui-eu" ? (
+        // "Não fui eu" dos e-mails de aviso: o passo a passo para tirar da conta quem não devia estar nela.
+        <Aviso tom="erro" className="mb-10">
+          <p>
+            <strong className="font-semibold">Não foi você? Faça agora, nesta ordem:</strong>
+          </p>
+          <ol className="grid list-decimal gap-1 pl-5">
+            <li>
+              {temSenha ? (
+                <>
+                  <a href="#senha" className="font-medium underline underline-offset-2">
+                    Troque a senha
+                  </a>
+                  . Isso encerra tudo: os outros aparelhos e os computadores saem da conta, e a chave do Atalho e os avisos no celular são desligados.
+                </>
+              ) : (
+                <>
+                  <a href="#senha" className="font-medium underline underline-offset-2">
+                    Crie uma senha
+                  </a>{" "}
+                  pelo link que vai para o seu e-mail. Ao salvar, os outros aparelhos e os computadores saem da conta.
+                </>
+              )}
+            </li>
+            <li>
+              Confira o{" "}
+              <a href="#entrar-google" className="font-medium underline underline-offset-2">
+                Google de entrar
+              </a>{" "}
+              e os{" "}
+              <a href="#computadores" className="font-medium underline underline-offset-2">
+                computadores
+              </a>
+              .
+            </li>
+          </ol>
+          <p>Se a mesma senha serve em outro site, troque lá também.</p>
+        </Aviso>
+      ) : conectou ? (
         <Aviso tom="ok" className="mb-10">
           <p>Google Drive conectado.</p>
         </Aviso>

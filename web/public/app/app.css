@@ -4673,6 +4673,27 @@ html.has-preview .toasts {
   inset: -4px;
 }
 
+/* modo "rede ruim no set" (lib/uploader.js, NetWatch): uma linha calma, na cor de atenção */
+.meter-net {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  padding-left: 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--warn-text);
+  white-space: nowrap;
+}
+.meter-net > svg {
+  flex: none;
+}
+.meter-net > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* com a fila andando: destino e "+ Adicionar" numa linha só */
 .main-body.is-compact {
   gap: 12px;
