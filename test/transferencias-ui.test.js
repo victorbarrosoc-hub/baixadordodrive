@@ -2,7 +2,7 @@
 // que falta (public/lib/format.js → aprox, o mesmo do celular).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { FILTER_TESTS, integrity, integrityLabel, meterTotals, needsYou, sortRows } from '../public/lib/transferencias.js'
+import { FILTER_TESTS, batchLocal, integrity, integrityLabel, meterTotals, needsYou, sortRows } from '../public/lib/transferencias.js'
 import { aprox } from '../public/lib/format.js'
 
 const t = (status, extra = {}) => ({ status, ...extra })
@@ -63,4 +63,22 @@ test('ordem na fila do envio: prioridade, depois o maior primeiro (como o motor)
   assert.deepEqual(rows.slice().sort(sortRows).map((r) => r.name), ['e', 'd', 'b', 'c', 'a', 'f'])
   const dl = (name, size) => ({ name, size, type: 'download', batchId: 'b', status: 'queued', createdAt: name.charCodeAt(0) })
   assert.deepEqual([dl('a', 1), dl('b', 9)].sort(sortRows).map((r) => r.name), ['a', 'b'])
+})
+
+test('batchLocal: a pasta do computador de um lote de download (durante e depois), Mac e Windows', () => {
+  const d = (path, status = 'completed', extra = {}) => ({ type: 'download', status, dest: { path, tempPath: `${path}.sobedesce-part` }, ...extra })
+  // Durante: ninguém pronto ainda; mostra o temporário de quem está baixando na pasta de cima.
+  const ativo = [d('/Volumes/SSD/ZRO/A.mp4', 'running'), d('/Volumes/SSD/ZRO/Som/Z.wav', 'queued'), d('/Volumes/SSD/ZRO/B.mp4', 'queued')]
+  assert.deepEqual(batchLocal(ativo), { dir: '/Volumes/SSD/ZRO', target: '/Volumes/SSD/ZRO/A.mp4.sobedesce-part', name: 'ZRO' })
+  // Depois: o arquivo pronto na pasta de cima.
+  const fim = [d('/Volumes/SSD/ZRO/Som/Z.wav'), d('/Volumes/SSD/ZRO/B.mp4'), d('/Volumes/SSD/Outro/x.mp4', 'canceled')]
+  assert.deepEqual(batchLocal(fim), { dir: '/Volumes/SSD/ZRO', target: '/Volumes/SSD/ZRO/B.mp4', name: 'ZRO' })
+  // Só subpastas: a própria pasta.
+  assert.deepEqual(batchLocal([d('/Users/v/Downloads/ZRO/Cam A/1.mov'), d('/Users/v/Downloads/ZRO/Cam B/2.mov')]), { dir: '/Users/v/Downloads/ZRO', target: '/Users/v/Downloads/ZRO', name: 'ZRO' })
+  // Windows.
+  assert.deepEqual(batchLocal([d('E:\\ZRO\\A.mp4'), d('E:\\ZRO\\B.mp4')]), { dir: 'E:\\ZRO', target: 'E:\\ZRO\\A.mp4', name: 'ZRO' })
+  // Envio, sem caminho ou tudo cancelado: nada.
+  assert.equal(batchLocal([{ type: 'upload', status: 'completed', local: { path: '/x' } }]), null)
+  assert.equal(batchLocal([d('/a/b.mp4', 'canceled')]), null)
+  assert.equal(batchLocal([]), null)
 })

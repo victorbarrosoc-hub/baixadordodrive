@@ -17,7 +17,7 @@ import { SequenceBar, Timeline } from './timeline.js'
 import { contaUrl, isCloudAccount } from '../lib/cloud.js'
 import { navigate } from '../lib/router.js'
 import { PreviaLine } from './previa.js'
-import { FILTER_TESTS, batchFolder, integrity, integrityLabel, sortRows } from '../lib/transferencias.js'
+import { FILTER_TESTS, batchFolder, batchLocal, integrity, integrityLabel, sortRows } from '../lib/transferencias.js'
 
 /** "Conectar de novo" certo para a conta: OAuth deste computador, o site (Drive da conta) ou entrar na conta. */
 function ReauthLink({ t }) {
@@ -201,8 +201,10 @@ function BatchGroup({ group, rows, expanded, onToggle, limit, onMore, platform }
   const id = `batch-${batch.id}`
   const check = finished ? integrity(items) : null
   const checkText = check ? integrityLabel(check) : null
-  // Envio concluído: o link da pasta para mandar ao cliente (e abrir no Drive).
-  const pasta = finished && check?.total && type === 'upload' ? batchFolder(items, batch) : null
+  // Envio: a pasta no Drive (abrir desde o começo; o link para mandar ao cliente, quando termina).
+  const pasta = type === 'upload' ? batchFolder(items, batch) : null
+  // Download: a pasta do computador onde os arquivos estão caindo (antes, durante e depois).
+  const local = type === 'download' ? batchLocal(items) : null
 
   return html`<section class=${cx('batch card', !expanded && 'is-collapsed', finished && 'is-finished')} aria-labelledby=${id}>
     <header class="batch-head">
@@ -232,9 +234,14 @@ function BatchGroup({ group, rows, expanded, onToggle, limit, onMore, platform }
         ${sum.speed > 0 ? html`<span class="tc">${timecode(remaining / sum.speed)}</span>` : html`<span class="sub">${finished ? relTime(batch.createdAt) : ' '}</span>`}
       </div>
       <div class="batch-actions">
+        ${local
+          ? html`<div class="batch-share">
+              <${Button} size="sm" variant=${finished ? 'secondary' : 'ghost'} icon="reveal" title=${`Abrir ${local.dir}`} onClick=${() => reveal(local.target)}>${revealLabel(platform)}</${Button}>
+            </div>`
+          : null}
         ${pasta
         ? html`<div class="batch-share">
-            ${pasta.id !== 'root'
+            ${finished && check?.total && pasta.id !== 'root'
               ? html`<${Button} size="sm" icon="link" title=${`Copiar o link de “${pasta.name}” para mandar`} onClick=${() => copyDriveLink({ accountId: pasta.accountId, id: pasta.id, name: pasta.name, isFolder: true })} aria-label="Copiar link da pasta">Copiar link<span class="batch-share-long"> da pasta</span></${Button}>`
               : null}
             <${Button} size="sm" variant="ghost" icon="external" aria-label="Abrir no Drive" title=${`Abrir “${pasta.name}” no Google Drive`} onClick=${() => openExternal(pasta.id === 'root' ? 'https://drive.google.com/drive/my-drive' : driveFolderUrl(pasta.id))}>Abrir no Drive</${Button}>
