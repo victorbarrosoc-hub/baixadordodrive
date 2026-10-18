@@ -1,6 +1,6 @@
 // Prévia de um arquivo do Drive, em tela cheia (como as folhas do iOS): vídeo e áudio no player próprio, foto grande
 // com pinça, e os dados do arquivo. Baixar fica no topo. Arrastar para baixo fecha; para o lado, passa de arquivo.
-import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
+import { html, render, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { canDownload, driveUrl, findProxy, getFile, isGoogleDoc, isPrevia, kindOf, mayPlay, showsAsImage, target, wantsLite, wantsProxy } from '../lib/browse.js'
 import { loadThumb, streamReady, streamUrl } from '../lib/stream.js'
 import { linkAccess } from '../lib/drive.js'
@@ -200,21 +200,54 @@ function mbpsOf(file) {
 const HEAVY_MBPS = () => (window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 768 ? 40 : 200)
 const isHeavy = (file) => mbpsOf(file) > HEAVY_MBPS()
 
-function DrivePlayer({ file, ratio, onOriginal }) {
+/**
+ * O player do Drive foi feito para a tela toda: espremido na prévia, os toques caem na engrenagem dele. Então ele abre em
+ * tela cheia, fora da prévia (ela tem transform; um nó direto no body), com um X para fechar.
+ */
+function FullDrive({ file, onClose }) {
+  const close = useRef(onClose)
+  close.current = onClose
+  useEffect(() => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const key = (e) => e.key === 'Escape' && close.current()
+    document.addEventListener('keydown', key)
+    render(
+      html`<div class="gfull" role="dialog" aria-modal="true" aria-label=${file.name}>
+        <iframe
+          src=${`https://drive.google.com/file/d/${encodeURIComponent(file.id)}/preview`}
+          title=${file.name}
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin"
+        ></iframe>
+        <button type="button" class="gfull-x" onClick=${() => close.current()} aria-label="Fechar">
+          <${Icon} name="x" size=${22} strokeWidth=${2.2} />
+        </button>
+      </div>`,
+      host,
+    )
+    return () => {
+      document.removeEventListener('keydown', key)
+      render(null, host)
+      host.remove()
+    }
+  }, [file.id])
+  return null
+}
+
+function DrivePlayer({ file, poster, ratio, onOriginal }) {
+  const [full, setFull] = useState(false)
   return html`<div class="pv-proxy pv-gdrive">
-    <div class="pv-gframe" style=${ratio ? `aspect-ratio:${ratio}` : ''}>
-      <iframe
-        src=${`https://drive.google.com/file/d/${encodeURIComponent(file.id)}/preview`}
-        title=${file.name}
-        allow="autoplay; fullscreen; picture-in-picture"
-        allowfullscreen
-        referrerpolicy="strict-origin-when-cross-origin"
-      ></iframe>
-    </div>
+    <button type="button" class="pv-gposter" style=${ratio ? `aspect-ratio:${ratio}` : ''} onClick=${() => setFull(true)} aria-label=${`Tocar ${file.name}`}>
+      ${poster ? html`<img src=${poster} alt="" referrerpolicy="no-referrer" draggable="false" />` : null}
+      <span class="mp-big" aria-hidden="true"><${Icon} name="play" size=${30} /></span>
+    </button>
     <p class="pv-proxy-note">
       <span>Reprodução em baixa resolução.</span>
       ${onOriginal ? html`<button type="button" class="link-btn pv-gdrive-orig" onClick=${onOriginal}>Tocar o original</button>` : null}
     </p>
+    ${full ? html`<${FullDrive} file=${file} onClose=${() => setFull(false)} />` : null}
   </div>`
 }
 
@@ -374,7 +407,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
       const vm = file.videoMediaMetadata
       const ratio = vm?.width && vm?.height ? `${vm.width} / ${vm.height}` : null
       if (pub === undefined) return html`<div class="pv-wait"><span class="spinner"></span></div>`
-      if (pub) return html`<${DrivePlayer} file=${file} ratio=${ratio} onOriginal=${playable ? () => setWantOrig(true) : null} />`
+      if (pub) return html`<${DrivePlayer} file=${file} poster=${art} ratio=${ratio} onOriginal=${playable ? () => setWantOrig(true) : null} />`
     }
     if (!playable || fail === 'format') return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.format} />`
     if (sw === false) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.nosw} />`
