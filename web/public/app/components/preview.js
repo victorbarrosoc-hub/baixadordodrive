@@ -3,7 +3,7 @@
 import { html, render, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { canDownload, driveUrl, findProxy, getFile, isGoogleDoc, isPrevia, kindOf, mayPlay, showsAsImage, target, wantsLite, wantsProxy } from '../lib/browse.js'
 import { loadThumb, streamReady, streamUrl } from '../lib/stream.js'
-import { linkAccess } from '../lib/drive.js'
+import { linkAccess, openLink, openLinkError } from '../lib/drive.js'
 import { nowPlaying, takeName } from '../lib/now-playing.js'
 import { bytes, duration, extOf, fullDate } from '../lib/format.js'
 import { toast } from '../lib/state.js'
@@ -182,6 +182,8 @@ const FAIL_TEXT = {
   format: 'Este formato não toca no navegador. Baixe para ver no app de vídeo, ou abra no Drive.',
   // Referência salva antes da conversão (VP9 do Instagram): o app de computador converte sozinho.
   formatRef: 'Este vídeo veio num formato que o iPhone não toca. Com o app SOBEDESCE aberto no computador, ele é convertido sozinho em alguns minutos.',
+  // Mesma situação, com a opção de tocar já pelo player do Drive (que converte por conta própria).
+  formatRefDrive: 'Este vídeo veio num formato que o iPhone não toca. Dá para tocar já pelo player do Drive, ou esperar o app SOBEDESCE do computador converter.',
   reconnect: 'O Google pediu uma nova autorização. Reconecte o Drive na sua conta.',
   session: 'Sua sessão terminou. Entre de novo para ver a prévia.',
   denied: 'O Google não liberou este arquivo para prévia.',
@@ -259,6 +261,42 @@ function DrivePlayer({ file, poster, ratio, now, onOriginal }) {
   </div>`
 }
 
+/**
+ * Referência que o iPhone não toca (VP9 do Instagram, ainda não convertida pelo computador): o player do Drive toca,
+ * porque o Google converte por conta própria. Ele só abre dentro do app com o link liberado ("qualquer pessoa com o
+ * link", sem aparecer em buscas). Liberar este vídeo ou a coleção inteira (as próximas herdam), sempre com confirmação.
+ */
+function RefLiberar({ file, onOpen }) {
+  const [step, setStep] = useState(null) // null | 'confirm' | 'busy'
+  const [err, setErr] = useState(null)
+  const colecao = file.parents?.[0] || null
+  const liberar = async (id) => {
+    setStep('busy')
+    setErr(null)
+    try {
+      await openLink(id)
+      window.dispatchEvent(new CustomEvent('sd-link-aberto', { detail: { id: file.id } }))
+      onOpen()
+    } catch (e) {
+      setErr(openLinkError(e))
+      setStep('confirm')
+    }
+  }
+  if (!step) return html`<${Button} variant="primary" icon="play" onClick=${() => setStep('confirm')}>Tocar pelo Drive</${Button}>`
+  return html`<div class="share-confirm pv-ref-liberar">
+    <p>Para tocar aqui, o vídeo precisa estar liberado para <b>quem tiver o link</b>. Ele não aparece em buscas e continua no seu Drive.</p>
+    ${err ? html`<p class="share-err" role="alert">${err.text}</p>` : null}
+    <div class="share-confirm-acts">
+      ${colecao
+        ? html`<${Button} variant="primary" size="sm" loading=${step === 'busy'} disabled=${step === 'busy'} onClick=${() => liberar(colecao)}>Liberar a coleção</${Button}>`
+        : null}
+      <${Button} variant=${colecao ? 'secondary' : 'primary'} size="sm" disabled=${step === 'busy'} onClick=${() => liberar(file.id)}>Só este vídeo</${Button}>
+      <${Button} variant="ghost" size="sm" disabled=${step === 'busy'} onClick=${() => (setStep(null), setErr(null))}>Cancelar</${Button}>
+    </div>
+    ${colecao ? html`<p class="pv-ref-nota">Liberar a coleção vale para todas as referências dela, inclusive as próximas.</p>` : null}
+  </div>`
+}
+
 /** "Prévia leve | Original" no canto do player (o primeiro diz se é a cópia do app ou o proxy da câmera). */
 function LiteSwitch({ proxy, on, canOriginal, onPick }) {
   return html`<div class="mp-switch" role="group" aria-label="O que tocar">
@@ -294,6 +332,9 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
   const heavy = kind === 'video' && isHeavy(file)
   const [pub, setPub] = useState(undefined)
   const [wantOrig, setWantOrig] = useState(false)
+  // Referência que o iPhone não toca: o link dela (ou da coleção) já está liberado? undefined = conferindo.
+  const refFmt = kind === 'video' && refSemConversao(file) && (!playable || fail === 'format')
+  const [refAcc, setRefAcc] = useState(undefined)
   const at = useRef(0)
   const [startAt, setStartAt] = useState(0)
   const pick = (leve) => {
@@ -311,6 +352,7 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
     setStartAt(0)
     setPub(undefined)
     setWantOrig(false)
+    setRefAcc(undefined)
     streamReady().then((ok) => alive && setSw(ok))
     // Junto com a busca do proxy: o player do Drive só entra se não houver proxy.
     if (kind === 'video' && isHeavy(file)) {
@@ -321,6 +363,15 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
     }
     return () => (alive = false)
   }, [file.id])
+  useEffect(() => {
+    if (!refFmt || refAcc !== undefined) return
+    let alive = true
+    linkAccess(file.id).then(
+      (a) => alive && setRefAcc({ open: a?.open === true, canShare: a?.canShare !== false }),
+      () => alive && setRefAcc({ open: false, canShare: true }),
+    )
+    return () => (alive = false)
+  }, [refFmt, file.id])
   useEffect(() => {
     const on = (e) => e.detail?.id === file.id && setPub(true)
     window.addEventListener('sd-link-aberto', on)
@@ -422,7 +473,17 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
       if (pub === undefined) return html`<div class="pv-wait"><span class="spinner"></span></div>`
       if (pub) return html`<${DrivePlayer} file=${file} poster=${art} ratio=${ratio} now=${now} onOriginal=${playable ? () => setWantOrig(true) : null} />`
     }
-    if (!playable || fail === 'format') return html`<${Unsupported} file=${file} poster=${art} reason=${refSemConversao(file) ? FAIL_TEXT.formatRef : FAIL_TEXT.format} />`
+    if (refFmt) {
+      const vm = file.videoMediaMetadata
+      const ratio = vm?.width && vm?.height ? `${vm.width} / ${vm.height}` : null
+      if (refAcc === undefined) return html`<div class="pv-wait"><span class="spinner"></span></div>`
+      if (refAcc.open) return html`<${DrivePlayer} file=${file} poster=${art} ratio=${ratio} now=${now} />`
+      if (!refAcc.canShare) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.formatRef} />`
+      return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.formatRefDrive}>
+        <${RefLiberar} file=${file} onOpen=${() => setRefAcc({ open: true, canShare: true })} />
+      </${Unsupported}>`
+    }
+    if (!playable || fail === 'format') return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.format} />`
     if (sw === false) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.nosw} />`
     if (fail) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT[fail] || FAIL_TEXT.network} />`
     if (sw === undefined) return html`<div class="pv-wait"><span class="spinner"></span></div>`
