@@ -165,4 +165,10 @@ extensão). A miniatura é a do próprio Drive (vídeo e foto têm sozinhos).
   aba e guardam `{ label, em }` em `sessionStorage` (`sobedesce.refs.fora`). Ao voltar (`visibilitychange`, até 30 min
   depois), aparece “Voltou do Instagram?” no topo: **Colar** lê a área de transferência (o toque é o gesto que o iOS
   pede) e abre “Salvar link” já com o link achado; sem link, abre a folha vazia. O × descarta.
+- **Coleção na hora de salvar (2.8.10):** em “Salvar link”, a lista de coleções termina em **+ Nova coleção** e cada
+  coleção tem um lápis para **renomear**. Os dois abrem um campo na própria linha (Criar/OK, × ou Esc cancela), sem
+  sair da folha nem perder o link colado; a coleção criada já fica escolhida.
+- **Links públicos com o domínio (2.8.10):** o link pra IA e os endereços do atalho saem sempre com o endereço
+  principal (`origemPublica` em `lib/site.ts`), mesmo quando o pedido vem do endereço antigo (`sobedesce.vercel.app`,
+  app instalado na Tela de Início antes do domínio). Os links antigos continuam abrindo: o token é o mesmo.
 - Aviso de primeiro uso: “Salve só para referência dos seus projetos. Respeite os direitos de quem criou.”

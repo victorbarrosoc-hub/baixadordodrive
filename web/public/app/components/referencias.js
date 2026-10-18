@@ -485,6 +485,17 @@ export function RefSaveSheet({ texto = '', colecaoId }) {
   const [nota, setNota] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  // Criar ou renomear coleção aqui mesmo, sem perder o link colado: edit = 'nova' | id da coleção | null.
+  const [edit, setEdit] = useState(null)
+  const [draft, setDraft] = useState('')
+  const [editBusy, setEditBusy] = useState(false)
+  const [editError, setEditError] = useState(null)
+  const editInput = useRef(null)
+  useEffect(() => {
+    if (!edit) return
+    const t = setTimeout(() => editInput.current?.focus(), 30)
+    return () => clearTimeout(t)
+  }, [edit])
   const canPaste = typeof navigator.clipboard?.readText === 'function'
   const found = refs.findUrl(url)
   const plat = found ? refs.platformOf(found) : ''
@@ -508,6 +519,53 @@ export function RefSaveSheet({ texto = '', colecaoId }) {
       toast('Toque e segure no campo para colar.')
     }
   }
+  const startEdit = (which, nome = '') => {
+    setEdit(which)
+    setDraft(nome)
+    setEditError(null)
+  }
+  const commitEdit = async () => {
+    const v = draft.trim()
+    if (!v) return setEditError('Dê um nome para a coleção.')
+    const atual = edit !== 'nova' ? colecoes.find((c) => c.id === edit) : null
+    if (atual && atual.nome === v) return setEdit(null)
+    setEditBusy(true)
+    setEditError(null)
+    try {
+      if (atual) await refs.renameColecao(atual.id, v)
+      else {
+        const nova = await refs.createColecao(v)
+        setPick(nova.id)
+        toast(`Coleção ${nova.nome} criada no seu Drive.`, { tone: 'success' })
+      }
+      setEdit(null)
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setEditBusy(false)
+    }
+  }
+  const editRow = (label) => html`<li key="edit" class="rpick-edit">
+    <form class="rpick-form" onSubmit=${(e) => (e.preventDefault(), commitEdit())}>
+      <${Icon} name=${edit === 'nova' ? 'plus' : 'pencil'} />
+      <input
+        class="input"
+        type="text"
+        maxlength="80"
+        placeholder=${edit === 'nova' ? 'Nome da nova coleção' : 'Nome da coleção'}
+        value=${draft}
+        aria-label=${label}
+        ref=${editInput}
+        onInput=${(e) => setDraft(e.currentTarget.value)}
+        onKeyDown=${(e) => e.key === 'Escape' && (e.stopPropagation(), setEdit(null))}
+        disabled=${editBusy}
+      />
+      <${Button} size="sm" variant="primary" type="submit" loading=${editBusy} disabled=${editBusy || !draft.trim()}>${edit === 'nova' ? 'Criar' : 'OK'}</${Button}>
+      <button type="button" class="icon-btn rpick-x" onClick=${() => setEdit(null)} aria-label="Cancelar" disabled=${editBusy}><${Icon} name="x" size=${18} /></button>
+    </form>
+    ${editError ? html`<p class="form-error rpick-err" role="alert"><${Icon} name="warning" size=${16} /> <span>${editError}</span></p>` : null}
+  </li>`
+
   const save = async () => {
     if (!found) return setError('Cole um link que comece com https://')
     setBusy(true)
@@ -560,15 +618,28 @@ export function RefSaveSheet({ texto = '', colecaoId }) {
         : colecoes.length
         ? html`<p class="rfield-label rpick-label">Coleção</p>
             <ul class="group menu rpick" role="radiogroup" aria-label="Coleção">
-              ${colecoes.map(
-                (c) => html`<li key=${c.id}>
-                  <button type="button" role="radio" aria-checked=${pick === c.id ? 'true' : 'false'} class="menu-item" onClick=${() => setPick(c.id)}>
-                    <${Icon} name="bookmark" />
-                    <span class="menu-text">${c.nome}</span>
-                    ${pick === c.id ? html`<${Icon} name="check" size=${18} strokeWidth=${2.2} class="rpick-check" />` : null}
-                  </button>
-                </li>`,
+              ${colecoes.map((c) =>
+                edit === c.id
+                  ? editRow(`Novo nome para ${c.nome}`)
+                  : html`<li key=${c.id} class="rpick-row">
+                      <button type="button" role="radio" aria-checked=${pick === c.id ? 'true' : 'false'} class="menu-item" onClick=${() => setPick(c.id)}>
+                        <${Icon} name="bookmark" />
+                        <span class="menu-text">${c.nome}</span>
+                        ${pick === c.id ? html`<${Icon} name="check" size=${18} strokeWidth=${2.2} class="rpick-check" />` : null}
+                      </button>
+                      <button type="button" class="icon-btn rpick-ren" onClick=${() => startEdit(c.id, c.nome)} aria-label=${`Renomear ${c.nome}`}>
+                        <${Icon} name="pencil" size=${17} />
+                      </button>
+                    </li>`,
               )}
+              ${edit === 'nova'
+                ? editRow('Nome da nova coleção')
+                : html`<li key="nova">
+                    <button type="button" class="menu-item rpick-new" onClick=${() => startEdit('nova')}>
+                      <${Icon} name="plus" />
+                      <span class="menu-text">Nova coleção</span>
+                    </button>
+                  </li>`}
             </ul>`
         : html`<${Field} label="Primeira coleção">
             <input class="input" type="text" placeholder="Ex.: Planos-sequência" maxlength="80" value=${newName} onInput=${(e) => setNewName(e.currentTarget.value)} />

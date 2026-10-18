@@ -3,7 +3,7 @@ import { ErroDrive } from "@/lib/google/drive";
 import { origemDoPedido } from "@/lib/http";
 import { colecaoPublica } from "@/lib/referencias/colecoes";
 import { emHtml, emJson, emMarkdown, lerColecaoAberta } from "@/lib/referencias/publica";
-import { origemDoSite } from "@/lib/site";
+import { origemPublica } from "@/lib/site";
 
 /**
  * Link pra IA de uma coleção (docs/REFERENCIAS.md §6): /r/<token> (HTML), /r/<token>.json e /r/<token>.md.
@@ -54,6 +54,6 @@ export async function GET(req: Request, ctx: RouteContext<"/r/[token]">) {
   }
   if (formato === "json") return resposta("json", 200, JSON.stringify(emJson(dados)));
   if (formato === "md") return resposta("md", 200, emMarkdown(dados));
-  const base = `${origemDoSite(origemDoPedido(req.headers, req.url))}/r/${token}`;
+  const base = `${origemPublica(origemDoPedido(req.headers, req.url))}/r/${token}`;
   return resposta("html", 200, emHtml(dados, base));
 }
