@@ -108,6 +108,8 @@ describe("/baixar/versao", () => {
       windows: "/baixar/windows",
       sha256Mac: SHA_MAC,
       sha256Windows: SHA_WIN.toLowerCase(),
+      arquivoMac: null,
+      arquivoWindows: null,
     });
     assert.match(res.headers.get("cache-control") ?? "", /s-maxage=300/);
   });
@@ -183,6 +185,36 @@ describe("/baixar/[plataforma]", () => {
     assert.equal(mac.headers.get("location"), `${base}/download/SOBEDESCE-0.1.0-mac-universal.dmg`);
     const win = await pedir("windows");
     assert.equal(win.headers.get("location"), `${base}/download/SOBEDESCE-0.1.0-windows-setup.exe`);
+  });
+
+  test("?build=N entrega o instalador exatamente daquele build; build que já saiu dá 404", async () => {
+    arquivos = [
+      { nome: "SOBEDESCE-0.1.0-b57-mac-universal.dmg", conteudo: "dmg57" },
+      { nome: "SOBEDESCE-0.1.0-b58-mac-universal.dmg", conteudo: "dmg58" },
+      { nome: "SOBEDESCE-0.1.0-b58-windows-setup.exe", conteudo: "exe58" },
+      { nome: "versao.json", conteudo: JSON.stringify(VERSAO) },
+    ];
+    const pedirBuild = (p: string, b: string) =>
+      plataforma.GET(new Request(`http://localhost:3000/baixar/${p}?build=${b}`) as never, { params: Promise.resolve({ plataforma: p }) });
+    assert.equal((await pedirBuild("mac", "57")).headers.get("location"), `${base}/download/SOBEDESCE-0.1.0-b57-mac-universal.dmg`);
+    assert.equal((await pedirBuild("mac", "58")).headers.get("location"), `${base}/download/SOBEDESCE-0.1.0-b58-mac-universal.dmg`);
+    const sumiu = await pedirBuild("windows", "57");
+    assert.equal(sumiu.status, 404, "o app nunca recebe a página do site no lugar do instalador");
+    assert.equal(sumiu.headers.get("location"), null);
+    // build inválido: ignora e entrega o do versao.json (sem arquivoMac: o de maior build)
+    assert.equal((await pedirBuild("mac", "abc")).headers.get("location"), `${base}/download/SOBEDESCE-0.1.0-b58-mac-universal.dmg`);
+  });
+
+  test("sem ?build: o instalador que o versao.json aponta, mesmo com um build mais novo subindo", async () => {
+    arquivos = [
+      { nome: "SOBEDESCE-0.1.0-b57-mac-universal.dmg", conteudo: "dmg57" },
+      { nome: "SOBEDESCE-0.1.0-b58-mac-universal.dmg", conteudo: "dmg58" },
+      { nome: "versao.json", conteudo: JSON.stringify({ ...VERSAO, arquivoMac: "SOBEDESCE-0.1.0-b57-mac-universal.dmg", arquivoWindows: "../x" }) },
+    ];
+    assert.equal((await pedir("mac")).headers.get("location"), `${base}/download/SOBEDESCE-0.1.0-b57-mac-universal.dmg`);
+    const { corpo } = await pedirVersao();
+    assert.equal(corpo.arquivoMac, "SOBEDESCE-0.1.0-b57-mac-universal.dmg");
+    assert.equal(corpo.arquivoWindows, null, "nome com barra não vale");
   });
 
   test("plataforma desconhecida volta para a seção de download; sem instalador, avisa", async () => {

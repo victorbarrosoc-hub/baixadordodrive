@@ -13,7 +13,7 @@ import { Icon } from './icons.js'
 import { Avatar, Button, LinkButton, Pill, Segmented, Select, Slider, Stepper, Switch } from './common.js'
 import { useLocalRoots } from './local-picker.js'
 import { CloudAccountRows } from './cloud.js'
-import { buildLabel, checkUpdate, downloadUpdate, installHint, installUpdate, updateProgress, updating } from '../lib/versao.js'
+import { buildLabel, checkUpdate, downloadingAlone, downloadUpdate, installHint, installUpdate, retryUpdate, updateProgress, updateReady, updating } from '../lib/versao.js'
 import { UpdateBar } from './versao.js'
 import { PreviaRow } from './previa.js'
 
@@ -84,6 +84,8 @@ function VersionRow() {
   const atual = v?.atual
   const dev = !atual?.build
   const andando = updating(v)
+  const baixando = downloadingAlone(v)
+  const pronto = updateReady(v)
   const prog = updateProgress(v?.atualizacao)
   const check = async () => {
     setBusy(true)
@@ -92,7 +94,8 @@ function VersionRow() {
     if (st) setChecked(true)
   }
   let note = null
-  if (andando) note = html`<span class="srow-note srow-update"><${UpdateBar} fraction=${prog?.fraction} /><span>${prog?.label}</span></span>`
+  if (andando || baixando) note = html`<span class="srow-note srow-update"><${UpdateBar} fraction=${prog?.fraction} /><span>${prog?.label}</span></span>`
+  else if (pronto) note = html`<span class="srow-note is-new">O build ${v.atualizacao.build} já foi baixado e conferido. Atualizar agora fecha o app, troca e abre de novo.</span>`
   else if (prog?.erro) note = html`<span class="srow-note is-warn">${prog.label}</span>`
   else if (v?.disponivel) note = html`<span class="srow-note is-new">Saiu o build ${v.ultima.build}. ${installHint(v.plataforma, v.podeAtualizar)}</span>`
   else if (checked && dev) note = html`<span class="srow-note">A versão de desenvolvimento não procura atualização.</span>`
@@ -103,7 +106,13 @@ function VersionRow() {
     desc=${html`<span title=${atual?.commit ? `commit ${atual.commit}` : undefined}>${buildLabel(atual)}</span>${note ? html`<br />${note}` : null}`}
   >
     ${v?.disponivel && !andando && v.podeAtualizar
-      ? html`<${Button} size="sm" variant="primary" icon="refresh" onClick=${installUpdate}>${prog?.erro ? 'Tentar de novo' : 'Atualizar'}</${Button}>
+      ? html`${baixando
+            ? null
+            : pronto
+              ? html`<${Button} size="sm" variant="primary" icon="refresh" onClick=${installUpdate}>Atualizar agora</${Button}>`
+              : prog?.erro
+                ? html`<${Button} size="sm" variant="primary" icon="refresh" onClick=${retryUpdate}>Tentar de novo</${Button}>`
+                : html`<${Button} size="sm" variant="primary" icon="refresh" onClick=${installUpdate}>Atualizar</${Button}>`}
           <${Button} size="sm" icon="download" onClick=${downloadUpdate}>Baixar</${Button}>`
       : v?.disponivel && !andando
         ? html`<${Button} size="sm" variant="primary" icon="download" onClick=${downloadUpdate}>Baixar</${Button}>`

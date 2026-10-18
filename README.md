@@ -78,8 +78,10 @@ script está em `web/public/instalar.ps1`.
 
 Quando sai um build novo, aparece **"Nova versão do SOBEDESCE"** na barra lateral (e em **Ajustes → Atualizações**):
 
-- **Atualizar** (Mac e Windows, app instalado): o próprio app baixa a versão nova, confere o SHA-256, fecha, troca e
-  abre de novo, sem aviso da Apple nem do Windows. Se houver transferências andando, ele pergunta antes: elas pausam e
+- **Atualizar agora** (Mac e Windows, app instalado): assim que sai, o próprio app já baixa a versão nova em segundo
+  plano (o aviso mostra o progresso) e confere o SHA-256. No fim aparece **Atualizar agora**: o app fecha, troca e
+  abre de novo, sem aviso da Apple nem do Windows. Se o download falhar (internet, versão ainda subindo), ele tenta de
+  novo sozinho. Se houver transferências andando, ele pergunta antes: elas pausam e
   continuam de onde pararam quando o app abrir. No Mac, o app precisa estar numa pasta em que você pode gravar
   (normalmente **Aplicativos**); aberto direto do `.dmg`, ou se algo der errado, o botão some e fica o **Baixar**.
 - **Baixar** abre o instalador certo no navegador (o jeito manual de cima). Rodar de novo o comando do Terminal ou do

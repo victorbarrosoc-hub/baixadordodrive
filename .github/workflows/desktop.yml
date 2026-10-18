@@ -130,6 +130,10 @@ jobs:
           if (-not (Select-String -Path $env:SOBEDESCE_SMOKE_SAIDA -Pattern '^SMOKE OK$' -Quiet)) { exit 1 }
       # SHA-256 do instalador (main): o job "versao" junta os dois no versao.json. O app ("Atualizar") e os
       # instaladores de uma linha do site (/instalar.sh e /instalar.ps1) só instalam se o download bater com ele.
+      # Nome com o build (SOBEDESCE-0.1.0-b160-…): o build seguinte não troca este arquivo no Release, então o
+      # SHA-256 do versao.json sempre bate com o instalador que o site entrega (scripts/nome-instalador.mjs).
+      - if: github.ref == 'refs/heads/main'
+        run: node scripts/nome-instalador.mjs ${{ matrix.plataforma }} dist
       - if: github.ref == 'refs/heads/main'
         run: node scripts/sha256.mjs ${{ matrix.plataforma }} dist sha256
       - if: github.ref == 'refs/heads/main'
@@ -193,6 +197,10 @@ jobs:
           files: versao.json
           fail_on_unmatched_files: true
           body: Instaladores gerados automaticamente a partir do último commit da main. Sem assinatura da Apple/Microsoft por enquanto (veja o README).
+      # Instaladores de builds antigos saem do Release (ficam o atual e os dois anteriores; scripts/limpar-release.mjs).
+      - run: node scripts/limpar-release.mjs ${{ github.run_number }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   release:
     name: Publicar release
