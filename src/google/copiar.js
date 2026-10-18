@@ -7,6 +7,8 @@ import { SobeDesceError, classifyError } from './errors.js'
 
 export const MAX_COPY_FILES = 5000
 const PARALLEL = 3
+// O que a cópia devolve: o bastante para baixar dela depois (md5 e revisão para conferir).
+const COPY_FIELDS = 'id,name,mimeType,size,md5Checksum,modifiedTime,headRevisionId,capabilities(canDownload)'
 // Os campos do download também (md5, revisão): com "Também baixar para…" o plano vira downloads sem ler de novo.
 const ITEM = 'id,name,mimeType,size,md5Checksum,modifiedTime,headRevisionId,resourceKey,shortcutDetails(targetId,targetMimeType,targetResourceKey),capabilities(canCopy,canDownload)'
 
@@ -154,20 +156,26 @@ export function copyError(err) {
  * `onProgress({ done, total, bytesDone, bytesTotal, current, failed, newFolderId })`. Devolve o mesmo resumo com
  * `stopped` (motivo) quando parou antes do fim. Abortar pelo `signal` interrompe e sobe o AbortError.
  */
-export async function copiarPlano(drive, plan, dest, { signal, onProgress } = {}) {
+export async function copiarPlano(drive, plan, dest, { signal, onProgress, novas = { pastas: [], arquivos: [] } } = {}) {
   const todo = plan.files.filter(f => f.canCopy)
   const failed = plan.files.filter(f => !f.canCopy).map(f => ({ name: f.path || f.name, why: 'O dono bloqueou cópia e download.' }))
   const s = { done: 0, total: todo.length, bytesDone: 0, bytesTotal: todo.reduce((t, f) => t + (f.size || 0), 0), current: null, failed, newFolderId: null, stopped: null }
   const tell = () => onProgress?.({ ...s, failed: s.failed.slice() })
   tell()
   const made = new Map() // id da pasta de origem → id da pasta nova
+  // `novas`: o que foi criado no Drive da conta (DriveItem com relPath/relDir), preenchido aos poucos e válido mesmo
+  // se a cópia parar no meio. O "Também baixar" baixa daqui, da cópia.
   const mkdir = async (name, parent) => (await drive.api('POST', 'files', { query: { fields: 'id' }, body: { name, mimeType: FOLDER_MIME, parents: [parent] }, signal, retries: 2 })).id
   try {
     if (plan.root.folder) {
       s.newFolderId = await mkdir(plan.root.name, dest.id)
       made.set(plan.root.id, s.newFolderId)
       tell()
-      for (const f of plan.folders) made.set(f.id, await mkdir(f.name, made.get(f.parent)))
+      for (const f of plan.folders) {
+        const id = await mkdir(f.name, made.get(f.parent))
+        made.set(f.id, id)
+        novas.pastas.push({ id, name: f.name, mimeType: FOLDER_MIME, isFolder: true, relPath: f.item?.relPath ?? f.name, relDir: f.item?.relDir ?? '' })
+      }
     }
   } catch (err) {
     if (signal?.aborted) throw err
@@ -182,14 +190,15 @@ export async function copiarPlano(drive, plan, dest, { signal, onProgress } = {}
       s.current = f.path || f.name
       tell()
       try {
-        await drive.api('POST', `files/${encodeURIComponent(f.id)}/copy`, {
-          query: { fields: 'id' },
+        const r = await drive.api('POST', `files/${encodeURIComponent(f.id)}/copy`, {
+          query: { fields: COPY_FIELDS },
           body: { name: f.name, parents: [f.parent ? made.get(f.parent) : dest.id] },
           headers: keysHeader(f),
           signal,
           retries: 4,
         })
         s.bytesDone += f.size || 0
+        novas.arquivos.push({ ...toDriveItem(r), relPath: f.item?.relPath ?? f.name, relDir: f.item?.relDir ?? '' })
       } catch (err) {
         if (signal?.aborted) return
         const e = copyError(err)
@@ -207,10 +216,13 @@ export async function copiarPlano(drive, plan, dest, { signal, onProgress } = {}
 }
 
 /**
- * O plano como itens para o planDownloads (engine/planner.js): a pasta do link com `walked` (a árvore já lida, sem
- * varrer de novo nem perder o resourcekey), ou o arquivo avulso. Bloqueados para download e atalhos o planner pula.
+ * "Também baixar": a CÓPIA que ficou no Drive da conta como itens para o planDownloads (engine/planner.js). Baixar do
+ * próprio Drive é o caminho normal do Google (o arquivo de outra pessoa aberto por link vem bem mais devagar) e não
+ * depende de a pessoa manter o link aberto. Pasta do link → a pasta nova com `walked` (o que foi criado agora, sem
+ * listar de novo); arquivo avulso → a cópia dele. Nada copiado → [].
  */
-export function downloadItems(plan) {
-  if (!plan.root.folder) return plan.files.map(f => f.item)
-  return [{ ...plan.rootItem, isFolder: true, mimeType: FOLDER_MIME, walked: [...plan.folders.map(f => f.item), ...plan.files.map(f => f.item)] }]
+export function copyDownloadItems(plan, novas, newFolderId) {
+  if (!novas?.arquivos?.length) return []
+  if (!plan.root.folder) return novas.arquivos
+  return [{ id: newFolderId, name: plan.root.name, mimeType: FOLDER_MIME, isFolder: true, walked: [...novas.pastas, ...novas.arquivos] }]
 }

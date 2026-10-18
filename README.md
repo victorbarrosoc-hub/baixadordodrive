@@ -148,8 +148,9 @@ pasta ou arquivo do Drive de alguém (compartilhado com você ou liberado para q
 subpastas. A cópia é do próprio Google (`files.copy`): nada passa por este computador, então é rápida até com takes
 pesados. Ficam de fora os arquivos com cópia bloqueada pelo dono e os atalhos (a janela lista). Pode fechar a janela:
 a cópia segue e o botão do topo mostra o andamento. Marque **Também baixar para uma mídia física** e escolha a
-pasta no HD/SSD/cartão: ao mesmo tempo em que copia para o Drive, o app baixa do link da pessoa para lá (com as
-subpastas), pela fila de Transferências de sempre (retoma se cair e confere cada arquivo). O celular tem a cópia para
+pasta no HD/SSD/cartão: quando a cópia termina, o app baixa **da sua cópia no Drive** para lá (com as subpastas),
+pela fila de Transferências de sempre (retoma se cair e confere cada arquivo). Baixar da cópia é o caminho rápido: o
+Google costuma entregar bem mais devagar o arquivo de outra pessoa aberto por link. O celular tem a cópia para
 o Drive (aba Drive, ícone de link).
 
 ### Pausar, continuar, cancelar
