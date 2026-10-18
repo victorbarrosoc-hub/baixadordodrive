@@ -80,6 +80,12 @@ export default function PrivacidadePage() {
             inscrição.
           </li>
           <li>
+            <strong>Uso do serviço:</strong> para saber como a SOBEDESCE está sendo usada e achar problemas, guardamos os dias em que você usou e por onde
+            (site, app do celular ou app de computador), a hora do último uso e o número da versão do app de computador. O app de computador manda também,
+            por dia, só números: quanto subiu e desceu, quantos arquivos, quantos deram erro, o tamanho do maior e o tempo transferindo. Nunca nomes de
+            arquivos ou pastas. Isso fica 400 dias e sai junto com a conta.
+          </li>
+          <li>
             <strong>Senha nova:</strong> quando você usa “Esqueci a senha” ou cria a primeira senha, guardamos só o hash do link enviado. Ele vale por uma
             hora e é apagado depois de usado ou vencido.
           </li>
@@ -207,7 +213,7 @@ export default function PrivacidadePage() {
       <LegalSection title="Por quanto tempo">
         <p>
           Guardamos os dados da conta enquanto ela existir. O andamento das transferências de um computador fica no máximo 7 dias depois da última
-          notícia dele. Quando você remove um Drive, os tokens dele são apagados. Quando você apaga a conta, apagamos
+          notícia dele. Os registros de uso por dia ficam 400 dias. Quando você remove um Drive, os tokens dele são apagados. Quando você apaga a conta, apagamos
           tudo o que está ligado a ela na mesma hora. Cópias de segurança automáticas dos provedores podem levar alguns dias para sair do ciclo.
         </p>
       </LegalSection>

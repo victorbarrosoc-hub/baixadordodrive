@@ -32,6 +32,7 @@ export function dataPaths(root = dataDir()) {
     mobile: path.join(root, 'mobile.json'), // código de acesso do celular
     mobileUploads: path.join(root, 'mobile-uploads.json'), // recebimentos do celular (para retomar)
     cloud: path.join(root, 'cloud.json'), // sessão da conta SOBEDESCE neste computador (token do dispositivo, modo 0600)
+    uso: path.join(root, 'uso.json'), // contagem por dia (bytes, arquivos, erros), sem nome de arquivo; vai para a conta
     thumbs: path.join(root, 'thumbs'), // miniaturas do Drive já baixadas (cache da tela Drive; pode apagar)
   }
 }

@@ -41,8 +41,11 @@ after(async () => {
 
 const SENHA = "senha antiga comprida";
 
-async function criar(email: string, ip: string) {
-  const r = await contas.criarConta({ nome: "Victor Barroso", email, senha: SENHA, ip });
+/** Cria a conta e espera o aviso de conta nova aos admins sair (assim ele não cai no meio da contagem de um teste). */
+async function criar(email: string, ip: string, nome = "Victor Barroso") {
+  const pendentes: Promise<unknown>[] = [];
+  const r = await contas.criarConta({ nome, email, senha: SENHA, ip, depois: (t) => void pendentes.push(t()) });
+  await Promise.all(pendentes);
   assert.ok(r.ok);
   return r;
 }
@@ -194,8 +197,7 @@ describe("apagar a conta", () => {
     assert.match(e.subject, /apagada/);
 
     // O e-mail fica livre para uma conta nova, e a conta Google também.
-    const nova = await contas.criarConta({ nome: "De novo", email: "apagar@exemplo.com", senha: SENHA, ip: "5.0.0.4" });
-    assert.ok(nova.ok);
+    await criar("apagar@exemplo.com", "5.0.0.4", "De novo");
   });
 
   test("conta sem senha (só Google): vale um login recente", async () => {
@@ -213,6 +215,21 @@ describe("apagar a conta", () => {
 });
 
 describe("avisos e envio", () => {
+  test("conta nova: os admins recebem um aviso, uma vez só", async () => {
+    const admin = await import("../src/lib/email/admin");
+    const antes = amb.resend.recebidos.length;
+    const r = await criar("nova-admin@exemplo.com", "7.0.0.9", "Pessoa <Nova>");
+    const e = amb.resend.recebidos.at(-1)!;
+    assert.equal(amb.resend.recebidos.length, antes + 1);
+    assert.deepEqual(e.to, ["contato@dissesim.com.br"]);
+    assert.match(e.subject, /Conta nova: Pessoa <Nova>/);
+    assert.match(e.text, /nova-admin@exemplo\.com/);
+    assert.match(e.html, /Pessoa &lt;Nova&gt;/, "HTML escapado");
+    // Repetir (dois pedidos, retry) não manda de novo.
+    await admin.avisarAdminContaNova({ id: r.usuario.id, nome: "Pessoa <Nova>", email: "nova-admin@exemplo.com" }, false);
+    assert.equal(amb.resend.recebidos.length, antes + 1);
+  });
+
   test("computador conectado: e-mail com nome, plataforma, quando e o caminho para desconectar", async () => {
     const r = await criar("aviso@exemplo.com", "7.0.0.1");
     const res = await avisos.avisarComputadorConectado(r.usuario.id, { nome: "MacBook <Pro> de Victor", plataforma: "mac", quando: new Date("2026-10-16T15:30:00Z") });

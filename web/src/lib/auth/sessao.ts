@@ -8,7 +8,7 @@ import { db, schema } from "@/lib/db";
 import type { Plataforma, TipoSessao } from "@/lib/db/schema";
 import { FORMATO_TOKEN_DISPOSITIVO, FORMATO_TOKEN_WEB, hashToken, novoId, novoToken, PREFIXO_DISPOSITIVO } from "./tokens";
 
-const { sessoes, usuarios, dispositivoStatus, redefinicoesSenha, codigosDispositivo } = schema;
+const { sessoes, usuarios, dispositivoStatus, redefinicoesSenha, codigosDispositivo, atividadeDiaria, usoDiario } = schema;
 
 /**
  * Limpeza do que a política de privacidade promete apagar: links de "Esqueci a senha" usados ou vencidos (uma hora)
@@ -29,6 +29,34 @@ function limpezaDeCarona(agora: Date) {
     .delete(codigosDispositivo)
     .where(lt(codigosDispositivo.expiraEm, new Date(agora.getTime() - DIA)))
     .catch(() => {});
+  // Uso para o admin (docs/CONTAS.md §10): 400 dias.
+  const corte = diaDe(new Date(agora.getTime() - GUARDA_USO_DIAS * DIA));
+  void db.delete(atividadeDiaria).where(lt(atividadeDiaria.dia, corte)).catch(() => {});
+  void db.delete(usoDiario).where(lt(usoDiario.dia, corte)).catch(() => {});
+}
+
+/** Quanto tempo a atividade diária e o uso dos computadores ficam guardados. */
+export const GUARDA_USO_DIAS = 400;
+const FUSO = "America/Fortaleza";
+const formatoDia = new Intl.DateTimeFormat("en-CA", { timeZone: FUSO, year: "numeric", month: "2-digit", day: "2-digit" });
+/** "2026-10-18" no fuso da tela de admin. */
+export function diaDe(d: Date): string {
+  return formatoDia.format(d);
+}
+
+/** Por onde a pessoa está usando: o computador (Bearer), o app do celular instalado (cabeçalho do /app) ou o site. */
+export type Origem = "site" | "celular" | "computador";
+
+/** Marca o dia de uso da pessoa (uma linha por pessoa e dia; o "por onde" só acumula). */
+async function marcarDia(usuarioId: string, origem: Origem, agora: Date) {
+  const marca = { site: origem === "site", celular: origem === "celular", computador: origem === "computador" };
+  await db
+    .insert(atividadeDiaria)
+    .values({ usuarioId, dia: diaDe(agora), ...marca, ultimaEm: agora, ultimaOrigem: origem })
+    .onConflictDoUpdate({
+      target: [atividadeDiaria.usuarioId, atividadeDiaria.dia],
+      set: { [origem]: true, ultimaEm: agora, ultimaOrigem: origem },
+    });
 }
 
 /** O andamento das transferências (docs/CONTAS.md §9) some junto com a sessão do computador. */
@@ -83,7 +111,14 @@ export function tokenDoBearer(authorization: string | null | undefined): string 
  * Quem está pedindo. Com Authorization, só o Bearer de dispositivo conta (o cookie é ignorado);
  * sem Authorization, o cookie do site.
  */
-export async function autenticar(credenciais: { cookie?: string | null; authorization?: string | null }): Promise<Autenticado | null> {
+export async function autenticar(credenciais: {
+  cookie?: string | null;
+  authorization?: string | null;
+  /** O app do celular instalado (cabeçalho x-sobedesce-app: celular). */
+  celular?: boolean;
+  /** Build do app de computador (cabeçalho x-sobedesce-build). */
+  build?: number | null;
+}): Promise<Autenticado | null> {
   let token: string;
   let tipo: TipoSessao;
   let via: Autenticado["via"];
@@ -121,9 +156,16 @@ export async function autenticar(credenciais: { cookie?: string | null; authoriz
   limpezaDeCarona(agora);
 
   let expiraEm = linha.sessao.expiraEm;
-  if (agora.getTime() - linha.sessao.ultimoUsoEm.getTime() > INTERVALO_DESLIZE) {
+  // A cada 10 minutos (e na virada do dia, para o dia contar): desliza a sessão e marca o dia de uso.
+  if (agora.getTime() - linha.sessao.ultimoUsoEm.getTime() > INTERVALO_DESLIZE || diaDe(agora) !== diaDe(linha.sessao.ultimoUsoEm)) {
     expiraEm = new Date(agora.getTime() + DURACAO[tipo]);
-    await db.update(sessoes).set({ ultimoUsoEm: agora, expiraEm }).where(eq(sessoes.id, linha.sessao.id));
+    const build = tipo === "dispositivo" && Number.isSafeInteger(credenciais.build) && credenciais.build! >= 0 ? credenciais.build! : undefined;
+    await db
+      .update(sessoes)
+      .set({ ultimoUsoEm: agora, expiraEm, ...(build !== undefined ? { appBuild: build } : {}) })
+      .where(eq(sessoes.id, linha.sessao.id));
+    const origem: Origem = tipo === "dispositivo" ? "computador" : credenciais.celular ? "celular" : "site";
+    await marcarDia(linha.usuario.id, origem, agora).catch(() => {});
   }
   return {
     usuario: linha.usuario,
@@ -135,6 +177,17 @@ export async function autenticar(credenciais: { cookie?: string | null; authoriz
 export async function revogarSessao(id: string): Promise<void> {
   const r = await db.update(sessoes).set({ revogadaEm: new Date() }).where(and(eq(sessoes.id, id), isNull(sessoes.revogadaEm))).returning({ id: sessoes.id });
   await apagarAndamento(r);
+}
+
+/** Uma sessão de um usuário, de qualquer tipo (admin desconectando um aparelho). Devolve se achou. */
+export async function revogarSessaoDe(usuarioId: string, sessaoId: string): Promise<boolean> {
+  const r = await db
+    .update(sessoes)
+    .set({ revogadaEm: new Date() })
+    .where(and(eq(sessoes.id, sessaoId), eq(sessoes.usuarioId, usuarioId), isNull(sessoes.revogadaEm)))
+    .returning({ id: sessoes.id });
+  await apagarAndamento(r);
+  return r.length > 0;
 }
 
 /** Revoga pelo token (sair do site com o cookie). */

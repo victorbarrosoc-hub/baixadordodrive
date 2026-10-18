@@ -102,7 +102,7 @@ async function api(path, { method = 'GET', body } = {}) {
       method,
       credentials: 'same-origin',
       cache: 'no-store',
-      headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { Accept: 'application/json', 'x-sobedesce-app': 'celular', ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     })
   } catch {

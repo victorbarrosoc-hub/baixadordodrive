@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { emSegundoPlano, type Depois } from "@/lib/depois";
 import { avisarMuitasTentativas, avisarSenhaMudou } from "@/lib/email/avisos";
+import { avisarAdminContaNova } from "@/lib/email/admin";
 import { dentroDoLimite, esquecerTentativas, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "./limite";
 import { conferirSenha, hashDeEnfeite, hashSenha, SENHA_MAXIMA, SENHA_MINIMA } from "./senha";
 import { encerrarAcessos, type Encerrado } from "./encerrar";
@@ -32,7 +33,7 @@ function nomeLimpo(valor: unknown): string {
   return typeof valor === "string" ? valor.replace(/\s+/g, " ").trim().slice(0, 80) : "";
 }
 
-export async function criarConta(entrada: { nome: unknown; email: unknown; senha: unknown; ip: string }): Promise<Entrou | Falha> {
+export async function criarConta(entrada: { nome: unknown; email: unknown; senha: unknown; ip: string; depois?: Depois }): Promise<Entrou | Falha> {
   const nome = nomeLimpo(entrada.nome);
   const email = normalizarEmail(entrada.email);
   const senha = typeof entrada.senha === "string" ? entrada.senha : "";
@@ -56,6 +57,7 @@ export async function criarConta(entrada: { nome: unknown; email: unknown; senha
     return { ok: false, erro: "email_em_uso", campo: "email", mensagem: "Este e-mail já tem uma conta. Entre com ele." };
   }
   const sessao = await criarSessao(id, "web");
+  (entrada.depois ?? emSegundoPlano)(() => avisarAdminContaNova({ id, nome, email }, false));
   return { ok: true, usuario: { id, email, nome }, token: sessao.token, expiraEm: sessao.expiraEm };
 }
 

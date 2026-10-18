@@ -15,6 +15,7 @@ import { ArquivoSecreto } from '../util/segredos.js'
 import { httpRequest, HttpError } from '../net/http.js'
 import { backoffDelay, isAbortError, sleep } from '../util/backoff.js'
 import { classifyError, SobeDesceError } from './errors.js'
+import { readBuildInfo } from '../version.js'
 
 export const CLOUD_PREFIX = 'nuvem:'
 
@@ -124,7 +125,7 @@ export class CloudAuth extends EventEmitter {
    *   `pollMs`: intervalo fixo entre consultas do login (só testes; o normal é o `intervalo` do site, mínimo 1 s).
    *   `readyShownMs`: por quanto tempo o login fica "pronto" (o aviso de sucesso) antes de voltar a "nenhum".
    */
-  constructor({ paths = dataPaths(), baseUrl, deviceName = null, platform = process.platform, refreshEveryMs = REFRESH_EVERY_MS, retryBaseMs = 400, pollMs = null, readyShownMs = READY_SHOWN_MS, log, segredos = null } = {}) {
+  constructor({ paths = dataPaths(), baseUrl, deviceName = null, platform = process.platform, build = readBuildInfo().build, refreshEveryMs = REFRESH_EVERY_MS, retryBaseMs = 400, pollMs = null, readyShownMs = READY_SHOWN_MS, log, segredos = null } = {}) {
     super()
     this.paths = paths
     this.file = paths.cloud
@@ -133,6 +134,8 @@ export class CloudAuth extends EventEmitter {
     this.baseUrl = String(baseUrl || cloudUrl()).replace(/\/+$/, '')
     this.deviceName = deviceName
     this.platform = platform
+    // Vai em todo pedido ao site (x-sobedesce-build): o admin vê qual versão do app cada computador usa.
+    this.build = Number.isSafeInteger(build) && build >= 0 ? build : 0
     this.refreshEveryMs = refreshEveryMs
     this.retryBaseMs = retryBaseMs
     this.pollMs = pollMs
@@ -262,7 +265,7 @@ export class CloudAuth extends EventEmitter {
    * `auth: true` manda o Bearer do dispositivo; nunca manda cookie.
    */
   async #call(method, path, { body, auth = true, expect = [200], timeoutMs = REQUEST_TIMEOUT_MS, token } = {}) {
-    const headers = { accept: 'application/json' }
+    const headers = { accept: 'application/json', 'x-sobedesce-build': String(this.build) }
     if (body !== undefined) headers['content-type'] = 'application/json'
     if (auth) {
       const t = token ?? this.session?.token

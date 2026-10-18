@@ -11,6 +11,7 @@ import { conferirSenha } from "@/lib/auth/senha";
 import { novoId } from "@/lib/auth/tokens";
 import { emSegundoPlano, type Depois } from "@/lib/depois";
 import { avisarGoogleDeEntrar } from "@/lib/email/avisos";
+import { avisarAdminContaNova } from "@/lib/email/admin";
 import { abrir, ChaveErrada, selar } from "./cripto";
 import { GoogleError } from "./erros";
 import { renovarAcesso, revogar, type PerfilGoogle, type Tokens } from "./oauth";
@@ -193,7 +194,12 @@ export type ResultadoCriacao = { ok: true; usuarioId: string } | { ok: false; er
  * do Google e já vincula esse Drive. E-mail que já tem conta (criada com senha) não é tomado: a pessoa
  * entra com a senha e conecta o Drive em Sua conta.
  */
-export async function criarContaComGoogle(p: PerfilGoogle, tokens: Tokens & { refresh: string }, ip: string): Promise<ResultadoCriacao> {
+export async function criarContaComGoogle(
+  p: PerfilGoogle,
+  tokens: Tokens & { refresh: string },
+  ip: string,
+  depois: Depois = emSegundoPlano,
+): Promise<ResultadoCriacao> {
   if (!p.emailVerificado) return { ok: false, erro: "google_email_nao_verificado" };
   const chave = `criar:${ip}`;
   if (!(await dentroDoLimite(chave, REGRAS.criarConta))) return { ok: false, erro: "google_devagar" };
@@ -214,6 +220,7 @@ export async function criarContaComGoogle(p: PerfilGoogle, tokens: Tokens & { re
     await db.delete(usuarios).where(eq(usuarios.id, usuarioId));
     return { ok: false, erro: "google_email_em_uso" };
   }
+  depois(() => avisarAdminContaNova({ id: usuarioId, nome, email: p.email }, true));
   return { ok: true, usuarioId };
 }
 
