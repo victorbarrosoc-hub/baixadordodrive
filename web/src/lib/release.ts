@@ -3,6 +3,10 @@
  * que o GitHub Actions sobe por último, depois dos dois instaladores (scripts/build-info.mjs na raiz do repositório).
  *
  * Usado por /baixar/[plataforma] (redireciona para o instalador) e /baixar/versao (o aviso de versão nova do app).
+ *
+ * Cada build sobe instaladores com o número no nome (SOBEDESCE-0.1.0-b160-mac-universal.dmg) e o versao.json diz quais
+ * são (arquivoMac/arquivoWindows). Assim o instalador entregue é sempre o do build conferido: antes, o build seguinte
+ * trocava o arquivo no Release minutos antes de trocar o versao.json, e o SHA-256 não batia ("versão sendo publicada").
  * Repositório privado: com GITHUB_TOKEN (só leitura de conteúdo), o GitHub devolve um endereço assinado e temporário
  * do arquivo. Repositório público: funciona sem token, pelo link normal do arquivo.
  */
@@ -12,8 +16,19 @@ const TAG = "versao-de-teste";
 const CACHE_MS = 5 * 60_000;
 
 export type Asset = { id: number; name: string; url: string; browser_download_url: string };
-/** sha256Mac/sha256Windows: SHA-256 de cada instalador (null em versao.json antigo, de antes da conferência). */
-export type Versao = { build: number; commit: string; data: string; sha256Mac: string | null; sha256Windows: string | null };
+/**
+ * sha256Mac/sha256Windows: SHA-256 de cada instalador (null em versao.json antigo, de antes da conferência).
+ * arquivoMac/arquivoWindows: nome do instalador deste build no Release (null em versao.json antigo).
+ */
+export type Versao = {
+  build: number;
+  commit: string;
+  data: string;
+  sha256Mac: string | null;
+  sha256Windows: string | null;
+  arquivoMac: string | null;
+  arquivoWindows: string | null;
+};
 
 export const PLATAFORMAS = {
   mac: (n: string) => n.endsWith(".dmg"),
@@ -90,12 +105,47 @@ export async function enderecoDoArquivo(asset: Asset): Promise<string | null> {
   return destino;
 }
 
-/** O instalador mais recente da plataforma (null = ainda não tem). */
-export async function instalador(plataforma: Plataforma): Promise<Asset | null> {
-  return (await assetsDoRelease()).find((a) => PLATAFORMAS[plataforma](a.name)) ?? null;
+/** Build no nome do instalador ("-b160-"); null = nome antigo, sem build. */
+export function buildDoNome(nome: string): number | null {
+  const m = /-b(\d{1,9})-/.exec(nome);
+  return m ? Number(m[1]) : null;
+}
+
+function escolher(assets: Asset[], plataforma: Plataforma, build: number | null, nome: string | null): Asset | null {
+  const daPlataforma = assets.filter((a) => PLATAFORMAS[plataforma](a.name));
+  if (build != null) return daPlataforma.find((a) => buildDoNome(a.name) === build) ?? null;
+  if (nome) {
+    const exato = daPlataforma.find((a) => a.name === nome);
+    if (exato) return exato;
+  }
+  // Sem versao.json (ou antigo): o de maior build; empate (nomes antigos), o subido por último.
+  return daPlataforma.sort((a, b) => (buildDoNome(b.name) ?? -1) - (buildDoNome(a.name) ?? -1) || b.id - a.id)[0] ?? null;
+}
+
+/**
+ * O instalador da plataforma. Com `build` (o app e os instaladores de uma linha mandam o build que conferiram): só o
+ * daquele build, ou null se ele não existe mais. Sem `build`: o que o versao.json publicado aponta (o mais novo
+ * conferido); sem versao.json, o de maior build. A lista guardada pode ser de antes do upload: confere de novo uma vez.
+ */
+export async function instalador(plataforma: Plataforma, build: number | null = null): Promise<Asset | null> {
+  let nome: string | null = null;
+  if (build == null) {
+    try {
+      const v = await versaoPublicada();
+      nome = plataforma === "mac" ? v.arquivoMac : v.arquivoWindows;
+    } catch {
+      // sem versao.json: fica o de maior build
+    }
+  }
+  const achado = escolher(await assetsDoRelease(), plataforma, build, nome);
+  if (achado && (!nome || achado.name === nome)) return achado;
+  cacheAssets = null;
+  return escolher(await assetsDoRelease(), plataforma, build, nome);
 }
 
 const sha256 = (v: unknown): string | null => (typeof v === "string" && /^[0-9a-f]{64}$/i.test(v) ? v.toLowerCase() : null);
+/** Nome de arquivo simples (sem barra), do jeito que o Release guarda. */
+const nomeArquivo = (v: unknown): string | null => (typeof v === "string" && /^[\w.+-]{1,200}$/.test(v) ? v : null);
 
 /** Confere o versao.json: build inteiro positivo, commit em hexadecimal, data ISO; SHA-256 dos instaladores se houver. */
 export function lerVersao(bruto: unknown): Versao | null {
@@ -106,7 +156,15 @@ export function lerVersao(bruto: unknown): Versao | null {
   const commit = typeof v.commit === "string" && /^[0-9a-f]{7,40}$/i.test(v.commit) ? v.commit.slice(0, 12).toLowerCase() : null;
   const ms = typeof v.data === "string" ? Date.parse(v.data) : NaN;
   if (!commit || !Number.isFinite(ms)) return null;
-  return { build, commit, data: new Date(ms).toISOString(), sha256Mac: sha256(v.sha256Mac), sha256Windows: sha256(v.sha256Windows) };
+  return {
+    build,
+    commit,
+    data: new Date(ms).toISOString(),
+    sha256Mac: sha256(v.sha256Mac),
+    sha256Windows: sha256(v.sha256Windows),
+    arquivoMac: nomeArquivo(v.arquivoMac),
+    arquivoWindows: nomeArquivo(v.arquivoWindows),
+  };
 }
 
 /** O build mais novo publicado (versao.json do Release de teste, guardado por 5 min). Lança se não der. */

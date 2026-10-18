@@ -8,6 +8,10 @@
 //    fica quieto e tenta na próxima.
 //  - "Depois" guarda o build dispensado nos ajustes (versaoDispensada): o aviso só volta com um build ainda mais novo.
 //  - O versao.json traz o SHA-256 de cada instalador (sha256Mac/sha256Windows). Sem ele, só o Baixar.
+//  - App que se atualiza sozinho (src/updater.js): assim que vê um build novo (não dispensado), já baixa, confere e
+//    prepara em segundo plano; o aviso mostra o progresso e, no fim, "Atualizar agora". Falhou por rede ou porque a
+//    versão ainda estava subindo? Tenta de novo sozinho (2, 4, 8… até 30 min). O download pede o instalador daquele
+//    build (/baixar/<plataforma>?build=N), o mesmo do SHA-256 conferido.
 import fs from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { cloudUrl } from './config.js'
@@ -17,6 +21,8 @@ const BUILD_INFO_FILE = new URL('./build-info.json', import.meta.url)
 const FIRST_DELAY_MS = 10_000
 const EVERY_MS = 60 * 60_000
 const TIMEOUT_MS = 15_000
+const RETRY_BASE_MS = 2 * 60_000
+const RETRY_MAX_MS = 30 * 60_000
 
 const PLATAFORMAS = { darwin: 'mac', win32: 'windows' }
 
@@ -61,7 +67,7 @@ export class VersionChecker extends EventEmitter {
    *   fetchJSON?: (url: string, opts: { signal: AbortSignal }) => Promise<any>, firstDelayMs?: number,
    *   everyMs?: number, timeoutMs?: number, log?: Function, updater?: import('./updater.js').Updater | null }} opts
    */
-  constructor({ settings, buildInfo, baseUrl, platform = process.platform, fetchJSON, firstDelayMs = FIRST_DELAY_MS, everyMs = EVERY_MS, timeoutMs = TIMEOUT_MS, log = () => {}, updater = null } = {}) {
+  constructor({ settings, buildInfo, baseUrl, platform = process.platform, fetchJSON, firstDelayMs = FIRST_DELAY_MS, everyMs = EVERY_MS, timeoutMs = TIMEOUT_MS, log = () => {}, updater = null, autoBaixar = true, retryBaseMs = RETRY_BASE_MS, retryMaxMs = RETRY_MAX_MS } = {}) {
     super()
     this.settings = settings
     this.atual = cleanInfo(buildInfo) || readBuildInfo()
@@ -85,6 +91,11 @@ export class VersionChecker extends EventEmitter {
     this.updater = updater
     this.onUpdater = () => this.#emit()
     updater?.on('change', this.onUpdater)
+    this.autoBaixar = autoBaixar
+    this.retryBaseMs = retryBaseMs
+    this.retryMaxMs = retryMaxMs
+    this.tentativas = 0
+    this.retryTimer = null
   }
 
   /** Versão de desenvolvimento não confere nada. */
@@ -101,6 +112,8 @@ export class VersionChecker extends EventEmitter {
     this.stopped = true
     clearTimeout(this.timer)
     this.timer = null
+    clearTimeout(this.retryTimer)
+    this.retryTimer = null
     this.settings?.off?.('change', this.onSettings)
     this.updater?.off('change', this.onUpdater)
   }
@@ -139,7 +152,58 @@ export class VersionChecker extends EventEmitter {
     } finally {
       this.inflight = null
     }
-    return this.#emit()
+    const st = this.#emit()
+    this.#baixarSozinho()
+    return st
+  }
+
+  /** O que o Updater precisa para baixar o build mais novo conhecido. */
+  #pedido() {
+    const build = this.ultima.build
+    const recheck = async () => {
+      await this.check()
+      return this.ultima ? { build: this.ultima.build, sha256: this.ultima.sha256?.[this.plataforma] } : null
+    }
+    return { build, url: `${this.baseUrl}/baixar/${this.plataforma}?build=${build}`, sha256: this.ultima.sha256?.[this.plataforma], recheck }
+  }
+
+  /**
+   * Build novo (não dispensado) e o app se atualiza sozinho: baixa, confere e prepara já, em segundo plano. No fim o
+   * aviso mostra "Atualizar agora". Nunca lança. `forcar`: tentativa marcada depois de um erro que passa sozinho.
+   */
+  #baixarSozinho(forcar = false) {
+    const up = this.updater
+    if (!up || !this.autoBaixar || this.stopped) return
+    const st = this.status()
+    if (!st.podeAtualizar || !st.nova) return
+    const build = this.ultima.build
+    if (up.ocupado || up.prontoPara(build) || up.fase === 'reiniciando') return
+    // Erro neste mesmo build: só a tentativa marcada (ou o "Tentar de novo" da pessoa) volta a baixar.
+    if (up.fase === 'erro' && up.build === build && !forcar) return
+    if (up.build !== build) this.tentativas = 0
+    let job
+    try {
+      job = up.preparar(this.#pedido())
+    } catch {
+      return
+    }
+    job
+      .then(fim => {
+        if (fim?.fase === 'pronto') this.tentativas = 0
+        else if (fim?.fase === 'erro' && fim.deNovo) this.#tentarDeNovo()
+      })
+      .catch(() => {})
+  }
+
+  #tentarDeNovo() {
+    if (this.stopped || this.retryTimer) return
+    const ms = Math.min(this.retryMaxMs, this.retryBaseMs * 2 ** this.tentativas)
+    this.tentativas++
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null
+      this.#baixarSozinho(true)
+    }, ms)
+    this.retryTimer.unref?.()
   }
 
   /** "Depois": não mostra mais este build (o padrão é o mais novo conhecido). Lança Error com `status` se não fizer sentido. */
@@ -153,20 +217,40 @@ export class VersionChecker extends EventEmitter {
   }
 
   /**
-   * "Atualizar": o app baixa e instala o build mais novo (src/updater.js). Volta logo; o progresso chega pelo 'status'.
+   * "Atualizar agora": com a versão nova já baixada e preparada, fecha o app e troca; senão baixa e troca no fim (ou
+   * troca assim que o download em andamento acabar). Volta logo; o progresso chega pelo 'status'.
    * Lança Error com `status` (409) se não der: aí a interface oferece o Baixar.
    */
   async update() {
-    // A conferência pode ter até 1 h: pergunta de novo antes de baixar (o endereço de download entrega o mais novo).
-    if (this.updater && !this.updater.ocupado) await this.check()
+    const up = this.updater
+    // A conferência pode ter até 1 h: pergunta de novo antes de baixar (a não ser que já esteja baixando ou pronto).
+    if (up && !up.ocupado && !(this.ultima && up.prontoPara(this.ultima.build))) {
+      const auto = this.autoBaixar
+      this.autoBaixar = false // o download desta vez é o pedido abaixo, com a troca no fim
+      try {
+        await this.check()
+      } finally {
+        this.autoBaixar = auto
+      }
+    }
     const st = this.status()
     if (!st.disponivel) throw Object.assign(new Error('Não há versão nova para instalar.'), { status: 409 })
+    if (!up) throw Object.assign(new Error('Este app não se atualiza sozinho. Use Baixar.'), { status: 409 })
+    clearTimeout(this.retryTimer)
+    this.retryTimer = null
+    up.preparar({ ...this.#pedido(), aplicar: true })?.catch?.(() => {})
+    return this.#emit()
+  }
+
+  /** "Tentar de novo" depois de um erro: baixa de novo em segundo plano (sem trocar no fim). */
+  async baixar() {
     if (!this.updater) throw Object.assign(new Error('Este app não se atualiza sozinho. Use Baixar.'), { status: 409 })
-    const recheck = async () => {
-      await this.check()
-      return this.ultima ? { build: this.ultima.build, sha256: this.ultima.sha256?.[this.plataforma] } : null
-    }
-    if (!this.updater.ocupado) this.updater.install({ build: this.ultima.build, url: st.baixarUrl, sha256: this.ultima.sha256?.[this.plataforma], recheck })
+    if (!this.updater.ocupado) await this.check()
+    if (!this.status().podeAtualizar) throw Object.assign(new Error('Não há versão nova para baixar pelo app. Use Baixar.'), { status: 409 })
+    clearTimeout(this.retryTimer)
+    this.retryTimer = null
+    this.tentativas = 0
+    this.#baixarSozinho(true)
     return this.#emit()
   }
 
