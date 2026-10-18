@@ -365,7 +365,7 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
           autoPlay
           now=${now}
         />
-        <p class="pv-proxy-note">${isPrevia(liteP) ? 'Proxy (cópia leve 1080p), para tocar sem travar. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
+        <p class="pv-proxy-note">${isPrevia(liteP) ? 'Proxy (cópia leve 720p), para tocar sem travar. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
       </div>`
     }
     const vm = file.videoMediaMetadata
@@ -405,7 +405,7 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
         autoPlay
         now=${now}
       />
-      <p class="pv-proxy-note">${isPrevia(proxy) ? 'Proxy (cópia leve 1080p). O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
+      <p class="pv-proxy-note">${isPrevia(proxy) ? 'Proxy (cópia leve 720p). O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
     </div>`
   }
   if (kind === 'video' || kind === 'audio') {

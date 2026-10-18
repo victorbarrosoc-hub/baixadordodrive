@@ -19,6 +19,7 @@ import { gerarMiniaturasLote, resumoLote } from '../media/raw-thumb-lote.js'
 import { referenciasRoutes } from './referencias.js'
 import { registerPrevias } from './previas.js'
 import { registerTamanho } from './tamanho.js'
+import { registerCopiar } from './copiar.js'
 
 const BODY_LIMIT = 1024 * 1024
 const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba a conexão
@@ -436,6 +437,8 @@ export function createApi(ctx) {
       referencias: ctx.referencias?.status() ?? null,
       // "Gerar prévias": o lote atual (ou o último).
       previas: previas.view(),
+      // "Copiar de um link": a cópia atual (ou a última).
+      copia: copias.view(),
     }
   }
 
@@ -473,6 +476,21 @@ export function createApi(ctx) {
 
   // Tamanho das pastas (src/server/tamanho.js): /api/drive/:acc/tamanho.
   const tamanhos = registerTamanho({ route, ctx, account, HttpProblem, toProblem })
+
+  // Copiar de um link do Drive para uma pasta da conta (src/server/copiar.js): /api/copiar.
+  const copias = registerCopiar({
+    route,
+    ctx,
+    account,
+    HttpProblem,
+    // "Também baixar para…": o mesmo caminho do Baixar (planDownloads + fila), com a árvore que a cópia já leu.
+    baixar: async ({ accountId, items, destDir, signal }) => {
+      const st = ctx.settings.get()
+      const plan = await planDownloads({ drive: ctx.manager.driveFor(accountId), accountId, items, destDir, conflict: st.downloadConflict, signal, reservedPaths: ctx.manager.reservedPaths() })
+      if (plan.batch) plan.batch.destino = path.basename(path.resolve(destDir)) || null
+      return enqueue(plan)
+    },
+  })
 
   const stringList = (v, max = 10_000) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, max) : null)
 
@@ -1009,6 +1027,7 @@ export function createApi(ctx) {
       thumbJobs.close()
       previas.close()
       tamanhos.close()
+      copias.close()
     },
   }
 }

@@ -12,7 +12,7 @@ import { FOLDER_MIME } from '../google/drive.js'
 import { classifyError } from '../google/errors.js'
 import { abortError, isAbortError } from '../util/backoff.js'
 import { LOTE_LIMITS, indexLocalRaw, nameKey } from './raw-thumb-lote.js'
-import { PEQUENO_BYTES, PREVIA_LADO, PROXY_EXTS, baseKey, isProxyDirName, isVideoName, splitExt } from './previa.js'
+import { LEVE_LADO, PEQUENO_BYTES, PROXY_EXTS, baseKey, isProxyDirName, isVideoName, splitExt } from './previa.js'
 import { isPrevia } from './previa-fila.js'
 
 function badRequest(message, status = 400) {
@@ -28,7 +28,7 @@ export function levePeloDrive(item) {
   const ext = splitExt(item.name)[1]
   if (!(ext === '.mp4' || ext === '.m4v') || item.size == null || item.size >= PEQUENO_BYTES) return false
   const long = Math.max(item.video?.width || 0, item.video?.height || 0)
-  return long <= PREVIA_LADO
+  return long <= LEVE_LADO
 }
 
 /**

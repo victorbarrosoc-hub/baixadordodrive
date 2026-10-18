@@ -156,7 +156,7 @@ export class TransferManager extends EventEmitter {
     this.thumbnailer =
       thumbnailer === undefined ? new RawThumbnailer({ settings, log: (...a) => this.log(...a), onResult: (rec, ok) => this.#thumbResult(rec, ok) }) : thumbnailer
     if (this.thumbnailer && !this.thumbnailer.onResult) this.thumbnailer.onResult = (rec, ok) => this.#thumbResult(rec, ok)
-    // Prévia leve dos vídeos: depois do envio, uma cópia H.264 1080p em Proxy/ (media/previa-fila.js). Também nunca
+    // Prévia leve dos vídeos: depois do envio, uma cópia H.264 720p (a qualidade de reprodução do Drive) em Proxy/ (media/previa-fila.js). Também nunca
     // muda o status da transferência; o andamento fica em `record.previa`.
     this.previas =
       previas === undefined

@@ -140,6 +140,18 @@ Na hora de conectar aparece **"O Google não verificou este app"**. É esperado:
 - No **Drive**: o ícone de link na barra copia o link da pasta aberta; numa linha (ao passar o mouse) ou com um item marcado, **Copiar link**.
 - Ao copiar, o app confere quem consegue abrir. Se só quem tem acesso abre, aparece **Liberar para quem tiver o link**, que sempre pede confirmação ("Qualquer pessoa com o link vai poder ver e baixar") antes de mudar o compartilhamento no Drive. O app nunca libera sozinho. Se o Workspace não deixa compartilhar com qualquer pessoa, o aviso diz isso.
 
+### Copiar de um link (Drive de outra pessoa → o seu)
+
+Na tela **Drive**, **Copiar de um link** (no topo, ou em **Mais → Copiar de um link para cá…**): cole o link de uma
+pasta ou arquivo do Drive de alguém (compartilhado com você ou liberado para quem tem o link), veja o que tem
+(arquivos, subpastas, tamanho, dono) e escolha a pasta do seu Drive. A pasta do link é recriada lá dentro, com as
+subpastas. A cópia é do próprio Google (`files.copy`): nada passa por este computador, então é rápida até com takes
+pesados. Ficam de fora os arquivos com cópia bloqueada pelo dono e os atalhos (a janela lista). Pode fechar a janela:
+a cópia segue e o botão do topo mostra o andamento. Marque **Também baixar para uma mídia física** e escolha a
+pasta no HD/SSD/cartão: ao mesmo tempo em que copia para o Drive, o app baixa do link da pessoa para lá (com as
+subpastas), pela fila de Transferências de sempre (retoma se cair e confere cada arquivo). O celular tem a cópia para
+o Drive (aba Drive, ícone de link).
+
 ### Pausar, continuar, cancelar
 
 - Em **Transferências**, passe o mouse sobre uma linha para ver os botões: **Pausar**, **Retomar**, **Cancelar**, **Passar na frente** (para itens na fila) e **Tentar de novo**.
@@ -186,9 +198,9 @@ O Google Drive não gera miniatura de **Blackmagic RAW (.braw)**: o arquivo apar
 
 ### Proxy dos vídeos (a prévia toca fluida como no Drive)
 
-O Google Drive toca vídeo pesado sem travar porque usa uma cópia leve que ele mesmo gera; pela API só dá para pegar o original (ProRes, 4K de câmera, HEVC 10 bits…), que é pesado demais para tocar pela rede. O SOBEDESCE faz a cópia leve dele — o **proxy** (cópia leve 1080p):
+O Google Drive toca vídeo pesado sem travar porque usa uma cópia leve que ele mesmo gera; pela API só dá para pegar o original (ProRes, 4K de câmera, HEVC 10 bits…), que é pesado demais para tocar pela rede. O SOBEDESCE faz a cópia leve dele — o **proxy** (cópia leve 720p):
 
-- Quando um vídeo pesado termina de subir, o app gera uma **cópia H.264 em 1080p** (≈ 5 Mbit/s, áudio AAC estéreo) e sobe em **`Proxy/<mesmo nome>.mp4`**, ao lado do original — a mesma convenção das câmeras Blackmagic. **O original não muda.**
+- Quando um vídeo pesado termina de subir, o app gera uma **cópia H.264 em 720p** (≈ 2,5 Mbit/s, áudio AAC estéreo — a qualidade que o próprio Drive usa para tocar) e sobe em **`Proxy/<mesmo nome>.mp4`**, ao lado do original — a mesma convenção das câmeras Blackmagic. **O original não muda.**
 - A prévia do **celular**, do **app de computador** e do **site da produtora** procuram essa cópia primeiro e tocam ela, fluida. No player aparece **Proxy | Original**: tocar em **Original** troca para o arquivo de verdade no mesmo ponto. **Baixar sempre baixa o original.**
 - Só vídeo que precisa: mais de 20 Mbit/s, codec que não é H.264 8 bits (ProRes, DNx, HEVC 10 bits, XAVC Intra…), maior que 1080p ou contêiner que o navegador não abre (MXF, MKV, AVI, MTS). MP4 H.264 leve fica como está. BRAW/R3D ficam de fora (o ffmpeg não abre; a câmera já grava o proxy).
 - Se o vídeo já tem proxy (da câmera, na mesma pasta ou em `Proxy`/`Proxies`), o app não gera outro.
