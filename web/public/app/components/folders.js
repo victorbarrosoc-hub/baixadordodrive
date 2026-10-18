@@ -292,7 +292,11 @@ function FolderSearch({ text, onOpen, onRetry, opening }) {
     </ul>`
 }
 
-export function FolderSheet() {
+/**
+ * Seletor de pasta. Sem props escolhe o destino dos envios; com `onChoose` devolve a pasta para quem abriu (o "Copiar de
+ * um link", por exemplo), com `verb` no botão e `onCancel` para voltar.
+ */
+export function FolderSheet({ verb, onChoose, onCancel } = {}) {
   const { dest, account } = useApp((s) => ({ dest: s.dest, account: s.user?.emailAddress }))
   // Abre na última pasta usada: o destino de agora ou, sem ele, a mais recente.
   const [nav, setNav] = useState(() => {
@@ -340,14 +344,15 @@ export function FolderSheet() {
   }
   const searching = Boolean(search) && !LAN
   const choose = (folder) => {
-    setState({ dest: folder })
     pushRecent(folder, account)
+    if (onChoose) return onChoose(folder)
+    setState({ dest: folder })
     closeSheet()
   }
 
   return html`<${SheetHead}
       title="Destino"
-      left=${html`<button type="button" class="link-btn" onClick=${closeSheet}>Cancelar</button>`}
+      left=${html`<button type="button" class="link-btn" onClick=${onCancel || closeSheet}>Cancelar</button>`}
       right=${!atHome && !LAN && !searching
         ? html`<button type="button" class="link-btn" onClick=${() => setCreating(true)} disabled=${creating}>Nova pasta</button>`
         : null}
@@ -411,7 +416,7 @@ export function FolderSheet() {
     </div>
     <footer class="sheet-foot">
       <${Button} variant="up" size="lg" class="btn-block" disabled=${atHome} onClick=${() => here && choose(here)}>
-        ${atHome ? 'Escolha um lugar' : html`Enviar para “${here.name}”`}
+        ${atHome ? 'Escolha um lugar' : html`${verb || 'Enviar para'} “${here.name}”`}
       </${Button}>
     </footer>`
 }

@@ -34,9 +34,11 @@ import { Button, SheetHead, cx, reducedMotion } from './ui.js'
 import { Preview } from './preview.js'
 import { KindGlyph, Thumb } from './thumb.js'
 import { FileName } from './queue.js'
+import { CopyButton } from './copiar.js'
 import { MY_DRIVE, closeSheet, getState, openSheet, pushRecent, setState, setTab, toast } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
 import { isIOS } from '../lib/platform.js'
+import { LAN } from '../lib/config.js'
 
 // Listas já abertas (voltar para uma pasta não pisca). Vale enquanto a página está aberta.
 const lists = new Map()
@@ -1041,6 +1043,12 @@ export function DriveScreen({ active }) {
           : null}
         <h1 class="dtop-title">${title}</h1>
         <div class="dtop-actions">
+          ${LAN
+            ? null
+            : html`<${CopyButton}
+                dest=${nav.scope !== 'shared' && !search ? destOf(nav.scope, nav.path) : null}
+                source=${nav.scope === 'shared' && !search ? nav.path[nav.path.length - 1] || null : null}
+              />`}
           <button
             type="button"
             class="icon-btn"
