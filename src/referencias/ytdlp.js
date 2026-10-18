@@ -1,7 +1,8 @@
 // Download de uma referência com o yt-dlp: linha de comando, progresso, erros em português e a limpeza.
 //
-// Formato: até 1080p, H.264 + AAC em MP4 quando existe (abre em qualquer editor e no QuickTime), senão o melhor MP4
-// até 1080p. Com ffmpeg (o do app ou do sistema) o yt-dlp junta vídeo + áudio separados (YouTube); sem ffmpeg só
+// Formato: até 1080p, H.264 + AAC em MP4 quando existe (abre em qualquer editor, no QuickTime e no iPhone), senão o
+// melhor MP4 até 1080p. VP9 e AV1 só em último caso: o Instagram manda VP9 em MP4 nos formatos separados e o iPhone
+// não toca (o progressivo dele, H.264, vem antes); se ainda assim vier VP9/AV1, src/referencias/celular.js converte. Com ffmpeg (o do app ou do sistema) o yt-dlp junta vídeo + áudio separados (YouTube); sem ffmpeg só
 // pede formatos que já vêm juntos (progressivos). Tudo numa pasta de trabalho só deste download (info .json e
 // miniatura junto); quem chama apaga a pasta no fim, sempre.
 import fs from 'node:fs/promises'
@@ -21,11 +22,19 @@ const VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mov', '.mkv', '.webm'])
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 const PROG = 'SDPROG'
 
-/** Formato pedido ao yt-dlp. Com ffmpeg: vídeo + áudio separados (juntados em MP4); sem: só progressivos. */
+/** Codec que o iPhone toca (ou desconhecido: o progressivo do Instagram não diz, e é H.264). */
+const TOCA = '[vcodec!^=?vp][vcodec!^=?av01]'
+
+/**
+ * Formato pedido ao yt-dlp. Com ffmpeg: vídeo + áudio separados (juntados em MP4); sem: só progressivos.
+ * Ordem: H.264 separado (YouTube) → progressivo MP4 que toca no iPhone (Instagram, TikTok; vertical até 1920 de
+ * altura) → MP4 separado que toca → qualquer MP4 (VP9/AV1, convertido depois) → o que houver.
+ */
 export function formato({ ffmpeg = true, altura = MAX_ALTURA } = {}) {
   const h = `[height<=${altura}]`
-  if (ffmpeg) return `bv*${h}[vcodec^=avc1]+ba[ext=m4a]/bv*${h}[ext=mp4]+ba[ext=m4a]/b${h}[ext=mp4]/b${h}/b`
-  return `b${h}[ext=mp4]/b[ext=mp4]/b${h}/b`
+  const vertical = `[height<=?${Math.round((altura * 16) / 9)}]`
+  if (ffmpeg) return `bv*${h}[vcodec^=avc1]+ba[ext=m4a]/b${vertical}[ext=mp4]${TOCA}/bv*${h}[ext=mp4]${TOCA}+ba[ext=m4a]/bv*${h}[ext=mp4]+ba[ext=m4a]/b${h}[ext=mp4]/b${h}/b`
+  return `b${vertical}[ext=mp4]${TOCA}/b${h}[ext=mp4]/b[ext=mp4]/b${h}/b`
 }
 
 /**

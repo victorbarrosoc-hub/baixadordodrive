@@ -111,6 +111,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   rawThumbLocalDir: '',
   /** Referências: a pessoa já viu o aviso de primeiro uso ("Salve só para referência dos seus projetos…"). */
   referenciasAvisoVisto: false,
+  /** Referências: a passada que converte para H.264 as antigas que o iPhone não toca já terminou (src/referencias/celular.js). */
+  referenciasCelular: false,
   /**
    * Proxy (prévia leve) ao enviar: ao terminar de subir um vídeo pesado, gera uma cópia H.264 em 1080p e sobe em
    * Proxy/<nome>.mp4, ao lado do original, para a prévia tocar fluida no celular, no app e no site. O original não muda.
