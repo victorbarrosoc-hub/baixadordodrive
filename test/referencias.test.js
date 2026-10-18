@@ -200,8 +200,11 @@ test('cookies: formato Netscape, arquivo 0600 numa pasta 0700, nada para cookie 
 test('argumentos do yt-dlp: formato até 1080p, mp4, sem playlist, info + miniatura, cookies e ffmpeg', () => {
   const a = montarArgs({ url: 'https://www.instagram.com/reel/abc12/', workDir: '/tmp/w', ffmpeg: '/app/ffmpeg', cookies: '/tmp/w/.c/cookies.txt', cacheDir: '/d/cache', jsRuntime: { nome: 'node', path: '/app/node' } })
   const after = f => a[a.indexOf(f) + 1]
-  assert.equal(after('-f'), 'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/b[height<=1080]/b')
-  assert.match(after('-f'), /bv\*\[height<=1080\]\[ext=mp4\]\+ba\[ext=m4a\]\/b\[height<=1080\]/)
+  // H.264 separado → progressivo que toca no iPhone (o do Instagram) → separado que toca → VP9/AV1 só no fim.
+  assert.equal(
+    after('-f'),
+    'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/b[height<=?1920][ext=mp4][vcodec!^=?vp][vcodec!^=?av01]/bv*[height<=1080][ext=mp4][vcodec!^=?vp][vcodec!^=?av01]+ba[ext=m4a]/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/b[height<=1080]/b',
+  )
   assert.equal(after('--merge-output-format'), 'mp4')
   assert.equal(after('--ffmpeg-location'), '/app/ffmpeg')
   assert.equal(after('--cookies'), '/tmp/w/.c/cookies.txt')

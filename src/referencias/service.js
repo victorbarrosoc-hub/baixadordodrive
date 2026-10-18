@@ -24,6 +24,9 @@ import { apagarCookies, gravarCookies } from './cookies.js'
 import { baixarVideo, YtdlpError } from './ytdlp.js'
 import { ffmpegCandidates, jsRuntimePadrao, primeiro } from './binarios.js'
 import { YtdlpUpdater } from './ytdlp-update.js'
+import { CELULAR_OK, ConsertoCelular, MARCA_CELULAR, paraCelular } from './celular.js'
+import { detectarMotor } from '../media/previa.js'
+import { UploadTask } from '../engine/upload.js'
 
 const POLL_MS = 30_000 // fila do celular: o contrato pede ~30 s com o app aberto
 const VIDA_MS = 5 * 60_000 // item pego da fila: "ainda estou baixando" (sem notícia por 30 min, o site libera o item)
@@ -154,9 +157,10 @@ export class ReferenciasService extends EventEmitter {
    * @param {object} o.auth AuthManager (contas 'nuvem:<id>')
    * @param {object} o.manager TransferManager (envios e driveFor)
    * Peças trocáveis (testes): cloud, api, updater, baixar (baixarVideo), baixarImagem, ffmpeg (() => caminho|null),
-   * jsRuntime, cookies (async (dominios) => Cookie[]), pollMs, concorrencia, log.
+   * jsRuntime, cookies (async (dominios) => Cookie[]), pollMs, concorrencia, log, motor (async () => conversor de vídeo),
+   * converter (paraCelular), conserto (false desliga a passada das antigas; src/referencias/celular.js), criarUpload.
    */
-  constructor({ paths, settings, auth, manager, cloud = auth?.cloud ?? null, api, updater, baixar = baixarVideo, baixarImg = baixarImagem, ffmpeg, jsRuntime, cookies = null, pollMs = POLL_MS, vidaMs = VIDA_MS, concorrencia = CONCORRENCIA, log, autoStart = true } = {}) {
+  constructor({ paths, settings, auth, manager, cloud = auth?.cloud ?? null, api, updater, baixar = baixarVideo, baixarImg = baixarImagem, ffmpeg, jsRuntime, cookies = null, pollMs = POLL_MS, vidaMs = VIDA_MS, concorrencia = CONCORRENCIA, log, autoStart = true, motor, converter = paraCelular, conserto = true, criarUpload = (rec, ctx) => new UploadTask(rec, ctx) } = {}) {
     super()
     this.paths = paths
     this.settings = settings
@@ -179,6 +183,22 @@ export class ReferenciasService extends EventEmitter {
     this.concorrencia = concorrencia
     this.log = log || ((...a) => console.warn('[referencias]', ...a))
     this.autoStart = autoStart
+    // Vídeo que o iPhone não toca (VP9/AV1 do Instagram) vira H.264 antes de subir; as antigas, numa passada só.
+    this.motor = motor || (() => this.manager?.previas?.motor?.() ?? detectarMotor())
+    this.converter = converter
+    this.criarUpload = criarUpload
+    this.conserto = conserto
+      ? new ConsertoCelular({
+          service: this,
+          settings,
+          manager,
+          motor: () => this.motor(),
+          converter,
+          substituir: (drive, item, localPath, signal) => this.#substituir(drive, item, localPath, signal),
+          marcar: (drive, fileId, signal) => this.#marcarCelular(drive, fileId, signal),
+          log: (...a) => this.log(...a),
+        })
+      : null
     this.file = new JsonFile(path.join(paths.root, 'referencias.json'), { versao: 1, trabalhos: [] })
     this.file.serialize = () => ({ versao: 1, trabalhos: [...this.jobs.values()].map(j => ({ ...j, progresso: undefined })) })
     this.jobs = new Map() // id -> trabalho
@@ -226,6 +246,7 @@ export class ReferenciasService extends EventEmitter {
     clearTimeout(this.pollTimer)
     clearTimeout(this.emitTimer)
     this.updater?.stop?.()
+    this.conserto?.stop()
     for (const ac of this.running.values()) ac.abort()
     for (const t of this.vida.values()) clearInterval(t)
     this.vida.clear()
@@ -253,6 +274,7 @@ export class ReferenciasService extends EventEmitter {
     if (this.ativo && this.autoStart) {
       this.updater?.start?.()
       if (!this.pollTimer && !this.polling) this.#planejarConsulta(2000)
+      if (logado) this.conserto?.agendar()
     }
     this.#emit()
   }
@@ -622,6 +644,7 @@ export class ReferenciasService extends EventEmitter {
         await apagarCookies(cookiesFile)
         cookiesFile = null
         pronto = await this.#prepararVideo(j, r, envio)
+        await this.#paraCelular(j, pronto, signal)
       }
       await limpar()
       if (signal.aborted) throw Object.assign(new Error('cancelado'), { name: 'AbortError' })
@@ -663,6 +686,89 @@ export class ReferenciasService extends EventEmitter {
       appProperties: appProperties({ url: j.url, plataforma, autor: res.autor, titulo: res.titulo, fila: j.filaId }),
     }
     return { arquivo: destino, nome, miniatura, meta }
+  }
+
+  /**
+   * VP9/AV1 (o iPhone não toca) vira H.264 antes de subir. Sem conversor ou se a conversão falhar, sobe como veio
+   * (sem a marca do celular: a passada das antigas tenta de novo depois).
+   */
+  async #paraCelular(j, pronto, signal) {
+    let r
+    try {
+      const motor = await this.motor()
+      r = await this.converter(pronto.arquivo, {
+        motor,
+        signal,
+        tmpRoot: this.tmpDir,
+        log: (...a) => this.log(...a),
+        onProgress: frac => {
+          j.progresso = { fase: 'convertendo', fracao: frac ?? null }
+          this.#emit()
+        },
+      })
+    } catch (err) {
+      if (isAbortError(err) || signal?.aborted) throw err
+      this.log('não converti a referência para o celular; vai como veio:', err?.message)
+      return
+    }
+    if (r.estado === 'convertido') {
+      try {
+        await fs.copyFile(r.path, pronto.arquivo)
+      } finally {
+        await r.limpar()
+      }
+      if (!/\.mp4$/i.test(pronto.nome)) pronto.nome = pronto.nome.replace(/\.[a-z0-9]+$/i, '') + '.mp4'
+    }
+    if (r.estado === 'convertido' || r.estado === 'ok') pronto.meta.appProperties = { ...pronto.meta.appProperties, [MARCA_CELULAR]: CELULAR_OK }
+  }
+
+  /** Troca o conteúdo de um arquivo do Drive (mesmo id) pelo vídeo convertido, já com a marca do celular. */
+  async #substituir(drive, item, localPath, signal) {
+    const st = await fs.stat(localPath)
+    const up = {
+      id: newId('cel'),
+      type: 'upload',
+      status: 'running',
+      name: item.name,
+      size: st.size,
+      bytesDone: 0,
+      attempts: 0,
+      note: null,
+      verify: null,
+      local: { path: localPath, size: st.size, mtimeMs: st.mtimeMs },
+      target: { rootId: item.parents?.[0] || 'root', relDir: '', parentId: item.parents?.[0] || null, driveId: null, replaceFileId: item.id, fileId: null, appProperties: { [MARCA_CELULAR]: CELULAR_OK } },
+      session: null,
+    }
+    const ctx = {
+      drive,
+      settings: { get: () => ({ ...(this.settings?.get?.() ?? {}), verifyChecksums: false }) },
+      limiter: this.manager?.limiters?.upload ?? null,
+      hasher: null,
+      persist: () => {},
+      onBytes: () => {},
+      log: (...a) => this.log(...a),
+    }
+    await this.criarUpload(up, ctx).run(signal)
+    // Arquivo apagado no meio do caminho: o envio pode ter criado outro. Nada de cópia solta na coleção.
+    if (up.target.fileId && up.target.fileId !== item.id) {
+      await drive.trash(up.target.fileId).catch(() => {})
+      throw new Error('o arquivo original sumiu do Drive durante a conversão')
+    }
+  }
+
+  /** Marca no Drive que esta referência já toca no iPhone (não confere de novo). */
+  async #marcarCelular(drive, fileId, signal) {
+    await drive.api('PATCH', `files/${encodeURIComponent(fileId)}`, {
+      query: { supportsAllDrives: 'true', fields: 'id' },
+      body: { appProperties: { [MARCA_CELULAR]: CELULAR_OK } },
+      signal,
+    })
+  }
+
+  /** As coleções olhadas pela passada do celular mudaram: a interface relê os itens. */
+  recarregar() {
+    for (const id of [...this.itensCache.keys()]) this.#bump(id)
+    this.#emit()
   }
 
   async #prepararImagem(j, envio, signal) {

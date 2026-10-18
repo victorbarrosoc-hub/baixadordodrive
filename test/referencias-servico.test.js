@@ -19,6 +19,15 @@ const FAKE = fileURLToPath(new URL('./fake-ytdlp.mjs', import.meta.url))
 const keepAwake = { active: false, setActive() {}, stop() {} }
 let mock, site, home, bin, log, app
 const cookiesPedidos = []
+// Conversão para o celular (src/referencias/celular.js): o vídeo de mentira "vem em VP9" e sai "H.264" com 5000 bytes.
+const conversoes = []
+async function converterFalso(file, { tmpRoot, onProgress }) {
+  conversoes.push(file)
+  onProgress?.(0.5)
+  const out = path.join(tmpRoot, `convertido-${conversoes.length}.mp4`)
+  await fs.writeFile(out, Buffer.alloc(5000, 9))
+  return { estado: 'convertido', path: out, codec: 'vp9', limpar: () => fs.rm(out, { force: true }) }
+}
 
 before(async () => {
   home = await makeTmpDir()
@@ -43,6 +52,9 @@ before(async () => {
     referenciasOptions: {
       updater,
       ffmpeg: () => '/bin/true',
+      motor: async () => ({ via: 'ffmpeg' }),
+      converter: converterFalso,
+      conserto: false,
       jsRuntime: null,
       pollMs: 60_000,
       vidaMs: 150,
@@ -151,6 +163,10 @@ test('salvar um reel: yt-dlp com cookies (0600, apagados), nome, appProperties, 
   assert.equal(f.appProperties.sobedesce, 'referencia')
   assert.equal(f.appProperties.plataforma, 'Instagram')
   assert.equal(f.appProperties.autor, 'Estúdio Norte')
+  // VP9 virou H.264 antes de subir (o iPhone toca) e o arquivo leva a marca, para a passada das antigas pular.
+  assert.equal(conversoes.length, 1)
+  assert.equal(f.size, 5000)
+  assert.equal(f.appProperties.celular, 'ok')
   for (const [k, v] of Object.entries(f.appProperties)) assert.ok(bytesUtf8(k) + bytesUtf8(v) <= 124, k)
   const linhas = f.description.split('\n')
   assert.equal(linhas[0], 'https://www.instagram.com/reel/DQx1AbCdEfG/')
