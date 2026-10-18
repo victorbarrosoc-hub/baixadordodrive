@@ -175,8 +175,13 @@ async function whyFailed(file) {
   }
 }
 
+/** Referência de vídeo que o app de computador ainda não conferiu para o celular (appProperties.celular). */
+const refSemConversao = (f) => f?.appProperties?.sobedesce === 'referencia' && f.appProperties.celular !== 'ok'
+
 const FAIL_TEXT = {
   format: 'Este formato não toca no navegador. Baixe para ver no app de vídeo, ou abra no Drive.',
+  // Referência salva antes da conversão (VP9 do Instagram): o app de computador converte sozinho.
+  formatRef: 'Este vídeo veio num formato que o iPhone não toca. Com o app SOBEDESCE aberto no computador, ele é convertido sozinho em alguns minutos.',
   reconnect: 'O Google pediu uma nova autorização. Reconecte o Drive na sua conta.',
   session: 'Sua sessão terminou. Entre de novo para ver a prévia.',
   denied: 'O Google não liberou este arquivo para prévia.',
@@ -417,7 +422,7 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
       if (pub === undefined) return html`<div class="pv-wait"><span class="spinner"></span></div>`
       if (pub) return html`<${DrivePlayer} file=${file} poster=${art} ratio=${ratio} now=${now} onOriginal=${playable ? () => setWantOrig(true) : null} />`
     }
-    if (!playable || fail === 'format') return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.format} />`
+    if (!playable || fail === 'format') return html`<${Unsupported} file=${file} poster=${art} reason=${refSemConversao(file) ? FAIL_TEXT.formatRef : FAIL_TEXT.format} />`
     if (sw === false) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.nosw} />`
     if (fail) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT[fail] || FAIL_TEXT.network} />`
     if (sw === undefined) return html`<div class="pv-wait"><span class="spinner"></span></div>`

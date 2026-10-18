@@ -138,6 +138,7 @@ export function faseTexto(t) {
       return 'Na fila'
     case 'baixando':
       if (p?.fase === 'juntando') return 'Juntando vídeo e áudio'
+      if (p?.fase === 'convertendo') return `Convertendo para tocar no celular${pct}`
       if (p?.fase === 'preparando' || !p) return 'Abrindo o link'
       return `Baixando${pct}`
     case 'enviando':

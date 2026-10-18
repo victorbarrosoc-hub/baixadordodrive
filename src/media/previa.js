@@ -239,12 +239,12 @@ export function encoderArgs(encoder) {
   }
 }
 
-/** Filtro de vídeo: pixels quadrados (anamórfico), lado maior ≤ 1280 (720p), dimensões pares, 8 bits 4:2:0. */
-export function videoFilter(info, encoder) {
+/** Filtro de vídeo: pixels quadrados (anamórfico), lado maior ≤ `lado` (1280 = 720p), dimensões pares, 8 bits 4:2:0. */
+export function videoFilter(info, encoder, lado = PREVIA_LADO) {
   const f = []
   const sar = info?.video?.sar
   if (sar && sar[0] !== sar[1]) f.push("scale=w='trunc(iw*sar/2)*2':h=ih", 'setsar=1')
-  f.push(`scale=w='min(${PREVIA_LADO},iw)':h='min(${PREVIA_LADO},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2`)
+  f.push(`scale=w='min(${lado},iw)':h='min(${lado},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2`)
   f.push(`format=${pixFor(encoder)}`)
   return f.join(',')
 }
@@ -253,14 +253,14 @@ export function videoFilter(info, encoder) {
  * Linha de comando da conversão (sem shell). A rotação do celular é aplicada na imagem (autorotate do ffmpeg),
  * então a cópia sai em pé. Só a primeira trilha de vídeo e a primeira de áudio (estéreo, AAC 128k).
  */
-export function argsTranscode({ input, output, encoder = 'libx264', info = null, hwDecode = false }) {
+export function argsTranscode({ input, output, encoder = 'libx264', info = null, hwDecode = false, lado = PREVIA_LADO }) {
   const a = ['-hide_banner', '-nostdin', '-y', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats']
   if (hwDecode) a.push('-hwaccel', 'videotoolbox')
   a.push('-i', input, '-map', '0:v:0')
   const audio = info ? info.audio : true
   if (audio) a.push('-map', '0:a:0?')
   a.push('-dn', '-sn', '-map_chapters', '-1')
-  a.push('-vf', videoFilter(info, encoder))
+  a.push('-vf', videoFilter(info, encoder, lado))
   a.push(...encoderArgs(encoder), '-g', '60')
   if (audio) a.push('-c:a', 'aac', '-b:a', '128k', '-ac', '2')
   else a.push('-an')
@@ -503,10 +503,10 @@ class PreviaError extends Error {
 }
 
 /** Uma conversão com ffmpeg. Lança PreviaError (motivo curto) ou AbortError. */
-async function ffmpegOnce(motor, { input, output, info, encoder, hwDecode, signal, onProgress, timeoutMs }) {
+async function ffmpegOnce(motor, { input, output, info, encoder, hwDecode, signal, onProgress, timeoutMs, lado }) {
   const dur = info?.durationS || 0
   let buf = ''
-  const r = await runTool(motor.ffmpeg.path, argsTranscode({ input, output, encoder, info, hwDecode }), {
+  const r = await runTool(motor.ffmpeg.path, argsTranscode({ input, output, encoder, info, hwDecode, lado }), {
     signal,
     timeoutMs,
     stallMs: STALL_MS,
@@ -599,22 +599,7 @@ export async function gerarPrevia(file, { motor, name, size, forcar = false, sig
       await avconvertOnce(motor, { input: file, output, signal, onProgress: progress, timeoutMs })
       used = 'avconvert'
     } else {
-      const tries = plano(motor)
-      let last = null
-      for (const t of tries) {
-        try {
-          await fsp.rm(output, { force: true })
-          await ffmpegOnce(motor, { input: file, output, info, ...t, signal, onProgress: progress, timeoutMs })
-          used = t.encoder
-          break
-        } catch (err) {
-          if (signal?.aborted || err?.name === 'AbortError') throw err
-          last = err
-          log(`prévia: ${err.message}`)
-          if (err.retry === false) break
-        }
-      }
-      if (!used) throw last || new PreviaError('nenhum codificador funcionou')
+      used = await transcodificar(motor, { input: file, output, info, signal, onProgress: progress, timeoutMs, log })
     }
     const out = await fsp.stat(output).catch(() => null)
     if (!out || out.size < 1024) throw new PreviaError('a cópia saiu vazia')
@@ -632,6 +617,31 @@ export async function gerarPrevia(file, { motor, name, size, forcar = false, sig
 }
 
 export { PreviaError }
+
+/**
+ * Converte para H.264 + AAC em MP4 com o ffmpeg, tentando os codificadores do plano (hardware primeiro, libx264 por
+ * último). `lado`: lado maior da saída (padrão: 1280, a prévia leve). Devolve o codificador usado; lança PreviaError.
+ */
+export async function transcodificar(motor, { input, output, info = null, signal, onProgress, timeoutMs = timeoutFor(info?.durationS), lado = PREVIA_LADO, log = () => {} }) {
+  let last = null
+  for (const t of plano(motor)) {
+    try {
+      await fsp.rm(output, { force: true })
+      await ffmpegOnce(motor, { input, output, info, ...t, signal, onProgress, timeoutMs, lado })
+      return t.encoder
+    } catch (err) {
+      if (signal?.aborted || err?.name === 'AbortError') throw err
+      last = err
+      log(`conversão: ${err.message}`)
+      if (err.retry === false) break
+    }
+  }
+  throw last || new PreviaError('nenhum codificador funcionou')
+}
+
+/** Codecs que o iPhone (Safari) não toca dentro de um MP4: o VP9 e o AV1 que o Instagram manda, e o VP8. */
+export const CODECS_SEM_IPHONE = Object.freeze(['vp8', 'vp9', 'av1'])
+export const tocaNoIphone = info => !info?.video || !CODECS_SEM_IPHONE.includes(info.video.codec)
 
 /** Texto curto para logs e para a interface. */
 export function motorResumo(m) {

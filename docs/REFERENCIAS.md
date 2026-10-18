@@ -96,6 +96,7 @@ Pasta: `SOBEDESCE Referências/<Coleção>/` (a raiz tem `appProperties { sobede
 | `autor` | `@perfil` ou nome do canal, curto |
 | `titulo` | título curto |
 | `fila` | (opcional) id do item da fila |
+| `celular` | `ok` quando o computador já conferiu que o vídeo toca no iPhone (ou já converteu); ver abaixo |
 
 `description` (texto livre do Drive, lido com cuidado: qualquer linha pode faltar):
 
@@ -114,6 +115,27 @@ Notas da pessoa (a `nota` da fila), se houver.
 (`Título`/`Titulo`, `Autor`, `Plataforma`, `Salvo em`); o resto é legenda e notas. Parser: `lerDescricao` em
 `web/src/lib/referencias/texto.ts`. Nome do arquivo: o que o computador quiser (de preferência o título, com a
 extensão). A miniatura é a do próprio Drive (vídeo e foto têm sozinhos).
+
+**Vídeo que toca no iPhone** (`src/referencias/celular.js`). O Safari do iPhone não toca VP9 nem AV1 dentro de MP4,
+e é assim que o Instagram manda boa parte dos reels nos formatos separados (vídeo + áudio). Por isso:
+
+- O formato pedido ao yt-dlp (`formato()` em `src/referencias/ytdlp.js`) vai, nesta ordem:
+  - H.264 separado (o YouTube);
+  - o progressivo MP4 que toca no iPhone (Instagram e TikTok; o Instagram não informa o codec dele, e é H.264);
+  - um MP4 separado que toca;
+  - só no fim VP9/AV1.
+- Se ainda assim vier VP9/AV1/VP8, o computador converte para H.264 + AAC antes de subir (até 1920 px no lado maior,
+  ~2,5 Mbit/s, `+faststart`), com o ffmpeg da prévia leve. Na tela aparece "Convertendo para tocar no celular".
+  Sem ffmpeg com H.264, sobe como veio.
+- As referências salvas antes disso passam por uma **passada única** em segundo plano, ~2 min depois de abrir o app
+  com a conta conectada:
+  - só os vídeos com `sobedesce=referencia`, sem `celular=ok` e até 400 MB;
+  - um por vez: baixa, olha o codec e, se precisar, troca o conteúdo do **mesmo arquivo** (mesmo id, link, nome,
+    descrição e coleção; o Drive guarda a versão anterior por 30 dias);
+  - tudo o que é conferido ganha `celular=ok`, e não é olhado de novo nem em outro computador;
+  - terminou sem falhas: o ajuste `referenciasCelular` fica `true`. Um arquivo que falhar volta na próxima abertura.
+- O celular, diante de um vídeo de referência sem `celular=ok` que não toca, explica que o app do computador converte
+  sozinho (em vez do aviso genérico de formato).
 
 ## 5. Atalho do iPhone
 
