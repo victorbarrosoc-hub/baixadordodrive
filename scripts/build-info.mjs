@@ -5,7 +5,9 @@
 //   node scripts/build-info.mjs versao.json    → grava no caminho dado (o aviso de versão nova lê este no site)
 //   node scripts/build-info.mjs versao.json --sha256 sha256
 //                                              → e junta o SHA-256 dos instaladores (sha256/mac.sha256 e
-//                                                sha256/windows.sha256, de scripts/sha256.mjs); falta um = falha
+//                                                sha256/windows.sha256, de scripts/sha256.mjs); falta um = falha.
+//                                                Junta também o nome de cada instalador (arquivoMac/arquivoWindows):
+//                                                o site entrega exatamente esse arquivo (web/src/lib/release.ts)
 //
 // { build: GITHUB_RUN_NUMBER, commit: 7 primeiros caracteres de GITHUB_SHA, data: hora do commit (ISO) },
 // mais { sha256Mac, sha256Windows } com --sha256 (o app e os instaladores de uma linha do site conferem o download).
@@ -38,7 +40,7 @@ const info = {
   data,
 }
 if (hashAt >= 0) {
-  for (const [plataforma, campo] of [['mac', 'sha256Mac'], ['windows', 'sha256Windows']]) {
+  for (const [plataforma, campo, campoArquivo] of [['mac', 'sha256Mac', 'arquivoMac'], ['windows', 'sha256Windows', 'arquivoWindows']]) {
     let linha = ''
     try {
       linha = fs.readFileSync(path.join(hashDir || '', `${plataforma}.sha256`), 'utf8')
@@ -46,12 +48,13 @@ if (hashAt >= 0) {
       console.error(`build-info: sem o SHA-256 do instalador de ${plataforma} (${err.code || err.message})`)
       process.exit(1)
     }
-    const hex = linha.trim().split(/\s+/)[0]
+    const [hex, nome] = linha.trim().split(/\s+/)
     if (!/^[0-9a-f]{64}$/.test(hex)) {
       console.error(`build-info: SHA-256 inválido para ${plataforma}: ${linha.trim().slice(0, 80)}`)
       process.exit(1)
     }
     info[campo] = hex
+    if (nome && /^[\w.+-]{1,200}$/.test(nome)) info[campoArquivo] = nome
   }
 }
 fs.mkdirSync(path.dirname(out), { recursive: true })

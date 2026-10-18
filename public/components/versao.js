@@ -1,8 +1,9 @@
 // Aviso "Nova versão do SOBEDESCE" na barra lateral, acima dos medidores. Não bloqueia nada: as transferências seguem.
-// App instalado no Mac/Windows: "Atualizar" (o app se troca sozinho e abre de novo) com "Baixar" de alternativa.
+// App instalado no Mac/Windows: a versão nova já baixa sozinha (com o progresso aqui) e, no fim, aparece
+// "Atualizar agora" (o app fecha, troca e abre de novo). "Baixar" fica de alternativa; "Depois" esconde este build.
 import { html, useMemo } from '/vendor/preact-htm.js'
 import { useStore, activeCount } from '../lib/store.js'
-import { dismissUpdate, downloadUpdate, installHint, installUpdate, updateProgress, updating } from '../lib/versao.js'
+import { dismissUpdate, downloadingAlone, downloadUpdate, installHint, installUpdate, retryUpdate, updateProgress, updateReady, updating } from '../lib/versao.js'
 import { Icon } from './icons.js'
 import { Button } from './common.js'
 
@@ -21,28 +22,47 @@ export function UpdateCard() {
   const andando = updating(v)
   if (!v?.nova && !andando) return null
   const prog = updateProgress(v.atualizacao)
-  return html`<section class="update-card" aria-labelledby="update-title" aria-busy=${andando ? 'true' : undefined}>
+  const baixando = downloadingAlone(v)
+  const pronto = updateReady(v)
+  const titulo = andando ? 'Atualizando o SOBEDESCE' : pronto ? 'Versão nova pronta' : 'Nova versão do SOBEDESCE'
+
+  let corpo
+  if (andando || baixando) {
+    corpo = html`<div class="update-progress" aria-live="polite">
+        <${UpdateBar} fraction=${prog?.fraction} />
+        <p>${prog?.label}</p>
+        ${baixando ? html`<p class="update-busy">Quando terminar, é só tocar em Atualizar agora.</p>` : null}
+      </div>
+      ${baixando
+        ? html`<div class="update-actions">
+            <${Button} size="sm" variant="ghost" onClick=${dismissUpdate}>Depois</${Button}>
+          </div>`
+        : null}`
+  } else {
+    const hint = pronto ? 'O app fecha, troca pela versão nova e abre de novo.' : installHint(v.plataforma, v.podeAtualizar)
+    let principal
+    if (pronto) principal = html`<${Button} size="sm" variant="primary" onClick=${installUpdate}>Atualizar agora</${Button}>`
+    else if (v.podeAtualizar && prog?.erro) principal = html`<${Button} size="sm" variant="primary" onClick=${retryUpdate}>Tentar de novo</${Button}>`
+    else if (v.podeAtualizar) principal = html`<${Button} size="sm" variant="primary" onClick=${installUpdate}>Atualizar</${Button}>`
+    else principal = html`<${Button} size="sm" variant="primary" onClick=${downloadUpdate}>Baixar</${Button}>`
+    corpo = html`<p>
+        ${prog?.erro ? html`<span class="update-error">${prog.label}</span>` : hint}
+        ${busy && !prog?.erro
+          ? html` <span class="update-busy">${v.podeAtualizar ? 'Atualizar pausa as transferências até o app voltar.' : 'Instale quando as transferências terminarem.'}</span>`
+          : null}
+      </p>
+      <div class="update-actions">
+        ${principal}
+        <${Button} size="sm" variant="ghost" onClick=${dismissUpdate}>Depois</${Button}>
+      </div>
+      ${v.podeAtualizar ? html`<button type="button" class="update-alt" onClick=${downloadUpdate}>Ou baixe o instalador</button>` : null}`
+  }
+
+  return html`<section class="update-card" aria-labelledby="update-title" aria-busy=${andando || baixando ? 'true' : undefined}>
     <div class="update-head">
       <span class="update-mark" aria-hidden="true"><${Icon} name="arrow-down" size=${12} strokeWidth=${2.2} /></span>
-      <b id="update-title">${andando ? 'Atualizando o SOBEDESCE' : 'Nova versão do SOBEDESCE'}</b>
+      <b id="update-title">${titulo}</b>
     </div>
-    ${andando
-      ? html`<div class="update-progress" aria-live="polite">
-          <${UpdateBar} fraction=${prog?.fraction} />
-          <p>${prog?.label}</p>
-        </div>`
-      : html`<p>
-            ${prog?.erro ? html`<span class="update-error">${prog.label}</span>` : installHint(v.plataforma, v.podeAtualizar)}
-            ${busy && !prog?.erro
-              ? html` <span class="update-busy">${v.podeAtualizar ? 'Atualizar pausa as transferências até o app voltar.' : 'Instale quando as transferências terminarem.'}</span>`
-              : null}
-          </p>
-          <div class="update-actions">
-            ${v.podeAtualizar
-              ? html`<${Button} size="sm" variant="primary" onClick=${installUpdate}>${prog?.erro ? 'Tentar de novo' : 'Atualizar'}</${Button}>`
-              : html`<${Button} size="sm" variant="primary" onClick=${downloadUpdate}>Baixar</${Button}>`}
-            <${Button} size="sm" variant="ghost" onClick=${dismissUpdate}>Depois</${Button}>
-          </div>
-          ${v.podeAtualizar ? html`<button type="button" class="update-alt" onClick=${downloadUpdate}>Ou baixe o instalador</button>` : null}`}
+    ${corpo}
   </section>`
 }

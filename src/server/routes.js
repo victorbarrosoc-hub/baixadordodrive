@@ -947,6 +947,9 @@ export function createApi(ctx) {
     return { versao: await v.dismiss(body.build) }
   })
 
+  // "Tentar de novo" o download automático da versão nova (sem trocar no fim).
+  route('POST', '/api/versao/baixar', async () => ({ versao: await versao().baixar() }))
+
   // Atualizar fecha o app no fim: transferências em andamento pausam (e continuam ao abrir de novo).
   // Com alguma andando, só segue com { pausar: true } (a interface pergunta antes).
   route('POST', '/api/versao/atualizar', async ({ body }) => {

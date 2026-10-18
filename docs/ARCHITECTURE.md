@@ -941,9 +941,9 @@ arquivo (quarentena do macOS, Mark-of-the-Web do Windows). Arquivo baixado pelo 
   ele. `npm start`, Linux e build 0 ficam só com o Baixar.
 - **Disponível?** Mac: o `.app` (subindo de `process.execPath`) e a pasta dele precisam aceitar gravação; aberto de
   `/Volumes/…` (o `.dmg`) ou de `…/AppTranslocation/…` não dá (`motivo` diz o que fazer). Windows: a pasta do `.exe`.
-- **Fases:** `baixando` (`downloadTo`: undici com o proxy do sistema, segue o redirecionamento de `/baixar/<plataforma>`
+- **Fases:** `baixando` (`downloadTo`: undici com o proxy do sistema, segue o redirecionamento de `/baixar/<plataforma>?build=N`
   para o GitHub, SHA-256 calculado no caminho, para se ficar 60 s sem dados, limite de 2 GiB) → `conferindo` (hash
-  diferente = erro) → `preparando` → `reiniciando` (handoff) | `erro`.
+  diferente = erro) → `preparando` → `pronto` → `reiniciando` (handoff, no Atualizar agora) | `erro`.
   - Mac: `hdiutil attach -nobrowse -noautoopen -readonly -mountpoint <tmp>`, `ditto` do `.app` para
     `.<Nome>-atualizacao.app` ao lado do atual (mesmo disco: a troca é um `mv`), `hdiutil detach` (com `-force` se
     precisar), `xattr -cr`, e grava `trocar.sh`.
@@ -957,8 +957,19 @@ arquivo (quarentena do macOS, Mark-of-the-Web do Windows). Arquivo baixado pelo 
   (espera só ele, não o app que ele abre) e abre `SOBEDESCE.exe` se o instalador não abriu. Falhou → grava
   `atualizacao-falhou.json` na pasta de dados `{ build, motivo }`; na próxima abertura o Updater lê, apaga e mostra o
   motivo, com o Atualizar desligado para aquele build.
-- **Erros definitivos** (sem SHA-256, hash diferente, `hdiutil`/`ditto` falhou) desligam o Atualizar daquele build
-  (`bloqueado`): a interface volta para o Baixar. Falha de rede deixa tentar de novo.
+- **Sozinho em segundo plano** (`src/version.js`): ao ver um build novo não dispensado, o VersionChecker chama
+  `preparar()`, que baixa, confere e prepara e para na fase `pronto`. O aviso mostra o progresso e, no fim,
+  **Atualizar agora** (`trocar()`, o handoff). Atualizar no meio do download marca `aplicar` e troca assim que ficar
+  pronto. Saiu um build mais novo com outro já pronto: descarta o antigo e baixa o novo.
+- **Instalador por build:** o download pede `/baixar/<plataforma>?build=N`. O Release guarda instaladores com o build
+  no nome (`SOBEDESCE-0.1.0-b170-mac-universal.dmg`, `scripts/nome-instalador.mjs`, os 3 últimos builds;
+  `scripts/limpar-release.mjs`) e o `versao.json` diz o nome de cada um (`arquivoMac`/`arquivoWindows`). Assim o arquivo
+  entregue é sempre o do SHA-256 conferido. Antes, o build seguinte trocava o `.dmg` no Release antes do `versao.json`,
+  e a lista guardada pelo site apontava para o arquivo apagado ("indisponível": o app baixava a página do site).
+  Build que já saiu do Release → 404 (nunca a página).
+- **Erros que passam sozinhos** (rede, hash diferente porque a versão ainda está subindo) tentam de novo em 2, 4, 8…
+  até 30 min (`deNovo`). **Erros definitivos** (sem SHA-256, `hdiutil`/`ditto` falhou) desligam o Atualizar daquele
+  build (`bloqueado`): a interface volta para o Baixar.
 - **Transferências:** a interface pergunta ("Há transferências em andamento. Atualizar agora vai pausá-las.") e manda
   `pausar: true`; a rota recusa (409) sem isso se `manager.activeCount()` > 0.
 - `updaterOptions` troca as peças nos testes: `platform`, `appExe`, `appPid`, `stateDir`, `tmpRoot`, `handoff`,

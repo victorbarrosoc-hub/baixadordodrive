@@ -168,7 +168,7 @@ test('Mac: baixa, confere, monta, copia o app novo ao lado, desmonta e entrega o
   assert.equal(up.disponivel, true)
   const st = await up.install({ build: 41, url: `${SITE}/baixar/mac`, sha256: SHA.toUpperCase() })
   assert.equal(st.fase, 'reiniciando')
-  assert.deepEqual(seen, ['baixando', 'conferindo', 'preparando', 'reiniciando'])
+  assert.deepEqual(seen, ['baixando', 'conferindo', 'preparando', 'pronto', 'reiniciando'])
   assert.equal(fetch.calls[0].url, `${SITE}/baixar/mac`)
   assert.equal(fetch.calls[0].redirect, 'follow')
   assert.equal(up.status().recebido, BYTES.length)
@@ -196,8 +196,9 @@ test('hash diferente: não instala, apaga o download e deixa tentar de novo (nã
   const { up, calls, handoffs, tmpRoot } = await macUpdater('mac-hash')
   let st = await up.install({ build: 41, url: `${SITE}/baixar/mac`, sha256: 'f'.repeat(64) })
   assert.equal(st.fase, 'erro')
-  assert.match(st.erro, /não bate/)
-  assert.match(st.erro, /tente de novo/)
+  assert.match(st.erro, /sendo publicada/)
+  assert.match(st.erro, /de novo/)
+  assert.equal(st.deNovo, true, 'passa sozinho: o aviso tenta de novo mais tarde')
   assert.equal(st.bloqueado, 0)
   assert.equal(handoffs.length, 0)
   assert.equal(calls.length, 0, 'nem chegou a montar')
@@ -379,7 +380,7 @@ test('VersionChecker: podeAtualizar só com Updater pronto e SHA-256 da platafor
   const s = await freshSettings('vc')
   const { up, handoffs } = await macUpdater('vc')
   let answer = remote(41, { sha256Mac: null })
-  const v = new VersionChecker({ settings: s, fetchJSON: async () => answer, buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', updater: up })
+  const v = new VersionChecker({ settings: s, fetchJSON: async () => answer, buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', updater: up, autoBaixar: false })
   let st = await v.check()
   assert.equal(st.nova, true)
   assert.equal(st.podeAtualizar, false, 'sem o SHA-256 do Mac, só Baixar')
@@ -409,6 +410,89 @@ test('VersionChecker: podeAtualizar só com Updater pronto e SHA-256 da platafor
   const igual = new VersionChecker({ settings: s, fetchJSON: async () => remote(40), buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', updater: up })
   await igual.check()
   await assert.rejects(igual.update(), err => err.status === 409)
+})
+
+test('versão nova: baixa sozinho em segundo plano (o instalador daquele build) e espera o Atualizar agora', async () => {
+  const s = await freshSettings('auto')
+  const fetch = fakeFetch()
+  const { up, handoffs } = await macUpdater('auto', { fetch })
+  const v = new VersionChecker({ settings: s, fetchJSON: async () => remote(41), buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', updater: up })
+  await v.check()
+  await waitFor(() => up.status().fase === 'pronto')
+  assert.equal(fetch.calls[0].url, `${SITE}/baixar/mac?build=41`, 'pede o instalador do build conferido')
+  assert.equal(handoffs.length, 0, 'não fecha o app sozinho')
+  let st = v.status()
+  assert.equal(st.atualizacao.fase, 'pronto')
+  assert.equal(st.atualizacao.aplicar, false)
+  // conferir de novo não baixa outra vez
+  await v.check()
+  assert.equal(fetch.calls.length, 1)
+  st = await v.update()
+  await waitFor(() => handoffs.length === 1)
+  assert.equal(up.status().fase, 'reiniciando')
+  assert.equal(fetch.calls.length, 1, 'Atualizar agora usa o que já baixou')
+  v.stop()
+})
+
+test('Atualizar agora no meio do download: troca assim que terminar', async () => {
+  const s = await freshSettings('auto-meio')
+  let solta
+  const segura = new Promise(r => (solta = r))
+  const base = fakeFetch()
+  const fetch = async (url, opts) => {
+    await segura
+    return base(url, opts)
+  }
+  const { up, handoffs } = await macUpdater('auto-meio', { fetch })
+  const v = new VersionChecker({ settings: s, fetchJSON: async () => remote(41), buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', updater: up })
+  await v.check()
+  assert.equal(up.status().fase, 'baixando')
+  const st = await v.update()
+  assert.equal(st.atualizacao.aplicar, true)
+  solta()
+  await waitFor(() => handoffs.length === 1)
+  v.stop()
+})
+
+test('download automático falhou (rede): tenta de novo sozinho; build dispensado não baixa', async () => {
+  const s = await freshSettings('auto-rede')
+  let falhas = 1
+  const ok = fakeFetch()
+  const fetch = async (url, opts) => {
+    if (falhas-- > 0) throw Object.assign(new Error('ECONNRESET'), { code: 'ECONNRESET' })
+    return ok(url, opts)
+  }
+  const { up } = await macUpdater('auto-rede', { fetch })
+  const v = new VersionChecker({ settings: s, fetchJSON: async () => remote(41), buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', updater: up, retryBaseMs: 20 })
+  await v.check()
+  await waitFor(() => up.status().fase === 'pronto')
+  v.stop()
+
+  const s2 = await freshSettings('auto-depois')
+  await s2.update({ versaoDispensada: 41 })
+  const f2 = fakeFetch()
+  const { up: up2 } = await macUpdater('auto-depois', { fetch: f2 })
+  const v2 = new VersionChecker({ settings: s2, fetchJSON: async () => remote(41), buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', updater: up2 })
+  await v2.check()
+  await new Promise(r => setTimeout(r, 30))
+  assert.equal(f2.calls.length, 0, '"Depois" vale também para o download automático')
+  v2.stop()
+})
+
+test('saiu um build mais novo com o anterior já pronto: troca pelo novo', async () => {
+  const s = await freshSettings('auto-novo')
+  const fetch = fakeFetch()
+  const { up, apps } = await macUpdater('auto-novo', { fetch })
+  let answer = remote(41)
+  const v = new VersionChecker({ settings: s, fetchJSON: async () => answer, buildInfo: { build: 40 }, baseUrl: SITE, platform: 'darwin', updater: up })
+  await v.check()
+  await waitFor(() => up.status().fase === 'pronto' && up.status().build === 41)
+  answer = remote(42)
+  await v.check()
+  await waitFor(() => up.status().fase === 'pronto' && up.status().build === 42)
+  assert.equal(fetch.calls.at(-1).url, `${SITE}/baixar/mac?build=42`)
+  assert.ok(fss.existsSync(path.join(apps, '.SOBEDESCE-atualizacao.app')))
+  v.stop()
 })
 
 function call(app, method, p, body) {
@@ -477,7 +561,7 @@ test('rota /api/versao/atualizar: com transferências andando pede confirmação
 
     r = await call(app, 'POST', '/api/versao/atualizar', { pausar: true })
     assert.equal(r.status, 200)
-    assert.ok(['baixando', 'conferindo', 'preparando', 'reiniciando'].includes(r.json.versao.atualizacao.fase))
+    assert.ok(['baixando', 'conferindo', 'preparando', 'pronto', 'reiniciando'].includes(r.json.versao.atualizacao.fase))
     await waitFor(() => handoffs.length === 1)
     r = await call(app, 'GET', '/api/versao')
     assert.equal(r.json.versao.atualizacao.fase, 'reiniciando')

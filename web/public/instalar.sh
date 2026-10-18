@@ -75,7 +75,7 @@ main() {
 
   # 2. Baixa e confere
   passo "2/4" "Baixando o SOBEDESCE…"
-  curl -fL --retry 2 --connect-timeout 15 --progress-bar -o "$DMG" "$SITE/baixar/mac" ||
+  curl -fL --retry 2 --connect-timeout 15 --progress-bar -o "$DMG" "$SITE/baixar/mac?build=$BUILD" ||
     erro "O download não terminou." "Confira a internet e rode o comando de novo."
   GOT="$(shasum -a 256 "$DMG" | awk '{print $1}')"
   if [ "$GOT" != "$SHA" ]; then

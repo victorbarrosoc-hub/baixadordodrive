@@ -26,6 +26,9 @@ export async function GET(): Promise<Response> {
         windows: "/baixar/windows",
         sha256Mac: v.sha256Mac,
         sha256Windows: v.sha256Windows,
+        // Nome do instalador deste build (para conferir; o download continua por /baixar/<plataforma>?build=N).
+        arquivoMac: v.arquivoMac,
+        arquivoWindows: v.arquivoWindows,
       },
       { headers: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=60" } },
     );

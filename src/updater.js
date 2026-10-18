@@ -2,11 +2,13 @@
 // trava a instalação é a marca de "veio da internet" que o navegador põe no arquivo (a quarentena do macOS e a
 // Mark-of-the-Web do Windows). Arquivo baixado pelo próprio app não ganha essa marca. Então o motor:
 //
-//   1. baixa o instalador de <site>/baixar/<plataforma> (segue o redirecionamento para o GitHub), com progresso;
+//   1. baixa o instalador de <site>/baixar/<plataforma>?build=N (segue o redirecionamento para o GitHub), com
+//      progresso. Isso já acontece sozinho em segundo plano quando sai uma versão nova (src/version.js);
 //   2. confere o SHA-256 com o que o versao.json publicou (sem hash ou hash diferente = não instala);
 //   3. prepara a troca:
 //        Mac: monta o .dmg (hdiutil), copia o app novo para o lado do atual (ditto), desmonta e tira atributos (xattr -cr);
 //        Windows: o próprio instalador NSIS, que roda em silêncio (/S);
+//      Pronto: fica esperando o "Atualizar agora" (fase 'pronto');
 //   4. grava um script pequeno e entrega ao processo principal do Electron (handoff), que o roda solto e fecha o app.
 //      O script espera o app fechar, troca o app (Mac: renomeia o antigo, põe o novo no lugar) ou roda o instalador
 //      (Windows) e abre o app de novo. Se a troca falhar, o app antigo volta e o script deixa uma marca
@@ -226,7 +228,8 @@ export async function downloadTo(url, file, { fetch = (u, o) => undiciFetch(u, {
  * @fires Updater#change a cada mudança de fase e no progresso (no máximo a cada 250 ms)
  *
  * status() = { disponivel, motivo (por que não dá, em PT-BR), fase: null|'baixando'|'conferindo'|'preparando'|
- *   'reiniciando'|'erro', build, recebido, total, erro, bloqueado (build em que o Atualizar ficou desligado) }
+ *   'pronto'|'reiniciando'|'erro', build, recebido, total, erro, bloqueado (build em que o Atualizar ficou desligado),
+ *   aplicar (a pessoa já pediu "Atualizar agora": a troca segue sozinha assim que ficar pronto) }
  */
 export class Updater extends EventEmitter {
   /**
@@ -258,6 +261,9 @@ export class Updater extends EventEmitter {
     this.bloqueado = 0
     this.lastProgress = 0
     this.job = null
+    this.pronto = null // { build, script, tmp }: baixado, conferido e preparado, esperando o "Atualizar agora"
+    this.aplicar = false
+    this.deNovo = false // o último erro passa sozinho (rede, versão ainda subindo): o aviso tenta de novo mais tarde
     this.motivo = this.#check()
     this.#readMark()
   }
@@ -325,6 +331,8 @@ export class Updater extends EventEmitter {
       total: this.total,
       erro: this.erro,
       bloqueado: this.bloqueado,
+      aplicar: this.aplicar,
+      deNovo: this.fase === 'erro' && !!this.deNovo,
     }
   }
 
@@ -338,15 +346,24 @@ export class Updater extends EventEmitter {
     this.emit('change', this.status())
   }
 
+  /** Já está baixado e preparado este build (ou um mais novo)? */
+  prontoPara(build) {
+    return !!this.pronto && this.pronto.build >= build
+  }
+
   /**
-   * Baixa, confere e entrega a troca. Volta logo (o trabalho segue em segundo plano; acompanhe pelo 'change').
-   * Lança Error com `status` se não fizer sentido começar.
-   * `recheck` (opcional) pergunta ao site de novo, se o arquivo não bater: saiu um build mais novo enquanto este app
-   * ainda guardava a conferência do anterior (o endereço de download sempre entrega o mais novo).
-   * @param {{ build: number, url: string, sha256: string, recheck?: () => Promise<{ build: number, sha256: string } | null> }} release
+   * Baixa, confere e prepara a troca, sem fechar o app: termina na fase 'pronto' (ou já troca, se `aplicar`).
+   * Volta logo (o trabalho segue em segundo plano; acompanhe pelo 'change'). Lança Error com `status` se não fizer
+   * sentido começar. `recheck` (opcional) pergunta ao site de novo, se o arquivo não bater.
+   * @param {{ build: number, url: string, sha256: string, recheck?: () => Promise<{ build: number, sha256: string } | null>, aplicar?: boolean }} release
    */
-  install({ build, url, sha256, recheck } = {}) {
+  preparar({ build, url, sha256, recheck, aplicar = false } = {}) {
+    if (aplicar && !this.aplicar) {
+      this.aplicar = true
+      if (this.job) this.emit('change', this.status()) // a interface troca para "Atualizando"
+    }
     if (this.job) return this.job
+    if (this.prontoPara(build)) return this.aplicar ? this.trocar() : Promise.resolve(this.status())
     if (!this.disponivel) throw Object.assign(new Error(this.motivo), { status: 409 })
     if (!this.podeInstalar(build)) throw Object.assign(new Error('Esta versão não dá para instalar pelo app. Use Baixar.'), { status: 409 })
     const hash = String(sha256 || '').toLowerCase()
@@ -356,15 +373,51 @@ export class Updater extends EventEmitter {
       throw Object.assign(new Error(this.erro), { status: 409 })
     }
     this.#set({ fase: 'baixando', build, recebido: 0, total: 0, erro: null })
-    this.job = this.#install({ build, url, sha256: hash, recheck }).finally(() => {
+    this.job = this.#preparar({ build, url, sha256: hash, recheck }).finally(() => {
       this.job = null
     })
-    return this.job
+    return this.job.then(st => (st.fase === 'pronto' && this.aplicar ? this.trocar() : st))
   }
 
-  async #install({ build, url, sha256, recheck }) {
+  /** Baixa, confere, prepara e já troca (o "Atualizar" de antes, numa chamada só). */
+  install(release = {}) {
+    return this.preparar({ ...release, aplicar: true })
+  }
+
+  /** "Atualizar agora": entrega a troca preparada ao processo principal, que fecha o app e abre a versão nova. */
+  async trocar() {
+    const p = this.pronto
+    if (this.fase === 'reiniciando') return this.status()
+    if (!p) throw Object.assign(new Error('A versão nova ainda não está pronta.'), { status: 409 })
+    if (!fs.existsSync(p.script)) {
+      this.pronto = null
+      this.#set({ fase: 'erro', aplicar: false, erro: 'A versão baixada sumiu da pasta temporária. Tente de novo.' })
+      return this.status()
+    }
+    this.#set({ fase: 'reiniciando' })
+    try {
+      await this.handoff({ script: p.script })
+      return this.status()
+    } catch (err) {
+      this.log('não consegui entregar a troca:', err?.message || err)
+      this.#set({ fase: 'erro', aplicar: false, erro: 'Não consegui reiniciar o app para atualizar. Use Baixar.' })
+      return this.status()
+    }
+  }
+
+  /** Esquece a versão preparada (saiu uma mais nova): apaga os arquivos dela. */
+  async descartar() {
+    const p = this.pronto
+    this.pronto = null
+    if (p?.tmp) await fsp.rm(p.tmp, { recursive: true, force: true }).catch(() => {})
+    if (p?.novo) await fsp.rm(p.novo, { recursive: true, force: true }).catch(() => {})
+  }
+
+  async #preparar({ build, url, sha256, recheck }) {
+    await this.descartar()
+    await this.#limparSobras()
     const tmp = await fsp.mkdtemp(path.join(this.tmpRoot, 'sobedesce-atualizacao-'))
-    let handedOff = false
+    let guardado = false
     try {
       const file = path.join(tmp, this.plataforma === 'mac' ? 'SOBEDESCE.dmg' : 'SOBEDESCE-setup.exe')
       let got
@@ -372,7 +425,7 @@ export class Updater extends EventEmitter {
         got = await this.download(url, file, (recebido, total) => this.#set({ recebido, total }, { progress: true }))
       } catch (err) {
         this.log('não consegui baixar a versão nova:', err?.message || err)
-        throw new Error('Não consegui baixar a versão nova. Confira a internet e tente de novo.')
+        throw Object.assign(new Error('Não consegui baixar a versão nova. Confira a internet: tento de novo daqui a pouco.'), { deNovo: true })
       }
       this.#set({ fase: 'conferindo', recebido: this.total || this.recebido })
       got = String(got).toLowerCase()
@@ -382,7 +435,7 @@ export class Updater extends EventEmitter {
         // novo daqui a pouco resolve quando o site ainda está publicando (os instaladores sobem antes do versao.json).
         const novo = recheck ? await recheck().catch(() => null) : null
         if (!(novo && novo.build >= build && String(novo.sha256 || '').toLowerCase() === got && this.podeInstalar(novo.build))) {
-          throw new Error('O arquivo baixado não bate com a conferência do site (SHA-256). Deve ser uma versão nova sendo publicada agora: tente de novo em alguns minutos.')
+          throw Object.assign(new Error('A versão nova ainda está sendo publicada. Tento de novo em alguns minutos.'), { deNovo: true })
         }
         this.log(`saiu o build ${novo.build} durante a atualização: instalando ele`)
         build = novo.build
@@ -390,16 +443,35 @@ export class Updater extends EventEmitter {
       }
       this.#set({ fase: 'preparando' })
       const script = this.plataforma === 'mac' ? await this.#prepareMac({ file, tmp, build }) : await this.#prepareWin({ file, tmp, build })
-      this.#set({ fase: 'reiniciando' })
-      await this.handoff({ script })
-      handedOff = true
+      this.pronto = { build, script, tmp, novo: this.plataforma === 'mac' ? this.novoApp : null }
+      guardado = true
+      this.#set({ fase: 'pronto', build })
       return this.status()
     } catch (err) {
       if (err?.definitivo) this.bloqueado = Math.max(this.bloqueado, build)
-      this.#set({ fase: 'erro', erro: err?.message || 'Algo deu errado ao atualizar. Use Baixar.' })
+      this.deNovo = !!err?.deNovo
+      this.#set({ fase: 'erro', aplicar: false, erro: err?.message || 'Algo deu errado ao atualizar. Use Baixar.' })
       return this.status()
     } finally {
-      if (!handedOff) await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {})
+      if (!guardado) await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {})
+    }
+  }
+
+  /** Pastas de atualizações antigas que ficaram para trás (o app fechou com uma versão pronta e não trocou). */
+  async #limparSobras() {
+    let nomes = []
+    try {
+      nomes = await fsp.readdir(this.tmpRoot)
+    } catch {
+      return
+    }
+    const limite = Date.now() - 60 * 60_000
+    for (const n of nomes) {
+      if (!n.startsWith('sobedesce-atualizacao-')) continue
+      const p = path.join(this.tmpRoot, n)
+      try {
+        if ((await fsp.stat(p)).mtimeMs < limite) await fsp.rm(p, { recursive: true, force: true })
+      } catch {}
     }
   }
 
@@ -408,6 +480,7 @@ export class Updater extends EventEmitter {
     const parent = path.posix.dirname(bundle)
     const base = path.posix.basename(bundle, '.app')
     const novo = path.posix.join(parent, `.${base}-atualizacao.app`)
+    this.novoApp = novo
     const velho = path.posix.join(parent, `.${base}-antigo.app`)
     const mount = path.join(tmp, 'montagem')
     await fsp.mkdir(mount)

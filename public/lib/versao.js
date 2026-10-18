@@ -1,5 +1,6 @@
 // Aviso de versão nova (o motor confere no site; src/version.js).
-// "Atualizar" (app instalado no Mac/Windows): o motor baixa, confere o SHA-256 e troca o app sozinho (src/updater.js).
+// App instalado no Mac/Windows: assim que sai uma versão nova, o motor já baixa, confere o SHA-256 e prepara em
+// segundo plano (src/version.js + src/updater.js); o aviso mostra o progresso e, no fim, "Atualizar agora".
 // "Baixar" abre o instalador certo no navegador do sistema (sempre fica como alternativa).
 // "Depois" esconde este build até sair um mais novo.
 import { api, attempt } from './api.js'
@@ -8,8 +9,8 @@ import { openExternal } from './desktop.js'
 import { confirmDialog } from './modals.js'
 import { bytes } from './format.js'
 
-/** Fases em que o app está no meio da atualização (sem botões, só o progresso). */
-const ANDANDO = new Set(['baixando', 'conferindo', 'preparando', 'reiniciando'])
+/** Fases do download (sozinho em segundo plano, ou depois do "Atualizar agora"). */
+const BAIXANDO = new Set(['baixando', 'conferindo', 'preparando'])
 
 /** "Baixe e substitua…" (Mac) ou "Baixe e rode…" (Windows); com Atualizar, o app faz isso sozinho. */
 export function installHint(plataforma, podeAtualizar = false) {
@@ -25,9 +26,21 @@ export function buildLabel(info) {
   return when ? `build ${info.build} · ${when}` : `build ${info.build}`
 }
 
-/** O app está atualizando agora? */
+/** O app está trocando de versão agora (a pessoa pediu "Atualizar agora"): sem botões, só o progresso. */
 export function updating(v) {
-  return ANDANDO.has(v?.atualizacao?.fase)
+  const a = v?.atualizacao
+  return a?.fase === 'reiniciando' || (BAIXANDO.has(a?.fase) && !!a.aplicar)
+}
+
+/** Baixando a versão nova sozinho, em segundo plano (a pessoa ainda não pediu nada). */
+export function downloadingAlone(v) {
+  const a = v?.atualizacao
+  return BAIXANDO.has(a?.fase) && !a.aplicar
+}
+
+/** Versão nova baixada, conferida e preparada: falta só o "Atualizar agora". */
+export function updateReady(v) {
+  return v?.atualizacao?.fase === 'pronto'
 }
 
 /**
@@ -40,12 +53,13 @@ export function updateProgress(a) {
   if (a.fase === 'baixando') {
     const total = Number(a.total) || 0
     const got = Number(a.recebido) || 0
-    if (!total) return { label: got ? `Baixando… ${bytes(got)}` : 'Baixando…', fraction: null, erro: false }
+    if (!total) return { label: got ? `Baixando a versão nova… ${bytes(got)}` : 'Baixando a versão nova…', fraction: null, erro: false }
     const f = Math.min(1, got / total)
-    return { label: `Baixando… ${Math.floor(f * 100)}% · ${bytes(got)} de ${bytes(total)}`, fraction: f, erro: false }
+    return { label: `Baixando a versão nova… ${Math.floor(f * 100)}% · ${bytes(got)} de ${bytes(total)}`, fraction: f, erro: false }
   }
   if (a.fase === 'conferindo') return { label: 'Conferindo o arquivo…', fraction: 1, erro: false }
   if (a.fase === 'preparando') return { label: 'Preparando a troca…', fraction: 1, erro: false }
+  if (a.fase === 'pronto') return { label: 'Versão nova baixada e conferida.', fraction: 1, erro: false }
   if (a.fase === 'reiniciando') return { label: 'Abrindo a versão nova…', fraction: 1, erro: false }
   return null
 }
@@ -70,6 +84,13 @@ export async function installUpdate() {
     pausar = true
   }
   const res = await attempt(api.post('/api/versao/atualizar', pausar ? { pausar: true } : {}))
+  if (res?.versao) setVersao(res.versao)
+  return res?.versao ?? null
+}
+
+/** "Tentar de novo" depois de um erro no download automático (baixa de novo, sem trocar no fim). */
+export async function retryUpdate() {
+  const res = await attempt(api.post('/api/versao/baixar'))
   if (res?.versao) setVersao(res.versao)
   return res?.versao ?? null
 }

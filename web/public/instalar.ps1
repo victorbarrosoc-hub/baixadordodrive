@@ -65,7 +65,7 @@
     # 2. Baixa e confere
     Passo '2/4' 'Baixando o SOBEDESCE... (pode levar alguns minutos)'
     try {
-      Invoke-WebRequest -Uri "$site/baixar/windows" -OutFile $setup -UseBasicParsing
+      Invoke-WebRequest -Uri "$site/baixar/windows?build=$build" -OutFile $setup -UseBasicParsing
     } catch {
       Falha 'O download não terminou.' 'Confira a internet e rode o comando de novo.'
     }
