@@ -135,7 +135,12 @@ e é assim que o Instagram manda boa parte dos reels nos formatos separados (ví
   - tudo o que é conferido ganha `celular=ok`, e não é olhado de novo nem em outro computador;
   - terminou sem falhas: o ajuste `referenciasCelular` fica `true`. Um arquivo que falhar volta na próxima abertura.
 - O celular, diante de um vídeo de referência sem `celular=ok` que não toca, explica que o app do computador converte
-  sozinho (em vez do aviso genérico de formato).
+  sozinho (em vez do aviso genérico de formato) e oferece **Tocar pelo Drive**: o player do Drive
+  (`drive.google.com/file/d/<id>/preview`, em tela cheia) toca qualquer formato, porque o Google converte. Ele só abre
+  dentro do app com o link liberado. A pessoa confirma e escolhe **Liberar a coleção** (a pasta da coleção: as
+  referências dela, inclusive as próximas, herdam) ou **Só este vídeo** ("qualquer pessoa com o link", leitor, sem
+  aparecer em buscas). Com o link já liberado, a referência abre direto no player do Drive. Sem permissão de
+  compartilhar, fica só o aviso. `web/public/app/components/preview.js` (`RefLiberar`).
 
 ## 5. Atalho do iPhone
 
