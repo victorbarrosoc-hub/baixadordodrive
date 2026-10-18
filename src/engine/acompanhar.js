@@ -26,6 +26,7 @@ export const ACOMPANHAR_PADRAO = Object.freeze({
 
 export const MAX_ITENS = 50
 export const MAX_TERMINADOS = 30
+export const MAX_LOTES = 15
 export const GUARDA_TERMINADOS_MS = 7 * DIA
 export const LIMITE_BYTES = 60 * 1024 // o site aceita até 64 KB
 const MAX_NOME = 160
@@ -145,6 +146,7 @@ export function montarRetrato(manager, { rodada = null, now = Date.now(), fechad
       estado: estadoItem(r),
       destino: destinoDe(r, manager.batches?.get?.(r.batchId)),
     }
+    if (r.batchId) it.lote = corta(r.batchId, 80)
     if (r.error?.message && (r.status === 'paused' || r.status === 'waiting')) it.erro = corta(r.error.message, 200)
     return it
   })
@@ -153,20 +155,104 @@ export function montarRetrato(manager, { rodada = null, now = Date.now(), fechad
   terminados.sort((a, b) => quandoTerminou(b) - quandoTerminou(a))
   const fim = terminados.slice(0, MAX_TERMINADOS).map(r => {
     const t = { nome: corta(r.name || r.relPath || 'arquivo'), direcao: direcaoDe(r), total: r.size == null ? null : num(r.size), terminouEm: quandoTerminou(r), ok: r.status !== 'failed' }
+    if (r.batchId) t.lote = corta(r.batchId, 80)
     if (r.status === 'failed' && r.error?.message) t.erro = corta(r.error.message, 200)
     return t
   })
 
-  const retrato = { v: 1, estado, rodada: rodada ? rodada.id : null, geral, itens, terminados: fim }
+  const retrato = { v: 1, estado, rodada: rodada ? rodada.id : null, geral, itens, terminados: fim, lotes: montarLotes(manager, now) }
   if (fechado) retrato.fechado = true
   return caber(retrato)
+}
+
+/**
+ * Os pedidos (lotes), como a tela Transferências do computador: "Pasta "ZRO" · 8 arquivos · 18,2 GB", quantos andam,
+ * na fila, prontos, cancelados, com erro e conferidos (MD5). Os que têm algo andando e os que terminaram nos últimos 7
+ * dias, no máximo MAX_LOTES: os andando primeiro, depois o mais recente.
+ */
+export function montarLotes(manager, now = Date.now()) {
+  const por = new Map()
+  for (const r of manager.records.values()) {
+    if (!r?.batchId) continue
+    let l = por.get(r.batchId)
+    if (!l) por.set(r.batchId, (l = []))
+    l.push(r)
+  }
+  const out = []
+  for (const [id, rs] of por) {
+    const b = manager.batches?.get?.(id) || null
+    const n = { andando: 0, esperando: 0, naFila: 0, pausados: 0, concluidos: 0, cancelados: 0, erros: 0, conferidos: 0, divergentes: 0 }
+    let bytes = 0
+    let feito = 0
+    let restante = 0
+    let velocidade = 0
+    let fim = 0
+    let sobe = 0
+    let desce = 0
+    for (const r of rs) {
+      if (r.type === 'upload') sobe++
+      else desce++
+      const size = r.size == null ? 0 : num(r.size)
+      if (r.status === 'canceled') {
+        n.cancelados++
+        continue
+      }
+      bytes += size
+      if (OK.has(r.status)) {
+        n.concluidos++
+        feito += size || num(r.bytesDone)
+        if (r.verify?.state === 'ok') n.conferidos++
+        else if (r.verify?.state === 'mismatch') n.divergentes++
+        fim = Math.max(fim, quandoTerminou(r))
+        continue
+      }
+      if (r.status === 'failed') {
+        n.erros++
+        feito += Math.min(size || Infinity, num(r.bytesDone))
+        fim = Math.max(fim, quandoTerminou(r))
+        continue
+      }
+      const ao = r.status === 'running' || r.status === 'verifying' ? liveOf(manager, r) : null
+      const f = Math.min(size || Infinity, num(ao?.bytesDone ?? r.bytesDone))
+      feito += f
+      if (r.status === 'running' || r.status === 'verifying') {
+        n.andando++
+        velocidade += num(ao?.speed)
+      } else if (r.status === 'waiting') n.esperando++
+      else if (r.status === 'paused') {
+        n.pausados++
+        if (r.error) n.erros++ // pausado com motivo: precisa de alguém (a tela do computador conta como problema)
+        continue
+      } else n.naFila++
+      restante += Math.max(0, size - f)
+    }
+    const vivo = n.andando + n.esperando + n.naFila > 0
+    if (!vivo && !n.pausados && (!fim || fim < now - GUARDA_TERMINADOS_MS)) continue
+    out.push({
+      id: corta(id, 80),
+      titulo: corta(b?.label || (sobe ? 'Envios' : 'Downloads'), 160),
+      direcao: sobe && desce ? 'misto' : sobe ? 'sobe' : 'desce',
+      destino: b?.destino ? corta(b.destino, 120) : null,
+      arquivos: rs.length,
+      bytes,
+      feitoBytes: Math.min(bytes, feito),
+      ...n,
+      velocidade: Math.round(velocidade),
+      eta: vivo && velocidade > 0 ? Math.round(restante / velocidade) : null,
+      criadoEm: Number(b?.createdAt) || Math.min(...rs.map(r => Number(r.createdAt) || now)),
+      terminouEm: vivo || n.pausados ? null : fim || null,
+    })
+  }
+  out.sort((a, b) => Number(b.terminouEm == null) - Number(a.terminouEm == null) || (b.terminouEm ?? b.criadoEm) - (a.terminouEm ?? a.criadoEm))
+  return out.slice(0, MAX_LOTES)
 }
 
 /** Garante o teto de tamanho do site: tira itens do fim das listas até caber. */
 function caber(retrato) {
   let json = JSON.stringify(retrato)
-  while (Buffer.byteLength(json) > LIMITE_BYTES && (retrato.itens.length || retrato.terminados.length)) {
-    if (retrato.terminados.length > 5 || !retrato.itens.length) retrato.terminados.pop()
+  while (Buffer.byteLength(json) > LIMITE_BYTES && (retrato.itens.length || retrato.terminados.length || retrato.lotes?.length > 3)) {
+    if (retrato.lotes?.length > 3 && !retrato.itens.length && retrato.terminados.length <= 5) retrato.lotes.pop()
+    else if (retrato.terminados.length > 5 || !retrato.itens.length) retrato.terminados.pop()
     else {
       retrato.itens.pop()
       retrato.geral.fora++

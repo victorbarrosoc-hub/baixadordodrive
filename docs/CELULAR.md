@@ -165,6 +165,11 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   extensão), a **pasta** (ou a coleção de Referências) e a **miniatura** (`lib/now-playing.js`, Media Session API).
   A miniatura vira um JPEG `data:` de até 512 px; os botões de lá (play, pausa, ±10 s, arrastar) comandam o nosso
   player. Na tela cheia do Drive o nome e a miniatura também são enviados, mas quem manda nos botões é o player dele.
+- **Pedidos do computador (2.8.13):** a folha "No computador" mostra os **pedidos** (lotes) como a tela Transferências
+  do app de computador: título ("Pasta "ZRO""), arquivos e tamanho, barra, "3 baixando · 5 na fila" / "1 concluído · 8
+  cancelados", conferência ("1 de 1 conferido (MD5)"), velocidade e quanto falta, ou "há 59 min" quando terminou. Filtros
+  Tudo · Em andamento · Na fila · Concluídas · Com problema; tocar abre os arquivos daquele pedido. Vem de `lotes` no
+  retrato (docs/CONTAS.md §9); app de computador antigo (sem `lotes`) continua com as listas "Agora" e "Já passou".
 - **Copiar de um link (2.8.11):** botão de link no topo da aba Drive (`components/copiar.js`, `lib/copiar.js`). Cola o
   link de uma pasta ou arquivo do Drive de outra pessoa (compartilhado com a conta ou liberado para quem tem o link,
   com `resourcekey` quando o link traz), “Ver o que tem” mostra nome, dono, arquivos, subpastas e tamanho, e o destino

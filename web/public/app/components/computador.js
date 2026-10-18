@@ -137,6 +137,101 @@ function DoneRow({ t, agora }) {
   </li>`
 }
 
+// ───── pedidos (lotes), como a tela Transferências do computador ─────
+
+const FILTROS_LOTE = [
+  { id: 'tudo', label: 'Tudo', test: () => true },
+  { id: 'andando', label: 'Em andamento', test: (l) => l.andando + l.esperando > 0 || (l.pausados > 0 && !l.erros) },
+  { id: 'fila', label: 'Na fila', test: (l) => l.naFila > 0 && !l.andando && !l.esperando },
+  { id: 'prontas', label: 'Concluídas', test: (l) => l.terminouEm != null && !l.erros && !l.divergentes },
+  { id: 'problema', label: 'Com problema', test: (l) => l.erros > 0 || l.divergentes > 0 },
+]
+
+/** "3 baixando · 5 na fila" · "1 concluído · 8 cancelados" (a mesma linha do computador). */
+function situacao(l) {
+  const sobe = l.direcao === 'sobe'
+  const parts = []
+  if (l.andando) parts.push(`${count(l.andando)} ${sobe ? 'enviando' : l.direcao === 'misto' ? 'passando' : 'baixando'}`)
+  if (l.esperando) parts.push(`${count(l.esperando)} esperando a internet`)
+  if (l.naFila) parts.push(`${count(l.naFila)} na fila`)
+  if (l.pausados) parts.push(plural(l.pausados, 'pausado', 'pausados'))
+  if (l.concluidos) parts.push(plural(l.concluidos, 'concluído', 'concluídos'))
+  if (l.cancelados) parts.push(plural(l.cancelados, 'cancelado', 'cancelados'))
+  if (l.erros) parts.push(`${count(l.erros)} com problema`)
+  return parts.join(' · ')
+}
+
+/** "1 de 1 conferido (MD5)" · "8 de 9 conferidos · 1 sem conferência". */
+function conferencia(l) {
+  if (!l.concluidos) return null
+  const de = `${count(l.conferidos)} de ${count(l.concluidos)} ${l.concluidos === 1 ? 'conferido' : 'conferidos'}`
+  if (l.conferidos === l.concluidos) return { ok: true, text: `${de} (MD5)` }
+  const parts = [de]
+  if (l.divergentes) parts.push(`${count(l.divergentes)} ${l.divergentes === 1 ? 'chegou diferente' : 'chegaram diferentes'}`)
+  const sem = l.concluidos - l.conferidos - l.divergentes
+  if (sem > 0) parts.push(`${count(sem)} sem conferência`)
+  return { ok: false, text: parts.join(' · ') }
+}
+
+function LoteCard({ l, s, agora, online }) {
+  const [aberto, setAberto] = useState(false)
+  const frac = l.bytes ? l.feitoBytes / l.bytes : l.terminouEm != null ? 1 : 0
+  const sobe = l.direcao === 'sobe'
+  const vivo = l.terminouEm == null
+  const tone = l.erros || l.divergentes ? 'err' : !vivo ? 'ok' : l.andando ? (sobe ? 'up' : 'down') : 'muted'
+  const conf = conferencia(l)
+  const eta = vivo && online ? aprox(l.eta) : null
+  const arquivos = [...(s.itens || []).filter((it) => it.lote === l.id)]
+  const feitos = (s.terminados || []).filter((t) => t.lote === l.id)
+  return html`<li class=${cx('pc-lote', aberto && 'is-open', !vivo && 'is-done')}>
+    <button type="button" class="pc-lote-head" aria-expanded=${aberto ? 'true' : 'false'} onClick=${() => setAberto(!aberto)}>
+      <span class=${cx('pc-row-icon', l.direcao === 'misto' ? 'is-mix' : sobe ? 'is-up' : 'is-down')} aria-label=${sobe ? 'Enviando para o Drive' : l.direcao === 'misto' ? 'Enviando e baixando' : 'Baixando do Drive'}>
+        <${Icon} name=${l.direcao === 'misto' ? 'swap' : sobe ? 'arrow-up' : 'arrow-down'} size=${16} strokeWidth=${2.1} />
+      </span>
+      <span class="pc-lote-main">
+        <span class="pc-lote-top">
+          <b class="pc-lote-title">${l.titulo}</b>
+          <span class="pc-lote-pct">${vivo ? percent(frac) : ago(agora - l.terminouEm)}</span>
+        </span>
+        <span class="pc-lote-sub">${plural(l.arquivos, 'arquivo', 'arquivos')} · ${bytes(l.bytes)}${l.destino ? ` · ${sobe ? 'para' : 'em'} ${l.destino}` : ''}</span>
+        <${Bar} frac=${frac} tone=${tone} label=${`${percent(frac)} de ${l.titulo}`} />
+        <span class="pc-lote-meta">
+          <span>${situacao(l)}</span>
+          ${eta ? html`<span class="pc-lote-eta">${l.velocidade ? `${speed(l.velocidade)} · ` : ''}faltam ${eta}</span>` : null}
+        </span>
+        ${conf ? html`<span class=${cx('pc-lote-conf', conf.ok && 'is-ok')}><${Icon} name=${conf.ok ? 'shield' : 'info'} size=${14} /> ${conf.text}</span>` : null}
+      </span>
+      <${Icon} name="chevron-down" size=${16} strokeWidth=${2} class="pc-lote-chev" />
+    </button>
+    ${aberto
+      ? arquivos.length || feitos.length
+        ? html`<ul class="pc-rows pc-lote-rows">
+            ${arquivos.map((it) => html`<${ItemRow} key=${it.id} it=${it} />`)}
+            ${feitos.map((t, i) => html`<${DoneRow} key=${`${t.nome}-${t.terminouEm}-${i}`} t=${t} agora=${agora} />`)}
+          </ul>`
+        : html`<p class="pc-lote-none">${vivo ? 'Os arquivos deste pedido aparecem aqui quando começarem a passar.' : 'Os nomes dos arquivos deste pedido já saíram do resumo (mostramos os 30 últimos).'}</p>`
+      : null}
+  </li>`
+}
+
+function Lotes({ pc, agora }) {
+  const s = pc.snapshot
+  const [filtro, setFiltro] = useState('tudo')
+  const contagem = Object.fromEntries(FILTROS_LOTE.map((f) => [f.id, s.lotes.filter(f.test).length]))
+  const atual = FILTROS_LOTE.find((f) => f.id === filtro) || FILTROS_LOTE[0]
+  const lista = s.lotes.filter(atual.test)
+  return html`<div class="pc-filtros dchips-group" role="radiogroup" aria-label="Mostrar pedidos">
+      ${FILTROS_LOTE.map(
+        (f) => html`<button type="button" role="radio" aria-checked=${filtro === f.id ? 'true' : 'false'} class=${cx('dchip', filtro === f.id && 'is-on')} onClick=${() => setFiltro(f.id)}>
+          <span>${f.label}</span>${f.id !== 'tudo' && contagem[f.id] ? html`<small>${contagem[f.id]}</small>` : null}
+        </button>`,
+      )}
+    </div>
+    ${lista.length
+      ? html`<ul class="pc-lotes">${lista.map((l) => html`<${LoteCard} key=${l.id} l=${l} s=${s} agora=${agora} online=${pc.online} />`)}</ul>`
+      : html`<p class="pc-lote-none">Nenhum pedido ${atual.label.toLowerCase()}.</p>`}`
+}
+
 function Computer({ pc, pcState }) {
   const s = pc.snapshot
   const g = s.geral
@@ -192,7 +287,9 @@ function Computer({ pc, pcState }) {
         </div>`
       : null}
 
-    ${s.itens?.length
+    ${s.lotes?.length ? html`<h3 class="list-label">Pedidos</h3><${Lotes} pc=${pc} agora=${agora} />` : null}
+
+    ${!s.lotes?.length && s.itens?.length
       ? html`<h3 class="list-label">Agora</h3>
           <ul class="group pc-rows">
             ${s.itens.map((it) => html`<${ItemRow} key=${it.id} it=${it} />`)}
@@ -200,7 +297,7 @@ function Computer({ pc, pcState }) {
           ${g.fora ? html`<p class="group-foot">E mais ${plural(g.fora, 'arquivo na fila', 'arquivos na fila')}.</p>` : null}`
       : null}
 
-    ${s.terminados?.length
+    ${!s.lotes?.length && s.terminados?.length
       ? html`<h3 class="list-label">Já passou</h3>
           <ul class="group pc-rows">
             ${s.terminados.map((t, i) => html`<${DoneRow} key=${`${t.nome}-${t.terminouEm}-${i}`} t=${t} agora=${agora} />`)}
