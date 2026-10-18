@@ -32,6 +32,15 @@ export function origemDoSite(origem?: string | null): string {
 }
 
 /**
+ * Origem dos links que a pessoa leva para fora (link pra IA, atalho do iPhone): nunca o endereço antigo, mesmo
+ * quando o pedido veio dele (app na Tela de Início instalado antes do domínio). Os links antigos continuam abrindo.
+ */
+export function origemPublica(origem?: string | null): string {
+  const o = origemDoSite(origem);
+  return o === SITE_ANTIGO ? siteUrl() : o;
+}
+
+/**
  * Cookies com Secure fora do localhost (Safari não guarda cookie Secure em http://localhost).
  * `origem`: a origem do pedido (http.ts → origemDoPedido); sem ela, vale o endereço do site.
  */

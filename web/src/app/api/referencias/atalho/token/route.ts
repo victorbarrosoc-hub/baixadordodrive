@@ -1,7 +1,7 @@
 import { origemDoPedido } from "@/lib/http";
 import { exigirReferencias, falha, ok } from "@/lib/referencias/api";
 import { estadoAtalho, gerarAtalho, revogarAtalhos } from "@/lib/referencias/atalho";
-import { origemDoSite } from "@/lib/site";
+import { origemPublica } from "@/lib/site";
 
 /** Só pelo site (cookie): o computador não mexe na chave do iPhone. */
 async function doSite(req: Request, mutacao: boolean) {
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const atual = await doSite(req, true);
   if (atual instanceof Response) return atual;
-  const origem = origemDoSite(origemDoPedido(req.headers, req.url));
+  const origem = origemPublica(origemDoPedido(req.headers, req.url));
   const { token, criadoEm } = await gerarAtalho(atual.usuario.id);
   return ok({ token, endpoint: `${origem}/api/referencias/atalho`, instalar: `${origem}/atalho#chave=${token}`, criadoEm: criadoEm.toISOString() }, 201);
 }

@@ -4211,6 +4211,54 @@ html.has-preview .toasts {
   margin-left: auto;
   color: var(--text) !important;
 }
+.rpick-row {
+  display: flex;
+  align-items: center;
+}
+.rpick-row .menu-item {
+  flex: 1;
+  min-width: 0;
+  padding-right: 4px;
+}
+.rpick-ren {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin-right: 4px;
+  color: var(--text-3);
+}
+.rsheet .rpick-new,
+.rsheet .rpick-new .icon {
+  color: var(--up-text);
+}
+.rpick-edit {
+  padding: 6px 8px 6px 16px;
+}
+.rpick-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+}
+.rpick-form > .icon {
+  flex: none;
+  color: var(--text-2);
+}
+.rpick-form .input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+}
+.rpick-x {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  color: var(--text-3);
+}
+.rpick-err {
+  margin: 6px 0 2px 34px;
+}
 .rpick-wait {
   display: grid;
   place-items: center;

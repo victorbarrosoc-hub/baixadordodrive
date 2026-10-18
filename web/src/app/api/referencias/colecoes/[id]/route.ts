@@ -3,7 +3,7 @@ import { erroGoogle, exigirReferencias, falha, MSG, ok } from "@/lib/referencias
 import { acharColecao, apagarColecao, ErroColecao, mudarLink, publica, renomearColecao } from "@/lib/referencias/colecoes";
 import { limparCache } from "@/lib/referencias/publica";
 import { validarNome } from "@/lib/referencias/texto";
-import { origemDoSite } from "@/lib/site";
+import { origemPublica } from "@/lib/site";
 
 const LINK = ["ligar", "desligar", "trocar"] as const;
 
@@ -31,7 +31,7 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/referencias/co
     return erroGoogle(e);
   }
   if (l.publicaToken) limparCache(l.publicaToken);
-  return ok({ colecao: publica(l, origemDoSite(origemDoPedido(req.headers, req.url))) });
+  return ok({ colecao: publica(l, origemPublica(origemDoPedido(req.headers, req.url))) });
 }
 
 /** Tira da plataforma. `?apagarNoDrive=1` também põe a pasta na lixeira do Drive. */
