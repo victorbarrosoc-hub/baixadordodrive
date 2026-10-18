@@ -203,8 +203,11 @@ StatusComputador = {
   geral: { feitoBytes, totalBytes, feitos, total, erros, velocidade, eta: s|null,
            sobe: { arquivos, velocidade }, desce: { arquivos, velocidade }, fora? },   // fora = ativos fora da lista
   itens: [{ id, nome, direcao: 'sobe'|'desce', feito, total|null, velocidade,
-            estado: 'enviando'|'baixando'|'conferindo'|'na_fila'|'esperando'|'pausado', destino?, erro? }],  // ≤ 60 (o app manda ≤ 50)
-  terminados: [{ nome, direcao, total|null, terminouEm (ms), ok, erro? }],   // ≤ 40 (o app manda os 30 últimos de 7 dias)
+            estado: 'enviando'|'baixando'|'conferindo'|'na_fila'|'esperando'|'pausado', destino?, erro?, lote? }],  // ≤ 60 (o app manda ≤ 50)
+  terminados: [{ nome, direcao, total|null, terminouEm (ms), ok, erro?, lote? }],   // ≤ 40 (o app manda os 30 últimos de 7 dias)
+  lotes?: [{ id, titulo, direcao: 'sobe'|'desce'|'misto', destino?, arquivos, bytes, feitoBytes, andando, esperando,
+             naFila, pausados, concluidos, cancelados, erros, conferidos, divergentes, velocidade, eta|null,
+             criadoEm, terminouEm|null }],   // ≤ 20 (o app manda ≤ 15): os pedidos, como a tela Transferências
   fechado?: true,                 // última notícia antes de o app fechar
 }
 ```

@@ -4,7 +4,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { AcompanharCelular, montarRetrato, LIMITE_BYTES, MAX_ITENS } from '../src/engine/acompanhar.js'
+import { AcompanharCelular, montarRetrato, montarLotes, LIMITE_BYTES, MAX_ITENS } from '../src/engine/acompanhar.js'
 import { HttpError } from '../src/net/http.js'
 import { validateSettings, DEFAULT_SETTINGS } from '../src/config.js'
 
@@ -93,6 +93,53 @@ class FakeSettings extends EventEmitter {
 }
 
 const FAST = { ativoMs: 120, ociosoMs: 600, eventoMs: 25, minGapMs: 40, maxEsperaMs: 400, pausaLongaMs: 300, log: () => {} }
+
+describe('lotes (pedidos, como a tela Transferências)', () => {
+  test('conta por lote: andando, na fila, prontos, conferidos, cancelados e erros; antigos e cancelados de vez ficam de fora', () => {
+    const now = Date.now()
+    const down = (over) => rec({ type: 'download', batchId: 'b2', target: undefined, dest: { path: '/Volumes/SSD/ZRO/x.mp4' }, ...over })
+    const m = new FakeManager(
+      [
+        down({ status: 'running', size: 4e9, bytesDone: 1e8 }),
+        down({ status: 'running', size: 3e9, bytesDone: 2e8 }),
+        down({ status: 'queued', size: 2e9 }),
+        down({ status: 'completed', size: 1e9, bytesDone: 1e9, finishedAt: now - 1000, verify: { state: 'ok' } }),
+        rec({ status: 'completed', size: 5e8, bytesDone: 5e8, finishedAt: now - 59 * MIN, verify: { state: 'ok' } }),
+        rec({ status: 'canceled', size: 5e8 }),
+        rec({ status: 'canceled', size: 5e8 }),
+        rec({ batchId: 'velho', status: 'completed', finishedAt: now - 8 * 24 * 60 * MIN }),
+      ],
+      { live: {} },
+    )
+    m.batches.set('b2', { id: 'b2', type: 'download', label: 'Pasta "ZRO"', destino: 'SSD', createdAt: now - 5 * MIN })
+    const ids = [...m.records.values()].filter(r => r.batchId === 'b2' && r.status === 'running').map(r => r.id)
+    m.live = { [ids[0]]: { bytesDone: 1.5e8, speed: 7.7e6 }, [ids[1]]: { bytesDone: 2e8, speed: 6.7e6 } }
+    const lotes = montarLotes(m, now)
+    assert.deepEqual(lotes.map(l => l.id), ['b2', 'b1'], 'andando primeiro; o velho (8 dias) fica de fora')
+    const [zro, cenas] = lotes
+    assert.equal(zro.titulo, 'Pasta "ZRO"')
+    assert.equal(zro.direcao, 'desce')
+    assert.equal(zro.arquivos, 4)
+    assert.equal(zro.bytes, 10e9)
+    assert.equal(zro.feitoBytes, 1.5e8 + 2e8 + 0 + 1e9)
+    assert.deepEqual([zro.andando, zro.naFila, zro.concluidos, zro.conferidos, zro.cancelados, zro.erros], [2, 1, 1, 1, 0, 0])
+    assert.equal(zro.velocidade, Math.round(7.7e6 + 6.7e6))
+    assert.equal(zro.eta, Math.round((4e9 - 1.5e8 + 3e9 - 2e8 + 2e9) / (7.7e6 + 6.7e6)))
+    assert.equal(zro.terminouEm, null)
+    assert.equal(cenas.titulo, 'Pasta Cenas')
+    assert.deepEqual([cenas.arquivos, cenas.concluidos, cenas.cancelados, cenas.conferidos], [3, 1, 2, 1])
+    assert.equal(cenas.terminouEm, now - 59 * MIN)
+    assert.equal(cenas.eta, null)
+  })
+
+  test('o retrato leva os lotes e cada item diz de qual lote é', () => {
+    const now = Date.now()
+    const r = montarRetrato(new FakeManager([rec({ status: 'running' }), rec({ status: 'completed', finishedAt: now - 1000 })]), { rodada: { id: 'r', inicio: now - MIN }, now })
+    assert.equal(r.lotes.length, 1)
+    assert.equal(r.itens[0].lote, 'b1')
+    assert.equal(r.terminados[0].lote, 'b1')
+  })
+})
 
 describe('retrato', () => {
   test('ajuste novo: ligado por padrão e validado como booleano', () => {

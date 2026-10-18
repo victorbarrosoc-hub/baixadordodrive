@@ -119,6 +119,23 @@ describe("POST /api/dispositivos/status", () => {
     assert.equal(lido.computadores[0].snapshot.segredo, undefined);
   });
 
+  test("lotes (pedidos) vão e voltam; lote com direção estranha é recusado", async () => {
+    const lote = {
+      id: "b2", titulo: 'Pasta "ZRO"', direcao: "desce", destino: "SSD", arquivos: 8, bytes: 18.2e9, feitoBytes: 6e9,
+      andando: 3, esperando: 0, naFila: 5, pausados: 0, concluidos: 0, cancelados: 0, erros: 0, conferidos: 0, divergentes: 0,
+      velocidade: 19e6, eta: 900, criadoEm: Date.now() - 60_000, terminouEm: null,
+    };
+    const r = await enviar(victor.mac, retrato({ lotes: [lote], itens: [{ id: "t1", nome: "a.mp4", direcao: "desce", feito: 1, total: 2, velocidade: 1, estado: "baixando", lote: "b2" }] }));
+    assert.equal(r.status, 200);
+    const lido = await ler(comCookie(victor));
+    const snap = lido.computadores.find((c: { snapshot: { lotes?: unknown[] } }) => c.snapshot.lotes)?.snapshot;
+    assert.deepEqual(snap.lotes, [lote]);
+    assert.equal(snap.itens[0].lote, "b2");
+    assert.equal((await enviar(victor.mac, retrato({ lotes: [{ ...lote, direcao: "lado" }] }))).status, 400);
+    // App de computador antigo (sem lotes) continua valendo.
+    assert.equal((await enviar(victor.mac, retrato())).status, 200);
+  });
+
   test("tamanho máximo (64 KB)", async () => {
     const grande = JSON.stringify(retrato({ lixo: "x".repeat(70 * 1024) }));
     const r = await enviar(victor.mac, grande);

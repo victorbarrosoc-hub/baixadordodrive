@@ -14,6 +14,7 @@ export const ESTADOS_ITEM = ["enviando", "baixando", "conferindo", "na_fila", "e
 export const LIMITE_BYTES = 64 * 1024;
 export const MAX_ITENS = 60;
 export const MAX_TERMINADOS = 40;
+export const MAX_LOTES = 20;
 
 const bytes = z.number().nonnegative().max(1e16);
 const contagem = z.number().int().nonnegative().max(1e8);
@@ -31,6 +32,8 @@ const item = z.object({
   estado: z.enum(ESTADOS_ITEM),
   destino: texto(300).nullable().optional(),
   erro: texto(300).nullable().optional(),
+  /** Lote (pedido) do app de computador. */
+  lote: texto(120).optional(),
 });
 
 const terminado = z.object({
@@ -40,6 +43,31 @@ const terminado = z.object({
   terminouEm: z.number().int().nonnegative(),
   ok: z.boolean(),
   erro: texto(300).nullable().optional(),
+  lote: texto(120).optional(),
+});
+
+/** Um pedido (lote), como a tela Transferências do computador: "Pasta "ZRO" · 8 arquivos · 18,2 GB". */
+const lote = z.object({
+  id: texto(120),
+  titulo: texto(300),
+  direcao: z.enum(["sobe", "desce", "misto"]),
+  destino: texto(300).nullable().optional(),
+  arquivos: contagem,
+  bytes,
+  feitoBytes: bytes,
+  andando: contagem,
+  esperando: contagem,
+  naFila: contagem,
+  pausados: contagem,
+  concluidos: contagem,
+  cancelados: contagem,
+  erros: contagem,
+  conferidos: contagem,
+  divergentes: contagem,
+  velocidade,
+  eta: z.number().nonnegative().max(1e9).nullable(),
+  criadoEm: z.number().int().nonnegative(),
+  terminouEm: z.number().int().nonnegative().nullable(),
 });
 
 const direcaoGeral = z.object({ arquivos: contagem, velocidade });
@@ -64,6 +92,8 @@ export const statusSchema = z.object({
   }),
   itens: z.array(item).max(MAX_ITENS),
   terminados: z.array(terminado).max(MAX_TERMINADOS),
+  /** Os pedidos (app de computador novo; o antigo não manda). */
+  lotes: z.array(lote).max(MAX_LOTES).optional(),
   /** O app foi fechado (última notícia antes de sair). */
   fechado: z.boolean().optional(),
 });
