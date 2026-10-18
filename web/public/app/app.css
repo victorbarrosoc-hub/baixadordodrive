@@ -3509,21 +3509,56 @@ html.has-preview .toasts {
   backdrop-filter: blur(10px);
   pointer-events: none;
 }
-.pv-gframe {
+/* Cópia leve: miniatura com play na prévia; tocou, o player abre em tela cheia (.gfull, direto no body). */
+.pv-gposter {
+  position: relative;
+  display: block;
   width: 100%;
   aspect-ratio: 16 / 9;
-  /* O player leve se desenha com pelo menos 300 px de altura no celular: menos que isso corta a barra e os controles. */
-  min-height: 300px;
   max-height: 70vh;
   margin: 0 auto;
+  overflow: hidden;
   background: #000;
 }
-.pv-gframe iframe {
+.pv-gposter img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.pv-gposter:active .mp-big {
+  transform: scale(0.94);
+}
+.gfull {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: #000;
+  animation: fade-in 0.2s var(--ease) both;
+}
+.gfull iframe {
   display: block;
   width: 100%;
   height: 100%;
   border: 0;
   background: #000;
+}
+.gfull-x {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 10px);
+  left: calc(env(safe-area-inset-left) + 12px);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgba(20, 20, 22, 0.6);
+  color: #fff;
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  backdrop-filter: saturate(160%) blur(16px);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.2);
 }
 .pv-gdrive .pv-proxy-note {
   justify-content: space-between;

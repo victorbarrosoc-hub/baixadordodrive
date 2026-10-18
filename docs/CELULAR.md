@@ -157,6 +157,10 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   altura, a mínima do player no celular, senão a barra e os controles saem cortados), com “Reprodução em baixa resolução.” e o botão “Tocar o original” embaixo. Fechado:
   toca o original (o iframe pediria login do Google, que o iPhone não leva para dentro do app); liberar o link pela
   prévia troca para o player do Drive na hora (evento `sd-link-aberto`). Com proxy, continua o nosso player com Proxy | Original.
+- **Tela cheia (2.8.8):** espremido na prévia, o player do Drive não dava para usar (no iPhone os toques caíam na
+  engrenagem e nos controles dele, mesmo com 300 px). Agora a prévia mostra a miniatura com o play do app e, tocou, o
+  player abre em **tela cheia** (`.gfull`, um nó direto no `body`, fora do transform da prévia), com um X para fechar
+  (Esc também). “Reprodução em baixa resolução.” e “Tocar o original” continuam embaixo da miniatura.
 - **Baixar** (no topo, azul), **Abrir no Drive** e **Compartilhar** (Web Share, com o link do Drive). Acima de 1 GB
   avisa antes: no celular a tela precisa ficar aberta, e no computador o app SOBEDESCE baixa muito mais rápido.
   Documentos do Google não têm bytes: só “Abrir”.
