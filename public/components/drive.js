@@ -24,6 +24,7 @@ import { FolderSummary, calcSize, focusSize, getSize, sizeId, useSizes } from '.
 import { copyDriveLink } from './link-share.js'
 import { DEFAULT_SORT, FILTERS, driveView, filterChips, keepVisible, normalizeSort, visibleSummary } from '../lib/ordenar.js'
 import { FilterMenu, MacLine, SortMenu, openMacTrash } from './drive-ordenar.js'
+import { openCopyLink, useCopiaRunning } from './copiar-link.js'
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
@@ -251,6 +252,16 @@ export function DriveScreen({ route }) {
     await uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives), destPath: folderPathText(data, drives) })
   }
 
+  // Copiar de um link: a pasta aberta vira o destino (dá para trocar na janela).
+  const copiando = useCopiaRunning()
+  const copiarDeLink = () =>
+    openCopyLink({ accountId, dest: folder && !searching ? { id: folderId, name: folderLabel(folder, drives), path: folderPathText(data, drives), driveId: folder.driveId || null } : null })
+  // Cópia terminou nesta pasta (ou dentro dela): recarrega para aparecer o que chegou.
+  const copiaFim = useStore((s) => (s.copia && s.copia.status !== 'running' ? s.copia : null))
+  useEffect(() => {
+    if (copiaFim?.dest?.id === folderId) reload()
+  }, [copiaFim?.jobId])
+
   const copyItemLink = (it) => copyDriveLink({ accountId, name: it.name, ...linkTarget(it) })
   const copyFolderLink = () =>
     folder && copyDriveLink({ accountId, id: folder.id, name: folderLabel(folder, drives), isFolder: true, url: folder.webViewLink || null, resourceKey: folder.resourceKey || null })
@@ -322,7 +333,14 @@ export function DriveScreen({ route }) {
     />
     <header class="page-head">
       <h1>Drive</h1>
-      <div class="page-head-actions"><${Quota} accountId=${accountId} /></div>
+      <div class="page-head-actions">
+        <${Quota} accountId=${accountId} />
+        ${accountId
+          ? html`<${Button} icon="link" class=${cx(copiando && 'is-copying')} onClick=${copiarDeLink} title="Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para o seu Drive">
+              ${copiando ? `Copiando ${copiando.progress?.done || 0}/${copiando.progress?.total || 0}` : 'Copiar de um link'}
+            </${Button}>`
+          : null}
+      </div>
     </header>
     <${SourceChips} drives=${drives} current=${searching ? null : sourceId} onPick=${(id) => { setQuery(''); openId(id) }} />
     <div class="drive-bar">
@@ -373,6 +391,7 @@ export function DriveScreen({ route }) {
               ? { icon: 'film', label: 'Gerar proxies da pasta', busy: previasRunning, title: 'Proxy (cópia leve 1080p, pasta Proxy) dos vídeos desta pasta, para a prévia tocar fluida', onSelect: () => openPrevias({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } }) }
               : null,
             { icon: 'folder-plus', label: 'Nova pasta', disabled: searching, onSelect: newFolder },
+            { icon: 'link', label: 'Copiar de um link para cá…', title: 'Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para esta pasta', disabled: searching || !folder, onSelect: copiarDeLink },
           ]}
         />
         <${Button} variant="primary" icon="upload" onClick=${uploadHere} disabled=${searching}>Enviar para esta pasta</${Button}>

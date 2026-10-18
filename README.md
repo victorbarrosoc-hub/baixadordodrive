@@ -140,6 +140,15 @@ Na hora de conectar aparece **"O Google não verificou este app"**. É esperado:
 - No **Drive**: o ícone de link na barra copia o link da pasta aberta; numa linha (ao passar o mouse) ou com um item marcado, **Copiar link**.
 - Ao copiar, o app confere quem consegue abrir. Se só quem tem acesso abre, aparece **Liberar para quem tiver o link**, que sempre pede confirmação ("Qualquer pessoa com o link vai poder ver e baixar") antes de mudar o compartilhamento no Drive. O app nunca libera sozinho. Se o Workspace não deixa compartilhar com qualquer pessoa, o aviso diz isso.
 
+### Copiar de um link (Drive de outra pessoa → o seu)
+
+Na tela **Drive**, **Copiar de um link** (no topo, ou em **Mais → Copiar de um link para cá…**): cole o link de uma
+pasta ou arquivo do Drive de alguém (compartilhado com você ou liberado para quem tem o link), veja o que tem
+(arquivos, subpastas, tamanho, dono) e escolha a pasta do seu Drive. A pasta do link é recriada lá dentro, com as
+subpastas. A cópia é do próprio Google (`files.copy`): nada passa por este computador, então é rápida até com takes
+pesados. Ficam de fora os arquivos com cópia bloqueada pelo dono e os atalhos (a janela lista). Pode fechar a janela:
+a cópia segue e o botão do topo mostra o andamento. O celular tem a mesma função (aba Drive, ícone de link).
+
 ### Pausar, continuar, cancelar
 
 - Em **Transferências**, passe o mouse sobre uma linha para ver os botões: **Pausar**, **Retomar**, **Cancelar**, **Passar na frente** (para itens na fila) e **Tentar de novo**.

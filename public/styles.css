@@ -7626,3 +7626,96 @@ button.tree-twisty:hover {
 .mt-dialog .rt-summary .sub {
   display: block;
 }
+
+/* ───── "Copiar de um link" (components/copiar-link.js) ───── */
+.cl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cl-what,
+.cl-dest {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+}
+.cl-what.is-wait {
+  gap: 10px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.cl-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-2);
+}
+.cl-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.cl-text b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.cl-dest {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.cl-dest:hover {
+  background: var(--surface-2);
+}
+.cl-dest .field-label {
+  margin: 0;
+}
+.cl-dest-go {
+  flex: none;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cl-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--warn-text);
+  font-size: 13px;
+}
+.cl-warn .icon {
+  flex: none;
+  margin-top: 1px;
+}
+.cl-fails {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+.cl-fails li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.page-head-actions .is-copying {
+  font-variant-numeric: tabular-nums;
+}

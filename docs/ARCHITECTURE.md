@@ -70,6 +70,7 @@ src/
   media/previa-lote.js   "Gerar proxies da pasta" / "Gerar proxy": vídeos que já estão no Drive, achados no computador por nome + tamanho
   server/previas.js      rotas /api/previas* e o lote (SSE 'previas')
   server/tamanho.js      rotas /api/drive/:acc/tamanho (tamanho das pastas: contas guardadas na sessão, fila de 2)
+  server/copiar.js       rotas /api/copiar (copiar de um link do Drive para uma pasta da conta; google/copiar.js)
   local/fsbrowse.js      raízes (Início, Mesa, discos externos) e listagem de pastas
   local/scan.js          varredura recursiva local
   referencias/           Referências (vídeos/fotos salvos nas coleções do Drive): plataformas, metadados, cookies,
@@ -863,6 +864,10 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | POST | `/api/drive/:acc/tamanho` | `{ folderId, refresh?, auto? }` | `{ tamanho: TamanhoView }` (começa ou devolve a conta guardada; `auto` não recomeça uma parada à mão) |
 | GET | `/api/drive/:acc/tamanho` | `ids=a,b,c` (até 200) | `{ tamanhos: { id: TamanhoView\|null } }` (a interface pergunta a cada ~0,7 s; sem pergunta por 20 s a conta é abandonada) |
 | DELETE | `/api/drive/:acc/tamanho` | `{ folderId, discard? }` | `{ tamanho }` ("Parar": guarda o parcial; `discard` esquece) |
+| POST | `/api/copiar/:acc/ler` | `{ link }` | `{ plano: { planoId, nome, pasta, dono, arquivos, subpastas, bytes, bloqueados, atalhos } }`. Lê o link do Drive (pasta ou arquivo, com `resourcekey`; header `x-goog-drive-resource-keys` em cada pedido) e varre as subpastas (até 5000 arquivos). O plano inteiro fica no servidor. Link que a conta não abre → 400 com a mensagem |
+| POST | `/api/copiar/:acc` | `{ planoId, dest: { id, name, path?, driveId? } }` | `{ copia }`. Começa a cópia (uma por vez, 409 se já tem): pasta do link → pasta com o mesmo nome em `dest`, subpastas recriadas, `files.copy` 3 por vez. Sem `canCopy` e atalhos ficam de fora. Drive cheio, limite do dia, sem permissão no destino ou sem internet param com `stopped`. Progresso pelo SSE `copiar` (≤ 4×/s) e em `/api/state.copia` |
+| GET | `/api/copiar` | — | `{ copia }` (a cópia atual ou a última: `{ jobId, plano, dest, status: running\|done\|canceled\|error, progress: { done, total, bytesDone, bytesTotal, current, failed[], newFolderId, stopped } }`) |
+| DELETE | `/api/copiar/:id` | — | `{ parou }` ("Parar": o que já foi copiado fica) |
 | GET | `/api/drive/:acc/proxy` | `id`, `rk?` | `{ proxy: DriveItem\|null }` (proxy de câmera; ver "Miniaturas e prévia") |
 | GET | `/api/drive/thumb` | `account, id, k, s?, v?, rk?` | imagem (miniatura; `x-sobedesce-cache: memory\|disk\|google`) |
 | GET/HEAD | `/api/drive/stream` | `account, id, k, rk?` + cabeçalho `Range` | bytes do arquivo (200/206/416) |
