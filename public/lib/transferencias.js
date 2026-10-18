@@ -95,3 +95,30 @@ export function batchFolder(items, batch = {}) {
   const name = rootId === 'root' && !driveId ? 'Meu Drive' : batch.destino || (rootId === driveId ? 'drive compartilhado' : 'pasta de destino')
   return { id: rootId, name, driveId: driveId || null, accountId }
 }
+
+/**
+ * Onde um lote de download está caindo no computador: { dir, target, name }. `dir` é a pasta comum a todos os
+ * arquivos (a pasta baixada, "…/SSD/ZRO"); `target` é o que o Finder/Explorer mostra selecionado para abrir essa pasta:
+ * um arquivo que está nela (o pronto, ou o temporário de quem está baixando), ou a própria pasta. Cancelados não
+ * contam. Sem caminho conhecido: null.
+ */
+export function batchLocal(items) {
+  const downs = (items || []).filter((t) => t.type === 'download' && t.status !== 'canceled' && t.dest?.path)
+  if (!downs.length) return null
+  const sep = downs[0].dest.path.includes('\\') && !downs[0].dest.path.includes('/') ? '\\' : '/'
+  const split = (p) => String(p).split(/[\\/]/)
+  let common = split(downs[0].dest.path).slice(0, -1)
+  for (const t of downs.slice(1)) {
+    const d = split(t.dest.path).slice(0, -1)
+    let i = 0
+    while (i < common.length && i < d.length && common[i] === d[i]) i++
+    common = common.slice(0, i)
+  }
+  if (common.length <= 1) return null
+  const dir = common.join(sep)
+  const here = (t) => split(t.dest.path).slice(0, -1).join(sep) === dir
+  const pronto = downs.find((t) => here(t) && t.status === 'completed')
+  const indo = downs.find((t) => here(t) && t.dest.tempPath && (t.status === 'running' || t.status === 'verifying'))
+  const target = pronto ? pronto.dest.path : indo ? indo.dest.tempPath : dir
+  return { dir, target, name: common[common.length - 1] }
+}
