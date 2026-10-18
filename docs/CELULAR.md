@@ -165,6 +165,16 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   extensão), a **pasta** (ou a coleção de Referências) e a **miniatura** (`lib/now-playing.js`, Media Session API).
   A miniatura vira um JPEG `data:` de até 512 px; os botões de lá (play, pausa, ±10 s, arrastar) comandam o nosso
   player. Na tela cheia do Drive o nome e a miniatura também são enviados, mas quem manda nos botões é o player dele.
+- **Copiar de um link (2.8.11):** botão de link no topo da aba Drive (`components/copiar.js`, `lib/copiar.js`). Cola o
+  link de uma pasta ou arquivo do Drive de outra pessoa (compartilhado com a conta ou liberado para quem tem o link,
+  com `resourcekey` quando o link traz), “Ver o que tem” mostra nome, dono, arquivos, subpastas e tamanho, e o destino
+  sai da pasta aberta (Meu Drive ou Drive compartilhado) ou do seletor de pastas (`FolderSheet` com `onChoose`, botão
+  “Copiar para”). A cópia é do Google (`files.copy`, 3 por vez): nada passa pelo celular. Pasta do link vira uma pasta
+  com o mesmo nome no destino, subpastas recriadas. Ficam de fora os arquivos com cópia bloqueada pelo dono
+  (`capabilities.canCopy`) e os atalhos; Drive cheio ou limite diário param a cópia com o motivo. Numa pasta em
+  “Comigo”, o mesmo botão copia aquela pasta. Link do Drive compartilhado do app do Drive (Android) abre direto aqui.
+  O estado fica em `copia`: a folha fecha e reabre no meio, e o botão mostra “12/32” enquanto copia. Tela ligada
+  durante a cópia; se o app sair da tela, pausa.
 - **Baixar** (no topo, azul), **Abrir no Drive** e **Compartilhar** (Web Share, com o link do Drive). Acima de 1 GB
   avisa antes: no celular a tela precisa ficar aberta, e no computador o app SOBEDESCE baixa muito mais rápido.
   Documentos do Google não têm bytes: só “Abrir”.

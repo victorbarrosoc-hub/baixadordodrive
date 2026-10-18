@@ -5538,3 +5538,173 @@ html.is-dswipe body {
   color: var(--err-text);
 }
 
+
+/* ───── Copiar de um link (components/copiar.js) ───── */
+.ccard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.ccard.is-wait {
+  gap: 12px;
+  color: var(--text-2);
+  font-size: 15px;
+}
+.ccard-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--up-text);
+}
+.ccard-text,
+.cdest-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ccard-text b,
+.cdest-text b {
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ccard-text small,
+.cdest-text small {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.cdest {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  text-align: left;
+  transition: transform 0.12s var(--ease), background-color 0.15s;
+}
+.cdest:active {
+  transform: scale(0.985);
+  background: var(--surface-2);
+}
+.cdest:disabled {
+  opacity: 0.5;
+}
+.cdest > .icon {
+  flex: none;
+  color: var(--up-text);
+}
+.cdest-text {
+  flex: 1;
+}
+.cdest-text small {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.cdest-go {
+  flex: none;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--up-text);
+}
+.cdest-help {
+  margin: -4px 4px 0;
+}
+.cprog {
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.cprog-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--up), var(--up-top));
+  transition: width 0.4s var(--ease);
+}
+.cnums {
+  margin: 0 4px;
+  font-size: 15px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.cnums b {
+  color: var(--text);
+}
+.cnow {
+  margin: 0 4px;
+  font-size: 14px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cdone,
+.cwarn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 2px 4px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+.cdone {
+  color: var(--ok-text);
+}
+.cwarn {
+  color: var(--warn-text);
+}
+.cdone .icon,
+.cwarn .icon {
+  flex: none;
+  margin-top: 2px;
+}
+.cfail {
+  margin: 4px 4px 0;
+  font-size: 14px;
+}
+.cfail summary {
+  cursor: pointer;
+  color: var(--text-2);
+}
+.cfail ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cfail li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cfail li b {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.cfail li small {
+  color: var(--text-2);
+}
+.dtop-actions .ccopying {
+  color: var(--up-text);
+  font-variant-numeric: tabular-nums;
+}

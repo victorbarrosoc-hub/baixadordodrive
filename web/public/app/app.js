@@ -18,6 +18,8 @@ import { findUrl } from './lib/referencias.js'
 import { ComputerSheet } from './components/computador.js'
 import { startPc } from './lib/computador.js'
 import { MacJunkSheet } from './components/browser.js'
+import { CopySheet } from './components/copiar.js'
+import { parseDriveLink } from './lib/copiar.js'
 
 const SHEETS = {
   folders: FolderSheet,
@@ -33,6 +35,7 @@ const SHEETS = {
   refAtalho: RefAtalhoSheet,
   computador: ComputerSheet,
   macJunk: MacJunkSheet,
+  copiar: CopySheet,
 }
 
 // Android (share_target nos manifestos): /app/?compartilhar=1&title=&text=&url=. O navegador pode trocar a query
@@ -61,13 +64,20 @@ function takeShare() {
 takeShare()
 
 function openShared(state) {
-  if (!shared || state.auth.status !== 'signedIn' || !state.recursos?.referencias) return
+  if (!shared || state.auth.status !== 'signedIn') return
+  // Link do Drive compartilhado do app do Drive: copiar para o seu Drive. O resto vai para as Referências.
+  const drive = parseDriveLink(shared)
+  if (!drive && !state.recursos?.referencias) return
   const texto = shared
   shared = null
   try {
     sessionStorage.removeItem(SHARE_KEY)
   } catch {
     // nada guardado
+  }
+  if (drive) {
+    setState({ tab: 'drive' })
+    return openSheet('copiar', { texto })
   }
   setState({ tab: 'refs', refsOpen: null })
   openSheet('refSave', { texto })

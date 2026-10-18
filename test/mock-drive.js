@@ -1847,6 +1847,7 @@ class MockDrive {
         if (method === 'DELETE') return drive('files.delete', (q, s, u) => this._filesDelete(q, s, u, id), { write: true })
       }
       if (segs.length === 3 && segs[2] === 'export' && method === 'GET') return drive('files.export', (q, s, u) => this._filesExport(q, s, u, segs[1]))
+      if (segs.length === 3 && segs[2] === 'copy' && method === 'POST') return drive('files.copy', (q, s, u) => this._filesCopy(q, s, u, segs[1]), { write: true })
       if (segs.length === 3 && segs[1] && segs[2] === 'permissions') {
         if (method === 'GET') return drive('permissions.list', (q, s, u) => this._permissionsList(q, s, u, segs[1]))
         if (method === 'POST') return drive('permissions.create', (q, s, u) => this._permissionsCreate(q, s, u, segs[1]), { write: true })
@@ -2393,6 +2394,35 @@ class MockDrive {
       description: meta.description ?? null,
       shortcutDetails,
       appProperties: props,
+    })
+    this._send(res, 200, await this._fileJson(item, mask ?? DEFAULT_FILE_MASK))
+  }
+
+  /** files.copy: só arquivo (pasta dá 403), respeita o bloqueio de download/cópia do dono e o resourceKey. */
+  async _filesCopy(req, res, url, rawId) {
+    let meta
+    try {
+      meta = await this._jsonBody(req)
+    } catch {
+      return this._send(res, 400, gError(400, 'parseError', 'Parse Error'))
+    }
+    const { mask, error } = this._parseMask(url, FILE_FIELDS)
+    if (error) return this._send(res, 400, error)
+    const src = this._accessible(rawId, url, req)
+    if (!src || src.trashed) return this._send(res, 404, notFoundFile(rawId))
+    if (src.mimeType === FOLDER_MIME) return this._send(res, 403, gError(403, 'fileNotCopyable', 'This file cannot be copied by the user.'))
+    if (!src.canDownload) return this._send(res, 403, gError(403, 'cannotCopyFile', 'This file cannot be copied by the user.'))
+    const parent = this._metaParent(meta || {}, url, res)
+    if (!parent) return
+    this._stats.copies = (this._stats.copies || 0) + 1
+    const item = this._insert({
+      name: meta?.name ?? `Copy of ${src.name}`,
+      mimeType: src.mimeType,
+      parentId: parent.id,
+      content: src.content,
+      docSize: src.docSize,
+      videoMediaMetadata: src.videoMediaMetadata,
+      imageMediaMetadata: src.imageMediaMetadata,
     })
     this._send(res, 200, await this._fileJson(item, mask ?? DEFAULT_FILE_MASK))
   }

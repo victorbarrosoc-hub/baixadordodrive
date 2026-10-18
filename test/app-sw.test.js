@@ -133,10 +133,20 @@ describe('sw.js /app/stream/', () => {
     sw = load(tabs)
   })
 
-  test('cache e versão do app subiram (2.8.10 / sobedesce-app-v25)', () => {
-    assert.match(SRC, /const CACHE = 'sobedesce-app-v25'/)
+  test('todo módulo do app (lib/ e components/) está na lista do cache, para abrir sem internet', () => {
+    const missing = []
+    for (const dir of ['lib', 'components']) {
+      for (const f of fs.readdirSync(new URL(`../web/public/app/${dir}/`, import.meta.url))) {
+        if (f.endsWith('.js') && !SRC.includes(`'./${dir}/${f}'`)) missing.push(`${dir}/${f}`)
+      }
+    }
+    assert.deepEqual(missing, [])
+  })
+
+  test('cache e versão do app subiram (2.8.11 / sobedesce-app-v26)', () => {
+    assert.match(SRC, /const CACHE = 'sobedesce-app-v26'/)
     const cfg = fs.readFileSync(new URL('../web/public/app/lib/config.js', import.meta.url), 'utf8')
-    assert.match(cfg, /export const VERSION = '2\.8\.10'/)
+    assert.match(cfg, /export const VERSION = '2\.8\.11'/)
     const lib = fs.readFileSync(new URL('../web/public/app/lib/stream.js', import.meta.url), 'utf8')
     assert.match(lib, /p\.set\('k', KEY\)/, 'a página põe a chave em todo endereço')
     assert.match(lib, /d\.k !== KEY/, 'a página só entrega o token com a chave dela')
