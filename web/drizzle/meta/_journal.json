@@ -43,6 +43,13 @@
       "when": 1792239137267,
       "tag": "0005_aparelhos",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792358598723,
+      "tag": "0006_uso_admin",
+      "breakpoints": true
     }
   ]
 }

@@ -12,7 +12,7 @@ import { apagarConta } from "@/lib/auth/apagar";
 import { frase as fraseEncerrado } from "@/lib/auth/encerrar";
 import { criarConta, entrarComSenha, trocarNome, trocarSenha } from "@/lib/auth/contas";
 import { dentroDoLimite, MENSAGEM_LIMITE, REGRAS, registrarTentativa } from "@/lib/auth/limite";
-import { COOKIE_SESSAO, revogarDispositivo, revogarPorToken } from "@/lib/auth/sessao";
+import { COOKIE_SESSAO, revogarDispositivo, revogarPorToken, revogarSessaoDe } from "@/lib/auth/sessao";
 import { pedirPrimeiraSenha, pedirRedefinicao, redefinirSenha } from "@/lib/auth/redefinir";
 import { voltaSegura } from "@/lib/auth/volta";
 import { depoisDaResposta } from "@/lib/depois";
@@ -47,7 +47,7 @@ export async function acaoEntrar(_: EstadoForm, fd: FormData): Promise<EstadoFor
 
 export async function acaoCriarConta(_: EstadoForm, fd: FormData): Promise<EstadoForm> {
   if (!(await origemDaAcaoConfere())) return RECUSADO;
-  const r = await criarConta({ nome: texto(fd, "nome"), email: texto(fd, "email"), senha: texto(fd, "senha"), ip: await ipAtual() });
+  const r = await criarConta({ nome: texto(fd, "nome"), email: texto(fd, "email"), senha: texto(fd, "senha"), ip: await ipAtual(), depois: depoisDaResposta });
   if (!r.ok) return { erro: r.mensagem, campo: r.campo, valores: { nome: texto(fd, "nome"), email: texto(fd, "email") } };
   await gravarCookieSessao(r.token);
   await marcarAparelho(r.usuario.id, { via: "senha", avisar: false });
@@ -194,5 +194,16 @@ export async function acaoTrocarPlano(fd: FormData): Promise<void> {
   const plano = texto(fd, "plano");
   if (!usuarioId || !ehPlano(plano)) return;
   await trocarPlano(usuarioId, plano);
+  refresh();
+}
+
+/** Admin: desconecta um aparelho (computador ou navegador) de uma conta. A pessoa precisa entrar de novo nele. */
+export async function acaoAdminDesconectar(fd: FormData): Promise<void> {
+  const atual = await sessaoDoSite();
+  if (!atual || !(await ehAdmin(atual.usuario))) return;
+  const usuarioId = texto(fd, "usuarioId");
+  const sessaoId = texto(fd, "sessaoId");
+  if (!usuarioId || !sessaoId || sessaoId === atual.sessao.id) return;
+  await revogarSessaoDe(usuarioId, sessaoId);
   refresh();
 }

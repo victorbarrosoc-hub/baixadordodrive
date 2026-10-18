@@ -4,7 +4,7 @@
  * Colunas em camelCase aqui, snake_case no banco (casing do Drizzle).
  */
 import { sql } from "drizzle-orm";
-import { bigint, boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import type { StatusComputador } from "../acompanhar/formato";
 
 /** Data e hora com fuso. `agora()`: obrigatória, padrão now(). */
@@ -48,6 +48,8 @@ export const sessoes = pgTable(
     ultimoUsoEm: agora(),
     expiraEm: quando().notNull(),
     revogadaEm: quando(),
+    /** Build do app de computador (cabeçalho x-sobedesce-build), gravado junto com o ultimoUsoEm. 0 = desenvolvimento. */
+    appBuild: integer(),
   },
   (t) => [index("sessoes_usuario_idx").on(t.usuarioId)],
 );
@@ -270,3 +272,62 @@ export const pushInscricoes = pgTable(
   },
   (t) => [index("push_inscricoes_usuario_idx").on(t.usuarioId)],
 );
+
+// ───── Uso da plataforma, para o admin (docs/CONTAS.md §10) ─────
+
+/**
+ * Em que dias cada pessoa usou a SOBEDESCE e por onde (site, celular instalado, computador). Uma linha por pessoa e dia,
+ * gravada junto com o ultimoUsoEm da sessão (no máximo a cada 10 minutos). Só datas: nada do que a pessoa fez.
+ * Some depois de 400 dias e junto com a conta.
+ */
+export const atividadeDiaria = pgTable(
+  "atividade_diaria",
+  {
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    /** Dia no fuso de Fortaleza (o mesmo da tela de admin). */
+    dia: date({ mode: "string" }).notNull(),
+    site: boolean().notNull().default(false),
+    celular: boolean().notNull().default(false),
+    computador: boolean().notNull().default(false),
+    ultimaEm: agora(),
+    /** Por onde foi o último uso do dia. */
+    ultimaOrigem: text().$type<"site" | "celular" | "computador">(),
+  },
+  (t) => [primaryKey({ columns: [t.usuarioId, t.dia] }), index("atividade_diaria_dia_idx").on(t.dia)],
+);
+
+/**
+ * Números do dia de cada computador (src/engine/uso.js): quanto subiu e desceu, erros, maior arquivo e o tempo com
+ * algo andando. Nunca nome de arquivo ou pasta. O app manda o total do dia; aqui fica o maior valor já recebido.
+ * Some com a sessão do computador, depois de 400 dias e junto com a conta.
+ */
+export const usoDiario = pgTable(
+  "uso_diario",
+  {
+    sessaoId: text()
+      .notNull()
+      .references(() => sessoes.id, { onDelete: "cascade" }),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    /** Dia no fuso do computador. */
+    dia: date({ mode: "string" }).notNull(),
+    enviadosBytes: bigint({ mode: "number" }).notNull().default(0),
+    baixadosBytes: bigint({ mode: "number" }).notNull().default(0),
+    enviados: integer().notNull().default(0),
+    baixados: integer().notNull().default(0),
+    erros: integer().notNull().default(0),
+    maiorArquivo: bigint({ mode: "number" }).notNull().default(0),
+    msAtivo: bigint({ mode: "number" }).notNull().default(0),
+    atualizadoEm: agora(),
+  },
+  (t) => [primaryKey({ columns: [t.sessaoId, t.dia] }), index("uso_diario_usuario_dia_idx").on(t.usuarioId, t.dia)],
+);
+
+/** Avisos por e-mail ao admin já mandados ("conta:<id>", "erros:<id>:<dia>"): um aviso por chave, nunca dois. */
+export const avisosAdmin = pgTable("avisos_admin", {
+  chave: text().primaryKey(),
+  criadoEm: agora(),
+});

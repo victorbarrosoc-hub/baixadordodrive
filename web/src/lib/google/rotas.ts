@@ -108,7 +108,7 @@ export async function callback(req: Request, depois: Depois = depoisDaResposta):
   if (!usuarioId) {
     if (!temDrive) return falhar("google_sem_drive");
     if (!tokens.refresh) return falhar("google_erro");
-    const novo = await criarContaComGoogle(quem, { ...tokens, refresh: tokens.refresh }, ipDe(req.headers));
+    const novo = await criarContaComGoogle(quem, { ...tokens, refresh: tokens.refresh }, ipDe(req.headers), depois);
     if (!novo.ok) return falhar(novo.erro);
     usuarioId = novo.usuarioId;
     criou = true;

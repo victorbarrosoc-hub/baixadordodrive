@@ -49,6 +49,8 @@ class MockCloud {
     this.raizes = new Map() // contaGoogleId -> id da pasta "SOBEDESCE Referências" no Drive falso
     // Acompanhar pelo celular (docs/CONTAS.md §9): os retratos que o computador mandou.
     this.andamento = [] // { metodo, corpo, nome }
+    this.builds = [] // cabeçalho x-sobedesce-build de cada pedido
+    this.uso = [] // corpos de POST /api/dispositivos/uso
     this.seq = 0
     this.server = null
     this.url = null
@@ -248,6 +250,7 @@ class MockCloud {
   }
 
   async #handle(req, res) {
+    this.builds.push(req.headers['x-sobedesce-build'] ?? null)
     if (this.down) return req.socket.destroy()
     const url = new URL(req.url, this.url)
     const p = url.pathname
@@ -315,6 +318,11 @@ class MockCloud {
     }
 
     if (p.startsWith('/api/referencias/')) return this.#referencias(req, res, url, session)
+
+    if (p === '/api/dispositivos/uso' && method === 'POST') {
+      this.uso.push(await this.#body(req))
+      return this.#send(res, 200, { ok: true })
+    }
 
     if (p === '/api/dispositivos/status' && (method === 'POST' || method === 'DELETE')) {
       const corpo = method === 'POST' ? await this.#body(req) : null

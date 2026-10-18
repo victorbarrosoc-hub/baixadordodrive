@@ -229,3 +229,31 @@ StatusComputador = {
   `android.googleapis.com`, `*.push.services.mozilla.com`, `*.notify.windows.com`): o servidor faz POST para lá.
   O mesmo endereço em outra conta passa para a conta nova.
 - **Sua conta:** bloco "Transferências agora" (quando há computador conectado) com link para `/app/#computador`.
+
+## 10. Uso da plataforma (admin)
+
+O admin (`/admin`, só para `SOBEDESCE_ADMINS`; ver `web/src/lib/admin.ts`) mostra como a plataforma está sendo usada.
+Só números e datas: nunca nome de arquivo, pasta ou conta do Drive de quem transfere.
+
+- **Dia de uso:** `atividade_diaria` (pk `usuarioId` + `dia`, no fuso de Fortaleza; `site`, `celular`, `computador`,
+  `ultimaEm`, `ultimaOrigem`). Gravada em `autenticar` junto com o `ultimoUsoEm` da sessão (a cada 10 min e na virada do
+  dia). Origem: Bearer = computador; cookie com `x-sobedesce-app: celular` (o `/app` manda) = celular; senão site.
+- **Versão do app:** o app de computador manda `x-sobedesce-build: <n>` em todo pedido (`src/google/cloud-auth.js`); vai
+  para `sessoes.appBuild`. Sem o cabeçalho (app antigo) fica `null` e conta como desatualizado.
+- **Números do dia:** `POST /api/dispositivos/uso` (só Bearer de dispositivo; cookie → `403 so_computador`; até 8 KB;
+  formato ruim → `400 entrada`) com `{ dias: [{ dia: 'AAAA-MM-DD', enviadosBytes, baixadosBytes, enviados, baixados, erros,
+  maiorArquivo, msAtivo }] }` (≤ 14 dias). Grava em `uso_diario` (pk `sessaoId` + `dia`) o maior valor de cada campo:
+  mandar de novo não soma. Dias fora de hoje −16 / +2 são ignorados. O app (`src/engine/uso.js`) conta o que terminou com
+  ele aberto (uma vez por arquivo), soma o tempo com algo correndo, guarda em `uso.json` e manda ~1 min depois de abrir,
+  a cada 15 min quando mudou e ao fechar.
+- **Avisos por e-mail aos admins** (`web/src/lib/email/admin.ts`): conta nova (e-mail e senha ou Google) e, quando a
+  soma de erros da pessoa no dia passa de 10, "Transferências com erro". Cada aviso tem uma chave em `avisos_admin`
+  (`conta:<id>`, `erros:<id>:<dia>`) e sai uma vez só.
+- **Tela:** online agora (uso nos últimos 15 min ou app com notícia em 2 min), ativas hoje / 7 / 30 dias, paradas há
+  14+ dias, gráfico de 30 dias, volume, erros, velocidade média, maior arquivo, funil (conta → Drive → computador →
+  transferiu), computadores com build (desatualizado = abaixo do `/baixar/versao`), avisos no celular, referências,
+  filtros, ordem, busca e CSV (`/admin/csv`, com as mesmas opções; células que começam com `= + - @` levam `'`).
+  `/admin/pessoa/<id>`: Drives, aparelhos com **Desconectar** (`revogarSessaoDe`), dia a dia dos últimos 60 dias e
+  linha do tempo (conta, Drives, computadores, último login).
+- **Guarda:** `atividade_diaria` e `uso_diario` ficam 400 dias (limpeza de carona em `sessao.ts`); `uso_diario` some com
+  a sessão; tudo some com a conta. Migração `0006_uso_admin` (só acrescenta).

@@ -38,7 +38,7 @@ test('fluxo de dispositivo completo: código, aprovação, token guardado com 06
     await fs.rm(home, { recursive: true, force: true })
   })
   const paths = dataPaths(home)
-  const cloud = new CloudAuth({ paths, baseUrl: site.url, ...FAST })
+  const cloud = new CloudAuth({ paths, baseUrl: site.url, build: 163, ...FAST })
   await cloud.init()
   assert.equal(cloud.status().conectado, false)
   assert.deepEqual(cloud.listAccounts(), [])
@@ -95,6 +95,10 @@ test('fluxo de dispositivo completo: código, aprovação, token guardado com 06
   assert.match(await again.getAccessToken('g1'), /^ya29\./, 'o token guardado vale depois de reabrir')
   assert.equal(site.stats.iniciar, iniciarAntes, 'não pediu login de novo')
   again.close()
+  // O build do app vai em todo pedido (o admin vê a versão de cada computador); sem build informado, o do app.
+  assert.ok(site.builds.length > 0)
+  assert.ok(site.builds.includes('163'), 'o build informado foi junto')
+  assert.ok(site.builds.every(b => /^\d+$/.test(b ?? '')), 'nenhum pedido sem o cabeçalho')
 
   // Outro servidor (SOBEDESCE_CLOUD_URL diferente): o token não vale lá.
   const other = new CloudAuth({ paths, baseUrl: 'http://127.0.0.1:9', ...FAST })

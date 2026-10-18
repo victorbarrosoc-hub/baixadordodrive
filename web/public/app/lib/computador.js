@@ -47,7 +47,7 @@ export async function refreshPc() {
   if (inflight) return inflight
   inflight = (async () => {
     try {
-      const res = await fetch(API.transferencias, { headers: { accept: 'application/json' }, cache: 'no-store', credentials: 'same-origin' })
+      const res = await fetch(API.transferencias, { headers: { accept: 'application/json', 'x-sobedesce-app': 'celular' }, cache: 'no-store', credentials: 'same-origin' })
       if (res.status === 401) return setState((s) => ({ pc: { ...s.pc, status: 'signedOut' } }))
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const d = await res.json()
@@ -147,7 +147,7 @@ export async function pushStatus() {
 }
 
 async function send(method, body) {
-  const res = await fetch(API.inscricao, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' })
+  const res = await fetch(API.inscricao, { method, headers: { 'content-type': 'application/json', 'x-sobedesce-app': 'celular' }, body: JSON.stringify(body), credentials: 'same-origin' })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 }
 

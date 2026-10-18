@@ -17,6 +17,7 @@ import { VersionChecker } from './version.js'
 import { Updater } from './updater.js'
 import { ReferenciasService } from './referencias/service.js'
 import { AcompanharCelular } from './engine/acompanhar.js'
+import { UsoDiario } from './engine/uso.js'
 import { closeHttp, requestJSON } from './net/http.js'
 
 // O libuv tem 4 threads para todo o disco (gravações dos downloads, fdatasync dos checkpoints, leitura do MD5,
@@ -144,14 +145,14 @@ function banner(url, root) {
  * @returns {Promise<{ url: string, port: number, manager: TransferManager, auth: AuthManager, settings: Settings,
  *   hasher: Hasher, paths: object, server: object, mobile: MobileReceiver, versao: VersionChecker, shutdown(): Promise<void> }>}
  */
-export async function startApp({ home, port, open = true, desktop = false, quiet = false, segredos = null, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {}, versionOptions = {}, updaterOptions = {}, referenciasOptions = {}, acompanharOptions = {} } = {}) {
+export async function startApp({ home, port, open = true, desktop = false, quiet = false, segredos = null, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {}, versionOptions = {}, updaterOptions = {}, referenciasOptions = {}, acompanharOptions = {}, usoOptions = {} } = {}) {
   const root = home ? path.resolve(home) : dataDir()
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
   const paths = dataPaths(root)
   const lockFile = path.join(root, LOCK_NAME)
   const token = await acquireLock(lockFile)
 
-  let settings, auth, hasher, manager, server, mobile, versao, referencias, acompanhar
+  let settings, auth, hasher, manager, server, mobile, versao, referencias, acompanhar, uso
   try {
     settings = new Settings(paths.settings)
     await settings.load()
@@ -168,6 +169,10 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     // Acompanhar pelo celular: o andamento das transferências vai para a conta SOBEDESCE (ajuste acompanharCelular).
     acompanhar = new AcompanharCelular({ manager, cloud: auth.cloud, settings, ...acompanharOptions })
     acompanhar.start()
+    // Uso por dia (só números) para o admin da conta SOBEDESCE (src/engine/uso.js).
+    uso = new UsoDiario({ manager, cloud: auth.cloud, file: paths.uso, ...usoOptions })
+    await uso.init()
+    uso.start()
     // Verificação do conversor da prévia leve (ffmpeg do app, do sistema ou avconvert): em segundo plano, vai para o log.
     if (!quiet || desktop) manager.previas?.init?.().catch(() => {})
     // Recepção do celular pelo Wi-Fi: liga/desliga sozinha conforme o ajuste mobileReceive.
@@ -183,6 +188,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
   } catch (err) {
     versao?.stop()
     await acompanhar?.close()
+    await uso?.close()
     await referencias?.close()
     await mobile?.close().catch(() => {})
     await server?.close().catch(() => {})
@@ -203,6 +209,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
       versao.stop()
       // Última notícia para o celular ("o app foi fechado"), com tempo curto; depois para de mandar.
       await acompanhar.close({ final: true }).catch(() => {})
+      await uso.close({ final: true }).catch(() => {})
       await referencias.close()
       // Primeiro fecha a porta da rede local (o que já chegou do celular fica gravado para continuar depois).
       await mobile.close().catch(err => console.warn('[sobedesce] erro ao fechar a recepção do celular:', err?.message))
@@ -218,7 +225,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     })()
     return stopping
   }
-  return { url: server.url, port: server.port, manager, auth, settings, hasher, paths, server, mobile, versao, referencias, acompanhar, shutdown }
+  return { url: server.url, port: server.port, manager, auth, settings, hasher, paths, server, mobile, versao, referencias, acompanhar, uso, shutdown }
 }
 
 async function main() {

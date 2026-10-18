@@ -238,3 +238,32 @@ export function emailMuitasTentativas(para: string, nome: string, t: { quando: D
     rodape: "Mandamos este aviso no máximo uma vez por dia.",
   });
 }
+
+// ───── Para o admin (src/lib/email/admin.ts) ─────
+
+/** Conta nova na plataforma (um aviso por conta). */
+export function emailAdminContaNova(para: string, c: { nome: string; email: string; quando: Date; comGoogle: boolean }): Email {
+  return montar(para, `Conta nova: ${c.nome}`, {
+    previa: `${c.nome} (${c.email}) criou uma conta.`,
+    titulo: "Conta nova na SOBEDESCE",
+    paragrafos: [`${c.nome} criou uma conta em ${quandoLegivel(c.quando)} (horário de Brasília).`],
+    detalhes: [
+      { rotulo: "E-mail", valor: c.email },
+      { rotulo: "Como entrou", valor: c.comGoogle ? "Continuar com Google" : "E-mail e senha" },
+    ],
+    botao: { texto: "Abrir o admin", url: `${siteUrl()}/admin` },
+    rodape: "Aviso para os admins da SOBEDESCE (SOBEDESCE_ADMINS).",
+  });
+}
+
+/** Muitas transferências com erro no mesmo dia (um aviso por pessoa e dia). Só números, nunca nome de arquivo. */
+export function emailAdminErros(para: string, c: { nome: string; email: string; dia: string; erros: number; feitos: number; usuarioId: string }): Email {
+  return montar(para, `${c.erros} erros hoje: ${c.nome}`, {
+    previa: `${c.nome} teve ${c.erros} transferências com erro hoje.`,
+    titulo: "Transferências com erro",
+    paragrafos: [`${c.nome} (${c.email}) teve ${c.erros} transferências com erro no computador hoje, contra ${c.feitos} que terminaram bem.`],
+    depois: ["Pode ser internet, disco cheio, Drive sem espaço ou um problema no app. Vale olhar a linha do tempo da pessoa."],
+    botao: { texto: "Ver a pessoa no admin", url: `${siteUrl()}/admin/pessoa/${encodeURIComponent(c.usuarioId)}` },
+    rodape: "Aviso para os admins da SOBEDESCE (SOBEDESCE_ADMINS). No máximo um por pessoa por dia.",
+  });
+}

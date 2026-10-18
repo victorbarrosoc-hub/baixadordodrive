@@ -7,7 +7,13 @@ import { origensDoSite } from "@/lib/site";
 import { autenticar, COOKIE_SESSAO, type Autenticado } from "./sessao";
 
 export function usuarioDaRequisicao(req: Request): Promise<Autenticado | null> {
-  return autenticar({ cookie: lerCookie(req, COOKIE_SESSAO), authorization: req.headers.get("authorization") });
+  const build = Number(req.headers.get("x-sobedesce-build"));
+  return autenticar({
+    cookie: lerCookie(req, COOKIE_SESSAO),
+    authorization: req.headers.get("authorization"),
+    celular: req.headers.get("x-sobedesce-app") === "celular",
+    build: req.headers.has("x-sobedesce-build") && Number.isSafeInteger(build) ? build : null,
+  });
 }
 
 export const SEM_SESSAO = () => erro(401, "sem_sessao", "Entre na sua conta para continuar.");
