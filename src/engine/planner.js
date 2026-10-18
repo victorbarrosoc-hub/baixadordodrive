@@ -414,7 +414,9 @@ export async function planDownloads({ drive, accountId, items, destDir, conflict
     const base = { files: progress.files, bytes: progress.bytes }
     let tree
     try {
-      ;({ items: tree } = await drive.walk(item.id, {
+      // `walked`: a árvore já veio lida (Copiar de um link + baixar: pasta de outra pessoa, com resourcekey).
+      if (Array.isArray(raw.walked)) tree = raw.walked
+      else ({ items: tree } = await drive.walk(item.id, {
         signal,
         onProgress: p => {
           try {

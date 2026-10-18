@@ -133,7 +133,7 @@ function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear,
       ? html`<${Button} icon="link" class="selbar-compact" aria-label="Copiar link" onClick=${() => onCopyLink(items[0])} title="Copiar o link para mandar (e ver quem consegue abrir)">Copiar link</${Button}>`
       : null}
     ${onProxy && items.length === 1 && files.length === 1 && isVideoName(files[0].name)
-      ? html`<${Button} icon="film" onClick=${() => onProxy(files[0])} title="Proxy (cópia leve 1080p) para a prévia tocar fluida">Gerar proxy</${Button}>`
+      ? html`<${Button} icon="film" onClick=${() => onProxy(files[0])} title="Proxy (cópia leve 720p) para a prévia tocar fluida">Gerar proxy</${Button}>`
       : null}
     <${Button} variant="primary" icon="download" onClick=${onDownload} loading=${busy}>Baixar</${Button}>
     <${IconButton} icon="x" label="Limpar seleção" onClick=${onClear} />
@@ -388,7 +388,7 @@ export function DriveScreen({ route }) {
               ? { icon: 'photo', label: 'Gerar miniaturas', busy: thumbsRunning, title: 'Miniatura para os BRAW/R3D, a partir dos originais no computador', onSelect: () => openRawThumbs({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } }) }
               : null,
             !searching && folder && (hasVideoFiles(items, folder) || previasRunning)
-              ? { icon: 'film', label: 'Gerar proxies da pasta', busy: previasRunning, title: 'Proxy (cópia leve 1080p, pasta Proxy) dos vídeos desta pasta, para a prévia tocar fluida', onSelect: () => openPrevias({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } }) }
+              ? { icon: 'film', label: 'Gerar proxies da pasta', busy: previasRunning, title: 'Proxy (cópia leve 720p, pasta Proxy) dos vídeos desta pasta, para a prévia tocar fluida', onSelect: () => openPrevias({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } }) }
               : null,
             { icon: 'folder-plus', label: 'Nova pasta', disabled: searching, onSelect: newFolder },
             { icon: 'link', label: 'Copiar de um link para cá…', title: 'Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para esta pasta', disabled: searching || !folder, onSelect: copiarDeLink },

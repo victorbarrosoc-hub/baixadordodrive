@@ -136,7 +136,7 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   Baixar traz o original.” O **Baixar** continua sendo o original. Na grade, bruto sem miniatura usa a do proxy
   quando ele já é conhecido (mesma pasta na tela ou prévia aberta antes).
 - **Prévia leve:** vídeo com mais de 30 MB (qualquer codec) procura o mesmo proxy **antes** de tocar (a cópia H.264
-  1080p que o app de computador grava em `Proxy/<nome>.mp4`, `appProperties.sobedesce = 'previa'`, ou o da câmera) e
+  720p que o app de computador grava em `Proxy/<nome>.mp4`, `appProperties.sobedesce = 'previa'`, ou o da câmera) e
   toca ele por padrão, com **Proxy | Original** no canto do player (troca no mesmo ponto). `FILE_FIELDS` pede
   `appProperties`.
 - **Toca ao abrir (2.8.4):** vídeo e áudio começam sozinhos ao abrir a prévia (`autoPlay`, `preload="auto"`, então

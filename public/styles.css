@@ -7719,3 +7719,20 @@ button.tree-twisty:hover {
 .page-head-actions .is-copying {
   font-variant-numeric: tabular-nums;
 }
+.cl-also {
+  margin-top: 2px;
+}
+.cl-local {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+  font-size: 13px;
+}
+.cl-local .mono-path {
+  overflow-wrap: anywhere;
+}

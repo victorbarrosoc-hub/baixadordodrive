@@ -8,8 +8,10 @@ import { useStore } from '../lib/store.js'
 import { bytes, count, plural } from '../lib/format.js'
 import { cx } from '../lib/ui.js'
 import { driveFolderUrl } from '../lib/actions.js'
+import { pickFolderPath } from '../lib/desktop.js'
+import { navigate } from '../lib/router.js'
 import { Icon } from './icons.js'
-import { Button, Spinner } from './common.js'
+import { Button, Checkbox, Spinner } from './common.js'
 import { Modal } from './modal.js'
 import { invalidateAccount } from './drive-data.js'
 
@@ -41,12 +43,15 @@ function Falhas({ list }) {
 /** @param {{ accountId: string, dest?: { id, name, path, driveId }|null, onClose: () => void }} props */
 function CopyLinkDialog({ accountId, dest: destInicial = null, onClose }) {
   const copia = useStore((s) => s.copia)
+  const pastaDownloads = useStore((s) => s.settings?.downloadDir || null)
   const [link, setLink] = useState('')
   const [plano, setPlano] = useState(null)
   const [dest, setDest] = useState(destInicial)
   const [lendo, setLendo] = useState(false)
   const [erro, setErro] = useState(null)
   const [indo, setIndo] = useState(false)
+  // "Também baixar para…": pasta no HD/SSD/cartão (null = só copiar para o Drive).
+  const [localDir, setLocalDir] = useState(null)
   const [jobId, setJobId] = useState(() => (copia?.status === 'running' ? copia.jobId : null))
   const ac = useRef(null)
   useEffect(() => () => ac.current?.abort(), [])
@@ -85,12 +90,22 @@ function CopyLinkDialog({ accountId, dest: destInicial = null, onClose }) {
     const f = await pickDriveFolder({ accountId, title: 'Para qual pasta do seu Drive?', confirmLabel: 'Copiar para cá', initialFolderId: dest?.id || 'root' })
     if (f) setDest(f)
   }
+  const [, redesenhar] = useState(0)
+  const escolherLocal = async () => {
+    const p = await pickFolderPath({ title: 'Baixar para qual pasta do computador (HD, SSD, cartão)?', defaultPath: localDir || pastaDownloads || undefined })
+    if (p) setLocalDir(p)
+    else redesenhar((n) => n + 1) // cancelou: a caixa volta a ficar desmarcada
+  }
   const copiar = async () => {
     if (!plano || !dest || indo) return
     setIndo(true)
     setErro(null)
     try {
-      const r = await api.post(`/api/copiar/${enc(accountId)}`, { planoId: plano.planoId, dest: { id: dest.id, name: dest.name, path: dest.path || null, driveId: dest.driveId || null } })
+      const r = await api.post(`/api/copiar/${enc(accountId)}`, {
+        planoId: plano.planoId,
+        dest: { id: dest.id, name: dest.name, path: dest.path || null, driveId: dest.driveId || null },
+        localDir: localDir || null,
+      })
       setJobId(r.copia?.jobId || null)
     } catch (err) {
       setErro(err?.message || 'Não consegui começar a cópia.')
@@ -115,6 +130,14 @@ function CopyLinkDialog({ accountId, dest: destInicial = null, onClose }) {
     const bloqueados = job.plano?.bloqueados || 0
     const copiados = p.done - Math.max(0, (p.failed?.length || 0) - bloqueados)
     const aberto = p.newFolderId || job.dest?.id
+    const dl = job.download
+    const baixando = dl
+      ? html`<div class="cl-local">
+          <${Icon} name="download" size=${16} />
+          <span>${dl.count ? html`<b>${plural(dl.count, 'arquivo', 'arquivos')}${dl.bytes ? ` · ${bytes(dl.bytes)}` : ''}</b> baixando para <span class="mono-path" title=${dl.destDir}>${dl.destDir}</span>` : html`Nada para baixar para <span class="mono-path">${dl.destDir}</span>${dl.skipped ? ' (já estava lá ou o dono bloqueou o download)' : ''}`}</span>
+          ${dl.count ? html`<button type="button" class="link-btn" onClick=${() => (onClose(), navigate('transferencias'))}>Ver em Transferências</button>` : null}
+        </div>`
+      : null
     if (job.status === 'running') {
       title = 'Copiando…'
       body = html`<${Resumo} p=${job.plano} />
@@ -122,8 +145,9 @@ function CopyLinkDialog({ accountId, dest: destInicial = null, onClose }) {
           <div class="rt-phase"><${Spinner} size=${16} /><span>${count(p.done)} de ${count(p.total)} arquivos${p.bytesTotal ? ` · ${bytes(p.bytesDone)} de ${bytes(p.bytesTotal)}` : ''}</span></div>
           <div class="rt-bar"><i style=${`width:${(frac * 100).toFixed(1)}%`}></i></div>
           <span class="sub rt-current" title=${p.current || ''}>${p.current ? `Copiando ${p.current}` : 'Criando as pastas…'}</span>
-          <span class="sub">A cópia acontece no Google, sem usar a internet deste computador. Pode fechar esta janela: a cópia continua.</span>
-        </div>`
+          <span class="sub">A cópia para o Drive acontece no Google, sem usar a internet deste computador. Pode fechar esta janela: a cópia continua.</span>
+        </div>
+        ${baixando}`
       footer = html`<${Button} icon="pause" onClick=${parar}>Parar</${Button}>
         <${Button} variant="primary" onClick=${onClose} data-autofocus>Fechar</${Button}>`
     } else {
@@ -147,7 +171,8 @@ function CopyLinkDialog({ accountId, dest: destInicial = null, onClose }) {
             </div>
           </div>
           <${Falhas} list=${p.failed} />
-        </div>`
+        </div>
+        ${baixando}`
       footer = html`${aberto ? html`<a class="btn btn-secondary" href=${driveFolderUrl(aberto)} target="_blank" rel="noopener"><${Icon} name="external" size=${16} /><span>Abrir no Drive</span></a>` : null}
         <${Button} onClick=${outro}>Copiar outro link</${Button}>
         <${Button} variant="primary" onClick=${onClose} data-autofocus>OK</${Button}>`
@@ -189,11 +214,26 @@ function CopyLinkDialog({ accountId, dest: destInicial = null, onClose }) {
         <span class="cl-dest-go">${dest ? 'Trocar' : 'Escolher'}</span>
       </button>
       ${plano?.pasta && dest ? html`<span class="sub">Cria a pasta “${plano.nome}” lá dentro, com tudo igual.</span>` : null}
+      <label class="check-label cl-also">
+        <${Checkbox} checked=${!!localDir} onChange=${(on) => (on ? escolherLocal() : setLocalDir(null))} label="Também baixar para uma mídia física" />
+        <span>Também baixar para uma mídia física (HD, SSD, cartão), ao mesmo tempo</span>
+      </label>
+      ${localDir
+        ? html`<button type="button" class="cl-dest" onClick=${escolherLocal}>
+            <${Icon} name="download" size=${18} />
+            <span class="cl-text">
+              <span class="field-label">Baixar em</span>
+              <b class="mono-path" title=${localDir}>${localDir}</b>
+            </span>
+            <span class="cl-dest-go">Trocar</span>
+          </button>
+          <span class="sub">Baixa do link da pessoa direto para essa pasta, pela fila de Transferências (retoma se cair e confere cada arquivo no fim)${plano?.pasta ? `, dentro de “${plano.nome}”` : ''}.</span>`
+        : null}
       <span class="sub">A cópia acontece no Google: os arquivos não passam por este computador. Ocupa espaço no Drive de destino.</span>`
     const pode = plano && dest && plano.arquivos > plano.bloqueados && !(copia?.status === 'running')
     footer = html`<${Button} onClick=${onClose}>Cancelar</${Button}>
       ${plano ? null : html`<${Button} onClick=${() => ler()} disabled=${!link.trim() || lendo}>Ver o que tem</${Button}>`}
-      <${Button} variant="primary" icon="copy" loading=${indo} disabled=${!pode} onClick=${copiar}>${dest ? `Copiar para “${dest.name}”` : 'Copiar'}</${Button}>`
+      <${Button} variant="primary" icon="copy" loading=${indo} disabled=${!pode} onClick=${copiar}>${dest ? `${localDir ? 'Copiar e baixar' : 'Copiar para'} “${dest.name}”` : 'Copiar'}</${Button}>`
     if (copia?.status === 'running') {
       body = html`${body}<p class="cl-warn"><${Icon} name="warning" size=${16} /> Já tem uma cópia em andamento. Espere terminar para começar outra.</p>`
     }

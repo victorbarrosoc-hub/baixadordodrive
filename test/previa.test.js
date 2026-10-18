@@ -150,12 +150,12 @@ test('nomes: vídeo pela extensão, RAW fora, nome da cópia e quem serve de pro
   assert.equal(isProxyName('A0011.mp4', 'A001.mov'), false)
 })
 
-test('linha de comando: 1080p no lado maior, pares, 4:2:0 8 bits, AAC estéreo, faststart; sem áudio vira -an', () => {
+test('linha de comando: 720p no lado maior (como o Drive toca), pares, 4:2:0 8 bits, AAC estéreo, faststart; sem áudio vira -an', () => {
   const info = parseProbe(PRORES)
   const a = argsTranscode({ input: '/in/A001.mov', output: '/tmp/x/previa.mp4', encoder: 'libx264', info })
   const s = a.join(' ')
-  assert.ok(s.includes("-vf scale=w='min(1920,iw)':h='min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p"), s)
-  assert.ok(s.includes('-c:v libx264 -preset veryfast -crf 23 -maxrate 6M -bufsize 12M -profile:v high'), s)
+  assert.ok(s.includes("-vf scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p"), s)
+  assert.ok(s.includes('-c:v libx264 -preset veryfast -crf 24 -maxrate 3M -bufsize 6M -profile:v high'), s)
   assert.ok(s.includes('-map 0:v:0 -map 0:a:0? -dn -sn'), s)
   assert.ok(s.includes('-c:a aac -b:a 128k -ac 2'), s)
   assert.ok(s.endsWith('-movflags +faststart -f mp4 /tmp/x/previa.mp4'), s)
@@ -169,7 +169,7 @@ test('linha de comando: 1080p no lado maior, pares, 4:2:0 8 bits, AAC estéreo, 
 
   const vt = argsTranscode({ input: 'i', output: 'o', encoder: 'h264_videotoolbox', info, hwDecode: true })
   assert.deepEqual(vt.slice(vt.indexOf('-hwaccel'), vt.indexOf('-hwaccel') + 2), ['-hwaccel', 'videotoolbox'])
-  assert.ok(vt.join(' ').includes('-c:v h264_videotoolbox -b:v 5M -profile:v high -allow_sw 1'))
+  assert.ok(vt.join(' ').includes('-c:v h264_videotoolbox -b:v 2500k -profile:v high -allow_sw 1'))
   // Quick Sync e Media Foundation recebem NV12.
   assert.ok(videoFilter(info, 'h264_qsv').endsWith('format=nv12'))
   assert.ok(videoFilter(info, 'h264_mf').endsWith('format=nv12'))
@@ -363,7 +363,7 @@ const realFfmpeg = (() => {
   }
 })()
 
-test('ffmpeg de verdade: ProRes 4K de 1 s vira H.264 1920×1080 com AAC estéreo e moov no começo', { skip: !realFfmpeg && 'sem ffmpeg neste computador' }, async t => {
+test('ffmpeg de verdade: ProRes 4K de 1 s vira H.264 1280×720 com AAC estéreo e moov no começo', { skip: !realFfmpeg && 'sem ffmpeg neste computador' }, async t => {
   const dir = await tmp(t)
   const tmpRoot = await tmp(t, 'sobedesce-previa-tmp-')
   const src = path.join(dir, 'A001.mov')
@@ -379,8 +379,8 @@ test('ffmpeg de verdade: ProRes 4K de 1 s vira H.264 1920×1080 com AAC estéreo
   const out = parseProbe(spawnSync(realFfmpeg, ['-hide_banner', '-i', r.path], { encoding: 'utf8' }).stderr)
   assert.equal(out.video.codec, 'h264')
   assert.equal(out.video.pixFmt, 'yuv420p')
-  assert.equal(out.video.width, 1920)
-  assert.equal(out.video.height, 1080)
+  assert.equal(out.video.width, 1280)
+  assert.equal(out.video.height, 720)
   assert.equal(out.audio, true)
   const head = (await fs.readFile(r.path)).subarray(0, 4096).toString('latin1')
   assert.ok(head.indexOf('moov') > 0 && (head.indexOf('mdat') < 0 || head.indexOf('moov') < head.indexOf('mdat')), 'faststart: moov antes do mdat')

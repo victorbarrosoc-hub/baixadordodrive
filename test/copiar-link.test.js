@@ -4,6 +4,8 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { setupDrive } from './helpers.js'
 import { closeHttp } from '../src/net/http.js'
 import { startApp } from '../src/index.js'
@@ -136,6 +138,57 @@ test('rota: arquivo avulso por link vai direto para o destino', async () => {
   assert.equal(fim.status, 'done')
   assert.equal(fim.progress.newFolderId, null)
   assert.deepEqual(kids(destino.id).map(i => i.name), ['Roteiro.pdf'])
+})
+
+test('rota: "também baixar para…" põe os downloads na fila ao mesmo tempo, com as pastas e sem o bloqueado', async () => {
+  const m = env.mock
+  const destino = m.addFolder('Projetos HD')
+  const src = m.addFolder('Diária 03', m.addFolder('De fora').id, { resourceKey: true })
+  const sub = m.addFolder('Som', src.id, { resourceKey: true })
+  m.addFile('A002_C001.MP4', src.id, { size: 300_000, resourceKey: true })
+  m.addFile('ZOOM0001.WAV', sub.id, { size: 120_000, resourceKey: true })
+  m.addFile('TRAVADO.MOV', src.id, { size: 50_000, canDownload: false, resourceKey: true })
+  const link = `https://drive.google.com/drive/folders/${src.id}?resourcekey=${m.getItem(src.id).resourceKey}`
+  const hd = path.join(env.home, 'HD Externo')
+  await fs.mkdir(hd, { recursive: true })
+
+  const lido = await call('POST', `/api/copiar/${acc()}/ler`, { body: { link } })
+  assert.equal(lido.status, 200, JSON.stringify(lido.json))
+  const ini = await call('POST', `/api/copiar/${acc()}`, { body: { planoId: lido.json.plano.planoId, dest: { id: destino.id, name: 'Projetos HD' }, localDir: hd } })
+  assert.equal(ini.status, 200, JSON.stringify(ini.json))
+  assert.equal(ini.json.copia.download.count, 2, 'dois downloads na fila (o bloqueado fica de fora)')
+  assert.equal(ini.json.copia.download.bytes, 420_000)
+  assert.equal(ini.json.copia.download.destDir, hd)
+  const fim = await esperarFim()
+  assert.equal(fim.status, 'done')
+  assert.equal(fim.download.count, 2)
+  // No HD: a pasta do link com a subpasta, os arquivos inteiros.
+  const alvoA = path.join(hd, 'Diária 03', 'A002_C001.MP4')
+  const alvoB = path.join(hd, 'Diária 03', 'Som', 'ZOOM0001.WAV')
+  for (let i = 0; i < 400; i++) {
+    const ok = await Promise.all([alvoA, alvoB].map(f => fs.stat(f).then(s => s.size, () => -1)))
+    if (ok[0] === 300_000 && ok[1] === 120_000) break
+    await new Promise(res => setTimeout(res, 50))
+  }
+  assert.equal((await fs.stat(alvoA)).size, 300_000)
+  assert.equal((await fs.stat(alvoB)).size, 120_000)
+  await assert.rejects(fs.stat(path.join(hd, 'Diária 03', 'TRAVADO.MOV')))
+  // E no Drive também.
+  const nova = kids(destino.id).find(i => i.name === 'Diária 03')
+  assert.deepEqual(kids(nova.id).map(i => i.name).sort(), ['A002_C001.MP4', 'Som'])
+})
+
+test('rota: pasta do computador inválida não começa nada', async () => {
+  const m = env.mock
+  const destino = m.addFolder('Nada começa')
+  const src = m.addFolder('Outro link', 'root')
+  m.addFile('x.mp4', src.id, { size: 10 })
+  const lido = await call('POST', `/api/copiar/${acc()}/ler`, { body: { link: `https://drive.google.com/drive/folders/${src.id}` } })
+  const antes = m.stats().copies || 0
+  const r = await call('POST', `/api/copiar/${acc()}`, { body: { planoId: lido.json.plano.planoId, dest: { id: destino.id, name: 'x' }, localDir: 42 } })
+  assert.equal(r.status, 400)
+  assert.equal((m.stats().copies || 0) - antes, 0)
+  assert.equal(kids(destino.id).length, 0)
 })
 
 test('rota: recusas em português (sem a chave, não é do Drive, sem destino)', async () => {

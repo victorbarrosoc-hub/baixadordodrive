@@ -478,7 +478,19 @@ export function createApi(ctx) {
   const tamanhos = registerTamanho({ route, ctx, account, HttpProblem, toProblem })
 
   // Copiar de um link do Drive para uma pasta da conta (src/server/copiar.js): /api/copiar.
-  const copias = registerCopiar({ route, ctx, account, HttpProblem })
+  const copias = registerCopiar({
+    route,
+    ctx,
+    account,
+    HttpProblem,
+    // "Também baixar para…": o mesmo caminho do Baixar (planDownloads + fila), com a árvore que a cópia já leu.
+    baixar: async ({ accountId, items, destDir, signal }) => {
+      const st = ctx.settings.get()
+      const plan = await planDownloads({ drive: ctx.manager.driveFor(accountId), accountId, items, destDir, conflict: st.downloadConflict, signal, reservedPaths: ctx.manager.reservedPaths() })
+      if (plan.batch) plan.batch.destino = path.basename(path.resolve(destDir)) || null
+      return enqueue(plan)
+    },
+  })
 
   const stringList = (v, max = 10_000) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, max) : null)
 

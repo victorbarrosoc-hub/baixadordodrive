@@ -607,10 +607,10 @@ O que falta para o ajudante nativo (o caminho mais confiável, porque não depen
 ### media/previa*.js — prévia leve dos vídeos
 
 O Drive toca vídeo pesado fluido porque usa uma cópia leve própria; a API só entrega o original. O app gera a sua:
-**H.264 High 8 bits 4:2:0, lado maior ≤ 1920 (pares, pixels quadrados), ≈ 5 Mbit/s VBR (teto 7), AAC 128k estéreo (ou
+**H.264 High 8 bits 4:2:0, lado maior ≤ 1280 (720p, como a reprodução do Drive; pares, pixels quadrados), ≈ 2,5 Mbit/s VBR (teto 3,5; libx264 CRF 24 com teto 3), AAC 128k estéreo (ou
 sem áudio), `+faststart`, GOP 60, rotação aplicada na imagem**, gravada em `Proxy/<nome-base>.mp4` ao lado do original
 (reaproveita uma subpasta `Proxy`/`Proxies` que já exista) com `appProperties { sobedesce: 'previa', original: <id> }`.
-O original nunca é tocado. Na interface a cópia se chama **proxy** ("Proxy (cópia leve 1080p)"). Ajuste `proxyAoEnviar`
+O original nunca é tocado. Na interface a cópia se chama **proxy** ("Proxy (cópia leve 720p)"). Ajuste `proxyAoEnviar`
 (`'sempre'` padrão | `'perguntar'` | `'nunca'`; o antigo `previaLeve` é migrado no `Settings.load`: true → sempre, false →
 nunca); `previaLocalDir` lembra a pasta do lote.
 
@@ -865,7 +865,7 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | GET | `/api/drive/:acc/tamanho` | `ids=a,b,c` (até 200) | `{ tamanhos: { id: TamanhoView\|null } }` (a interface pergunta a cada ~0,7 s; sem pergunta por 20 s a conta é abandonada) |
 | DELETE | `/api/drive/:acc/tamanho` | `{ folderId, discard? }` | `{ tamanho }` ("Parar": guarda o parcial; `discard` esquece) |
 | POST | `/api/copiar/:acc/ler` | `{ link }` | `{ plano: { planoId, nome, pasta, dono, arquivos, subpastas, bytes, bloqueados, atalhos } }`. Lê o link do Drive (pasta ou arquivo, com `resourcekey`; header `x-goog-drive-resource-keys` em cada pedido) e varre as subpastas (até 5000 arquivos). O plano inteiro fica no servidor. Link que a conta não abre → 400 com a mensagem |
-| POST | `/api/copiar/:acc` | `{ planoId, dest: { id, name, path?, driveId? } }` | `{ copia }`. Começa a cópia (uma por vez, 409 se já tem): pasta do link → pasta com o mesmo nome em `dest`, subpastas recriadas, `files.copy` 3 por vez. Sem `canCopy` e atalhos ficam de fora. Drive cheio, limite do dia, sem permissão no destino ou sem internet param com `stopped`. Progresso pelo SSE `copiar` (≤ 4×/s) e em `/api/state.copia` |
+| POST | `/api/copiar/:acc` | `{ planoId, dest: { id, name, path?, driveId? }, localDir? }` | `{ copia }`. Com `localDir` ("Também baixar para uma mídia física"): antes de começar, o plano vira downloads na fila de sempre (`planDownloads` com `walked`: a árvore já lida, com os resourcekeys) e `copia.download = { count, bytes, destDir, batchId, skipped }`; pasta inválida → nada começa. Começa a cópia (uma por vez, 409 se já tem): pasta do link → pasta com o mesmo nome em `dest`, subpastas recriadas, `files.copy` 3 por vez. Sem `canCopy` e atalhos ficam de fora. Drive cheio, limite do dia, sem permissão no destino ou sem internet param com `stopped`. Progresso pelo SSE `copiar` (≤ 4×/s) e em `/api/state.copia` |
 | GET | `/api/copiar` | — | `{ copia }` (a cópia atual ou a última: `{ jobId, plano, dest, status: running\|done\|canceled\|error, progress: { done, total, bytesDone, bytesTotal, current, failed[], newFolderId, stopped } }`) |
 | DELETE | `/api/copiar/:id` | — | `{ parou }` ("Parar": o que já foi copiado fica) |
 | GET | `/api/drive/:acc/proxy` | `id`, `rk?` | `{ proxy: DriveItem\|null }` (proxy de câmera; ver "Miniaturas e prévia") |

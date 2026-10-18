@@ -84,7 +84,7 @@ export function PreviaRow({ d, set }) {
     <div class="srow-text">
       <div class="srow-label">Proxy ao enviar</div>
       <div class="srow-desc">
-        Proxy (cópia leve 1080p) na pasta Proxy, para a prévia tocar fluida no celular, no computador e para o cliente. O original não muda. Cada envio e cada arquivo podem mudar isso.
+        Proxy (cópia leve 720p) na pasta Proxy, para a prévia tocar fluida no celular, no computador e para o cliente. O original não muda. Cada envio e cada arquivo podem mudar isso.
         ${note ? html`<br />${note}` : null}
       </div>
     </div>
@@ -98,7 +98,7 @@ export function ProxyChoice({ checked, onChange, ask }) {
     <span class="proxy-choice-icon"><${Icon} name="film" size=${15} /></span>
     <span class="proxy-choice-text">
       <b>Gerar proxy dos vídeos</b>
-      <span>Proxy (cópia leve 1080p) em Proxy/, para a prévia tocar fluida. O original não muda.</span>
+      <span>Proxy (cópia leve 720p) em Proxy/, para a prévia tocar fluida. O original não muda.</span>
     </span>
     <${Switch} label="Gerar proxy dos vídeos" checked=${checked} onChange=${onChange} />
   </label>`
@@ -164,7 +164,7 @@ export function PreviaLine({ t }) {
         class=${cx('proxy-chip', want ? 'is-on' : 'is-off')}
         aria-pressed=${want ? 'true' : 'false'}
         onClick=${() => setProxy(t.id, !want)}
-        title=${want ? 'Ao terminar de subir, gera o proxy (cópia leve 1080p). Clique para não gerar.' : 'Não vai gerar proxy. Clique para gerar ao terminar de subir.'}
+        title=${want ? 'Ao terminar de subir, gera o proxy (cópia leve 720p). Clique para não gerar.' : 'Não vai gerar proxy. Clique para gerar ao terminar de subir.'}
       ><${Icon} name="film" size=${12} /> Proxy: ${want ? 'sim' : 'não'}</button>
     </div>`
   }
@@ -487,7 +487,7 @@ export function PreviasDialog({ accountId, folder, arquivo = null, onClose }) {
 
   const setup = arquivo
     ? html`<form class="rt-setup" onSubmit=${start}>
-        <p class="dialog-text">Proxy (cópia leve 1080p) na pasta Proxy ao lado do original, para a prévia tocar fluida. O original não muda.</p>
+        <p class="dialog-text">Proxy (cópia leve 720p) na pasta Proxy ao lado do original, para a prévia tocar fluida. O original não muda.</p>
         ${!fi
           ? html`<div class="rt-phase"><${Spinner} size=${16} /><span>Olhando o arquivo…</span></div>`
           : fi.erro
@@ -529,7 +529,7 @@ export function PreviasDialog({ accountId, folder, arquivo = null, onClose }) {
         <button type="submit" hidden></button>
       </form>`
     : html`<form class="rt-setup" onSubmit=${start}>
-        <p class="dialog-text">Escolha onde estão os originais (HD ou cartão). Para cada vídeo pesado sem proxy, o SOBEDESCE gera o proxy (cópia leve 1080p) e sobe na pasta Proxy ao lado do original. O original não muda.</p>
+        <p class="dialog-text">Escolha onde estão os originais (HD ou cartão). Para cada vídeo pesado sem proxy, o SOBEDESCE gera o proxy (cópia leve 720p) e sobe na pasta Proxy ao lado do original. O original não muda.</p>
         ${m.label ? html`<p class=${cx('previa-engine-line', m.hardware && 'is-hw')}><${Icon} name=${m.hardware ? 'bolt' : 'film'} size=${14} /> ${m.label}</p>` : null}
         <div class="field">
           <label class="field-label" for="pv-dir">Originais no computador</label>

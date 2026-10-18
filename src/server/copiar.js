@@ -1,12 +1,13 @@
 // "Copiar de um link" (tela Drive): link do Drive de outra pessoa → pasta do Drive da conta (src/google/copiar.js).
 // Rotas:
 //   POST   /api/copiar/:acc/ler  { link }                        → { plano }  lê o link (a tela espera a resposta)
-//   POST   /api/copiar/:acc      { planoId, dest: { id, name, driveId? } } → { copia }  começa a cópia
+//   POST   /api/copiar/:acc      { planoId, dest: { id, name, driveId? }, localDir? } → { copia }  começa a cópia
+//          (`localDir`: também baixa para a mídia física, pela fila de downloads de sempre, ao mesmo tempo)
 //   GET    /api/copiar                                           → { copia }  a última cópia (ou null)
 //   DELETE /api/copiar/:id                                       → { parou }  "Parar"
 // Uma cópia por vez. Progresso pelo SSE ('copiar', no máximo 4×/s). O plano fica guardado no servidor (pode ter
 // milhares de arquivos): a tela só manda o id dele de volta. O resultado da última cópia fica para a tela mostrar.
-import { copiarPlano, lerLink, parseDriveLink, readErrorMessage } from '../google/copiar.js'
+import { copiarPlano, downloadItems, lerLink, parseDriveLink, readErrorMessage } from '../google/copiar.js'
 import { newId } from '../util/ids.js'
 import { isAbortError } from '../util/backoff.js'
 
@@ -49,18 +50,25 @@ export class CopyJobs {
     return this.job?.status === 'running' ? this.job : null
   }
 
-  start({ accountId, planoId, dest }) {
+  /** O plano lido (para começar): confere a conta, se ainda vale e se não tem outra cópia andando. */
+  planFor(accountId, planoId) {
     const { HttpProblem } = this
     if (this.running()) throw new HttpProblem(409, 'Já tem uma cópia em andamento. Espere terminar ou pare a atual.')
     const kept = this.plans.get(planoId)
     if (!kept || kept.accountId !== accountId) throw new HttpProblem(404, 'Leia o link de novo: essa leitura não vale mais.')
-    const { plan } = kept
-    if (!plan.files.some(f => f.canCopy)) throw new HttpProblem(400, 'Nada para copiar: o dono bloqueou a cópia de tudo.')
+    if (!kept.plan.files.some(f => f.canCopy)) throw new HttpProblem(400, 'Nada para copiar: o dono bloqueou a cópia de tudo.')
+    return kept.plan
+  }
+
+  /** `download`: o resumo do que entrou na fila para a mídia física ({ count, bytes, destDir, skipped }), ou null. */
+  start({ accountId, planoId, dest, download = null }) {
+    const plan = this.planFor(accountId, planoId)
     const job = {
       id: newId('cpy'),
       accountId,
       plano: planView(planoId, accountId, plan),
       dest,
+      download,
       status: 'running',
       progress: null,
       error: null,
@@ -107,7 +115,7 @@ export class CopyJobs {
 
   view(job = this.job) {
     if (!job) return null
-    return { jobId: job.id, accountId: job.accountId, plano: job.plano, dest: job.dest, status: job.status, progress: job.progress, ...(job.error ? { error: job.error } : {}) }
+    return { jobId: job.id, accountId: job.accountId, plano: job.plano, dest: job.dest, download: job.download || null, status: job.status, progress: job.progress, ...(job.error ? { error: job.error } : {}) }
   }
 
   #emit(job) {
@@ -129,7 +137,8 @@ export class CopyJobs {
   }
 }
 
-export function registerCopiar({ route, ctx, account, HttpProblem }) {
+/** `baixar({ accountId, items, destDir, signal })`: planeja e põe na fila de downloads (routes.js, como o Baixar). */
+export function registerCopiar({ route, ctx, account, HttpProblem, baixar }) {
   const jobs = new CopyJobs(ctx, { HttpProblem })
 
   route('POST', '/api/copiar/:acc/ler', async ({ params, body, signal }) => {
@@ -146,13 +155,22 @@ export function registerCopiar({ route, ctx, account, HttpProblem }) {
     }
   })
 
-  route('POST', '/api/copiar/:acc', async ({ params, body }) => {
+  route('POST', '/api/copiar/:acc', async ({ params, body, signal }) => {
     account(params.acc)
     const d = body.dest
     if (!d || typeof d.id !== 'string' || !DRIVE_ID.test(d.id)) throw new HttpProblem(400, 'Escolha a pasta do Drive para onde copiar.')
     if (typeof body.planoId !== 'string') throw new HttpProblem(400, 'Leia o link primeiro.')
     const dest = { id: d.id, name: typeof d.name === 'string' && d.name ? d.name.slice(0, 255) : 'Meu Drive', path: typeof d.path === 'string' ? d.path.slice(0, 2000) : null, driveId: typeof d.driveId === 'string' && DRIVE_ID.test(d.driveId) ? d.driveId : null }
-    return { copia: jobs.start({ accountId: params.acc, planoId: body.planoId, dest }) }
+    if (body.localDir != null && (typeof body.localDir !== 'string' || body.localDir.length > 4096)) throw new HttpProblem(400, 'Pasta do computador inválida.')
+    const localDir = body.localDir?.trim() || null
+    const plan = jobs.planFor(params.acc, body.planoId)
+    // Mídia física: os downloads entram na fila antes (pasta inválida, disco que sumiu → nada começa).
+    let download = null
+    if (localDir) {
+      const r = await baixar({ accountId: params.acc, items: downloadItems(plan), destDir: localDir, signal })
+      download = { count: r.count, bytes: r.bytes, destDir: localDir, batchId: r.batch?.id || null, skipped: (r.skipped || []).length }
+    }
+    return { copia: jobs.start({ accountId: params.acc, planoId: body.planoId, dest, download }) }
   })
 
   route('GET', '/api/copiar', async () => ({ copia: jobs.view() }))

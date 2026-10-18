@@ -1,11 +1,12 @@
-// Prévia leve: uma cópia H.264 em 1080p (≈ 5 Mbit/s, AAC estéreo, faststart) de cada vídeo pesado, gravada em
+// Prévia leve: uma cópia H.264 em 720p (≈ 2,5 Mbit/s, AAC estéreo, faststart) de cada vídeo pesado, gravada em
 // `Proxy/<nome>.mp4` ao lado do original no Drive. É o que faz a prévia tocar fluida (no celular, no app e no site da
 // produtora), do mesmo jeito que o Google Drive toca a cópia leve que ele mesmo gera. O original nunca muda.
 //
 // Quem converte (docs/ARCHITECTURE.md, "media/previa.js"):
 //  - ffmpeg: o que vem dentro do app (<Resources>/ffmpeg/), o de SOBEDESCE_FFMPEG ou um instalado no sistema.
 //    Codificador de vídeo: o do chip/placa quando existe e passa num teste de 1 quadro (Mac: VideoToolbox; Windows:
-//    NVENC, Quick Sync, AMF ou Media Foundation), senão libx264 (veryfast, CRF 23, teto de 6 Mbit/s).
+//    NVENC, Quick Sync, AMF ou Media Foundation), senão libx264 (veryfast, CRF 24, teto de 3 Mbit/s).
+//    720p a ≈ 2,5 Mbit/s é a qualidade que o próprio Drive usa para tocar sem engasgar: o proxy é para ver, não para editar.
 //  - Mac sem ffmpeg que rode: /usr/bin/avconvert (AVFoundation, acelerado por hardware), só para o que o macOS abre.
 // Tudo com prioridade baixa (nice / BELOW_NORMAL), um por vez, cancelável e com tempo limite proporcional à duração.
 // Nada aqui lança para fora sem motivo claro: quem chama recebe { estado, motivo } e segue.
@@ -23,8 +24,10 @@ const KiB = 1024
 export const PREVIA_PASTA = 'Proxy'
 /** Marca da cópia no Drive (`appProperties`): só o SOBEDESCE escreve e lê; a prévia mostra "Prévia leve". */
 export const PREVIA_MARCA = 'previa'
-/** Lado maior da cópia (px). */
-export const PREVIA_LADO = 1920
+/** Lado maior da cópia (px): 720p, como a reprodução do Drive. */
+export const PREVIA_LADO = 1280
+/** Lado maior até onde um H.264 leve não precisa de cópia (1080p). */
+export const LEVE_LADO = 1920
 /** Vídeo H.264 8 bits até 1080p com menos que isto já é leve o bastante. */
 export const PEQUENO_BYTES = 50 * MB
 /** Acima desta taxa (Mbit/s) o original não toca liso pela rede. */
@@ -184,12 +187,12 @@ export function precisaPrevia(info, { name = '', size = null } = {}) {
   const bps = v.bitrate || info.bitrate || (size && info.durationS ? (size * 8) / info.durationS : 0)
   const mbps = bps / MB
   const h264 = v.codec === 'h264' && (v.bits == null || v.bits === 8) && (!v.pixFmt || /^(yuvj?420p|nv12)$/.test(v.pixFmt))
-  if (h264 && long <= PREVIA_LADO && size != null && size < PEQUENO_BYTES) return { gerar: false, motivo: 'já é leve' }
+  if (h264 && long <= LEVE_LADO && size != null && size < PEQUENO_BYTES) return { gerar: false, motivo: 'já é leve' }
   if (!h264) {
     const label = CODEC_LABEL[v.codec] || v.codec.toUpperCase() || 'codec'
     return { gerar: true, motivo: v.bits && v.bits > 8 ? `${label} ${v.bits} bits` : label }
   }
-  if (long > PREVIA_LADO) return { gerar: true, motivo: `${v.width}×${v.height}` }
+  if (long > LEVE_LADO) return { gerar: true, motivo: `${v.width}×${v.height}` }
   if (mbps > LIMITE_MBPS) return { gerar: true, motivo: `${Math.round(mbps)} Mbit/s` }
   if (!WEB_CONTAINERS.has(ext)) return { gerar: true, motivo: `${ext.slice(1).toUpperCase()} não toca no navegador` }
   return { gerar: false, motivo: 'já é leve' }
@@ -216,12 +219,12 @@ const ENCODER_LABEL = {
 /** Formato de pixel que cada codificador aceita melhor. */
 const pixFor = encoder => (encoder === 'h264_qsv' || encoder === 'h264_mf' ? 'nv12' : 'yuv420p')
 
-/** Parâmetros de cada codificador: ≈ 5 Mbit/s VBR, teto de 7 Mbit/s, perfil High. */
+/** Parâmetros de cada codificador: ≈ 2,5 Mbit/s VBR, teto de 3,5 Mbit/s, perfil High (720p como o Drive toca). */
 export function encoderArgs(encoder) {
-  const vbr = ['-b:v', '5M', '-maxrate', '7M', '-bufsize', '10M']
+  const vbr = ['-b:v', '2500k', '-maxrate', '3500k', '-bufsize', '5M']
   switch (encoder) {
     case 'h264_videotoolbox':
-      return ['-c:v', encoder, '-b:v', '5M', '-profile:v', 'high', '-allow_sw', '1', '-realtime', '0']
+      return ['-c:v', encoder, '-b:v', '2500k', '-profile:v', 'high', '-allow_sw', '1', '-realtime', '0']
     case 'h264_nvenc':
       return ['-c:v', encoder, '-preset', 'p5', '-rc', 'vbr', ...vbr, '-profile:v', 'high']
     case 'h264_qsv':
@@ -229,14 +232,14 @@ export function encoderArgs(encoder) {
     case 'h264_amf':
       return ['-c:v', encoder, '-quality', 'balanced', '-rc', 'vbr_peak', ...vbr, '-profile:v', 'high']
     case 'h264_mf':
-      return ['-c:v', encoder, '-hw_encoding', '1', '-rate_control', 'u_vbr', '-b:v', '5M']
+      return ['-c:v', encoder, '-hw_encoding', '1', '-rate_control', 'u_vbr', '-b:v', '2500k']
     case 'libx264':
     default:
-      return ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-maxrate', '6M', '-bufsize', '12M', '-profile:v', 'high']
+      return ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-maxrate', '3M', '-bufsize', '6M', '-profile:v', 'high']
   }
 }
 
-/** Filtro de vídeo: pixels quadrados (anamórfico), lado maior ≤ 1920, dimensões pares, 8 bits 4:2:0. */
+/** Filtro de vídeo: pixels quadrados (anamórfico), lado maior ≤ 1280 (720p), dimensões pares, 8 bits 4:2:0. */
 export function videoFilter(info, encoder) {
   const f = []
   const sar = info?.video?.sar
@@ -527,7 +530,7 @@ async function ffmpegOnce(motor, { input, output, info, encoder, hwDecode, signa
 /** Mac sem ffmpeg: avconvert (AVFoundation). Só .mov/.mp4/.m4v. */
 async function avconvertOnce(motor, { input, output, signal, onProgress, timeoutMs }) {
   let buf = ''
-  const r = await runTool(motor.avconvert, ['--source', input, '--output', output, '--preset', 'Preset1920x1080', '--progress'], {
+  const r = await runTool(motor.avconvert, ['--source', input, '--output', output, '--preset', 'Preset1280x720', '--progress'], {
     signal,
     timeoutMs,
     stallMs: STALL_MS,

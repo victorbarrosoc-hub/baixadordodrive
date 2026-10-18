@@ -2,12 +2,13 @@
 // link, com resourcekey quando o link traz) vai para uma pasta do Drive da conta. A cópia é do próprio Google
 // (files.copy): nada passa por este computador, só os pedidos. Pastas são recriadas com o mesmo nome (o Drive não
 // copia pasta). O mesmo fluxo do celular (web/public/app/lib/copiar.js).
-import { FOLDER_MIME, SHORTCUT_MIME } from './drive.js'
+import { FOLDER_MIME, SHORTCUT_MIME, toDriveItem } from './drive.js'
 import { SobeDesceError, classifyError } from './errors.js'
 
 export const MAX_COPY_FILES = 5000
 const PARALLEL = 3
-const ITEM = 'id,name,mimeType,size,resourceKey,shortcutDetails(targetId,targetMimeType,targetResourceKey),capabilities(canCopy)'
+// Os campos do download também (md5, revisão): com "Também baixar para…" o plano vira downloads sem ler de novo.
+const ITEM = 'id,name,mimeType,size,md5Checksum,modifiedTime,headRevisionId,resourceKey,shortcutDetails(targetId,targetMimeType,targetResourceKey),capabilities(canCopy,canDownload)'
 
 /**
  * Link do Drive → { id, resourceKey, url } (ou null). Pasta (/drive/folders/ID, com /u/0/ e /mobile/), arquivo
@@ -79,8 +80,9 @@ async function children(drive, folder, signal) {
 }
 
 /**
- * Lê o link e monta o plano: { root, owner, folders[{id,name,resourceKey,parent}], files[{id,name,size,resourceKey,
- * parent,path,canCopy}], skipped[{name,why}], blocked, bytes }. `onFound(n)` a cada pasta lida.
+ * Lê o link e monta o plano: { root, owner, folders[{id,name,resourceKey,parent,item}], files[{id,name,size,resourceKey,
+ * parent,path,canCopy,item}], skipped[{name,why}], blocked, bytes }. `item` é o DriveItem com relPath/relDir (a
+ * mesma forma do DriveClient.walk), para o download para a mídia física (downloadItems). `onFound(n)` a cada pasta.
  */
 export async function lerLink(drive, ref, { signal, onFound } = {}) {
   const root = await getItem(drive, ref, signal)
@@ -94,8 +96,19 @@ export async function lerLink(drive, ref, { signal, onFound } = {}) {
     blocked: 0,
     bytes: 0,
   }
-  const fileOf = (f, parent, path) => ({ id: f.id, name: f.name, size: f.size != null ? Number(f.size) : null, resourceKey: f.resourceKey || null, parent, path, canCopy: f.capabilities?.canCopy !== false })
-  if (!isFolder) plan.files.push(fileOf({ ...root, resourceKey: plan.root.resourceKey }, null, root.name))
+  const relOf = (path, dir) => ({ relPath: path, relDir: dir })
+  const fileOf = (f, parent, path, dir) => ({
+    id: f.id,
+    name: f.name,
+    size: f.size != null ? Number(f.size) : null,
+    resourceKey: f.resourceKey || null,
+    parent,
+    path,
+    canCopy: f.capabilities?.canCopy !== false,
+    item: { ...toDriveItem(f), ...relOf(path, dir) },
+  })
+  plan.rootItem = toDriveItem({ ...root, resourceKey: plan.root.resourceKey })
+  if (!isFolder) plan.files.push(fileOf({ ...root, resourceKey: plan.root.resourceKey }, null, root.name, ''))
   else {
     const queue = [{ ...plan.root, path: '' }]
     while (queue.length) {
@@ -103,10 +116,10 @@ export async function lerLink(drive, ref, { signal, onFound } = {}) {
       for (const c of await children(drive, f, signal)) {
         const path = f.path ? `${f.path}/${c.name}` : c.name
         if (c.mimeType === FOLDER_MIME) {
-          plan.folders.push({ id: c.id, name: c.name, resourceKey: c.resourceKey || null, parent: f.id })
+          plan.folders.push({ id: c.id, name: c.name, resourceKey: c.resourceKey || null, parent: f.id, item: { ...toDriveItem(c), ...relOf(path, f.path) } })
           queue.push({ id: c.id, name: c.name, resourceKey: c.resourceKey || null, path })
         } else if (c.mimeType === SHORTCUT_MIME) plan.skipped.push({ name: path, why: 'Atalho para outro lugar do Drive.' })
-        else plan.files.push(fileOf(c, f.id, path))
+        else plan.files.push(fileOf(c, f.id, path, f.path))
         if (plan.files.length > MAX_COPY_FILES) {
           throw new SobeDesceError('fatal', `Mais de ${MAX_COPY_FILES} arquivos: copie por partes (uma subpasta por vez).`, { reason: 'muitosArquivos', status: 413 })
         }
@@ -191,4 +204,13 @@ export async function copiarPlano(drive, plan, dest, { signal, onProgress } = {}
   if (signal?.aborted) throw signal.reason || new DOMException('Interrompido', 'AbortError')
   s.current = null
   return s
+}
+
+/**
+ * O plano como itens para o planDownloads (engine/planner.js): a pasta do link com `walked` (a árvore já lida, sem
+ * varrer de novo nem perder o resourcekey), ou o arquivo avulso. Bloqueados para download e atalhos o planner pula.
+ */
+export function downloadItems(plan) {
+  if (!plan.root.folder) return plan.files.map(f => f.item)
+  return [{ ...plan.rootItem, isFolder: true, mimeType: FOLDER_MIME, walked: [...plan.folders.map(f => f.item), ...plan.files.map(f => f.item)] }]
 }

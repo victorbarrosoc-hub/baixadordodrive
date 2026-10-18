@@ -403,7 +403,7 @@ const LITE_MIN = 30e6
 function LiteSwitch({ proxy, on, canOriginal, onPick }) {
   const label = 'Proxy'
   return html`<div class="lite-switch" role="group" aria-label="O que tocar" onClick=${(e) => e.stopPropagation()} onDblClick=${(e) => e.stopPropagation()}>
-    <button type="button" class=${cx(on && 'is-on')} aria-pressed=${on ? 'true' : 'false'} onClick=${() => !on && onPick(true)} title=${isPreviaItem(proxy) ? 'Proxy (cópia leve 1080p): toca fluido' : 'Proxy da câmera: toca fluido'}>${label}</button>
+    <button type="button" class=${cx(on && 'is-on')} aria-pressed=${on ? 'true' : 'false'} onClick=${() => !on && onPick(true)} title=${isPreviaItem(proxy) ? 'Proxy (cópia leve 720p): toca fluido' : 'Proxy da câmera: toca fluido'}>${label}</button>
     ${canOriginal ? html`<button type="button" class=${cx(!on && 'is-on')} aria-pressed=${!on ? 'true' : 'false'} onClick=${() => on && onPick(false)} title="Tocar o arquivo original (pesado: pode travar pela rede)">Original</button>` : null}
   </div>`
 }
@@ -515,7 +515,7 @@ function Content({ accountId, item, keysRef, onDownload }) {
       keysRef=${keysRef}
       onFail=${(why) => why !== 'stall' && setMode('fail')}
       badge=${isPreviaItem(proxy)
-        ? html`<div class="proxy-note"><span class="proxy-tag is-previa">Proxy</span><span>Cópia leve em 1080p. O Baixar traz o original.</span></div>`
+        ? html`<div class="proxy-note"><span class="proxy-tag is-previa">Proxy</span><span>Cópia leve em 720p. O Baixar traz o original.</span></div>`
         : html`<div class="proxy-note"><span class="proxy-tag">Proxy</span><span>Prévia em baixa resolução. O Baixar traz o original.</span></div>`}
     />`
   }
@@ -525,10 +525,10 @@ function Content({ accountId, item, keysRef, onDownload }) {
       <div class="pother-text"><span class="pwait"><${Spinner} size=${14} /> Procurando o proxy da câmera…</span></div>
     </div>`
   }
-  // Sem proxy para tocar: gerar um aqui mesmo (cópia leve 1080p na pasta Proxy) ou baixar o original.
+  // Sem proxy para tocar: gerar um aqui mesmo (cópia leve 720p na pasta Proxy) ou baixar o original.
   // RAW de câmera (BRAW, R3D…) fica de fora: o ffmpeg não decodifica; o proxy dele é o que a câmera grava.
   const gerar = kind === 'video' && isVideoName(item.name) && !isPreviaItem(item) && !proxy
-    ? html`<${Button} variant="secondary" icon="film" onClick=${() => openProxyArquivo({ accountId, item })} title="Proxy (cópia leve 1080p, na pasta Proxy) para a prévia tocar fluida">Gerar proxy</${Button}>`
+    ? html`<${Button} variant="secondary" icon="film" onClick=${() => openProxyArquivo({ accountId, item })} title="Proxy (cópia leve 720p, na pasta Proxy) para a prévia tocar fluida">Gerar proxy</${Button}>`
     : null
   const sizeText = `${ext || 'Arquivo'}${item.size != null ? ` · ${bytes(item.size)}` : ''}`
   if (kind === 'video' && mode === 'heavy') {
