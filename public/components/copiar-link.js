@@ -131,10 +131,17 @@ function CopyLinkDialog({ accountId, dest: destInicial = null, onClose }) {
     const copiados = p.done - Math.max(0, (p.failed?.length || 0) - bloqueados)
     const aberto = p.newFolderId || job.dest?.id
     const dl = job.download
+    const pasta = (d) => html`<span class="mono-path" title=${d.destDir}>${d.destDir}</span>`
     const baixando = dl
       ? html`<div class="cl-local">
-          <${Icon} name="download" size=${16} />
-          <span>${dl.count ? html`<b>${plural(dl.count, 'arquivo', 'arquivos')}${dl.bytes ? ` · ${bytes(dl.bytes)}` : ''}</b> baixando para <span class="mono-path" title=${dl.destDir}>${dl.destDir}</span>` : html`Nada para baixar para <span class="mono-path">${dl.destDir}</span>${dl.skipped ? ' (já estava lá ou o dono bloqueou o download)' : ''}`}</span>
+          <${Icon} name=${dl.status === 'erro' ? 'warning' : 'download'} size=${16} />
+          <span>${dl.status === 'aguardando'
+            ? html`Quando a cópia terminar, baixa da sua cópia no Drive para ${pasta(dl)}.`
+            : dl.status === 'erro'
+              ? html`Não consegui baixar para ${pasta(dl)}: ${dl.error}`
+              : dl.count
+                ? html`<b>${plural(dl.count, 'arquivo', 'arquivos')}${dl.bytes ? ` · ${bytes(dl.bytes)}` : ''}</b> baixando da sua cópia para ${pasta(dl)}`
+                : html`Nada para baixar para ${pasta(dl)}${dl.skipped ? ' (já estava lá)' : ''}.`}</span>
           ${dl.count ? html`<button type="button" class="link-btn" onClick=${() => (onClose(), navigate('transferencias'))}>Ver em Transferências</button>` : null}
         </div>`
       : null
@@ -216,7 +223,7 @@ function CopyLinkDialog({ accountId, dest: destInicial = null, onClose }) {
       ${plano?.pasta && dest ? html`<span class="sub">Cria a pasta “${plano.nome}” lá dentro, com tudo igual.</span>` : null}
       <label class="check-label cl-also">
         <${Checkbox} checked=${!!localDir} onChange=${(on) => (on ? escolherLocal() : setLocalDir(null))} label="Também baixar para uma mídia física" />
-        <span>Também baixar para uma mídia física (HD, SSD, cartão), ao mesmo tempo</span>
+        <span>Também baixar para uma mídia física (HD, SSD, cartão)</span>
       </label>
       ${localDir
         ? html`<button type="button" class="cl-dest" onClick=${escolherLocal}>
@@ -227,7 +234,7 @@ function CopyLinkDialog({ accountId, dest: destInicial = null, onClose }) {
             </span>
             <span class="cl-dest-go">Trocar</span>
           </button>
-          <span class="sub">Baixa do link da pessoa direto para essa pasta, pela fila de Transferências (retoma se cair e confere cada arquivo no fim)${plano?.pasta ? `, dentro de “${plano.nome}”` : ''}.</span>`
+          <span class="sub">Quando a cópia terminar, baixa da sua cópia no Drive para essa pasta (o link de outra pessoa o Google costuma entregar bem mais devagar), pela fila de Transferências: retoma se cair e confere cada arquivo no fim${plano?.pasta ? `, dentro de “${plano.nome}”` : ''}.</span>`
         : null}
       <span class="sub">A cópia acontece no Google: os arquivos não passam por este computador. Ocupa espaço no Drive de destino.</span>`
     const pode = plano && dest && plano.arquivos > plano.bloqueados && !(copia?.status === 'running')

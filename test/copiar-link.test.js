@@ -140,29 +140,47 @@ test('rota: arquivo avulso por link vai direto para o destino', async () => {
   assert.deepEqual(kids(destino.id).map(i => i.name), ['Roteiro.pdf'])
 })
 
-test('rota: "também baixar para…" põe os downloads na fila ao mesmo tempo, com as pastas e sem o bloqueado', async () => {
+test('rota: "também baixar para…" baixa da CÓPIA no Drive da conta (não do link), com as pastas e sem o bloqueado', async () => {
   const m = env.mock
   const destino = m.addFolder('Projetos HD')
   const src = m.addFolder('Diária 03', m.addFolder('De fora').id, { resourceKey: true })
   const sub = m.addFolder('Som', src.id, { resourceKey: true })
-  m.addFile('A002_C001.MP4', src.id, { size: 300_000, resourceKey: true })
-  m.addFile('ZOOM0001.WAV', sub.id, { size: 120_000, resourceKey: true })
+  const a = m.addFile('A002_C001.MP4', src.id, { size: 300_000, resourceKey: true })
+  const b = m.addFile('ZOOM0001.WAV', sub.id, { size: 120_000, resourceKey: true })
   m.addFile('TRAVADO.MOV', src.id, { size: 50_000, canDownload: false, resourceKey: true })
   const link = `https://drive.google.com/drive/folders/${src.id}?resourcekey=${m.getItem(src.id).resourceKey}`
-  const hd = path.join(env.home, 'HD Externo')
+  const hd = path.join(env.home, 'SSD Externo')
   await fs.mkdir(hd, { recursive: true })
 
   const lido = await call('POST', `/api/copiar/${acc()}/ler`, { body: { link } })
   assert.equal(lido.status, 200, JSON.stringify(lido.json))
   const ini = await call('POST', `/api/copiar/${acc()}`, { body: { planoId: lido.json.plano.planoId, dest: { id: destino.id, name: 'Projetos HD' }, localDir: hd } })
   assert.equal(ini.status, 200, JSON.stringify(ini.json))
-  assert.equal(ini.json.copia.download.count, 2, 'dois downloads na fila (o bloqueado fica de fora)')
-  assert.equal(ini.json.copia.download.bytes, 420_000)
-  assert.equal(ini.json.copia.download.destDir, hd)
-  const fim = await esperarFim()
-  assert.equal(fim.status, 'done')
-  assert.equal(fim.download.count, 2)
-  // No HD: a pasta do link com a subpasta, os arquivos inteiros.
+  assert.deepEqual(ini.json.copia.download, { status: 'aguardando', destDir: hd })
+  await esperarFim()
+  let copia
+  for (let i = 0; i < 200; i++) {
+    copia = (await call('GET', '/api/copiar')).json.copia
+    if (copia.download?.status !== 'aguardando') break
+    await new Promise(res => setTimeout(res, 25))
+  }
+  assert.equal(copia.download.status, 'na fila', JSON.stringify(copia.download))
+  assert.equal(copia.download.count, 2, 'dois downloads (o bloqueado nem foi copiado)')
+  assert.equal(copia.download.bytes, 420_000)
+
+  // Os downloads apontam para as cópias (no Drive da conta), nunca para os arquivos do link.
+  const nova = kids(destino.id).find(i => i.name === 'Diária 03')
+  const novoSom = kids(nova.id).find(i => i.name === 'Som')
+  const copias = new Set([...kids(nova.id), ...kids(novoSom.id)].map(i => i.id))
+  const st = (await call('GET', '/api/state')).json
+  const desta = (st.transfers || []).filter(t => t.batchId === copia.download.batchId)
+  assert.equal(desta.length, 2)
+  for (const t of desta) {
+    assert.ok(copias.has(t.source?.fileId), `baixa da cópia, não do link (${t.name})`)
+    assert.ok(t.source?.fileId !== a.id && t.source?.fileId !== b.id)
+  }
+
+  // No SSD: a pasta do link com a subpasta, os arquivos inteiros.
   const alvoA = path.join(hd, 'Diária 03', 'A002_C001.MP4')
   const alvoB = path.join(hd, 'Diária 03', 'Som', 'ZOOM0001.WAV')
   for (let i = 0; i < 400; i++) {
@@ -173,9 +191,6 @@ test('rota: "também baixar para…" põe os downloads na fila ao mesmo tempo, c
   assert.equal((await fs.stat(alvoA)).size, 300_000)
   assert.equal((await fs.stat(alvoB)).size, 120_000)
   await assert.rejects(fs.stat(path.join(hd, 'Diária 03', 'TRAVADO.MOV')))
-  // E no Drive também.
-  const nova = kids(destino.id).find(i => i.name === 'Diária 03')
-  assert.deepEqual(kids(nova.id).map(i => i.name).sort(), ['A002_C001.MP4', 'Som'])
 })
 
 test('rota: pasta do computador inválida não começa nada', async () => {
@@ -187,6 +202,9 @@ test('rota: pasta do computador inválida não começa nada', async () => {
   const antes = m.stats().copies || 0
   const r = await call('POST', `/api/copiar/${acc()}`, { body: { planoId: lido.json.plano.planoId, dest: { id: destino.id, name: 'x' }, localDir: 42 } })
   assert.equal(r.status, 400)
+  const sumiu = await call('POST', `/api/copiar/${acc()}`, { body: { planoId: lido.json.plano.planoId, dest: { id: destino.id, name: 'x' }, localDir: path.join(env.home, 'disco que saiu') } })
+  assert.equal(sumiu.status, 400)
+  assert.match(sumiu.json.error, /disco está conectado/)
   assert.equal((m.stats().copies || 0) - antes, 0)
   assert.equal(kids(destino.id).length, 0)
 })
