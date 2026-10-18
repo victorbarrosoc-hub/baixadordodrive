@@ -443,6 +443,7 @@ function Collection({ c, onBack }) {
           onIndex=${(i) => setPreview({ index: i })}
           onClose=${() => setPreview(null)}
           extra=${(f) => html`<${RefInfo} file=${f} />`}
+          album=${c.nome}
         />`
       : null}
   </div>`

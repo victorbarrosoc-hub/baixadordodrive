@@ -161,6 +161,10 @@ Embaixo, duas abas: **Enviar** (violeta, a tela de sempre) e **Drive** (azul). A
   engrenagem e nos controles dele, mesmo com 300 px). Agora a prévia mostra a miniatura com o play do app e, tocou, o
   player abre em **tela cheia** (`.gfull`, um nó direto no `body`, fora do transform da prévia), com um X para fechar
   (Esc também). “Reprodução em baixa resolução.” e “Tocar o original” continuam embaixo da miniatura.
+- **Tela bloqueada (2.8.9):** quem toca põe na tela bloqueada e na Central de Controle o **nome do take** (sem a
+  extensão), a **pasta** (ou a coleção de Referências) e a **miniatura** (`lib/now-playing.js`, Media Session API).
+  A miniatura vira um JPEG `data:` de até 512 px; os botões de lá (play, pausa, ±10 s, arrastar) comandam o nosso
+  player. Na tela cheia do Drive o nome e a miniatura também são enviados, mas quem manda nos botões é o player dele.
 - **Baixar** (no topo, azul), **Abrir no Drive** e **Compartilhar** (Web Share, com o link do Drive). Acima de 1 GB
   avisa antes: no celular a tela precisa ficar aberta, e no computador o app SOBEDESCE baixa muito mais rápido.
   Documentos do Google não têm bytes: só “Abrir”.

@@ -4,6 +4,7 @@ import { html, render, useEffect, useRef, useState } from '../vendor/preact-htm.
 import { canDownload, driveUrl, findProxy, getFile, isGoogleDoc, isPrevia, kindOf, mayPlay, showsAsImage, target, wantsLite, wantsProxy } from '../lib/browse.js'
 import { loadThumb, streamReady, streamUrl } from '../lib/stream.js'
 import { linkAccess } from '../lib/drive.js'
+import { nowPlaying, takeName } from '../lib/now-playing.js'
 import { bytes, duration, extOf, fullDate } from '../lib/format.js'
 import { toast } from '../lib/state.js'
 import { isIOS } from '../lib/platform.js'
@@ -204,7 +205,7 @@ const isHeavy = (file) => mbpsOf(file) > HEAVY_MBPS()
  * O player do Drive foi feito para a tela toda: espremido na prévia, os toques caem na engrenagem dele. Então ele abre em
  * tela cheia, fora da prévia (ela tem transform; um nó direto no body), com um X para fechar.
  */
-function FullDrive({ file, onClose }) {
+function FullDrive({ file, now, onClose }) {
   const close = useRef(onClose)
   close.current = onClose
   useEffect(() => {
@@ -212,6 +213,7 @@ function FullDrive({ file, onClose }) {
     document.body.appendChild(host)
     const key = (e) => e.key === 'Escape' && close.current()
     document.addEventListener('keydown', key)
+    const clear = now ? nowPlaying(now) : () => {}
     render(
       html`<div class="gfull" role="dialog" aria-modal="true" aria-label=${file.name}>
         <iframe
@@ -228,6 +230,7 @@ function FullDrive({ file, onClose }) {
       host,
     )
     return () => {
+      clear()
       document.removeEventListener('keydown', key)
       render(null, host)
       host.remove()
@@ -236,7 +239,7 @@ function FullDrive({ file, onClose }) {
   return null
 }
 
-function DrivePlayer({ file, poster, ratio, onOriginal }) {
+function DrivePlayer({ file, poster, ratio, now, onOriginal }) {
   const [full, setFull] = useState(false)
   return html`<div class="pv-proxy pv-gdrive">
     <button type="button" class="pv-gposter" style=${ratio ? `aspect-ratio:${ratio}` : ''} onClick=${() => setFull(true)} aria-label=${`Tocar ${file.name}`}>
@@ -247,7 +250,7 @@ function DrivePlayer({ file, poster, ratio, onOriginal }) {
       <span>Reprodução em baixa resolução.</span>
       ${onOriginal ? html`<button type="button" class="link-btn pv-gdrive-orig" onClick=${onOriginal}>Tocar o original</button>` : null}
     </p>
-    ${full ? html`<${FullDrive} file=${file} onClose=${() => setFull(false)} />` : null}
+    ${full ? html`<${FullDrive} file=${file} now=${now} onClose=${() => setFull(false)} />` : null}
   </div>`
 }
 
@@ -263,7 +266,7 @@ function LiteSwitch({ proxy, on, canOriginal, onPick }) {
   </div>`
 }
 
-function MediaStage({ file, kind, siblings, onZoom }) {
+function MediaStage({ file, kind, siblings, album, onZoom }) {
   const px = screenPx()
   const poster = useThumb(file, kind === 'image' ? px : Math.min(1600, px))
   const [sw, setSw] = useState(undefined)
@@ -272,6 +275,8 @@ function MediaStage({ file, kind, siblings, onZoom }) {
   const [proxy, setProxy] = useState(undefined)
   const [proxyFail, setProxyFail] = useState(false)
   const proxyPoster = useThumb(proxy && proxy !== 'look' ? proxy : { id: '-' }, Math.min(1600, px))
+  // Tela bloqueada do celular: o take, a pasta e a miniatura.
+  const now = { title: takeName(file.name), album, art: poster || proxyPoster || null }
   const playable = kind === 'video' || kind === 'audio' ? mayPlay(file) : false
   // Vídeo pesado (4K de câmera) toca o original direto, sem aviso: se travar, o player espera carregar.
   const needProxy = kind === 'video' && (fail === 'format' || wantsProxy(file))
@@ -358,6 +363,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
           timeRef=${at}
           onFail=${() => setLiteFail(true)}
           autoPlay
+          now=${now}
         />
         <p class="pv-proxy-note">${isPrevia(liteP) ? 'Proxy (cópia leve 1080p), para tocar sem travar. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
       </div>`
@@ -377,6 +383,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
         timeRef=${at}
         onFail=${() => (setStartAt(at.current || 0), setOrig(false))}
         autoPlay
+        now=${now}
       />
       <p class="pv-proxy-note">Original: pode travar se a rede não der conta.</p>
     </div>`
@@ -396,6 +403,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
         badge="Proxy"
         onFail=${() => setProxyFail(true)}
         autoPlay
+        now=${now}
       />
       <p class="pv-proxy-note">${isPrevia(proxy) ? 'Proxy (cópia leve 1080p). O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
     </div>`
@@ -407,7 +415,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
       const vm = file.videoMediaMetadata
       const ratio = vm?.width && vm?.height ? `${vm.width} / ${vm.height}` : null
       if (pub === undefined) return html`<div class="pv-wait"><span class="spinner"></span></div>`
-      if (pub) return html`<${DrivePlayer} file=${file} poster=${art} ratio=${ratio} onOriginal=${playable ? () => setWantOrig(true) : null} />`
+      if (pub) return html`<${DrivePlayer} file=${file} poster=${art} ratio=${ratio} now=${now} onOriginal=${playable ? () => setWantOrig(true) : null} />`
     }
     if (!playable || fail === 'format') return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.format} />`
     if (sw === false) return html`<${Unsupported} file=${file} poster=${art} reason=${FAIL_TEXT.nosw} />`
@@ -424,6 +432,7 @@ function MediaStage({ file, kind, siblings, onZoom }) {
       ratio=${ratio}
       onFail=${async (code) => setFail(code === 3 || code === 4 ? await whyFailed(file) : 'network')}
       autoPlay
+      now=${now}
     />`
     return player
   }
@@ -495,7 +504,7 @@ function BigWarning({ file, onGo, onCancel }) {
 
 // ───── a prévia ─────
 
-export function Preview({ files, index, onIndex, onClose, extra }) {
+export function Preview({ files, index, onIndex, onClose, extra, album }) {
   const raw = files[index]
   const [resolved, setResolved] = useState(null)
   const file = resolved?.id === target(raw).id ? resolved : target(raw)
@@ -634,7 +643,7 @@ export function Preview({ files, index, onIndex, onClose, extra }) {
         <div class=${cx('pv-stage', media && 'is-media')} onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerCancel=${up}>
           <div ref=${track} class="pv-track">
             <div key=${file.id} class=${cx('pv-slide', dir > 0 && 'from-right', dir < 0 && 'from-left')}>
-              <${MediaStage} file=${file} kind=${kind} siblings=${files} onZoom=${setZoomed} />
+              <${MediaStage} file=${file} kind=${kind} siblings=${files} album=${album} onZoom=${setZoomed} />
             </div>
           </div>
           ${files.length > 1
