@@ -3,6 +3,7 @@
 // baixar o arquivo inteiro antes.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { clock } from '../lib/format.js'
+import { nowPlaying } from '../lib/now-playing.js'
 import { Icon } from './icons.js'
 import { cx } from './ui.js'
 
@@ -147,7 +148,7 @@ function BufferMark({ b }) {
  * kind 'video' | 'audio'. `poster` (miniatura) aparece até o primeiro quadro. onFail(code) quando o navegador não
  * consegue tocar (formato ou rede): quem chama decide o aviso.
  */
-export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, startAt = 0, timeRef, onFail, onStall, autoPlay = false }) {
+export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, startAt = 0, timeRef, onFail, onStall, autoPlay = false, now }) {
   const wrap = useRef(null)
   const media = useRef(null)
   const hideTimer = useRef(0)
@@ -227,6 +228,9 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
       media.current.play()?.catch?.(() => {})
     })
   }, [src])
+
+  // Tela bloqueada: nome do take, pasta e miniatura (os botões de lá comandam este player).
+  useEffect(() => (now && media.current ? nowPlaying(now, media.current) : undefined), [src, now?.title, now?.album, now?.art])
 
   // Travou: em espera por mais de 4 s, ou o tempo anda sem quadro novo (a imagem congela e o relógio segue).
   const stallTimer = useRef(0)

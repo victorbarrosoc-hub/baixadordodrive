@@ -1193,6 +1193,7 @@ export function DriveScreen({ active }) {
           index=${preview.index}
           onIndex=${(i) => setPreview({ ...preview, index: i })}
           onClose=${closePreview}
+          album=${folder?.name || scopeLabel}
         />`
       : null}
   </div>`
