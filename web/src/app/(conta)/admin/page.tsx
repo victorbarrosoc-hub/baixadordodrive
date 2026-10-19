@@ -68,7 +68,7 @@ function Pessoa({ p, agora, buildAtual }: { p: PessoaUso; agora: Date; buildAtua
   const velhos = p.listaComputadores.filter((c) => desatualizado(c, buildAtual)).length;
   const volume = totalBytes(p.uso30);
   return (
-    <li className="px-5 py-4 sm:px-6">
+    <li className="px-5 py-4 sm:px-6 xl:border-b xl:border-line xl:odd:border-r">
       <div className="flex items-start gap-4">
         <Avatar src={foto} nome={p.nome} />
         <div className="grid min-w-0 flex-1 gap-1">
@@ -168,7 +168,7 @@ export default async function Admin({ searchParams }: Props) {
   const u7 = resumo.uso7;
 
   return (
-    <Moldura titulo="Quem está na plataforma" subtitulo="Contas, uso por dia, aparelhos e o que precisa de atenção. Só números: nada do que as pessoas transferem." acao={<MenuConta admin />}>
+    <Moldura larga titulo="Quem está na plataforma" subtitulo="Contas, uso por dia, aparelhos e o que precisa de atenção. Só números: nada do que as pessoas transferem." acao={<MenuConta admin />}>
       <p className="mb-4 flex flex-wrap items-center gap-2 px-1 text-[14px] text-ink-2">
         {betaAberto() ? (
           <span className="inline-flex items-center gap-2 rounded-full bg-ok/12 px-3 py-1 font-medium text-ok-text ring-1 ring-ok/30">
@@ -184,7 +184,7 @@ export default async function Admin({ searchParams }: Props) {
         <span className="text-[13px] text-ink-3">O plano de cada conta fica guardado para quando o beta fechar (SOBEDESCE_BETA_ABERTO=0).</span>
       </p>
 
-      <Card className="mb-4 grid grid-cols-2 gap-px overflow-hidden bg-line sm:grid-cols-4">
+      <Card className="mb-4 grid grid-cols-2 gap-px overflow-hidden bg-line sm:grid-cols-4 xl:grid-cols-8">
         <Numero valor={resumo.onlineAgora} rotulo="online agora" />
         <Numero valor={resumo.ativosHoje} rotulo="ativas hoje" />
         <Numero valor={resumo.ativos7d} rotulo="ativas em 7 dias" detalhe={`${resumo.ativos30d} em 30 dias`} />
@@ -200,32 +200,37 @@ export default async function Admin({ searchParams }: Props) {
         <Numero valor={resumo.avisosCelular} rotulo="com avisos no celular" />
       </Card>
 
-      <Card className="mb-4 overflow-hidden">
-        <Grafico30 serie={resumo.serie} />
-      </Card>
+      {/* Desktop largo: gráfico e uso na esquerda, funil na direita. No celular, um embaixo do outro. */}
+      <div className="mb-10 xl:grid xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:items-start xl:gap-x-4">
+        <Card className="mb-4 overflow-hidden">
+          <Grafico30 serie={resumo.serie} />
+        </Card>
 
-      <Card className="mb-4 grid grid-cols-2 gap-px overflow-hidden bg-line sm:grid-cols-4">
-        <Numero valor={bytesLegivel(u7.enviadosBytes)} rotulo="subiram em 7 dias" detalhe={nArquivos(u7.enviados)} />
-        <Numero valor={bytesLegivel(u7.baixadosBytes)} rotulo="desceram em 7 dias" detalhe={nArquivos(u7.baixados)} />
-        <Numero valor={u7.erros} rotulo="erros em 7 dias" alerta={u7.erros > 0} detalhe={u7.erros ? "transferências que falharam" : undefined} />
-        <Numero valor={velocidadeLegivel(velocidadeMedia(u7))} rotulo="velocidade média" detalhe={u7.maiorArquivo ? `maior arquivo: ${bytesLegivel(u7.maiorArquivo)}` : undefined} />
-        <Numero valor={bytesLegivel(totalBytes(resumo.usoTotal))} rotulo="transferido no total" detalhe={nArquivos(resumo.usoTotal.enviados + resumo.usoTotal.baixados)} />
-        <Numero valor={resumo.colecoes} rotulo="coleções de referências" detalhe={`${resumo.referencias} links salvos`} />
-      </Card>
-      <p className="mb-10 px-1 text-[12px] text-ink-3">Volume, erros e velocidade contam a partir desta versão do app de computador.</p>
+        <Card className="mb-4 grid grid-cols-2 gap-px overflow-hidden bg-line sm:grid-cols-4 xl:grid-cols-3">
+          <Numero valor={bytesLegivel(u7.enviadosBytes)} rotulo="subiram em 7 dias" detalhe={nArquivos(u7.enviados)} />
+          <Numero valor={bytesLegivel(u7.baixadosBytes)} rotulo="desceram em 7 dias" detalhe={nArquivos(u7.baixados)} />
+          <Numero valor={u7.erros} rotulo="erros em 7 dias" alerta={u7.erros > 0} detalhe={u7.erros ? "transferências que falharam" : undefined} />
+          <Numero valor={velocidadeLegivel(velocidadeMedia(u7))} rotulo="velocidade média" detalhe={u7.maiorArquivo ? `maior arquivo: ${bytesLegivel(u7.maiorArquivo)}` : undefined} />
+          <Numero valor={bytesLegivel(totalBytes(resumo.usoTotal))} rotulo="transferido no total" detalhe={nArquivos(resumo.usoTotal.enviados + resumo.usoTotal.baixados)} />
+          <Numero valor={resumo.colecoes} rotulo="coleções de referências" detalhe={`${resumo.referencias} links salvos`} />
+        </Card>
+        <p className="mb-10 px-1 text-[12px] text-ink-3 xl:mb-0">Volume, erros e velocidade contam a partir desta versão do app de computador.</p>
 
-      <h2 className="mb-1 px-1 text-[20px] font-semibold tracking-[-0.01em]">Do cadastro ao uso</h2>
-      <p className="mb-3 px-1 text-[13px] text-ink-3">Quantas contas chegaram em cada passo.</p>
-      <Card className="mb-10 overflow-hidden">
-        <Funil
-          etapas={[
-            { rotulo: "Criou a conta", n: resumo.funil.contas },
-            { rotulo: "Conectou um Drive", n: resumo.funil.comDrive },
-            { rotulo: "Conectou um computador", n: resumo.funil.comComputador },
-            { rotulo: "Transferiu pelo computador", n: resumo.funil.transferiu },
-          ]}
-        />
-      </Card>
+        <div className="xl:col-start-2 xl:row-span-3 xl:row-start-1">
+          <h2 className="mb-1 px-1 text-[20px] font-semibold tracking-[-0.01em]">Do cadastro ao uso</h2>
+          <p className="mb-3 px-1 text-[13px] text-ink-3">Quantas contas chegaram em cada passo.</p>
+          <Card className="overflow-hidden">
+            <Funil
+              etapas={[
+                { rotulo: "Criou a conta", n: resumo.funil.contas },
+                { rotulo: "Conectou um Drive", n: resumo.funil.comDrive },
+                { rotulo: "Conectou um computador", n: resumo.funil.comComputador },
+                { rotulo: "Transferiu pelo computador", n: resumo.funil.transferiu },
+              ]}
+            />
+          </Card>
+        </div>
+      </div>
 
       <form method="get" role="search" className="mb-3 flex items-center gap-2">
         {estado.f ? <input type="hidden" name="f" value={estado.f} /> : null}
@@ -281,7 +286,7 @@ export default async function Admin({ searchParams }: Props) {
 
       <Card className="overflow-hidden">
         {lista.length ? (
-          <ul className="divide-y divide-line">
+          <ul className="divide-y divide-line xl:grid xl:grid-cols-2 xl:divide-y-0">
             {lista.map((p) => (
               <Pessoa key={p.id} p={p} agora={agora} buildAtual={buildAtual} />
             ))}

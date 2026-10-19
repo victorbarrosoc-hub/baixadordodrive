@@ -2,29 +2,45 @@ import { cn } from "@/lib/cn";
 import { Cabecalho } from "./cabecalho";
 
 /**
- * Página das telas de conta: cabeçalho, título grande e muito respiro.
- * `estreita`: formulários de entrar e criar conta. Larga: a conta.
+ * Página das telas de conta: cabeçalho de ponta a ponta, título grande e muito respiro.
+ * `estreita`: formulários de entrar e criar conta (centrados, como deve ser um formulário). Padrão: uma coluna de leitura.
+ * `larga`: a conta e o admin, que se espalham pela tela no desktop (até 2240 px, em colunas nas próprias páginas).
  */
 export function Moldura({
   titulo,
   subtitulo,
   acao,
   estreita = false,
+  larga = false,
   children,
 }: {
   titulo: React.ReactNode;
   subtitulo?: React.ReactNode;
   acao?: React.ReactNode;
   estreita?: boolean;
+  larga?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex min-h-dvh flex-col pb-[env(safe-area-inset-bottom)]">
       <Cabecalho acao={acao} />
-      <main className={cn("mx-auto w-full flex-1 px-5 pt-8 pb-20 sm:px-8 sm:pt-16", estreita ? "max-w-[420px]" : "max-w-[680px]")}>
-        <div className={cn("grid gap-3", estreita ? "mb-9 text-center sm:mb-10" : "mb-10 sm:mb-12")}>
-          <h1 className="font-display text-[34px] leading-[1.08] font-semibold tracking-[-0.025em] text-balance sm:text-[44px]">{titulo}</h1>
-          {subtitulo ? <p className="text-[17px] leading-relaxed text-pretty text-ink-2">{subtitulo}</p> : null}
+      <main
+        className={cn(
+          "mx-auto w-full flex-1 pt-8 pb-20 sm:pt-16",
+          larga ? "largura sm:px-8 lg:px-[clamp(32px,4vw,80px)]" : "px-5 sm:px-8",
+          estreita ? "max-w-[420px]" : larga ? null : "max-w-[680px]",
+        )}
+      >
+        <div className={cn("grid gap-3", estreita ? "mb-9 text-center sm:mb-10" : "mb-10 sm:mb-12", larga && "xl:mb-14")}>
+          <h1
+            className={cn(
+              "font-display text-[34px] leading-[1.08] font-semibold tracking-[-0.025em] text-balance sm:text-[44px]",
+              larga && "xl:text-[clamp(44px,3vw,64px)]",
+            )}
+          >
+            {titulo}
+          </h1>
+          {subtitulo ? <p className={cn("text-[17px] leading-relaxed text-pretty text-ink-2", larga && "max-w-[65ch] xl:text-[19px]")}>{subtitulo}</p> : null}
         </div>
         {children}
       </main>

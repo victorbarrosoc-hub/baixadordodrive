@@ -35,11 +35,11 @@ function CardTitle({ eyebrow, title, text, tone }: { eyebrow: string; title: str
 /** Os recursos em grade: dois destaques com demonstração e quatro cartões curtos. */
 export function FeaturesGrid() {
   return (
-    <section id="recursos" aria-labelledby="recursos-titulo" className="scroll-mt-14 py-20 sm:py-28">
+    <section id="recursos" aria-labelledby="recursos-titulo" className="scroll-mt-14 py-20 sm:py-28 2xl:py-40">
       <Container>
         <SectionHeading id="recursos-titulo" eyebrow="Recursos" title="Feito para arquivo grande." />
 
-        <div className="mt-12 grid gap-4 sm:mt-16 sm:gap-5 lg:grid-cols-2">
+        <div className="mt-12 grid gap-4 sm:mt-16 sm:gap-5 lg:grid-cols-2 2xl:gap-8">
           <Card className="flex flex-col gap-8">
             <CardTitle
               eyebrow="Velocidade"
@@ -70,7 +70,7 @@ export function FeaturesGrid() {
           </Card>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:mt-5 sm:gap-5 lg:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:mt-5 sm:gap-5 lg:grid-cols-4 2xl:mt-8 2xl:gap-8">
           {SMALL.map((f, i) => (
             <Card key={f.title} delay={i * 0.05} className="grid content-start gap-3 p-5 sm:gap-4 sm:p-7">
               <span className={cn("grid size-10 place-items-center rounded-xl", f.tone)}>
