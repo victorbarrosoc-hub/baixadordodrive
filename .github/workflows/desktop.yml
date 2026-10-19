@@ -90,6 +90,12 @@ jobs:
       # QuickJS-ng (versão fixa, SHA-256) em build/quickjs/: o JavaScript dos desafios do YouTube para o yt-dlp, já que o
       # fusível RunAsNode desligado não deixa mais usar o próprio Electron como Node.
       - run: node scripts/quickjs-baixar.mjs
+      # Decodificador de Blackmagic RAW (proxy e miniatura de .braw) em build/raw-frame/: baixa o SDK da Blackmagic com o
+      # cadastro do segredo BRAW_SDK_CADASTRO (o SDK não pode ficar no repositório), compila e testa no sample.braw do
+      # SDK. Sem o segredo (fork), o passo não faz nada e o app sai sem ele.
+      - run: node scripts/raw-frame-build.mjs
+        env:
+          BRAW_SDK_CADASTRO: ${{ secrets.BRAW_SDK_CADASTRO }}
       - run: ${{ matrix.build }}
       # Teste de fumaça do app empacotado (desktop/smoke.js): abre o app de verdade com --smoke, sobe o motor (código no
       # app.asar, worker do MD5, interface), roda ffmpeg, yt-dlp e QuickJS de dentro do app, cifra e decifra no cofre do

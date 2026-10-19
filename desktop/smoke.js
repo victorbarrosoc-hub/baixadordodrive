@@ -1,14 +1,16 @@
 // Teste de fumaça do app empacotado (`SOBEDESCE --smoke`, rodado pelo CI no Mac e no Windows depois do build).
 // O maior risco de mexer em asar, fusíveis e cofre é o app instalado não abrir: aqui o motor de verdade sobe dentro do
 // Electron e confere o que mais quebra (código dentro do app.asar, worker do MD5, interface servida, ffmpeg, yt-dlp,
-// QuickJS e o cofre do sistema). Sem Electron também roda (test/protecao.test.js), com os binários como "aviso".
+// QuickJS, o decodificador de Blackmagic RAW e o cofre do sistema). Sem Electron também roda (test/protecao.test.js), com os binários como "aviso".
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { ffmpegCandidates, primeiro, quickjsCandidates, ytdlpCandidates } from '../src/referencias/binarios.js'
 import { MOBILE_DIR } from '../src/mobile/receiver.js'
+import { helperCandidates } from '../src/media/raw-thumb.js'
 
 function rodar(cmd, args, timeoutMs = 60_000) {
   return new Promise(resolve => {
@@ -101,6 +103,14 @@ export async function verificar({ app, guarda = null, exigirBinarios = false, ex
     const r = await rodar(c.path, ['--help'])
     const v = /QuickJS-ng version (\S+)/.exec(r.saida)
     return v ? { detalhe: `QuickJS-ng ${v[1]} (${c.path})` } : { ok: false, detalhe: `não rodou: ${r.erro || r.saida.slice(0, 200)}` }
+  })
+
+  await passo('blackmagic raw', async () => {
+    // Vem no app quando o CI tem o cadastro do SDK (scripts/raw-frame-build.mjs); sem ele, o .braw só fica sem proxy.
+    const c = helperCandidates(busca).find(p => existsSync(p))
+    if (!c) return { aviso: true, detalhe: 'não veio no app (o .braw fica sem proxy)' }
+    const r = await rodar(c, ['--check'])
+    return r.code === 0 ? { detalhe: `biblioteca da Blackmagic abriu (${c})` } : { ok: false, detalhe: `--check saiu com ${r.code}: ${r.erro || r.saida.slice(0, 300)}` }
   })
 
   await passo('cofre', async () => {

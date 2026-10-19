@@ -113,7 +113,8 @@ function runSmall(cmd, args, { timeoutMs, signal }) {
   })
 }
 
-const firstLine = s => String(s || '').trim().split(/\r?\n/)[0].slice(0, 200)
+// A biblioteca do sistema às vezes escreve antes (ex.: o carregador listando onde procurou): a última linha é a nossa.
+const lastLine = s => String(s || '').trim().split(/\r?\n/).pop().slice(0, 200)
 
 /**
  * O ajudante deste computador e se a biblioteca do Blackmagic RAW abre.
@@ -127,7 +128,7 @@ export async function detectarBraw({ env = process.env, platform = process.platf
     if (r.aborted) throw abortError(signal)
     if (r.code === 0) return { path: p, ok: true, motivo: null }
     if (r.code === 2) return { path: p, ok: false, motivo: 'instale o Blackmagic RAW neste computador' }
-    return { path: p, ok: false, motivo: `o ajudante do Blackmagic RAW falhou (${r.timedOut ? 'tempo esgotado' : firstLine(r.stderr) || r.error?.code || `saiu com ${r.code}`})` }
+    return { path: p, ok: false, motivo: `o ajudante do Blackmagic RAW falhou (${r.timedOut ? 'tempo esgotado' : lastLine(r.stderr) || r.error?.code || `saiu com ${r.code}`})` }
   }
   return null
 }
@@ -137,8 +138,8 @@ export async function brawInfo(helper, file, { maxSide, signal } = {}) {
   const r = await runSmall(helper, ['--info', '--input', file, '--max-side', String(maxSide)], { timeoutMs: INFO_TIMEOUT_MS, signal })
   if (r.aborted) throw abortError(signal)
   if (r.timedOut) throw new Error('o Blackmagic RAW demorou demais para abrir o arquivo')
-  if (r.code === 2) throw Object.assign(new Error(firstLine(r.stderr) || 'o Blackmagic RAW não abriu este arquivo'), { semComo: true })
-  if (r.code !== 0) throw new Error(`ajudante do Blackmagic RAW: ${firstLine(r.stderr) || r.error?.code || `saiu com ${r.code}`}`)
+  if (r.code === 2) throw Object.assign(new Error(lastLine(r.stderr) || 'o Blackmagic RAW não abriu este arquivo'), { semComo: true })
+  if (r.code !== 0) throw new Error(`ajudante do Blackmagic RAW: ${lastLine(r.stderr) || r.error?.code || `saiu com ${r.code}`}`)
   const info = parseInfo(r.stdout)
   if (!info) throw new Error('o ajudante do Blackmagic RAW respondeu algo que não entendi')
   return info

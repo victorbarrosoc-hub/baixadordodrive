@@ -456,6 +456,8 @@ export class GeradorPrevias {
         origem: m?.ffmpeg?.origem ?? null,
         encoder: m?.encoder?.nome ?? (m?.via === 'avconvert' ? 'avconvert' : null),
         hardware: !!(m?.encoder?.hardware || m?.via === 'avconvert'),
+        // Proxy de Blackmagic RAW (media/braw.js): null = o app não tem o decodificador.
+        braw: m?.braw ? { ok: !!m.braw.ok, motivo: m.braw.motivo || null } : null,
       },
       fila: this.queue.length + (cur ? 1 : 0),
       pausada: this.paused,

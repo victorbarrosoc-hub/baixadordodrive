@@ -536,7 +536,7 @@ class RawThumbnailer { prepare(record), attach(record, drive): Promise<boolean>,
 Extratores (trocáveis; `extractors` aceita qualquer `{ id, label, extract(file, { width, maxBytes, deadline, signal, tmp }) }`):
 1. **Ajudante nativo** `sobedesce-raw-frame` (se existir em `SOBEDESCE_RAW_HELPER` ou `<resources>/raw-frame/`):
    `--input <braw> --output <jpg> --width <px> --max-bytes <n>` → 0 = imagem gravada, 2 = "não dá" (null), outro = falha.
-   **Ainda não existe no instalador** (ver "O que falta" abaixo).
+   Vem no instalador quando o CI tem o cadastro do SDK (ver abaixo); também gera o proxy de .braw (media/braw.js).
 2. **Mac**: `qlmanage -t -s 1280 -o <tmp> <arquivo>` (usa a extensão de miniatura registrada para o tipo) e
    `sips -s format jpeg -s formatOptions 80 -Z 1280` para JPEG; se não couber em 1,5 MB, qualidade 65 e depois 60 a 60 %
    da largura. Sem `sips`, manda o PNG se couber.
@@ -590,19 +590,12 @@ Confiabilidade conhecida (pesquisa de 2026-10):
   DLL; relatos ainda em 2025). Mesma regra: sem miniatura do Explorer, sem miniatura no Drive, sem erro.
 - **ffmpeg não decodifica BRAW** (nem o 6.x nem o master de 2026: só ProRes RAW entrou; o decodificador BRAW ficou em patch).
 
-O que falta para o ajudante nativo (o caminho mais confiável, porque não depende de Quick Look/Explorer):
-1. Código C++ (~200 linhas) a partir do exemplo `ProcessClipCPU` do Blackmagic RAW SDK: carregar a biblioteca
-   **instalada** com `CreateBlackmagicRawFactoryInstanceFromPath` (Mac: o `BlackmagicRawAPI.framework` que vem com o
-   Blackmagic RAW/SDK ou com o DaVinci Resolve; Windows: a pasta do `BlackmagicRawAPI.dll` em
-   `Program Files\Blackmagic Design\…`; os caminhos exatos não estão documentados no manual e precisam ser confirmados
-   numa máquina com eles instalados),
-   decodificar o frame 0 em 1/4 de resolução na CPU, `RGBAU8`, e gravar JPEG (stb_image_write, domínio público).
-2. Headers do SDK no CI: o download do SDK na Blackmagic exige cadastro/aceite; não dá para baixar no workflow sem
-   guardar o instalador num lugar privado (segredo do repositório). Os headers trazem licença permissiva, mas o EULA do
-   SDK proíbe redistribuir o SDK: não versionar headers nem a biblioteca; o ajudante só carrega a que já está instalada.
-3. `electron-builder.yml`: `extraResources` com `raw-frame/sobedesce-raw-frame(.exe)` por plataforma (Mac universal:
-   `lipo` das duas arquiteturas; Windows x64 e arm64).
-4. Testar num Mac e num Windows com DaVinci Resolve/Blackmagic RAW instalados (aqui só há Linux).
+O ajudante nativo (`native/raw-frame/`, detalhes no README de lá) vem no app quando o CI tem o segredo
+`BRAW_SDK_CADASTRO`: `scripts/raw-frame-build.mjs` baixa o Blackmagic RAW SDK (cadastro + aceite dos termos, o mesmo
+pedido do site da Blackmagic), compila (Mac universal; Windows x64 e arm64), copia a biblioteca da Blackmagic para
+`raw-frame/BlackmagicRawAPI/` (a licença deixa redistribuir as "API Libraries" junto do app, não os headers: o SDK nunca
+entra no repositório) e testa no `sample.braw` do SDK. Sem a biblioteca ao lado, o ajudante tenta a do Blackmagic RAW ou
+do DaVinci Resolve instalados. O teste de fumaça roda `--check` no app empacotado.
 
 ### media/previa*.js — prévia leve dos vídeos
 
@@ -628,18 +621,29 @@ parseProbe(stderrDoFfmpegI): { durationS, bitrate, video: { codec, profile, pixF
 precisaPrevia(info|null, { name, size }): { gerar, motivo }
   // gera: > 20 Mbit/s, codec ≠ H.264 8 bits 4:2:0 (ProRes, DNx, HEVC 10 bits…), > 1920 px, contêiner ≠ mp4/m4v/mov.
   // não gera: H.264 ≤ 1080p com < 50 MB, RAW (.braw/.r3d/.ari…), sem vídeo. info null (só avconvert): .mov/.mp4/.m4v ≥ 50 MB.
+  // .braw: outro caminho (gerarPreviaBraw → media/braw.js), só com motor.braw.ok.
 encoderArgs(enc), videoFilter(info, enc), argsTranscode({ input, output, encoder, info, hwDecode }), argsEncoderTest(enc)
 plano(motor, platform): [{ encoder, hwDecode }]   // Mac: VT + decodificação no chip → VT → libx264; Windows: hw → libx264
 ffmpegCandidates({ env, platform, arch, resourcesPath, appRoot }): [{ path, origem: 'env'|'app'|'sistema' }]
   // SOBEDESCE_FFMPEG → <Resources>/ffmpeg/ffmpeg(.exe) (também <app>/../ffmpeg) → build/ffmpeg/<os>-<arch>/ → Homebrew → PATH
 async detectarMotor(): { via: 'ffmpeg'|'avconvert'|null, ffmpeg: { path, versao, origem }, encoder: { nome, hardware },
-                         encoders, avconvert, label, aviso, testados }
+                         encoders, avconvert, braw: { path, ok, motivo }|null, label, aviso, testados }
   // `-encoders` + teste de 1 quadro (lavfi, os mesmos parâmetros) para cada codificador de hardware da plataforma
   // (darwin: h264_videotoolbox; win32: h264_nvenc, h264_qsv, h264_amf, h264_mf); senão libx264. Mac sem ffmpeg: /usr/bin/avconvert.
 async gerarPrevia(file, { motor, name, size, forcar, signal, onProgress(fase, frac), tmpRoot, log })
   : { estado: 'pronta', path, size, encoder, motivo, limpar() } | { estado: 'dispensada', motivo }   // lança PreviaError/AbortError
 runTool(cmd, args, { signal, timeoutMs, stallMs, onStdout, lowPriority })   // sem shell; SIGKILL no abort/tempo/travou
+podeTerProxy(name, motor)   // vídeo comum, ou .braw com motor.braw.ok (fila, lote e rota usam isto)
 ```
+**Proxy de Blackmagic RAW** (`media/braw.js`): o ffmpeg não decodifica BRAW, então `sobedesce-raw-frame --frames` (o
+mesmo ajudante da miniatura, `native/raw-frame/`) manda os frames em RGBA 8 bits, Rec.709 (gama e gamut, o visual do
+proxy gravado pela câmera), na menor escala do SDK que ainda dá 1280 px, por um cano para o ffmpeg
+(`-f rawvideo -pix_fmt rgba -s WxH -framerate N/D -i pipe:0`), e o áudio vem do próprio `.braw` (PCM dentro de um
+QuickTime: `-i <braw> -map 1:a:0?`). RGB → YUV em BT.709 (`out_color_matrix`), etiquetas de cor BT.709, `-shortest`.
+`--info` diz antes o tamanho e a taxa (`fracaoFps`: 23,976 → 24000/1001). `detectarMotor` acrescenta
+`braw: { path, ok, motivo } | null` (`--check`). Ajudante que falha no meio mata o ffmpeg (nunca sobra cópia pela metade);
+cancelar mata os dois; tempo limite é o dobro do normal. Sem decodificador: `dispensada` com o motivo, e a fila nem pega
+o envio (`elegivel`). Medido aqui (Linux, 4 núcleos, CPU): clipe de 3 s 6K/12K → proxy em 11–14 s.
 Regras do conversor: `os.setPriority(pid, PRIORITY_BELOW_NORMAL)` (nice 10 / BELOW_NORMAL); tempo limite 10 min + 8× a
 duração (6 h sem duração); sem saída por 5 min = travou; progresso por `-progress pipe:1` (`out_time_us`). Falha de uma
 tentativa passa para a próxima do `plano` (tempo esgotado/travou não). Temporário em `os.tmpdir()/sobedesce-previa-*`,
