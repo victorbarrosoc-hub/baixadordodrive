@@ -1,17 +1,20 @@
-// Escolher a pasta de destino: Recentes (um toque, sempre no topo), Buscar pasta (no Drive todo), Meu Drive e drives
-// compartilhados; nova pasta. Abre na última pasta usada. Abaixo das pastas, os arquivos que já estão ali (só para ver,
+// Escolher a pasta de destino: Recentes (um toque, sempre no topo), Favoritas (a estrela do Google Drive; a estrela ao
+// lado do caminho põe e tira), Buscar pasta (no Drive todo), Meu Drive, drives compartilhados e Compartilhadas comigo;
+// nova pasta. Abre na última pasta usada. Abaixo das pastas, os arquivos que já estão ali (só para ver,
 // apagados), para conferir o lugar antes de enviar.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { LAN } from '../lib/config.js'
-import { createFolder, folderMeta, folderPath, listFolders, listSharedDrives, myDriveId, searchFolders } from '../lib/drive.js'
+import { createFolder, folderMeta, folderPath, listFolders, listSharedDrives, listSharedFolders, listStarredFolders, myDriveId, searchFolders, setStarred } from '../lib/drive.js'
 import { isFolder, kindOf, listPage } from '../lib/browse.js'
 import { bytes } from '../lib/format.js'
-import { closeSheet, folderTrail, getRecents, pushRecent, setState, toast, useApp } from '../lib/state.js'
+import { closeSheet, folderTrail, getRecents, getState, pushRecent, setState, toast, useApp } from '../lib/state.js'
 import { Icon } from './icons.js'
 import { Thumb } from './thumb.js'
 import { Button, SheetHead, cx } from './ui.js'
 
 const cache = new Map() // id → pastas (vale enquanto a página está aberta)
+const porNome = (a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' })
+const COMIGO_VISIVEIS = 6
 
 /** path = [{ id, name }] a partir da raiz do drive; driveId = null no Meu Drive. [] = Início. */
 function toFolder(path, driveId) {
@@ -19,7 +22,9 @@ function toFolder(path, driveId) {
   return { id: last.id, name: last.name, driveId: driveId || null, path }
 }
 
-function useList(key, load) {
+function useList(chave, load) {
+  // Por Drive escolhido: trocar de conta não mostra as pastas da outra.
+  const key = `${getState().drive?.id || '-'}|${chave}`
   const [state, setLocal] = useState(() => (cache.has(key) ? { data: cache.get(key) } : { loading: true }))
   const [nonce, setNonce] = useState(0)
   useEffect(() => {
@@ -44,12 +49,12 @@ function useList(key, load) {
     cache.delete(key)
     setNonce((n) => n + 1)
   }
-  const add = (item) => {
-    const next = [...(cache.get(key) || []), item].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }))
+  const put = (next) => {
     cache.set(key, next)
     setLocal({ data: next })
   }
-  return { ...state, reload, add }
+  const add = (item) => put([...(cache.get(key) || []), item].sort(porNome))
+  return { ...state, reload, add, put }
 }
 
 function SkeletonRows({ n = 6 }) {
@@ -66,20 +71,134 @@ function ErrorRow({ error, onRetry }) {
   </li>`
 }
 
-function FolderRow({ icon = 'folder', name, sub, onClick, chevron = true, tone }) {
+function FolderRow({ icon = 'folder', name, sub, onClick, chevron = true, tone, busy = false }) {
   return html`<li>
-    <button type="button" class=${cx('frow', tone && `is-${tone}`)} onClick=${onClick}>
+    <button type="button" class=${cx('frow', tone && `is-${tone}`)} onClick=${onClick} disabled=${busy}>
       <span class="frow-icon" aria-hidden="true"><${Icon} name=${icon} size=${20} /></span>
       <span class="frow-text">
         <span class="frow-name">${name}</span>
         ${sub ? html`<span class="frow-sub">${sub}</span>` : null}
       </span>
-      ${chevron ? html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="frow-chev" />` : null}
+      ${busy
+        ? html`<span class="spinner" aria-hidden="true"></span>`
+        : chevron
+          ? html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="frow-chev" />`
+          : null}
     </button>
   </li>`
 }
 
-function Home({ account, onOpen, onPick }) {
+/** Pastas com estrela no Drive. Uma leitura por vez que a página abre; a estrela daqui atualiza a lista na hora. */
+const useFavoritas = () => useList('#favoritas', (signal) => listStarredFolders(signal))
+
+/** Onde fica cada pasta da lista (nome da pasta de cima), aos poucos. */
+function useOnde(files) {
+  const [onde, setOnde] = useState({})
+  const ids = (files || []).map((f) => f.id).join(',')
+  useEffect(() => {
+    if (!files?.length) return undefined
+    const ctl = new AbortController()
+    for (const f of files) {
+      if (f.path?.length) {
+        setOnde((w) => ({ ...w, [f.id]: folderTrail(f, { skipLast: true }) }))
+        continue
+      }
+      parentLabel(f, ctl.signal).then(
+        (label) => !ctl.signal.aborted && setOnde((w) => ({ ...w, [f.id]: label })),
+        () => {},
+      )
+    }
+    return () => ctl.abort()
+  }, [ids])
+  return onde
+}
+
+function Favoritas({ onOpenFound, opening }) {
+  const favs = useFavoritas()
+  const onde = useOnde(favs.data)
+  if (!favs.loading && !favs.error && !favs.data?.length) {
+    return html`<h3 class="list-label">Favoritas</h3>
+      <p class="group-foot ffav-dica">
+        Entre numa pasta e toque na <${Icon} name="star" size=${13} /> ao lado do caminho. Ela aparece aqui e no Google Drive.
+      </p>`
+  }
+  return html`<h3 class="list-label">Favoritas</h3>
+    <ul class="group flist">
+      ${favs.loading ? html`<${SkeletonRows} n=${2} />` : null}
+      ${favs.error ? html`<${ErrorRow} error=${favs.error} onRetry=${favs.reload} />` : null}
+      ${(favs.data || []).map(
+        (f) => html`<${FolderRow}
+          key=${f.id}
+          icon="star-fill"
+          tone="fav"
+          name=${f.name}
+          sub=${onde[f.id] ? `em ${onde[f.id]}` : '…'}
+          onClick=${() => onOpenFound(f)}
+          busy=${opening === f.id}
+        />`,
+      )}
+    </ul>`
+}
+
+function Comigo({ onOpen }) {
+  const lista = useList('#comigo', (signal) => listSharedFolders(signal))
+  const [todas, setTodas] = useState(false)
+  const pastas = lista.data || []
+  if (!lista.loading && !lista.error && !pastas.length) return null
+  const visiveis = todas ? pastas : pastas.slice(0, COMIGO_VISIVEIS)
+  return html`<h3 class="list-label">Compartilhadas comigo</h3>
+    <ul class="group flist">
+      ${lista.loading ? html`<${SkeletonRows} n=${3} />` : null}
+      ${lista.error ? html`<${ErrorRow} error=${lista.error} onRetry=${lista.reload} />` : null}
+      ${visiveis.map(
+        (f) => html`<${FolderRow}
+          key=${f.id}
+          icon="users"
+          name=${f.name}
+          sub=${f.sharingUser?.displayName ? `de ${f.sharingUser.displayName}` : null}
+          onClick=${() => onOpen([{ id: f.id, name: f.name }], null)}
+        />`,
+      )}
+      ${pastas.length > COMIGO_VISIVEIS
+        ? html`<li>
+            <button type="button" class="frow frow-mais" onClick=${() => setTodas(!todas)}>
+              <span class="frow-text"><span class="frow-name">${todas ? 'Mostrar menos' : `Ver todas (${pastas.length})`}</span></span>
+            </button>
+          </li>`
+        : null}
+    </ul>`
+}
+
+/** Estrela da pasta aberta: põe e tira a pasta das Favoritas (e do "Com estrela" do Google Drive). */
+function Estrela({ here }) {
+  const favs = useFavoritas()
+  const lista = favs.data || []
+  const on = lista.some((f) => f.id === here.id)
+  const alternar = async () => {
+    const antes = lista
+    const quer = !on
+    favs.put(quer ? [...lista, { id: here.id, name: here.name, driveId: here.driveId, path: here.path }].sort(porNome) : lista.filter((f) => f.id !== here.id))
+    try {
+      await setStarred(here.id, quer)
+      toast(quer ? `“${here.name}” nas Favoritas` : `“${here.name}” saiu das Favoritas`, { tone: quer ? 'success' : undefined })
+    } catch (err) {
+      favs.put(antes)
+      toast(err?.status === 0 ? 'Sem conexão com o Google.' : 'O Google não deixou mudar a estrela desta pasta.', { tone: 'error' })
+    }
+  }
+  return html`<button
+    type="button"
+    class=${cx('icon-btn', 'fstar', on && 'is-on')}
+    onClick=${alternar}
+    disabled=${favs.loading}
+    aria-pressed=${on ? 'true' : 'false'}
+    aria-label=${on ? `Tirar “${here.name}” das Favoritas` : `Pôr “${here.name}” nas Favoritas`}
+  >
+    <${Icon} name=${on ? 'star-fill' : 'star'} size=${20} />
+  </button>`
+}
+
+function Home({ account, onOpen, onPick, onOpenFound, opening }) {
   const recents = getRecents(account)
   const drives = useList('#drives', (signal) => listSharedDrives(signal))
   return html`<div class="fhome">
@@ -99,6 +218,7 @@ function Home({ account, onOpen, onPick }) {
             )}
           </ul>`
       : null}
+    ${LAN ? null : html`<${Favoritas} onOpenFound=${onOpenFound} opening=${opening} />`}
     <h3 class="list-label">Locais</h3>
     <ul class="group flist">
       <${FolderRow} icon="disk" name="Meu Drive" onClick=${() => onOpen([{ id: 'root', name: 'Meu Drive' }], null)} />
@@ -113,6 +233,7 @@ function Home({ account, onOpen, onPick }) {
             )}
           </ul>`
       : null}
+    ${LAN ? null : html`<${Comigo} onOpen=${onOpen} />`}
   </div>`
 }
 
@@ -332,6 +453,10 @@ export function FolderSheet({ verb, onChoose, onCancel } = {}) {
   }
   // Resultado da busca: monta o caminho (Meu Drive › … › pasta) e abre a pasta, para conferir ou entrar mais.
   const openFound = async (f) => {
+    if (f.path?.length) {
+      clearSearch()
+      return go(f.path, f.driveId || null)
+    }
     setOpening(f.id)
     try {
       const folder = await folderPath(f)
@@ -384,7 +509,7 @@ export function FolderSheet({ verb, onChoose, onCancel } = {}) {
     ${searching || atHome ? null : html`<${RecentChips} account=${account} here=${here} onPick=${choose} />`}
     ${searching
       ? null
-      : html`<nav class="crumbs" aria-label="Caminho" ref=${crumbsRef}>
+      : html`<div class="fnav"><nav class="crumbs" aria-label="Caminho" ref=${crumbsRef}>
           <button type="button" class=${cx('crumb', atHome && 'is-here')} onClick=${() => go([], null)} aria-current=${atHome ? 'location' : undefined}>
             <${Icon} name="home" size=${15} /> Início
           </button>
@@ -399,12 +524,12 @@ export function FolderSheet({ verb, onChoose, onCancel } = {}) {
                 ${p.name}
               </button>`,
           )}
-        </nav>`}
+        </nav>${here && !LAN && here.id !== 'root' && here.id !== here.driveId ? html`<${Estrela} key=${here.id} here=${here} />` : null}</div>`}
     <div class="sheet-body sheet-scroll" ref=${bodyRef}>
       ${searching
         ? html`<${FolderSearch} key=${`${search}#${retry}`} text=${search} onOpen=${openFound} onRetry=${() => setRetry((n) => n + 1)} opening=${opening} />`
         : atHome
-          ? html`<${Home} account=${account} onOpen=${go} onPick=${choose} />`
+          ? html`<${Home} account=${account} onOpen=${go} onPick=${choose} onOpenFound=${openFound} opening=${opening} />`
           : html`<${FolderList}
               key=${here.id}
               path=${nav.path}
