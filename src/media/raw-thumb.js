@@ -5,8 +5,8 @@
 // ao terminar o envio de um .braw o motor tira um frame com o que o computador já sabe fazer e grava no arquivo.
 //
 // De onde vem o frame (docs/ARCHITECTURE.md, "media/raw-thumb.js"):
-//  - Ajudante nativo (opcional, peça trocável): um executável que usa o Blackmagic RAW SDK instalado na máquina.
-//    Só entra se existir (SOBEDESCE_RAW_HELPER ou <resources>/raw-frame/). Contrato no fim deste arquivo.
+//  - Ajudante nativo (native/raw-frame/): usa o Blackmagic RAW SDK (a biblioteca vem junto do app). Só entra se
+//    existir (SOBEDESCE_RAW_HELPER ou <resources>/raw-frame/). Contrato no fim deste arquivo.
 //  - Mac: Quick Look (`qlmanage -t`), que usa a extensão de miniatura instalada para o tipo (Blackmagic RAW,
 //    Calibrated QuickLook…), e `sips` (do próprio macOS) para virar JPEG pequeno.
 //  - Windows: a miniatura do Explorer (IShellItemImageFactory, só "thumbnail", nunca o ícone), pelo PowerShell
@@ -703,12 +703,13 @@ export class RawThumbnailer {
   }
 }
 
-// ─────────── contrato do ajudante nativo (ainda não incluído no instalador) ───────────
+// ─────────── contrato do ajudante nativo ───────────
 //
-// `sobedesce-raw-frame` é um executável pequeno (C++) que carrega o Blackmagic RAW SDK JÁ INSTALADO na máquina
-// (Blackmagic RAW Player/SDK ou DaVinci Resolve) com CreateBlackmagicRawFactoryInstanceFromPath, decodifica um
-// frame em 1/4 ou 1/8 da resolução (CPU), converte para RGBA 8 bits e grava JPEG. Não redistribui a biblioteca.
+// `sobedesce-raw-frame` (native/raw-frame/, C++ com o Blackmagic RAW SDK) vem no app quando o CI tem o cadastro do
+// SDK (scripts/raw-frame-build.mjs), com a biblioteca da Blackmagic ao lado (<resources>/raw-frame/BlackmagicRawAPI/);
+// sem ela, usa a do Blackmagic RAW ou do DaVinci Resolve instalados. Decodifica um frame (~1 s do começo) na menor
+// escala do SDK que dá a largura pedida, em Rec.709, e grava JPEG (stb_image_write).
 // Linha de comando: --input <arquivo> --output <saida.jpg> --width <px> --max-bytes <n>
 // Saída: código 0 + imagem gravada; 2 = sem como abrir (biblioteca ausente, formato); outro = falha.
-// Se existir em SOBEDESCE_RAW_HELPER ou em <resources>/raw-frame/, ele é tentado antes do sistema.
-// O que falta para incluí-lo está em docs/ARCHITECTURE.md ("media/raw-thumb.js").
+// Se existir em SOBEDESCE_RAW_HELPER ou em <resources>/raw-frame/, ele é tentado antes do sistema. O mesmo executável
+// gera o proxy de .braw (media/braw.js: --check, --info, --frames).

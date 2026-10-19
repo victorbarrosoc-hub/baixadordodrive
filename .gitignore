@@ -8,3 +8,4 @@ dist/
 build/yt-dlp/
 build/ffmpeg/
 build/quickjs/
+build/raw-frame/

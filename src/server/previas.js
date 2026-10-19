@@ -7,7 +7,7 @@ import { expandHome } from '../local/fsbrowse.js'
 import { newId } from '../util/ids.js'
 import { gerarPreviasLote, resumoPrevias } from '../media/previa-lote.js'
 import { espacoLivre, isPrevia, procurarProxy } from '../media/previa-fila.js'
-import { isVideoName } from '../media/previa.js'
+import { isBrawName, isVideoName } from '../media/previa.js'
 
 const EVENT_MS = 250
 const DRIVE_ID = /^[\w-]{1,200}$/
@@ -194,7 +194,7 @@ export function registerPrevias({ route, ctx, account, HttpProblem, toProblem })
     if (!DRIVE_ID.test(id)) throw new HttpProblem(400, 'Pedido inválido.')
     const drive = ctx.manager.driveFor(acc.id)
     const item = await drive.getItem(id, { signal, media: true })
-    if (item.isFolder || !isVideoName(item.name)) throw new HttpProblem(400, 'Escolha um arquivo de vídeo.')
+    if (item.isFolder || !(isVideoName(item.name) || isBrawName(item.name))) throw new HttpProblem(400, 'Escolha um arquivo de vídeo.')
     const parentId = item.parents?.[0] || null
     const found = parentId ? await procurarProxy(drive, { parentId, name: item.name, driveId: item.driveId, excludeId: item.id, signal }) : { proxy: null }
     const p = localOriginals(ctx.manager, acc.id).get(id)

@@ -77,7 +77,12 @@ mac:
   extraResources:
     - from: build/yt-dlp/mac
       to: yt-dlp
-  x64ArchFiles: "Contents/Resources/yt-dlp/yt-dlp"
+    # Decodificador de Blackmagic RAW (proxy e miniatura de .braw; native/raw-frame/), feito por
+    # `node scripts/raw-frame-build.mjs` com o SDK baixado no CI; sem a pasta, o app sai sem ele (o .braw fica sem
+    # proxy). Já universal (o clang gera as duas arquiteturas; o framework da Blackmagic também é): fora do lipo.
+    - from: build/raw-frame/mac
+      to: raw-frame
+  x64ArchFiles: "Contents/Resources/{yt-dlp/yt-dlp,raw-frame/**}"
   # Sem certificado da Apple por enquanto: assinatura ad-hoc (o macOS pede "Abrir Mesmo Assim" na primeira vez).
   identity: "-"
   hardenedRuntime: false
@@ -109,6 +114,9 @@ win:
   extraResources:
     - from: build/yt-dlp/${os}-${arch}
       to: yt-dlp
+    # Decodificador de Blackmagic RAW, um por arquitetura (ver o do Mac acima).
+    - from: build/raw-frame/${os}-${arch}
+      to: raw-frame
 
 nsis:
   # Instala só para o usuário atual, sem pedir senha de administrador.

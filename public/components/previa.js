@@ -31,6 +31,7 @@ export function hasVideoFiles(items, folder) {
   return items.some((x) => {
     if (x.isFolder || isPreviaItem(x)) return false
     const ext = extOf(x.name)
+    if (ext === 'braw') return true
     if (!VIDEO.has(ext)) return false
     return !(ext === 'mp4' && x.size != null && x.size < LIGHT_MP4)
   })
@@ -65,6 +66,8 @@ export const proxyPadrao = (settings) => (settings?.proxyAoEnviar || 'sempre') !
 
 /** Envio de vídeo que pode ter proxy (pela extensão; RAW de câmera fica de fora). */
 export const isVideoName = (name) => VIDEO.has(extOf(name || ''))
+/** Blackmagic RAW: tem proxy quando o app traz o decodificador (o motor decide; a tela só mostra o que veio). */
+export const isBrawName = (name) => extOf(name || '') === 'braw'
 
 /** Linha "Proxy ao enviar" (Ajustes → Arquivos). */
 export function PreviaRow({ d, set }) {
@@ -76,8 +79,9 @@ export function PreviaRow({ d, set }) {
     if (!m.via) note = html`<span class="srow-note is-warn previa-warn"><${Icon} name="warning" size=${13} /><span>${m.aviso || 'Não encontramos o ffmpeg neste computador.'}</span></span>`
     else
       note = html`<span class=${cx('srow-note previa-engine', m.hardware && 'is-hw')}>
-        <${Icon} name=${m.hardware ? 'bolt' : 'film'} size=${13} /> ${m.label}${m.versao && m.via === 'ffmpeg' ? html`<span class="sub"> · ffmpeg ${m.versao.replace(/-.*/, '')}</span>` : null}
+        <${Icon} name=${m.hardware ? 'bolt' : 'film'} size=${13} /> ${m.label}${m.versao && m.via === 'ffmpeg' ? html`<span class="sub"> · ffmpeg ${m.versao.replace(/-.*/, '')}</span>` : null}${m.braw?.ok ? html`<span class="sub"> · BRAW</span>` : null}
       </span>`
+    if (m.via && m.braw && !m.braw.ok) note = html`${note}<br /><span class="srow-note">Sem proxy de BRAW: ${m.braw.motivo}.</span>`
     if (info.last && !info.last.ok) note = html`${note}<br /><span class="srow-note">O último vídeo ficou sem proxy (${info.last.motivo}).</span>`
   }
   return html`<div class="srow">
@@ -154,7 +158,9 @@ const setProxy = (id, on) => attempt(api.post('/api/transfers/proxy', { ids: [id
 export function PreviaLine({ t }) {
   const settings = useStore((s) => s.settings)
   // Cancelado ou com problema: o chip "Proxy: sim" só faria ruído ao lado do erro.
-  if (t.type !== 'upload' || t.referencia || !isVideoName(t.name) || t.status === 'canceled' || t.status === 'failed') return null
+  // .braw: só depois que o motor pegou o envio para o proxy (o computador tem o decodificador).
+  const ok = isVideoName(t.name) || (isBrawName(t.name) && t.previa && !/^BRAW:|decodificador/.test(t.previa.motivo || ''))
+  if (t.type !== 'upload' || t.referencia || !ok || t.status === 'canceled' || t.status === 'failed') return null
   const p = t.previa
   const want = typeof t.proxy === 'boolean' ? t.proxy : proxyPadrao(settings)
   if (!FIM_ENVIO.has(t.status)) {
