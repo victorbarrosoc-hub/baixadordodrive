@@ -26,7 +26,7 @@ const FILE_FIELDS = [
   'driveId',
   'parents',
   'shortcutDetails',
-  'capabilities(canDownload,canAddChildren)',
+  'capabilities(canDownload,canAddChildren,canTrash)',
   'appProperties',
 ].join(',')
 

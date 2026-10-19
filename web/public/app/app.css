@@ -5909,3 +5909,181 @@ html.is-dswipe body {
 .pc-row-icon.is-mix {
   color: var(--text-2);
 }
+
+/* ───── seleção na aba Drive (components/selecao.js) ───── */
+.tabs .drive-screen.is-selecting {
+  padding-bottom: calc(var(--safe-b) + 64px + 118px);
+}
+.selmark {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  pointer-events: none;
+}
+.selmark.is-on {
+  border-color: var(--down);
+  background: var(--down);
+}
+.tile.is-selecting:active .tile-media {
+  transform: none;
+}
+.tile.is-marked .tile-media {
+  box-shadow: inset 0 0 0 3px var(--down);
+}
+.tile.is-marked .tile-media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--down) 18%, transparent);
+  pointer-events: none;
+}
+.lrow .selmark {
+  position: static;
+  flex: none;
+  border-color: var(--hairline-strong);
+  background: transparent;
+  box-shadow: none;
+}
+.lrow .selmark.is-on {
+  border-color: var(--down);
+  background: var(--down);
+}
+.lrow.is-marked {
+  background: color-mix(in srgb, var(--down) 10%, transparent);
+}
+.lrow.is-selecting {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.selbar {
+  position: fixed;
+  z-index: 49;
+  left: 0;
+  right: 0;
+  bottom: calc(52px + var(--safe-b));
+  padding: 8px calc(12px + var(--safe-r)) 10px calc(12px + var(--safe-l));
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 -0.5px 0 var(--hairline-2);
+  animation: selbar-in 0.22s var(--ease);
+}
+.selbar-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+.selbar-x {
+  margin-left: -6px;
+}
+.selbar-count {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.selbar-count b {
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.selbar-count small {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.selbar-acts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 560px;
+  margin: 8px auto 0;
+}
+.selact {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 54px;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--down-text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.selact:active {
+  background: var(--press);
+}
+.selact:disabled {
+  opacity: 0.38;
+}
+.selact.is-danger {
+  color: var(--err-text);
+}
+@keyframes selbar-in {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .selbar {
+    animation: none;
+  }
+}
+
+.selsheet-prog {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  font-weight: 600;
+}
+.selsheet-list {
+  margin-top: 14px;
+  padding: 0;
+  list-style: none;
+}
+.selsheet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 14px;
+}
+.selsheet-row + .selsheet-row {
+  box-shadow: inset 0 0.5px 0 var(--hairline);
+}
+.selsheet-row.is-now {
+  background: color-mix(in srgb, var(--down) 9%, transparent);
+}
+.selsheet-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.selsheet-name small {
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+.selsheet-ok {
+  color: var(--ok-text);
+}

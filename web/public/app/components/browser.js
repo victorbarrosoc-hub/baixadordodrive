@@ -28,7 +28,8 @@ import {
   target,
 } from '../lib/browse.js'
 import { sizeIsBig } from '../lib/tamanho.js'
-import { Scrub } from './scrub.js'
+import { Scrub, gradeDe } from './scrub.js'
+import { BarraSelecao, Marca, useSegurar, useSelecao } from './selecao.js'
 import { bytes, count, duration, plural, shortDate } from '../lib/format.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, cx, reducedMotion } from './ui.js'
@@ -129,16 +130,33 @@ function metaOf(f, kind) {
 /** Bruto sem miniatura (BRAW, R3D…): usa a do proxy, se ele já é conhecido. */
 const thumbSource = (f, kind, siblings) => (kind === 'video' && !f.thumbnailLink ? knownProxy(f, siblings) || f : f)
 
-function Tile({ f, siblings, onOpen }) {
+function Tile({ f, siblings, onOpen, selecionando = false, marcado = false, onMarcar }) {
   const kind = kindOf(f)
   const dur = f.videoMediaMetadata?.durationMillis
+  // Segurar: solta sem arrastar = seleciona; arrasta para os lados (vídeo com tira de quadros) = corre o take.
+  const [toqueX, setToqueX] = useState(null)
+  const gesto = useSegurar({ onSegurar: onMarcar ? () => onMarcar(f) : null, onArrastar: kind === 'video' && gradeDe(f) ? setToqueX : null })
   return html`<li>
-    <button type="button" class="tile" onClick=${() => onOpen(f)} aria-label=${`${f.name}${kind === 'folder' ? ', pasta' : ''}`}>
+    <button
+      type="button"
+      class=${cx('tile', selecionando && 'is-selecting', marcado && 'is-marked')}
+      ref=${gesto.ref}
+      onPointerDown=${gesto.onPointerDown}
+      onPointerMove=${gesto.onPointerMove}
+      onPointerUp=${gesto.onPointerUp}
+      onPointerCancel=${gesto.onPointerCancel}
+      onClickCapture=${gesto.onClickCapture}
+      onContextMenu=${gesto.onContextMenu}
+      onClick=${() => (selecionando ? onMarcar?.(f) : onOpen(f))}
+      aria-pressed=${selecionando ? (marcado ? 'true' : 'false') : undefined}
+      aria-label=${`${f.name}${kind === 'folder' ? ', pasta' : ''}`}
+    >
       <span class="tile-media">
         <${Thumb} file=${f} from=${thumbSource(f, kind, siblings)} px=${128} kind=${kind} />
-        ${kind === 'video' ? html`<${Scrub} f=${f} />` : null}
+        ${kind === 'video' ? html`<${Scrub} f=${f} toqueX=${toqueX} />` : null}
         ${dur ? html`<span class="tile-badge">${duration(dur)}</span>` : null}
         ${kind === 'video' && !dur && f.thumbnailLink ? html`<span class="tile-badge is-icon"><${Icon} name="play" size=${10} /></span>` : null}
+        ${selecionando ? html`<${Marca} on=${marcado} />` : null}
       </span>
       ${kind === 'folder' ? html`<span class="tile-name">${f.name}</span>` : html`<${FileName} name=${f.name} class="tile-name is-file" />`}
       <span class="tile-meta">${kind === 'folder' ? (f.isDrive ? 'Drive' : folderMeta(f, 'Pasta')) : f.size != null ? bytes(Number(f.size)) : shortDate(f.modifiedTime)}</span>
@@ -146,20 +164,34 @@ function Tile({ f, siblings, onOpen }) {
   </li>`
 }
 
-function Row({ f, siblings, onOpen, driveId }) {
+function Row({ f, siblings, onOpen, driveId, selecionando = false, marcado = false, onMarcar }) {
   const kind = kindOf(f)
   const dur = f.videoMediaMetadata?.durationMillis
   // Pasta: "Calcular" ao lado soma o que tem dentro (sob pedido; o Drive não guarda o tamanho de pastas).
   const t = kind === 'folder' && !f.isDrive ? target(f) : null
-  const calc = t && !folderSizes.get(t.id)
+  const calc = !selecionando && t && !folderSizes.get(t.id)
+  const gesto = useSegurar({ onSegurar: onMarcar ? () => onMarcar(f) : null })
   return html`<li class=${calc ? 'has-calc' : undefined}>
-    <button type="button" class="lrow" onClick=${() => onOpen(f)}>
+    <button
+      type="button"
+      class=${cx('lrow', selecionando && 'is-selecting', marcado && 'is-marked')}
+      ref=${gesto.ref}
+      onPointerDown=${gesto.onPointerDown}
+      onPointerMove=${gesto.onPointerMove}
+      onPointerUp=${gesto.onPointerUp}
+      onPointerCancel=${gesto.onPointerCancel}
+      onClickCapture=${gesto.onClickCapture}
+      onContextMenu=${gesto.onContextMenu}
+      onClick=${() => (selecionando ? onMarcar?.(f) : onOpen(f))}
+      aria-pressed=${selecionando ? (marcado ? 'true' : 'false') : undefined}
+    >
+      ${selecionando ? html`<${Marca} on=${marcado} />` : null}
       <span class="lrow-media"><${Thumb} file=${f} from=${thumbSource(f, kind, siblings)} px=${48} kind=${kind} small /></span>
       <span class="lrow-text">
         <${FileName} name=${f.name} class="lrow-name" />
         <span class="lrow-meta">${metaOf(f, kind)}${dur ? html` · <span class="tc">${duration(dur)}</span>` : null}</span>
       </span>
-      ${kind === 'folder' ? html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="lrow-chev" />` : null}
+      ${kind === 'folder' && !selecionando ? html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="lrow-chev" />` : null}
     </button>
     ${calc
       ? html`<button type="button" class="lrow-calc" onClick=${() => folderSizes.start({ id: t.id, driveId: driveId || f.driveId || null })} aria-label=${`Calcular o tamanho de ${f.name}`}>
@@ -836,6 +868,7 @@ export function DriveScreen({ active }) {
   const [showMac, setShowMac] = useState(false)
   const [wantAll, setWantAll] = useState(false) // "Somar tudo": carregar a pasta toda
   const [preview, setPreview] = useState(null) // { files, index }
+  const sel = useSelecao()
   const root = useRef(null)
   const behindRef = useRef(null)
   const [swipe, setSwipe] = useState(false) // gesto da borda em andamento (mostra a pasta de cima por trás)
@@ -861,6 +894,10 @@ export function DriveScreen({ active }) {
     return needsAll(prefs.sort) ? sortLocal(shown, prefs.sort, prefs.flip) : shown
   }, [raw, showMac, filter, prefs.sort, prefs.flip])
   const macN = useMemo(() => raw.filter(isMacJunk).length, [raw])
+  // Seleção: o que saiu da tela (busca, filtro, lixeira) sai da seleção também.
+  useEffect(() => {
+    if (sel.ativa) sel.manter(files)
+  }, [files])
 
   // Carregar mais sem rolar: a ordem por tipo e o "Somar tudo" precisam da pasta toda; e quando o filtro daqui (tipo
   // pela extensão, arquivos do Mac) esconde quase tudo, uma página pode vir sem nada para mostrar: segue procurando até
@@ -913,6 +950,7 @@ export function DriveScreen({ active }) {
     setWantAll(false)
     setMenu(false)
     setPreview(null)
+    sel.sair()
     window.scrollTo(0, 0)
   }
   const navRef = useRef(nav)
@@ -997,7 +1035,8 @@ export function DriveScreen({ active }) {
   useEffect(() => {
     if (isIOS && isStandalone()) document.documentElement.classList.add('is-ios-app')
   }, [])
-  const canSwipe = active && !preview && !search && nav.path.length > 0 && swipeHere()
+  const marcar = (f) => sel.alternar(f.id)
+  const canSwipe = active && !preview && !sel.ativa && !search && nav.path.length > 0 && swipeHere()
   useSwipeBack({
     enabled: canSwipe,
     screenRef: root,
@@ -1035,7 +1074,7 @@ export function DriveScreen({ active }) {
   const huntText = needsAll(prefs.sort) ? 'Carregando a pasta toda para agrupar por tipo…' : wantAll ? 'Somando tudo…' : 'Procurando…'
 
   return html`${swipe ? html`<${SwipeBehind} scope=${nav.scope} path=${nav.path.slice(0, -1)} prefs=${prefs} innerRef=${behindRef} />` : null}
-  <div class=${cx('screen', 'drive-screen', view === 'list' && 'is-list')} ref=${root}>
+  <div class=${cx('screen', 'drive-screen', view === 'list' && 'is-list', sel.ativa && 'is-selecting')} ref=${root}>
     <header class="topbar dtop">
       <div class="dtop-row">
         ${nav.path.length && !search
@@ -1183,8 +1222,8 @@ export function DriveScreen({ active }) {
       ${huntNote && !files.length ? html`<p class="drive-note dhunt" role="status"><span class="spinner" aria-hidden="true"></span>${huntText} <small>${count(raw.length)} vistos</small></p>` : null}
       ${files.length
         ? view === 'grid'
-          ? html`<ul class="tiles">${files.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${raw} onOpen=${open} />`)}</ul>`
-          : html`<ul class="group lrows">${files.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${raw} onOpen=${open} driveId=${driveId} />`)}</ul>`
+          ? html`<ul class="tiles">${files.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${raw} onOpen=${open} selecionando=${sel.ativa} marcado=${sel.tem(f.id)} onMarcar=${marcar} />`)}</ul>`
+          : html`<ul class="group lrows">${files.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${raw} onOpen=${open} driveId=${driveId} selecionando=${sel.ativa} marcado=${sel.tem(f.id)} onMarcar=${marcar} />`)}</ul>`
         : null}
       ${list.error && list.files ? html`<p class="drive-note is-error">Não consegui carregar mais. <button type="button" class="link-btn" onClick=${() => list.more()}>Tentar de novo</button></p>` : null}
       <div ref=${sentinel} class="drive-sentinel">
@@ -1197,6 +1236,17 @@ export function DriveScreen({ active }) {
       ${files.length && !list.next && !list.loading ? html`<p class="foot drive-foot">${files.length === 1 ? '1 item' : `${count(files.length)} itens`}</p>` : null}
     </main>
 
+    ${sel.ativa && !preview
+      ? html`<${BarraSelecao}
+          sel=${sel}
+          visiveis=${files}
+          onSair=${sel.sair}
+          onRemovidos=${(ids) => {
+            list.drop(ids)
+            if (folder) folderSizes.start({ id: folder.id, driveId: driveId || folder.driveId || null }, { refresh: true })
+          }}
+        />`
+      : null}
     ${preview
       ? html`<${Preview}
           files=${preview.files}
