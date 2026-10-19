@@ -28,6 +28,7 @@ import {
   target,
 } from '../lib/browse.js'
 import { sizeIsBig } from '../lib/tamanho.js'
+import { Scrub } from './scrub.js'
 import { bytes, count, duration, plural, shortDate } from '../lib/format.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, cx, reducedMotion } from './ui.js'
@@ -135,6 +136,7 @@ function Tile({ f, siblings, onOpen }) {
     <button type="button" class="tile" onClick=${() => onOpen(f)} aria-label=${`${f.name}${kind === 'folder' ? ', pasta' : ''}`}>
       <span class="tile-media">
         <${Thumb} file=${f} from=${thumbSource(f, kind, siblings)} px=${128} kind=${kind} />
+        ${kind === 'video' ? html`<${Scrub} f=${f} />` : null}
         ${dur ? html`<span class="tile-badge">${duration(dur)}</span>` : null}
         ${kind === 'video' && !dur && f.thumbnailLink ? html`<span class="tile-badge is-icon"><${Icon} name="play" size=${10} /></span>` : null}
       </span>

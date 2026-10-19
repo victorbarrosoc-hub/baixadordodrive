@@ -457,9 +457,13 @@ export async function compareFolders({ drive, localPath, driveFolderId, mode = '
   return result
 }
 
-/** É o proxy gerado pelo SOBEDESCE (appProperties.sobedesce = 'previa')? Mesma marca de src/media/previa-fila.js. */
+/**
+ * Feito pelo SOBEDESCE ao lado do original: o proxy ('previa', src/media/previa-fila.js) ou a tira de quadros do hover
+ * scrub ('quadros', src/media/quadros.js). Nenhum dos dois é "só no Drive".
+ */
 function isPreviaMark(it) {
-  return it?.appProperties?.sobedesce === 'previa'
+  const m = it?.appProperties?.sobedesce
+  return m === 'previa' || m === 'quadros'
 }
 
 /**

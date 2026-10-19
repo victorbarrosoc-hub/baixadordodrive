@@ -12,7 +12,7 @@ import { FOLDER_MIME } from '../google/drive.js'
 import { classifyError } from '../google/errors.js'
 import { abortError, isAbortError } from '../util/backoff.js'
 import { LOTE_LIMITS, indexLocalRaw, nameKey } from './raw-thumb-lote.js'
-import { LEVE_LADO, PEQUENO_BYTES, PROXY_EXTS, baseKey, isProxyDirName, isVideoName, splitExt } from './previa.js'
+import { LEVE_LADO, PEQUENO_BYTES, PROXY_EXTS, baseKey, isProxyDirName, isRawName, isVideoName, splitExt } from './previa.js'
 import { isPrevia } from './previa-fila.js'
 
 function badRequest(message, status = 400) {
@@ -32,7 +32,7 @@ export function levePeloDrive(item) {
 }
 
 /**
- * Vídeos de uma pasta do Drive e os proxies que já existem para eles.
+ * Vídeos de uma pasta do Drive (e os RAW de câmera, para a tira de quadros) e os proxies que já existem para eles.
  * @returns {Promise<{ root, videos: DriveItem[], proxyOf(v): DriveItem|null }>}
  */
 export async function listDriveVideos(drive, folderId, { recursive = true, signal } = {}) {
@@ -77,7 +77,7 @@ export async function listDriveVideos(drive, folderId, { recursive = true, signa
     if (inProxyDir(it)) put(folders.get(parent)?.parents?.[0], it)
     else put(parent, it)
   }
-  const videos = items.filter(it => !it.isFolder && !it.isShortcut && !it.isGoogleDoc && it.size != null && isVideoName(it.name) && !inProxyDir(it) && !isPrevia(it))
+  const videos = items.filter(it => !it.isFolder && !it.isShortcut && !it.isGoogleDoc && it.size != null && (isVideoName(it.name) || isRawName(it.name)) && !inProxyDir(it) && !isPrevia(it))
   const proxyOf = v => {
     const parent = v.parents?.[0]
     const ext = splitExt(v.name)[1]
@@ -113,6 +113,9 @@ function newSummary() {
     semLocalIds: [], // ids do Drive (a tela oferece "Baixar do Drive e gerar" só para eles)
     tamanhoNomes: [],
     feitosIds: [], // ids das cópias novas
+    quadrosAGerar: 0, // já tinham proxy mas não a tira de quadros (hover scrub)
+    quadros: 0, // tiras de quadros feitas (as dos proxies novos não contam aqui)
+    quadrosFalhou: 0,
   }
 }
 
@@ -165,7 +168,8 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
   let local
   try {
     listed = await driveP
-    s.videos = listed.videos.length
+    // RAW sem proxy não tem o que fazer aqui: não conta.
+    s.videos = listed.videos.filter(v => isVideoName(v.name) || listed.proxyOf(v)).length
     s.phase = 'local'
     report()
     local = await localP
@@ -177,6 +181,7 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
   s.localTruncated = local.truncated
 
   const work = []
+  const quadrosWork = []
   const only = somente?.length ? new Set(somente) : null
   // Original conhecido pela fila (o envio que subiu ele): vale se ainda existe com o mesmo tamanho.
   const hinted = async v => {
@@ -187,10 +192,14 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
   }
   for (const v of listed.videos.filter(x => !only || only.has(x.id))) {
     const proxy = listed.proxyOf(v)
+    // RAW de câmera (BRAW, R3D…) só entra pela tira de quadros, a partir do proxy que a câmera gravou.
+    if (!proxy && !isVideoName(v.name)) continue
     let replaceFileId = null
     if (proxy) {
       if (!refazer || !isPrevia(proxy)) {
         s.jaTinham++
+        // Já tem proxy mas ainda não tem a tira de quadros (hover scrub): faz a partir do proxy, sem o original.
+        if (!v.appProperties?.quadros && proxy.size != null && gerador.quadrosDoProxy) quadrosWork.push({ item: v, proxy })
         continue
       }
       replaceFileId = proxy.id
@@ -285,6 +294,33 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
     }
     report()
   }
+  // Tiras de quadros dos que já tinham proxy (baixa só o proxy, leve). Falha de uma não conta como proxy que falhou.
+  s.quadrosAGerar = quadrosWork.length
+  for (const { item, proxy } of quadrosWork) {
+    if (signal?.aborted) break
+    s.current = item.relPath || item.name
+    s.fase = 'quadros'
+    s.frac = null
+    report()
+    try {
+      await gerador.quadrosDoProxy({
+        drive,
+        original: item,
+        proxy,
+        signal,
+        onFase: (fase, frac) => {
+          s.fase = fase === 'gerando' ? 'quadros' : fase
+          s.frac = frac ?? null
+          report()
+        },
+      })
+      s.quadros++
+    } catch (err) {
+      if (signal?.aborted || isAbortError(err)) break
+      s.quadrosFalhou++
+    }
+    report()
+  }
   if (signal?.aborted) throw abortError(signal)
   s.current = ''
   s.fase = null
@@ -298,11 +334,13 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
 export function resumoPrevias(s) {
   if (!s) return ''
   const n = (v, one, many) => `${v} ${v === 1 ? one : many}`
+  const tiras = s.quadros ? ` · ${n(s.quadros, 'tira de quadros', 'tiras de quadros')}` : ''
   if (!s.total) {
+    if (s.quadros) return `${n(s.quadros, 'tira de quadros gerada', 'tiras de quadros geradas')} (passe o cursor na miniatura).`
     if (s.jaTinham || s.jaLeves) return `Nada a fazer: ${[s.jaTinham ? n(s.jaTinham, 'vídeo já tinha prévia', 'vídeos já tinham prévia') : '', s.jaLeves ? n(s.jaLeves, 'já é leve', 'já são leves') : ''].filter(Boolean).join(' e ')}.`
     return 'Nenhum vídeo sem prévia nesta pasta.'
   }
-  const parts = [n(s.feitos, 'prévia gerada', 'prévias geradas')]
+  const parts = [n(s.feitos, 'prévia gerada', 'prévias geradas') + tiras]
   if (s.semLocal) parts.push(`${s.semLocal} sem arquivo no computador`)
   if (s.tamanhoDiferente) parts.push(`${s.tamanhoDiferente} com tamanho diferente`)
   if (s.falhou) parts.push(n(s.falhou, 'falhou', 'falharam'))
