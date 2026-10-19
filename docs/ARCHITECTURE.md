@@ -678,7 +678,8 @@ semLocalBytes, semLocalIds[], baixados, tamanhoDiferente, falhou, localFiles, lo
 'baixando'|'gerando'|'enviando'), frac, falhas[], semLocalNomes[], tamanhoNomes[], feitosIds[] }`. Um lote por vez (409),
 SSE `previas`. Na tela Drive: "Gerar proxies da pasta" (barra) e "Gerar proxy" (seleção de um vídeo; `GET
 /api/previas/arquivo` diz se a fila conhece o original, se já tem proxy e o espaço livre). O resumo com `semLocal` oferece
-"Baixar do Drive para gerar" (confirma o tamanho e o espaço livre antes). Selo "Proxy" na lista/grade (`useComProxy`:
+"Baixar do Drive para gerar" (confirma o tamanho e o espaço livre antes). Pedido pelo celular: `src/engine/pedidos-proxy.js` pega os
+pedidos da conta SOBEDESCE e gera do mesmo jeito (docs/CONTAS.md §11). Selo "Proxy" na lista/grade (`useComProxy`:
 mesmo nome-base na pasta ou dentro da subpasta Proxy/Proxies listada, uma consulta por subpasta).
 
 Prévia (as três): vídeo com mais de 30 MB (qualquer codec) procura a cópia leve antes de tocar e toca ela, com

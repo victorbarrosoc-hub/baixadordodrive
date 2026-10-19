@@ -16,6 +16,7 @@ import { MobileReceiver } from './mobile/receiver.js'
 import { VersionChecker } from './version.js'
 import { Updater } from './updater.js'
 import { ReferenciasService } from './referencias/service.js'
+import { PedidosProxy } from './engine/pedidos-proxy.js'
 import { AcompanharCelular } from './engine/acompanhar.js'
 import { UsoDiario } from './engine/uso.js'
 import { closeHttp, requestJSON } from './net/http.js'
@@ -135,7 +136,7 @@ function banner(url, root) {
  * Sobe tudo: ajustes, contas, MD5, fila e servidor. Usado pelo `npm start`, pelo demo, pelos testes e pelo desktop.
  * @param {{ home?: string, port?: number, open?: boolean, desktop?: boolean, quiet?: boolean,
  *   managerOptions?: object, serverOptions?: object, mobileOptions?: object, cloudOptions?: object, versionOptions?: object,
- *   updaterOptions?: object, referenciasOptions?: object, acompanharOptions?: object }} [opts]
+ *   updaterOptions?: object, referenciasOptions?: object, acompanharOptions?: object, pedidosProxyOptions?: object }} [opts]
  *   `managerOptions`/`serverOptions`/`mobileOptions`/`cloudOptions`/`versionOptions` (opcionais) vão para o
  *   TransferManager/startServer/MobileReceiver/CloudAuth/VersionChecker (os testes trocam peças, ex.: mobileOptions { port: 0, host: '127.0.0.1' }).
  *   `updaterOptions` vai para o Updater (src/updater.js), que só existe com `handoff` (o app de desktop empacotado
@@ -145,14 +146,14 @@ function banner(url, root) {
  * @returns {Promise<{ url: string, port: number, manager: TransferManager, auth: AuthManager, settings: Settings,
  *   hasher: Hasher, paths: object, server: object, mobile: MobileReceiver, versao: VersionChecker, shutdown(): Promise<void> }>}
  */
-export async function startApp({ home, port, open = true, desktop = false, quiet = false, segredos = null, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {}, versionOptions = {}, updaterOptions = {}, referenciasOptions = {}, acompanharOptions = {}, usoOptions = {} } = {}) {
+export async function startApp({ home, port, open = true, desktop = false, quiet = false, segredos = null, managerOptions = {}, serverOptions = {}, mobileOptions = {}, cloudOptions = {}, versionOptions = {}, updaterOptions = {}, referenciasOptions = {}, acompanharOptions = {}, usoOptions = {}, pedidosProxyOptions = {} } = {}) {
   const root = home ? path.resolve(home) : dataDir()
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
   const paths = dataPaths(root)
   const lockFile = path.join(root, LOCK_NAME)
   const token = await acquireLock(lockFile)
 
-  let settings, auth, hasher, manager, server, mobile, versao, referencias, acompanhar, uso
+  let settings, auth, hasher, manager, server, mobile, versao, referencias, acompanhar, uso, pedidosProxy
   try {
     settings = new Settings(paths.settings)
     await settings.load()
@@ -173,6 +174,9 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     uso = new UsoDiario({ manager, cloud: auth.cloud, file: paths.uso, ...usoOptions })
     await uso.init()
     uso.start()
+    // "Gerar proxy" pedido pelo celular: este computador pega da conta SOBEDESCE e gera (src/engine/pedidos-proxy.js).
+    pedidosProxy = new PedidosProxy({ cloud: auth.cloud, manager, ...pedidosProxyOptions })
+    pedidosProxy.start()
     // Verificação do conversor da prévia leve (ffmpeg do app, do sistema ou avconvert): em segundo plano, vai para o log.
     if (!quiet || desktop) manager.previas?.init?.().catch(() => {})
     // Recepção do celular pelo Wi-Fi: liga/desliga sozinha conforme o ajuste mobileReceive.
@@ -189,6 +193,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     versao?.stop()
     await acompanhar?.close()
     await uso?.close()
+    await pedidosProxy?.close()
     await referencias?.close()
     await mobile?.close().catch(() => {})
     await server?.close().catch(() => {})
@@ -210,6 +215,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
       // Última notícia para o celular ("o app foi fechado"), com tempo curto; depois para de mandar.
       await acompanhar.close({ final: true }).catch(() => {})
       await uso.close({ final: true }).catch(() => {})
+      await pedidosProxy.close()
       await referencias.close()
       // Primeiro fecha a porta da rede local (o que já chegou do celular fica gravado para continuar depois).
       await mobile.close().catch(err => console.warn('[sobedesce] erro ao fechar a recepção do celular:', err?.message))
@@ -225,7 +231,7 @@ export async function startApp({ home, port, open = true, desktop = false, quiet
     })()
     return stopping
   }
-  return { url: server.url, port: server.port, manager, auth, settings, hasher, paths, server, mobile, versao, referencias, acompanhar, uso, shutdown }
+  return { url: server.url, port: server.port, manager, auth, settings, hasher, paths, server, mobile, versao, referencias, acompanhar, uso, pedidosProxy, shutdown }
 }
 
 async function main() {

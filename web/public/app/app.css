@@ -6010,7 +6010,7 @@ html.is-dswipe body {
 }
 .selbar-acts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   max-width: 560px;
   margin: 8px auto 0;
@@ -6086,4 +6086,28 @@ html.is-dswipe body {
 }
 .selsheet-ok {
   color: var(--ok-text);
+}
+.selact span {
+  text-align: center;
+  line-height: 1.15;
+}
+.pxrow-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  color: var(--text-3);
+}
+.pxrow.is-gerando .pxrow-ico {
+  color: var(--down-text);
+}
+.pxrow.is-pronto .pxrow-ico {
+  color: var(--ok-text);
+}
+.pxrow.is-erro .pxrow-ico,
+.pxrow.is-erro small {
+  color: var(--err-text);
+}
+.pxpc {
+  margin: 4px 0 14px;
 }

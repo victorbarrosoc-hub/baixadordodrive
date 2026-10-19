@@ -90,6 +90,15 @@ export async function listDriveVideos(drive, folderId, { recursive = true, signa
   return { root, videos, proxyOf }
 }
 
+/** Originais que a fila conhece (envios desta conta que subiram): fileId do Drive → caminho local. */
+export function originaisLocais(manager, accountId) {
+  const out = new Map()
+  for (const r of manager.records?.values?.() || []) {
+    if (r.type === 'upload' && r.accountId === accountId && r.target?.fileId && r.local?.path) out.set(r.target.fileId, r.local.path)
+  }
+  return out
+}
+
 function newSummary() {
   return {
     phase: 'drive', // 'drive' → 'local' → 'gerar' → 'fim'

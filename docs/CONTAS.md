@@ -257,3 +257,30 @@ Só números e datas: nunca nome de arquivo, pasta ou conta do Drive de quem tra
   linha do tempo (conta, Drives, computadores, último login).
 - **Guarda:** `atividade_diaria` e `uso_diario` ficam 400 dias (limpeza de carona em `sessao.ts`); `uso_diario` some com
   a sessão; tudo some com a conta. Migração `0006_uso_admin` (só acrescenta).
+
+## 11. Gerar proxy pelo celular
+
+O celular não gera vídeo: ele pede, e o app SOBEDESCE de um computador com a mesma conta gera. Mesmo esquema da fila
+das Referências (pegar de uma vez só, sinal de vida, preso volta para a fila).
+
+- **Banco:** `pedidos_proxy` (`usuarioId`, `contaGoogleId`, `fileId`, `nome`, `tamanho`, `status` = `pendente` |
+  `gerando` | `pronto` | `erro`, `erro`, `resultado`, `proxyFileId`, `dispositivoId`, datas). Migração
+  `0007_pedidos_proxy` (só acrescenta). Some com a conta e com a conta Google (cascade).
+- **API** (`web/src/app/api/proxies/pedidos/`; cookie ou Bearer; respostas `{ ok, ... }`):
+  - `GET ?status=pendente[,…]|todos&fileIds=a,b` → `{ pedidos }` (mais novos primeiro; até 500). Antes de listar,
+    `gerando` sem notícia há 30 min volta a `pendente` e terminados com mais de 14 dias somem.
+  - `POST { contaGoogleId, itens: [{ fileId, nome, tamanho? }] }` (até 200) → `{ pedidos, novos }` (201 se entrou algum).
+    Conta Google de outra pessoa → `404 conta`. O mesmo arquivo já `pendente`/`gerando` não entra de novo.
+  - `POST /:id/pegar` (só Bearer; cookie → `403 so_computador`) → `{ pedido }`; outro computador já pegou → `409 ocupado`.
+  - `PATCH /:id { status, erro?, resultado?, proxyFileId? }`: o computador que pegou muda tudo (`gerando` = sinal de
+    vida); o dono pelo celular só devolve para `pendente` (tentar de novo um erro). `pronto` não volta.
+  - `DELETE /:id` cancela.
+- **Computador** (`src/engine/pedidos-proxy.js`): com a conta SOBEDESCE e o conversor (ffmpeg), a cada 30 s pega os
+  pendentes, um por vez, na ordem em que o celular pediu. Gera como o "Gerar proxy" da tela Drive (`gerarPreviasLote`
+  só com aquele arquivo, `forcar`, `baixar`: usa o original que a fila conhece ou baixa do Drive) e conta `pronto`
+  (`proxyFileId`; "Já tinha proxy" quando já existia) ou `erro` (frase curta). Sinal de vida a cada 5 min; 404/409 no
+  sinal (cancelado no celular, outro pegou) para no meio. Fechar o app devolve o pedido para `pendente`. Sem conversor,
+  não pega nada (outro computador da conta pode ter).
+- **Celular** (`components/proxies.js`): na seleção da aba Drive, **Gerar proxy** (só vídeos, inclusive RAW de câmera;
+  não as próprias cópias leves). A folha diz se há um computador ligado (pela notícia do "Acompanhar pelo celular"),
+  pede e acompanha cada vídeo a cada 5 s enquanto está aberta: esperando, gerando, pronto ou o erro com **De novo**.

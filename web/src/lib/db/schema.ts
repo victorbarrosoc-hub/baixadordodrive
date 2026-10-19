@@ -331,3 +331,33 @@ export const avisosAdmin = pgTable("avisos_admin", {
   chave: text().primaryKey(),
   criadoEm: agora(),
 });
+
+/** Pedido de proxy (docs/CONTAS.md §11): o celular pede, o app do computador gera o proxy e a tira de quadros. */
+export type StatusPedidoProxy = "pendente" | "gerando" | "pronto" | "erro";
+
+export const pedidosProxy = pgTable(
+  "pedidos_proxy",
+  {
+    id: text().primaryKey(),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    contaGoogleId: text()
+      .notNull()
+      .references(() => contasGoogle.id, { onDelete: "cascade" }),
+    /** Arquivo original no Drive. */
+    fileId: text().notNull(),
+    nome: text().notNull(),
+    tamanho: bigint({ mode: "number" }),
+    status: text().$type<StatusPedidoProxy>().notNull().default("pendente"),
+    erro: text(),
+    /** O que o computador fez ("Proxy gerado", "Já tinha proxy: tira de quadros feita", "Já é leve"). */
+    resultado: text(),
+    proxyFileId: text(),
+    /** Sessão (computador) que pegou o pedido. */
+    dispositivoId: text(),
+    criadoEm: agora(),
+    atualizadoEm: agora(),
+  },
+  (t) => [index("pedidos_proxy_usuario_status_idx").on(t.usuarioId, t.status), index("pedidos_proxy_arquivo_idx").on(t.usuarioId, t.fileId)],
+);
