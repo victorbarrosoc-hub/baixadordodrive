@@ -46,11 +46,11 @@ const PLATS = [
 
 export function PlatformsSection() {
   return (
-    <section id="baixar" aria-labelledby="baixar-titulo" className="scroll-mt-14 bg-surface-2 py-20 sm:py-28">
+    <section id="baixar" aria-labelledby="baixar-titulo" className="scroll-mt-14 bg-surface-2 py-20 sm:py-28 2xl:py-40">
       <Container>
         <SectionHeading id="baixar-titulo" eyebrow="Plataformas" title="Onde você estiver." />
 
-        <div className="mx-auto mt-12 grid max-w-5xl gap-4 sm:mt-16 sm:gap-5 md:grid-cols-3">
+        <div className="mx-auto mt-12 grid max-w-5xl gap-4 sm:mt-16 sm:gap-5 md:grid-cols-3 xl:max-w-none 2xl:gap-8">
           {PLATS.map((p, i) => {
             const interno = p.key === "celular";
             const btn = buttonClasses({ variant: "secondary", size: "md", className: "w-full" });

@@ -6,7 +6,7 @@ import { Logo } from "./logo";
 export function SiteFooter() {
   return (
     <footer className="border-t border-line bg-surface-2">
-      <div className="mx-auto grid max-w-6xl gap-8 px-5 py-12 sm:px-8 md:grid-cols-[1fr_auto] md:items-end">
+      <div className="largura grid gap-8 py-12 md:grid-cols-[1fr_auto] md:items-end">
         <div className="grid gap-3">
           <Logo />
           <p className="max-w-md text-[13px] leading-relaxed text-ink-2">
@@ -25,7 +25,7 @@ export function SiteFooter() {
           </a>
         </nav>
       </div>
-      <div className="mx-auto max-w-6xl px-5 pb-10 text-[12px] text-ink-3 sm:px-8">
+      <div className="largura pb-10 text-[12px] text-ink-3">
         Google Drive é uma marca do Google LLC. A SOBEDESCE não é afiliada ao Google.
       </div>
     </footer>

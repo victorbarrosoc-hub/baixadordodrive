@@ -1,9 +1,10 @@
 import Link from "next/link";
 
-/** Cabeçalho das telas de conta: só a marca (volta para a página inicial) e uma ação à direita. */
+/** Cabeçalho das telas de conta: só a marca (volta para a página inicial) e uma ação à direita, nas pontas da tela. */
 export function Cabecalho({ acao }: { acao?: React.ReactNode }) {
   return (
-    <header className="mx-auto flex h-16 w-full max-w-[1080px] items-center justify-between px-5 sm:h-20 sm:px-8">
+    // De ponta a ponta no desktop (margem fluida), como o cabeçalho do site.
+    <header className="largura-cheia flex h-16 items-center justify-between sm:h-20 sm:px-8 lg:px-[clamp(32px,3vw,56px)]">
       <Link
         href="/"
         className="toque rounded-full text-[15px] font-semibold tracking-[0.16em] text-ink transition-opacity hover:opacity-70"

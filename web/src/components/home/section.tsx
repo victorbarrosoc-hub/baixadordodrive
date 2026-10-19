@@ -30,12 +30,12 @@ export function SectionHeading({
   dark?: boolean;
 }) {
   return (
-    <Reveal className={cn("grid gap-5", align === "center" ? "mx-auto max-w-3xl text-center" : "max-w-xl")}>
+    <Reveal className={cn("grid gap-5", align === "center" ? "mx-auto max-w-3xl text-center 2xl:max-w-5xl" : "max-w-xl 2xl:max-w-3xl")}>
       <p className={cn("text-[15px] font-semibold sm:text-[17px]", EYEBROW[tone])}>{eyebrow}</p>
       <h2
         id={id}
         className={cn(
-          "font-display text-[34px] leading-[1.06] font-semibold tracking-[-0.03em] text-balance sm:text-[48px] lg:text-[56px]",
+          "font-display text-[34px] leading-[1.06] font-semibold tracking-[-0.03em] text-balance sm:text-[48px] lg:text-[clamp(56px,3.6vw,96px)]",
           dark ? "text-white" : "text-ink",
         )}
       >
@@ -44,7 +44,7 @@ export function SectionHeading({
       {children ? (
         <div
           className={cn(
-            "grid gap-4 text-[17px] leading-[1.55] text-pretty sm:text-[19px]",
+            "grid gap-4 text-[17px] leading-[1.55] text-pretty sm:text-[19px] 2xl:text-[21px]",
             dark ? "text-white/65" : "text-ink-2",
             align === "center" && "mx-auto max-w-2xl",
           )}
@@ -57,5 +57,5 @@ export function SectionHeading({
 }
 
 export function Container({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={cn("mx-auto max-w-6xl px-5 sm:px-8", className)}>{children}</div>;
+  return <div className={cn("largura", className)}>{children}</div>;
 }

@@ -92,6 +92,21 @@
   }
 }
 
+/*
+ * Largura de página que se adapta à tela (desktop de 1280 a 2560+): margem lateral fluida e conteúdo até 2240 px.
+ * No celular a margem fica em 20 px, como antes. `largura-cheia`: de ponta a ponta (cabeçalhos), só com a margem.
+ */
+@utility largura {
+  width: 100%;
+  max-width: 2240px;
+  margin-inline: auto;
+  padding-inline: clamp(20px, 4vw, 96px);
+}
+@utility largura-cheia {
+  width: 100%;
+  padding-inline: clamp(20px, 3vw, 56px);
+}
+
 @keyframes sd-rise {
   from {
     opacity: 0;
