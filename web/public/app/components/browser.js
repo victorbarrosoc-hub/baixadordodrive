@@ -629,6 +629,8 @@ const swipeHere = () => {
 const isStandalone = () => typeof navigator !== 'undefined' && navigator.standalone === true
 
 const EDGE = 24 // px da borda esquerda (depois da área segura) que ficam para o gesto do sistema
+// O dedo parado mais que isso antes de travar no voltar = é um segurar (seleção, correr o take), não um voltar.
+const SEGURAR_ANTES_MS = 250
 let safeLeftPx = null
 function safeLeft() {
   if (safeLeftPx != null) return safeLeftPx
@@ -655,7 +657,7 @@ function ownsDrag(target) {
 
 /**
  * Arrastar para a direita, de qualquer ponto da tela, volta uma pasta. Só a faixa de EDGE px da borda esquerda fica de
- * fora (é do sistema). O dedo precisa andar mais para o lado do que para baixo; só então a rolagem é segurada
+ * fora (é do sistema), e o toque que ficou parado antes de andar (segurar: seleção e correr o take na miniatura). O dedo precisa andar mais para o lado do que para baixo; só então a rolagem é segurada
  * (touchmove não passivo, com preventDefault só depois de travar no gesto). Para a esquerda ou na vertical, não é com a
  * gente. A tela atual acompanha o dedo (transform direto no elemento, sem redesenhar) e a de cima aparece por trás,
  * deslocada e escurecida. Soltou depois de 35% da largura ou rápido (> 0,5 px/ms): termina com --spring e volta; senão,
@@ -706,7 +708,7 @@ function useSwipeBack({ enabled, screenRef, behindRef, onStart, onEnd, onBack })
       if (t.clientX <= safeLeft() + EDGE) return
       if (document.documentElement.classList.contains('has-sheet')) return
       if (ownsDrag(e.target)) return
-      g = { x0: t.clientX, y0: t.clientY, dx: 0, on: false, samples: [{ x: t.clientX, t: performance.now() }] }
+      g = { x0: t.clientX, y0: t.clientY, t0: performance.now(), dx: 0, on: false, samples: [{ x: t.clientX, t: performance.now() }] }
     }
     const move = (e) => {
       if (!g) return
@@ -714,6 +716,13 @@ function useSwipeBack({ enabled, screenRef, behindRef, onStart, onEnd, onBack })
       const dx = t.clientX - g.x0
       const dy = t.clientY - g.y0
       if (!g.on) {
+        // Segurou antes de andar (o segurar e arrastar da miniatura, a seleção): não é voltar. O voltar de verdade sai
+        // andando na hora; o gesto da miniatura também marca o evento (preventDefault) quando é dele.
+        if (e.defaultPrevented) return void (g = null)
+        if (!g.andou && Math.hypot(dx, dy) > 10) {
+          if (performance.now() - g.t0 > SEGURAR_ANTES_MS) return void (g = null)
+          g.andou = true
+        }
         if (dx < -10 || (Math.abs(dy) > 10 && Math.abs(dy) > dx)) return void (g = null) // para a esquerda ou rolagem
         if (dx < 12 || dx < Math.abs(dy) * 1.4) return
         g.on = true
