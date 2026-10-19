@@ -10,6 +10,7 @@ import { responderCofre } from './cofre.js'
 import { AVISO_COOKIES, marcarAvisado, migrarCookies, precisaAvisar } from './cookies-cifrados.js'
 import { abrirNavegador, cookiesPara, fecharNavegador, registrarCanais } from './navegador.js'
 import { handoffCommand, isHandoffScript } from '../src/updater.js'
+import { ligarZoom } from './zoom.js'
 
 const here = import.meta.dirname
 const isMac = process.platform === 'darwin'
@@ -21,6 +22,7 @@ if (isWin) app.setAppUserModelId('app.sobedesce.desktop')
 let engine = null // utilityProcess do motor
 let engineUrl = null
 let win = null
+let zoom = null // zoom automático pela largura da janela + o escolhido no menu (desktop/zoom.js)
 let quitting = false
 let quitConfirmed = false // a pessoa já disse "Sair" com transferências andando (não pergunta duas vezes)
 let activeCount = 0
@@ -237,6 +239,7 @@ function createWindow() {
     return { action: 'deny' }
   })
 
+  zoom = ligarZoom(win, { userData: app.getPath('userData') })
   win.once('ready-to-show', () => win.show())
   win.on('close', event => {
     if (quitting || isMac) {
@@ -402,9 +405,10 @@ function buildMenu() {
         { role: 'reload', label: 'Recarregar' },
         { role: 'toggleDevTools', label: 'Ferramentas do desenvolvedor' },
         { type: 'separator' },
-        { role: 'resetZoom', label: 'Tamanho real' },
-        { role: 'zoomIn', label: 'Aumentar' },
-        { role: 'zoomOut', label: 'Diminuir' },
+        { label: 'Tamanho real', accelerator: 'CmdOrCtrl+0', click: () => zoom?.tamanhoReal() },
+        { label: 'Aumentar', accelerator: 'CmdOrCtrl+=', click: () => zoom?.aumentar() },
+        { label: 'Aumentar', accelerator: 'CmdOrCtrl+Plus', click: () => zoom?.aumentar(), visible: false, acceleratorWorksWhenHidden: true },
+        { label: 'Diminuir', accelerator: 'CmdOrCtrl+-', click: () => zoom?.diminuir() },
         { type: 'separator' },
         { role: 'togglefullscreen', label: 'Tela cheia' },
       ],

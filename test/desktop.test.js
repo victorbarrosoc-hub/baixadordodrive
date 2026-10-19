@@ -91,3 +91,39 @@ test('navegador.js: página sem preload, isolada, e todo canal da barra confere 
   const preload = await fs.readFile(new URL('../desktop/preload-navegador.cjs', import.meta.url), 'utf8')
   assert.doesNotMatch(preload, /require\('(fs|child_process|path)'\)/)
 })
+
+// ─────────── zoom automático (desktop/zoom.js) ───────────
+import { lerEscolha, proximoPasso, zoomAutomatico } from '../desktop/zoom.js'
+
+test('zoom automático: tamanho real até 1600 px, cresce até 1,3× em 2560 e para em 1,4×', () => {
+  assert.equal(zoomAutomatico(980), 1)
+  assert.equal(zoomAutomatico(1440), 1)
+  assert.equal(zoomAutomatico(1600), 1)
+  assert.equal(zoomAutomatico(1920), 1.1)
+  assert.equal(zoomAutomatico(2560), 1.3)
+  assert.equal(zoomAutomatico(5120), 1.4)
+  assert.equal(zoomAutomatico(undefined), 1)
+})
+
+test('zoom da pessoa: passos do menu, Tamanho real e arquivo estragado', async () => {
+  assert.equal(proximoPasso(1, 1), 1.1)
+  assert.equal(proximoPasso(1, -1), 0.9)
+  assert.equal(proximoPasso(1.25, 0), 1)
+  assert.equal(proximoPasso(2, 1), 2)
+  assert.equal(proximoPasso(0.67, -1), 0.67)
+  assert.equal(proximoPasso(1.3, -1), 1.25, 'valor fora da lista volta para o passo de baixo')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sd-zoom-'))
+  try {
+    assert.equal(lerEscolha(path.join(dir, 'nao-existe.json')), 1)
+    await fs.writeFile(path.join(dir, 'z.json'), '{"pessoa": 1.25}')
+    assert.equal(lerEscolha(path.join(dir, 'z.json')), 1.25)
+    await fs.writeFile(path.join(dir, 'z.json'), '{"pessoa": 99}')
+    assert.equal(lerEscolha(path.join(dir, 'z.json')), 1)
+    await fs.writeFile(path.join(dir, 'z.json'), 'lixo')
+    assert.equal(lerEscolha(path.join(dir, 'z.json')), 1)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})

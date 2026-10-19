@@ -406,10 +406,17 @@ const LINHA_ATIVA = 120 // px do topo: a seção cujo título passou desta linha
 
 /** Qual item do índice está na tela: a última seção que já passou da linha; no fim da página, a última que aparece. */
 function secaoVisivel() {
+  // A seção cujo topo está mais perto da linha (de cima). Numa coluna só, é a última que passou da linha; em tela
+  // larga os grupos vão em duas colunas, e a ordem do índice não diz mais quem está mais embaixo.
   let ativo = INDICE[0].id
+  let melhor = -Infinity
   for (const s of INDICE) {
     const el = document.getElementById(s.id)
-    if (el && el.getBoundingClientRect().top <= LINHA_ATIVA) ativo = s.id
+    const top = el ? el.getBoundingClientRect().top : Infinity
+    if (top <= LINHA_ATIVA && top > melhor) {
+      melhor = top
+      ativo = s.id
+    }
   }
   const fim = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4
   if (fim) {
