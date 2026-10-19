@@ -563,6 +563,42 @@ test('startApp: sem chave, "conectar" leva para os primeiros passos; trava de in
   }
 })
 
+test('startApp: faixa de portas toda ocupada (ou reservada pelo Windows) → o sistema escolhe outra porta', async () => {
+  const net = await import('node:net')
+  const home = await makeTmpDir('sobedesce-porta-')
+  // Acha 21 portas livres seguidas e ocupa todas.
+  const ocupadas = []
+  let base = 0
+  for (let tentativa = 0; tentativa < 20 && !ocupadas.length; tentativa++) {
+    base = 30000 + Math.floor(Math.random() * 20000)
+    const abertos = []
+    try {
+      for (let i = 0; i < 21; i++) {
+        const s = net.createServer()
+        await new Promise((resolve, reject) => s.once('error', reject).listen(base + i, '127.0.0.1', resolve))
+        abertos.push(s)
+      }
+      ocupadas.push(...abertos)
+    } catch {
+      for (const s of abertos) s.close()
+    }
+  }
+  assert.ok(ocupadas.length, 'não achei 21 portas livres seguidas')
+  try {
+    const a = await startApp({ home, port: base, open: false, quiet: true, managerOptions: { keepAwake } })
+    try {
+      assert.ok(a.port < base || a.port > base + 20, `porta ${a.port}`)
+      const r = await get('/api/state', { port: a.port })
+      assert.equal(r.status, 200)
+    } finally {
+      await a.shutdown()
+    }
+  } finally {
+    for (const s of ocupadas) s.close()
+    await fs.rm(home, { recursive: true, force: true })
+  }
+})
+
 test('motor sobe com mais threads de disco (UV_THREADPOOL_SIZE) antes de qualquer uso do pool', async () => {
   const { execFile } = await import('node:child_process')
   const entry = new URL('../src/index.js', import.meta.url).href

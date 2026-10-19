@@ -25,8 +25,12 @@ const MiB = 1024 * KiB
 
 /** Extensões que o Drive não miniaturiza e que um extrator do sistema pode saber abrir. */
 export const RAW_THUMB_EXTS = Object.freeze(['.braw', '.r3d'])
-export const DEFAULT_WIDTH = 1280
-export const DEFAULT_TIMEOUT_MS = 20_000
+// 960 px basta para a grade do Drive e sai bem mais rápido: o leitor do Blackmagic RAW decodifica em resolução reduzida
+// quando a miniatura pedida é menor.
+export const DEFAULT_WIDTH = 960
+// O Quick Look do Blackmagic RAW num SSD externo leva de 20 a 60 s na primeira leitura (sobe o decodificador e lê o
+// arquivo); 20 s cortava quase todos. Passou disso, desiste (o envio nunca espera por isto).
+export const DEFAULT_TIMEOUT_MS = 90_000
 /** O Drive aceita até 2 MB; com folga, porque vai em base64 dentro do JSON. */
 export const MAX_THUMB_BYTES = Math.floor(1.5 * MiB)
 /** Página oficial do Blackmagic RAW (Player + SDK; instala o suporte a miniatura). */
