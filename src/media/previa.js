@@ -8,6 +8,7 @@
 //    NVENC, Quick Sync, AMF ou Media Foundation), senão libx264 (veryfast, CRF 24, teto de 3 Mbit/s).
 //    720p a ≈ 2,5 Mbit/s é a qualidade que o próprio Drive usa para tocar sem engasgar: o proxy é para ver, não para editar.
 //  - Mac sem ffmpeg que rode: /usr/bin/avconvert (AVFoundation, acelerado por hardware), só para o que o macOS abre.
+//  - Blackmagic RAW: a imagem vem do ajudante nativo (Blackmagic RAW SDK instalado) e o ffmpeg codifica (media/braw.js).
 // Tudo com prioridade baixa (nice / BELOW_NORMAL), um por vez, cancelável e com tempo limite proporcional à duração.
 // Nada aqui lança para fora sem motivo claro: quem chama recebe { estado, motivo } e segue.
 import fsp from 'node:fs/promises'
@@ -16,6 +17,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { abortError } from '../util/backoff.js'
+import { argsBrawTranscode, brawInfo, detectarBraw, isBrawName, runPipe } from './braw.js'
 
 const MB = 1e6
 const KiB = 1024
@@ -74,6 +76,13 @@ export function isVideoName(name) {
 }
 
 export const isRawName = name => RAW_EXTS.includes(splitExt(name)[1])
+
+/**
+ * Pode ganhar proxy neste computador? Vídeo comum sempre; .braw só com o ajudante do Blackmagic RAW funcionando
+ * (`motor.braw.ok`, de detectarMotor).
+ */
+export const podeTerProxy = (name, motor) => isVideoName(name) || (isBrawName(name) && !!motor?.braw?.ok)
+export { isBrawName }
 
 /** Nome da cópia leve: o mesmo nome-base com .mp4. */
 export function previaName(name) {
@@ -433,11 +442,13 @@ async function listEncoders(bin, signal) {
 
 /**
  * O que este computador tem para gerar a cópia leve (ffmpeg + codificador testado, ou avconvert no Mac).
+ * `braw`: troca o detectarBraw (testes; null não procura o ajudante do Blackmagic RAW).
  * @returns {Promise<{ via: 'ffmpeg'|'avconvert'|null, ffmpeg: null|{ path, versao, origem }, encoder: null|{ nome, hardware },
- *   encoders: string[], avconvert: string|null, label: string, aviso: string|null, testados: object[] }>}
+ *   encoders: string[], avconvert: string|null, braw: null|{ path, ok, motivo }, label: string, aviso: string|null,
+ *   testados: object[] }>}
  */
-export async function detectarMotor({ env = process.env, platform = process.platform, arch = process.arch, resourcesPath = process.resourcesPath, appRoot = APP_ROOT, signal, avconvertPath = '/usr/bin/avconvert', candidates } = {}) {
-  const out = { via: null, ffmpeg: null, encoder: null, encoders: [], avconvert: null, label: '', aviso: null, testados: [] }
+export async function detectarMotor({ env = process.env, platform = process.platform, arch = process.arch, resourcesPath = process.resourcesPath, appRoot = APP_ROOT, signal, avconvertPath = '/usr/bin/avconvert', candidates, braw = detectarBraw } = {}) {
+  const out = { via: null, ffmpeg: null, encoder: null, encoders: [], avconvert: null, braw: null, label: '', aviso: null, testados: [] }
   for (const c of candidates ?? ffmpegCandidates({ env, platform, arch, resourcesPath, appRoot })) {
     if (signal?.aborted) throw abortError(signal)
     if (!(await exists(c.path))) continue
@@ -463,6 +474,13 @@ export async function detectarMotor({ env = process.env, platform = process.plat
     }
     if (!out.encoder && names.has('libx264')) out.encoder = { nome: 'libx264', hardware: false }
     if (out.encoder) out.via = 'ffmpeg'
+  }
+  // Proxy de BRAW: só com o ffmpeg (o avconvert não lê vídeo cru pelo cano).
+  if (out.via === 'ffmpeg' && braw) {
+    out.braw = await braw({ env, platform, resourcesPath, signal }).catch(err => {
+      if (signal?.aborted) throw err
+      return null
+    })
   }
   if (!out.via && platform === 'darwin' && (await exists(avconvertPath))) {
     out.avconvert = avconvertPath
@@ -575,6 +593,7 @@ export async function gerarPrevia(file, { motor, name, size, forcar = false, sig
   const st = await fsp.stat(file).catch(() => null)
   if (!st?.isFile()) return { estado: 'dispensada', motivo: 'arquivo local não encontrado' }
   const nome = name || path.basename(file)
+  if (isBrawName(nome)) return gerarPreviaBraw(file, { motor, signal, onProgress, tmpRoot, log })
   onProgress?.('analisando')
   const info = motor.via === 'ffmpeg' ? await probe(motor, file, { signal }) : null
   if (motor.via === 'ffmpeg' && !info) return { estado: 'dispensada', motivo: 'o ffmpeg não abriu este arquivo' }
@@ -618,6 +637,89 @@ export async function gerarPrevia(file, { motor, name, size, forcar = false, sig
 
 export { PreviaError }
 
+/** Proxy de .braw: ajudante do Blackmagic RAW → ffmpeg (media/braw.js). Mesmo retorno do gerarPrevia. */
+async function gerarPreviaBraw(file, { motor, signal, onProgress, tmpRoot, log }) {
+  if (motor.via !== 'ffmpeg') return { estado: 'dispensada', motivo: 'o proxy de BRAW precisa do ffmpeg' }
+  if (!motor.braw) return { estado: 'dispensada', motivo: 'este app ainda não tem o decodificador de Blackmagic RAW' }
+  if (!motor.braw.ok) return { estado: 'dispensada', motivo: `BRAW: ${motor.braw.motivo}` }
+  onProgress?.('analisando')
+  let info
+  try {
+    info = await brawInfo(motor.braw.path, file, { maxSide: PREVIA_LADO, signal })
+  } catch (err) {
+    if (signal?.aborted || err?.name === 'AbortError') throw err
+    if (err?.semComo) return { estado: 'dispensada', motivo: `BRAW: ${err.message}` }
+    throw new PreviaError(err?.message || String(err), { retry: false })
+  }
+  const estimate = (info.durationS * 5.4e6) / 8
+  const free = await freeBytes(tmpRoot)
+  if (free != null && free < estimate * 1.5 + 200 * MB) return { estado: 'dispensada', motivo: 'pouco espaço livre no disco do sistema' }
+
+  const dir = await fsp.mkdtemp(path.join(tmpRoot, 'sobedesce-previa-'))
+  const output = path.join(dir, 'previa.mp4')
+  const limpar = () => fsp.rm(dir, { recursive: true, force: true }).catch(() => {})
+  try {
+    onProgress?.('gerando', 0)
+    const progress = f => onProgress?.('gerando', f)
+    // Decodificar BRAW na CPU é mais lento que um vídeo comum: o dobro do tempo limite.
+    const timeoutMs = timeoutFor(info.durationS) * 2
+    let used = null
+    let last = null
+    for (const t of plano(motor).filter(p => !p.hwDecode)) {
+      try {
+        await fsp.rm(output, { force: true })
+        await brawOnce(motor, { input: file, output, info, encoder: t.encoder, signal, onProgress: progress, timeoutMs })
+        used = t.encoder
+        break
+      } catch (err) {
+        if (signal?.aborted || err?.name === 'AbortError') throw err
+        last = err
+        log(`conversão (BRAW): ${err.message}`)
+        if (err.retry === false) break
+      }
+    }
+    if (!used) throw last || new PreviaError('nenhum codificador funcionou')
+    const out = await fsp.stat(output).catch(() => null)
+    if (!out || out.size < 1024) throw new PreviaError('a cópia saiu vazia')
+    onProgress?.('gerando', 1)
+    return { estado: 'pronta', path: output, size: out.size, encoder: used, motivo: 'Blackmagic RAW', limpar }
+  } catch (err) {
+    await limpar()
+    throw err
+  }
+}
+
+/** Uma conversão de BRAW com um codificador. Lança PreviaError (motivo curto) ou AbortError. */
+async function brawOnce(motor, { input, output, info, encoder, signal, onProgress, timeoutMs }) {
+  const vf = videoFilter(null, encoder).replace('force_divisible_by=2', 'force_divisible_by=2:out_color_matrix=bt709:out_range=tv')
+  let buf = ''
+  const r = await runPipe({
+    helper: motor.braw.path,
+    helperArgs: ['--frames', '--input', input, '--max-side', String(PREVIA_LADO)],
+    ffmpeg: motor.ffmpeg.path,
+    ffmpegArgs: argsBrawTranscode({ input, output, info, vf, encoderArgs: encoderArgs(encoder) }),
+    signal,
+    timeoutMs,
+    stallMs: STALL_MS,
+    onStdout: s => {
+      buf += s
+      const lines = buf.split('\n')
+      buf = lines.pop()
+      for (const line of lines) {
+        const m = /^out_time_(?:us|ms)=(\d+)/.exec(line.trim())
+        if (m) onProgress?.(Math.min(0.999, Number(m[1]) / 1e6 / info.durationS))
+      }
+    },
+  })
+  if (r.aborted) throw abortError(signal)
+  if (r.timedOut) throw new PreviaError('tempo esgotado', { retry: false })
+  if (r.stalled) throw new PreviaError('o conversor travou', { retry: false })
+  if (r.error) throw new PreviaError(`não consegui rodar o conversor de BRAW (${r.error.code || r.error.message})`, { retry: false })
+  // O ajudante falhou: trocar de codificador não ajuda.
+  if (r.helperCode !== 0) throw new PreviaError(`ajudante do Blackmagic RAW: ${lastLine(r.helperStderr) || `saiu com ${r.helperCode}`}`, { retry: false })
+  if (r.code !== 0) throw new PreviaError(`${encoder}: ${lastLine(r.stderr) || `saiu com ${r.code}`}`)
+}
+
 /**
  * Converte para H.264 + AAC em MP4 com o ffmpeg, tentando os codificadores do plano (hardware primeiro, libx264 por
  * último). `lado`: lado maior da saída (padrão: 1280, a prévia leve). Devolve o codificador usado; lança PreviaError.
@@ -648,5 +750,6 @@ export function motorResumo(m) {
   if (!m) return 'verificando…'
   if (!m.via) return m.aviso || 'sem conversor'
   if (m.via === 'avconvert') return 'avconvert do macOS'
-  return `ffmpeg ${m.ffmpeg?.versao || ''} · ${m.encoder?.nome}${m.ffmpeg?.origem === 'sistema' ? ' (do sistema)' : ''}`.trim()
+  const braw = m.braw?.ok ? ' · BRAW' : ''
+  return `ffmpeg ${m.ffmpeg?.versao || ''} · ${m.encoder?.nome}${m.ffmpeg?.origem === 'sistema' ? ' (do sistema)' : ''}${braw}`.trim()
 }

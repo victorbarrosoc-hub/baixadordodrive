@@ -12,7 +12,7 @@ import { FOLDER_MIME } from '../google/drive.js'
 import { classifyError } from '../google/errors.js'
 import { abortError, isAbortError } from '../util/backoff.js'
 import { LOTE_LIMITS, indexLocalRaw, nameKey } from './raw-thumb-lote.js'
-import { LEVE_LADO, PEQUENO_BYTES, PROXY_EXTS, baseKey, isProxyDirName, isVideoName, splitExt } from './previa.js'
+import { LEVE_LADO, PEQUENO_BYTES, PROXY_EXTS, baseKey, isProxyDirName, podeTerProxy, splitExt } from './previa.js'
 import { isPrevia } from './previa-fila.js'
 
 function badRequest(message, status = 400) {
@@ -32,10 +32,10 @@ export function levePeloDrive(item) {
 }
 
 /**
- * Vídeos de uma pasta do Drive e os proxies que já existem para eles.
+ * Vídeos de uma pasta do Drive e os proxies que já existem para eles (.braw só com `motor.braw.ok`).
  * @returns {Promise<{ root, videos: DriveItem[], proxyOf(v): DriveItem|null }>}
  */
-export async function listDriveVideos(drive, folderId, { recursive = true, signal } = {}) {
+export async function listDriveVideos(drive, folderId, { recursive = true, signal, motor = null } = {}) {
   let root
   try {
     root = await drive.getItem(folderId, { signal })
@@ -77,7 +77,7 @@ export async function listDriveVideos(drive, folderId, { recursive = true, signa
     if (inProxyDir(it)) put(folders.get(parent)?.parents?.[0], it)
     else put(parent, it)
   }
-  const videos = items.filter(it => !it.isFolder && !it.isShortcut && !it.isGoogleDoc && it.size != null && isVideoName(it.name) && !inProxyDir(it) && !isPrevia(it))
+  const videos = items.filter(it => !it.isFolder && !it.isShortcut && !it.isGoogleDoc && it.size != null && podeTerProxy(it.name, motor) && !inProxyDir(it) && !isPrevia(it))
   const proxyOf = v => {
     const parent = v.parents?.[0]
     const ext = splitExt(v.name)[1]
@@ -157,9 +157,9 @@ export async function gerarPreviasLote({ drive, gerador, driveFolderId, localDir
     g.catch(() => {})
     return g
   }
-  const driveP = guard(listDriveVideos(drive, driveFolderId, { recursive, signal: sig }))
+  const driveP = guard(listDriveVideos(drive, driveFolderId, { recursive, signal: sig, motor }))
   const localP = localDir
-    ? guard(indexLocalRaw(localDir, { signal: sig, limits: lim, accept: isVideoName, onProgress: p => ((s.localFiles = p.files), s.phase === 'local' && report()) }))
+    ? guard(indexLocalRaw(localDir, { signal: sig, limits: lim, accept: name => podeTerProxy(name, motor), onProgress: p => ((s.localFiles = p.files), s.phase === 'local' && report()) }))
     : Promise.resolve({ byName: new Map(), files: 0, truncated: false })
   let listed
   let local

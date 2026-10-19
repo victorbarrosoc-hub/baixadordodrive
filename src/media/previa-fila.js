@@ -16,7 +16,7 @@ import { PART_SUFFIX, safeLocalName } from '../util/paths.js'
 import { FOLDER_MIME, escapeQueryValue, toDriveItem } from '../google/drive.js'
 import { abortError, isAbortError } from '../util/backoff.js'
 import { newId } from '../util/ids.js'
-import { PREVIA_MARCA, PREVIA_PASTA, detectarMotor, gerarPrevia, isProxyDirName, isProxyName, isVideoName, motorResumo, previaName, splitExt } from './previa.js'
+import { PREVIA_MARCA, PREVIA_PASTA, detectarMotor, gerarPrevia, isProxyDirName, isProxyName, motorResumo, podeTerProxy, previaName, splitExt } from './previa.js'
 
 /** Estados que ainda vão andar (voltam para a fila ao reabrir o app). */
 export const PREVIA_PENDENTE = Object.freeze(['fila', 'analisando', 'gerando', 'enviando', 'pausada'])
@@ -134,10 +134,13 @@ export class GeradorPrevias {
     return typeof record?.proxy === 'boolean' ? record.proxy : this.padrao()
   }
 
-  /** Vídeo que pode ter proxy (pela extensão; RAW fica de fora). */
+  /** Vídeo que pode ter proxy (pela extensão; .braw só com o Blackmagic RAW funcionando neste computador). */
   elegivel(record) {
     // Referências (vídeos salvos de redes sociais) não ganham proxy.
-    return !!(record && record.type === 'upload' && !record.referencia && record.local?.path && isVideoName(record.name || record.local.path))
+    if (!(record && record.type === 'upload' && !record.referencia && record.local?.path)) return false
+    const name = record.name || record.local.path
+    // Motor ainda sem resposta (app abrindo, fila restaurada): o .braw entra e o gerarPrevia decide.
+    return this.motorResult ? podeTerProxy(name, this.motorResult) : podeTerProxy(name, { braw: { ok: true } })
   }
 
   /** Vale cópia leve para este envio? */
