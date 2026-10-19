@@ -70,6 +70,10 @@ jobs:
             files: dist/*.exe
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      # Em pull request o electron-builder pula a assinatura; a do Mac aqui é ad-hoc (identity "-", sem certificado nem
+      # segredo), então assina igual à main: sem ela o framework da Blackmagic dentro do app fica com a assinatura
+      # quebrada, o macOS não carrega e o teste de fumaça do PR não testaria o app que sai de verdade.
+      CSC_FOR_PULL_REQUEST: "true"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
