@@ -6087,6 +6087,9 @@ html.is-dswipe body {
 .selsheet-ok {
   color: var(--ok-text);
 }
+.tile-media.arrasta {
+  touch-action: pan-y;
+}
 .selact span {
   text-align: center;
   line-height: 1.15;

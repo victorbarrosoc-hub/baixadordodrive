@@ -130,12 +130,27 @@ function metaOf(f, kind) {
 /** Bruto sem miniatura (BRAW, R3D…): usa a do proxy, se ele já é conhecido. */
 const thumbSource = (f, kind, siblings) => (kind === 'video' && !f.thumbnailLink ? knownProxy(f, siblings) || f : f)
 
+let avisouSemTira = 0
+/** O vídeo ainda não tem a tira de quadros (é o computador que gera, junto do proxy). No máximo a cada 20 s. */
+function avisarSemTira() {
+  if (Date.now() - avisouSemTira < 20_000) return
+  avisouSemTira = Date.now()
+  toast('Este vídeo ainda não tem a prévia de arrastar. Selecione e toque em Gerar proxy: o computador cria.', { ms: 6000 })
+}
+
 function Tile({ f, siblings, onOpen, selecionando = false, marcado = false, onMarcar }) {
   const kind = kindOf(f)
   const dur = f.videoMediaMetadata?.durationMillis
-  // Segurar: solta sem arrastar = seleciona; arrasta para os lados (vídeo com tira de quadros) = corre o take.
+  // Miniatura de vídeo: arrastar para os lados corre o take (sem segurar; o "voltar" sai de fora dela). Sem a tira
+  // de quadros, o arrasto explica de onde ela vem. Segurar e soltar seleciona.
   const [toqueX, setToqueX] = useState(null)
-  const gesto = useSegurar({ onSegurar: onMarcar ? () => onMarcar(f) : null, onArrastar: kind === 'video' && gradeDe(f) ? setToqueX : null })
+  const video = kind === 'video'
+  const tira = video && Boolean(gradeDe(f))
+  const gesto = useSegurar({
+    onSegurar: onMarcar ? () => onMarcar(f) : null,
+    onArrastar: tira ? setToqueX : video ? (x) => x != null && avisarSemTira() : null,
+    direto: video,
+  })
   return html`<li>
     <button
       type="button"
@@ -151,7 +166,7 @@ function Tile({ f, siblings, onOpen, selecionando = false, marcado = false, onMa
       aria-pressed=${selecionando ? (marcado ? 'true' : 'false') : undefined}
       aria-label=${`${f.name}${kind === 'folder' ? ', pasta' : ''}`}
     >
-      <span class="tile-media">
+      <span class=${cx('tile-media', video && 'arrasta')} data-noswipe=${video ? '' : undefined}>
         <${Thumb} file=${f} from=${thumbSource(f, kind, siblings)} px=${128} kind=${kind} />
         ${kind === 'video' ? html`<${Scrub} f=${f} toqueX=${toqueX} />` : null}
         ${dur ? html`<span class="tile-badge">${duration(dur)}</span>` : null}
