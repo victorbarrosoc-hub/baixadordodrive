@@ -13,6 +13,8 @@ import { Button, cx, reducedMotion } from './ui.js'
 import { MediaPlayer } from './player.js'
 import { KindGlyph } from './thumb.js'
 import { FileName, ShareLink } from './queue.js'
+import { PsdPaginas, PsdStage } from './psd.js'
+import { podePsd } from '../lib/psd.js'
 
 const BIG = 1e9 // acima disso, avisa antes de baixar no celular
 const IMAGE_STREAM_MAX = 60e6 // foto sem miniatura: abre o arquivo em si até este tamanho
@@ -504,6 +506,7 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
   }
 
   if (kind === 'image') {
+    if (podePsd(file)) return html`<${PsdStage} file=${file} poster=${poster} Zoom=${ZoomImage} onZoom=${onZoom} />`
     return html`<${ImageStage} file=${file} poster=${poster} px=${px} sw=${sw} onZoom=${onZoom} />`
   }
 
@@ -724,6 +727,7 @@ export function Preview({ files, index, onIndex, onClose, extra, album }) {
 
         <section class="pv-info">
           ${extra ? extra(raw) : null}
+          ${podePsd(file) ? html`<${PsdPaginas} key=${file.id} file=${file} />` : null}
           <${Info} file=${file} kind=${kind} />
           <${ShareLink} key=${file.id} id=${file.id} name=${file.name} class="pv-share">
             <a class="btn btn-secondary pv-act" href=${driveUrl(file)} target="_blank" rel="noopener noreferrer">

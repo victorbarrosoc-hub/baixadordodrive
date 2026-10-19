@@ -1,6 +1,7 @@
 // Miniaturas do Drive (carregamento preguiçoso, reserva no ícone do tipo) e o glifo de cada tipo de arquivo.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { loadThumb, thumbNow } from '../lib/stream.js'
+import { miniaturaPsd, miniaturaPsdAgora, podePsd } from '../lib/psd.js'
 import { extOf } from '../lib/format.js'
 import { Icon } from './icons.js'
 import { cx } from './ui.js'
@@ -21,16 +22,19 @@ export function KindGlyph({ kind, name, size = 30, label = true }) {
 export function Thumb({ file, from = file, px, kind, small = false }) {
   const ref = useRef(null)
   const size = Math.round(px * dpr())
-  const [src, setSrc] = useState(() => (from.thumbnailLink ? thumbNow(from, size) : null))
+  // PSD sem miniatura do Google: a que o Photoshop grava dentro do arquivo (lib/psd.js).
+  const psd = !from.thumbnailLink && podePsd(file)
+  const agora = () => (from.thumbnailLink ? thumbNow(from, size) : psd ? miniaturaPsdAgora(file) : null)
+  const [src, setSrc] = useState(agora)
   const [loaded, setLoaded] = useState(false)
   useEffect(() => {
-    const now = from.thumbnailLink ? thumbNow(from, size) : null
+    const now = agora()
     setSrc(now)
     setLoaded(false)
     if (now !== undefined) return
     let alive = true
     const el = ref.current
-    const start = () => loadThumb(from, size).then((u) => alive && setSrc(u))
+    const start = () => (psd ? miniaturaPsd(file) : loadThumb(from, size)).then((u) => alive && setSrc(u))
     if (!el || typeof IntersectionObserver === 'undefined') {
       start()
       return () => (alive = false)
