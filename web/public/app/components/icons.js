@@ -88,10 +88,12 @@ const P = {
   'volume-off': ['M4.5 9.75v4.5c0 .41.34.75.75.75H8l4.1 3.4c.49.4 1.23.06 1.23-.58V6.18c0-.64-.74-.98-1.23-.58L8 9H5.25a.75.75 0 0 0-.75.75z', 'M16.5 9.75l4.5 4.5', 'M21 9.75l-4.5 4.5'],
   expand: ['M4.5 9V4.5H9', 'M15 4.5h4.5V9', 'M19.5 15v4.5H15', 'M9 19.5H4.5V15'],
   'pause-fill': ['M7 5.5h3v13H7z', 'M14 5.5h3v13h-3z'],
+  star: ['M12 4.2l2.35 4.76 5.25.77-3.8 3.7.9 5.23L12 16.2l-4.7 2.47.9-5.23-3.8-3.7 5.25-.77z'],
+  'star-fill': ['M12 4.2l2.35 4.76 5.25.77-3.8 3.7.9 5.23L12 16.2l-4.7 2.47.9-5.23-3.8-3.7 5.25-.77z'],
   sparkle: ['M12 4.5l1.6 4.4 4.4 1.6-4.4 1.6L12 16.5l-1.6-4.4L6 10.5l4.4-1.6z', 'M18.5 15.5l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z'],
 }
 
-const FILLED = new Set(['play', 'pause-fill'])
+const FILLED = new Set(['play', 'pause-fill', 'star-fill'])
 
 export function Icon({ name, size = 18, class: klass, title, strokeWidth = 1.6 }) {
   const paths = P[name] || P.doc

@@ -6090,6 +6090,42 @@ html.is-dswipe body {
 .tile-media.arrasta {
   touch-action: pan-y;
 }
+.fnav {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.fnav .crumbs {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.fstar {
+  flex: none;
+  margin: 0 6px 10px 0;
+  color: var(--text-3);
+}
+.fstar.is-on {
+  color: #f5b301;
+}
+.frow.is-fav .frow-icon {
+  color: #f5b301;
+}
+.frow-mais {
+  justify-content: center;
+}
+.frow-mais .frow-name {
+  color: var(--down-text);
+  font-weight: 600;
+}
+.ffav-dica {
+  display: block;
+  margin: 0 16px 6px;
+}
+.ffav-dica .icon {
+  display: inline-block;
+  vertical-align: -2px;
+  color: #f5b301;
+}
 .selact span {
   text-align: center;
   line-height: 1.15;

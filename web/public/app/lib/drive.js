@@ -364,4 +364,60 @@ export async function folderPath(f, signal) {
   return { id: f.id, name: f.name, driveId: f.driveId || null, path: chain }
 }
 
+// ───── favoritas e compartilhadas comigo (seletor de destino) ─────
+
+const PASTAS = `mimeType = '${FOLDER_MIME}' and trashed = false`
+
+async function todasAsPaginas(query, signal, max = 300) {
+  const out = []
+  let pageToken
+  do {
+    const r = await call('/files', { query: { ...query, pageToken }, signal })
+    out.push(...(r.files || []))
+    pageToken = r.nextPageToken
+  } while (pageToken && out.length < max)
+  return out.slice(0, max)
+}
+
+/** Pastas com estrela no Drive (a mesma estrela do Google Drive), de todos os lugares, por nome. */
+export function listStarredFolders(signal) {
+  return todasAsPaginas(
+    {
+      q: `starred = true and ${PASTAS}`,
+      corpora: 'allDrives',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      orderBy: 'name',
+      pageSize: 100,
+      fields: 'nextPageToken,files(id,name,driveId,parents)',
+    },
+    signal,
+  )
+}
+
+/** Pastas que outras pessoas compartilharam com a conta ("Compartilhados comigo"), as mais recentes primeiro. */
+export function listSharedFolders(signal) {
+  return todasAsPaginas(
+    {
+      q: `sharedWithMe = true and ${PASTAS}`,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      orderBy: 'sharedWithMeTime desc',
+      pageSize: 100,
+      fields: 'nextPageToken,files(id,name,driveId,parents,sharingUser(displayName))',
+    },
+    signal,
+  )
+}
+
+/** Põe ou tira a estrela (vale no Google Drive também). */
+export function setStarred(id, starred) {
+  return call(`/files/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    query: { supportsAllDrives: true, fields: 'id,starred' },
+    body: { starred: Boolean(starred) },
+    retries: 2,
+  })
+}
+
 export { call as driveCall, FOLDER_MIME }
