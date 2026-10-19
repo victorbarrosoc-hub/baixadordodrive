@@ -50,6 +50,13 @@
       "when": 1792358598723,
       "tag": "0006_uso_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792384978529,
+      "tag": "0007_pedidos_proxy",
+      "breakpoints": true
     }
   ]
 }

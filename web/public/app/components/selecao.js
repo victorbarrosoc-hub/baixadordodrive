@@ -1,6 +1,7 @@
 // Selecionar itens na aba Drive: segurar um item liga a seleção (vibra no Android); com ela ligada, tocar marca e
 // desmarca. A barra de baixo diz quantos e quanto pesam, marca todos ou nenhum e faz as ações só nos marcados:
-// Baixar (um depois do outro), Copiar links e Mover para a lixeira (com confirmação; dá para recuperar por 30 dias).
+// Baixar (um depois do outro), Copiar links, Gerar proxy (o computador gera; components/proxies.js) e Mover para a
+// lixeira (com confirmação; dá para recuperar por 30 dias).
 //
 // O gesto de segurar é o mesmo do "segurar e arrastar" das miniaturas com tira de quadros (components/scrub.js):
 // segurou e arrastou para os lados = corre o take; segurou e soltou sem arrastar = seleciona.
@@ -14,6 +15,7 @@ import { isIOS } from '../lib/platform.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, copyText, cx } from './ui.js'
 import { FileName } from './queue.js'
+import { podeProxy } from '../lib/proxies.js'
 
 export const SEGURAR_MS = 380
 const FOLGA_PX = 10 // mexeu mais que isso antes do tempo: é rolagem
@@ -147,6 +149,7 @@ export function BarraSelecao({ sel, visiveis, onSair, onRemovidos }) {
   const peso = arquivos.length ? bytes(pesoDe(arquivos)) : null
   const baixaveis = arquivos.filter(canDownload)
   const lixo = arquivos.filter((f) => f.capabilities?.canTrash !== false)
+  const videos = arquivos.filter(podeProxy)
   return html`<div class="selbar" role="toolbar" aria-label="Itens selecionados">
     <div class="selbar-top">
       <button type="button" class="icon-btn selbar-x" onClick=${onSair} aria-label="Sair da seleção">
@@ -168,6 +171,9 @@ export function BarraSelecao({ sel, visiveis, onSair, onRemovidos }) {
       </button>
       <button type="button" class="selact" disabled=${!n} onClick=${() => copiarLinks(marcados)}>
         <${Icon} name="link" size=${20} /><span>Copiar links</span>
+      </button>
+      <button type="button" class="selact" disabled=${!videos.length} onClick=${() => openSheet('proxySelecao', { itens: videos, fora: n - videos.length })}>
+        <${Icon} name="film" size=${20} /><span>Gerar proxy</span>
       </button>
       <button
         type="button"

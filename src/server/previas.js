@@ -5,7 +5,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { expandHome } from '../local/fsbrowse.js'
 import { newId } from '../util/ids.js'
-import { gerarPreviasLote, resumoPrevias } from '../media/previa-lote.js'
+import { gerarPreviasLote, originaisLocais, resumoPrevias } from '../media/previa-lote.js'
 import { espacoLivre, isPrevia, procurarProxy } from '../media/previa-fila.js'
 import { isBrawName, isVideoName } from '../media/previa.js'
 
@@ -107,15 +107,6 @@ class PreviaJobs {
   }
 }
 
-/** Originais que a fila conhece (envios desta conta que subiram): fileId do Drive → caminho local. */
-function localOriginals(manager, accountId) {
-  const out = new Map()
-  for (const r of manager.records?.values?.() || []) {
-    if (r.type === 'upload' && r.accountId === accountId && r.target?.fileId && r.local?.path) out.set(r.target.fileId, r.local.path)
-  }
-  return out
-}
-
 /**
  * Registra as rotas. Devolve { view() (para /api/state), close() }.
  * @param {{ route: Function, ctx: object, account: (id) => object, HttpProblem: Function, toProblem: Function }} o
@@ -178,7 +169,7 @@ export function registerPrevias({ route, ctx, account, HttpProblem, toProblem })
       somente,
       forcar: body.forcar === true,
       baixar,
-      dicas: localOriginals(ctx.manager, acc.id),
+      dicas: originaisLocais(ctx.manager, acc.id),
       arquivo,
     })
     if (localDir && ctx.settings.get().previaLocalDir !== localDir) {
@@ -197,7 +188,7 @@ export function registerPrevias({ route, ctx, account, HttpProblem, toProblem })
     if (item.isFolder || !(isVideoName(item.name) || isBrawName(item.name))) throw new HttpProblem(400, 'Escolha um arquivo de vídeo.')
     const parentId = item.parents?.[0] || null
     const found = parentId ? await procurarProxy(drive, { parentId, name: item.name, driveId: item.driveId, excludeId: item.id, signal }) : { proxy: null }
-    const p = localOriginals(ctx.manager, acc.id).get(id)
+    const p = originaisLocais(ctx.manager, acc.id).get(id)
     let local = null
     if (p) {
       const st = await fs.stat(p).catch(() => null)
