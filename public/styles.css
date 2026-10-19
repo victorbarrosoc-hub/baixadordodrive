@@ -53,6 +53,8 @@
   --r-lg: 16px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --sidebar-w: 232px;
+  /* Margem lateral das páginas: 32 px numa janela pequena, até 64 px numa tela larga. */
+  --page-x: clamp(32px, 3.2vw, 64px);
 
   color-scheme: light;
 }
@@ -1042,9 +1044,12 @@ textarea {
   min-width: 0;
 }
 .page {
-  max-width: 1120px;
+  /* A página ocupa a janela toda (como o Drive e o Finder): margens que crescem com a tela, sem coluna estreita no
+     meio. Em telas enormes (5K) para em 2200 px e centraliza, para as linhas não ficarem longas demais. O app de
+     desktop ainda aumenta tudo em telas grandes (zoom automático, desktop/zoom.js). */
+  max-width: 2200px;
   margin: 0 auto;
-  padding: 40px 40px 120px;
+  padding: clamp(32px, 2.6vw, 48px) var(--page-x) 120px;
 }
 .page-head {
   display: flex;
@@ -3568,11 +3573,12 @@ button.tree-twisty:hover {
 }
 @media (min-width: 1280px) {
   .page-settings {
-    max-width: 1040px;
+    max-width: 2200px;
   }
   .settings-layout {
     display: grid;
-    grid-template-columns: 168px minmax(0, 800px);
+    /* Índice + conteúdo largo; as linhas não passam de 1240 px (controle longe demais do texto fica difícil de ler). */
+    grid-template-columns: clamp(168px, 12vw, 220px) minmax(0, 1240px);
     gap: 40px;
     align-items: start;
   }
@@ -3580,6 +3586,23 @@ button.tree-twisty:hover {
     display: block;
     position: sticky;
     top: 32px;
+  }
+}
+/* Tela larga: os grupos dos Ajustes vão em duas colunas (cada linha fica do tamanho de antes, e a tela se enche). */
+@media (min-width: 1900px) {
+  .settings-layout {
+    grid-template-columns: clamp(168px, 12vw, 220px) minmax(0, 1fr);
+  }
+  .settings {
+    columns: 2;
+    column-gap: 40px;
+  }
+  .settings .sgroup {
+    break-inside: avoid;
+  }
+  .settings .sgroup:first-child,
+  .settings > :first-child {
+    margin-top: 0;
   }
 }
 .save-state {
@@ -4885,7 +4908,8 @@ button.tree-twisty:hover {
 }
 .dgrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
+  /* Mais colunas e miniaturas um pouco maiores conforme a janela cresce. */
+  grid-template-columns: repeat(auto-fill, minmax(clamp(172px, 11vw, 236px), 1fr));
   gap: 18px 14px;
   padding: 16px;
 }
@@ -6162,7 +6186,7 @@ button.tree-twisty:hover {
 /* grade de coleções */
 .ref-cols {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(clamp(212px, 13vw, 280px), 1fr));
   gap: 22px 18px;
 }
 .ref-col {
@@ -6373,7 +6397,7 @@ button.tree-twisty:hover {
 }
 .ref-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(clamp(176px, 11vw, 240px), 1fr));
   gap: 22px 16px;
 }
 .ref-card {

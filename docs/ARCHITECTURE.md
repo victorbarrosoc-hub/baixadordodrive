@@ -1070,6 +1070,13 @@ Por isso `src/index.js` precisa:
   Google bloqueia login dentro de apps Electron) diz "Conta conectada. Pode voltar para o SOBEDESCE." em vez de
   redirecionar para a interface.
 
+**Tela grande** (`desktop/zoom.js`): as páginas ocupam a janela toda (`.page` sem coluna estreita, margem lateral
+`--page-x` de 32 a 64 px, teto de 2200 px só em 5K; grade do Drive e das Referências com mais colunas e miniaturas que
+crescem; Ajustes com índice e, a partir de 1900 px de CSS, os grupos em duas colunas). Além disso o app cresce junto com
+a janela pelo zoom do Chromium (`setZoomFactor`, não `zoom` no CSS, para cliques e medidas continuarem batendo): 1× até
+1600 px de largura, 1,1× em 1920, 1,3× em 2560 e no máximo 1,4×. O menu Visualizar (Aumentar, Diminuir, Tamanho real;
+Cmd/Ctrl +, -, 0) e o Cmd/Ctrl + rodinha multiplicam por cima, em passos, e a escolha fica em `<userData>/zoom.json`.
+
 O protocolo com o processo principal fica em `desktop/engine.js` (`ready` / `fatal` / `shutdown` via `process.parentPort`).
 `src/index.js` sobe o pool de threads do libuv para 16 (`UV_THREADPOOL_SIZE`, antes do primeiro uso; o desktop repassa no
 `fork`): com 4, alguns `fdatasync` longos de downloads a 1–10 Gbps travavam as gravações e a leitura do MD5.
