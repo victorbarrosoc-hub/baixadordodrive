@@ -20,22 +20,41 @@ import { podeProxy } from '../lib/proxies.js'
 export const SEGURAR_MS = 380
 const FOLGA_PX = 10 // mexeu mais que isso antes do tempo: é rolagem
 const ARRASTO_PX = 12 // depois de segurar, mais que isso para os lados: é o arrastar do take
+const DIRETO_PX = 8 // sem segurar: andou isso e decide se é correr o take (para os lados) ou rolar
 const ENTRE_DOWNLOADS_MS = 1600
 
 /**
  * Gesto de segurar num item (só toque). `onSegurar()` ao soltar sem arrastar; `onArrastar(clientX|null)` enquanto
- * arrasta depois de segurar (null ao terminar). Devolve os handlers para o elemento e um ref (o touchmove não passivo,
- * que segura a rolagem só com o gesto ligado, precisa do elemento).
+ * arrasta depois de segurar (null ao terminar). `direto`: arrastar para os lados já corre, sem segurar antes, quando o
+ * dedo começa na área que tira o "voltar" (`[data-noswipe]`, a miniatura do vídeo); para cima e para baixo rola.
+ * Devolve os handlers para o elemento e um ref (o touchmove não passivo, que segura a rolagem só com o gesto ligado,
+ * precisa do elemento).
  */
-export function useSegurar({ onSegurar, onArrastar }) {
+export function useSegurar({ onSegurar, onArrastar, direto = false }) {
   const ref = useRef(null)
-  const t = useRef({ timer: 0, segurou: false, arrastando: false, x: 0, y: 0, engolir: 0 })
-  const cbs = useRef({ onSegurar, onArrastar })
-  cbs.current = { onSegurar, onArrastar }
+  const t = useRef({ timer: 0, segurou: false, arrastando: false, rolando: false, direto: false, x: 0, y: 0, engolir: 0 })
+  const cbs = useRef({ onSegurar, onArrastar, direto })
+  cbs.current = { onSegurar, onArrastar, direto }
+  // Antes de segurar: andou mais para os lados que para cima = corre o take (com `direto`); senão é rolagem.
+  const decidir = (x, y) => {
+    const c = t.current
+    if (c.segurou || c.rolando) return
+    const dx = Math.abs(x - c.x)
+    const dy = Math.abs(y - c.y)
+    if (Math.hypot(dx, dy) <= DIRETO_PX) return
+    clearTimeout(c.timer)
+    if (c.direto && cbs.current.onArrastar && dx > dy * 1.2) {
+      c.segurou = true
+      c.arrastando = true
+      cbs.current.onArrastar(x)
+    } else c.rolando = true
+  }
   useEffect(() => {
     const el = ref.current
     if (!el) return undefined
     const onMove = (e) => {
+      const p = e.touches?.[0]
+      if (p) decidir(p.clientX, p.clientY)
       if (t.current.segurou && e.cancelable) e.preventDefault()
     }
     el.addEventListener('touchmove', onMove, { passive: false })
@@ -64,6 +83,8 @@ export function useSegurar({ onSegurar, onArrastar }) {
       clearTimeout(c.timer)
       c.segurou = false
       c.arrastando = false
+      c.rolando = false
+      c.direto = cbs.current.direto && Boolean(e.target?.closest?.('[data-noswipe]'))
       c.x = e.clientX
       c.y = e.clientY
       c.timer = setTimeout(() => {
@@ -75,8 +96,11 @@ export function useSegurar({ onSegurar, onArrastar }) {
       if (e.pointerType !== 'touch') return
       const c = t.current
       if (!c.segurou) {
-        if (Math.hypot(e.clientX - c.x, e.clientY - c.y) > FOLGA_PX) clearTimeout(c.timer)
-        return
+        decidir(e.clientX, e.clientY)
+        if (!c.segurou) {
+          if (Math.hypot(e.clientX - c.x, e.clientY - c.y) > FOLGA_PX) clearTimeout(c.timer)
+          return
+        }
       }
       if (!cbs.current.onArrastar) return
       if (!c.arrastando && Math.abs(e.clientX - c.x) > ARRASTO_PX) c.arrastando = true

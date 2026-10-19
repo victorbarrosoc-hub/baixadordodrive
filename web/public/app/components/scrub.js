@@ -1,9 +1,10 @@
-// Segurar e arrastar na miniatura de um vídeo para ver o take correr, sem abrir (no computador, passar o cursor).
+// Arrastar o dedo na miniatura de um vídeo para ver o take correr, sem abrir (no computador, passar o cursor).
 // Usa a tira de quadros que o app de desktop gera junto do proxy (src/media/quadros.js): um JPEG com N quadros em grade,
 // apontado pelo original em appProperties { quadros: <id>, quadrosGrade: 'n.cols.w.h' }. Sem tira, nada muda.
 //
-// Toque: quem decide é o gesto da miniatura (components/selecao.js useSegurar): segurar e arrastar para os lados corre
-// o take (`toqueX`); segurar e soltar sem arrastar seleciona o item. Mouse/caneta: passar por cima, como no computador.
+// Toque: quem decide é o gesto da miniatura (components/selecao.js useSegurar): arrastar para os lados corre o take
+// (`toqueX`), com ou sem segurar antes; para cima e para baixo rola; segurar e soltar seleciona o item. O "voltar"
+// arrastando não começa em cima da miniatura de vídeo (data-noswipe). Mouse/caneta: passar por cima, como no computador.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { streamReady, streamUrl } from '../lib/stream.js'
 
