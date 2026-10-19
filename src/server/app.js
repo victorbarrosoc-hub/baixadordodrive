@@ -286,6 +286,14 @@ export async function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', pub
       if (err.code !== 'EADDRINUSE' && err.code !== 'EACCES') break
     }
   }
+  // A faixa inteira bloqueada (no Windows, Hyper-V/WSL reservam faixas de portas e dão EACCES): o sistema escolhe uma.
+  if (bound == null && first !== 0 && (lastErr?.code === 'EACCES' || lastErr?.code === 'EADDRINUSE')) {
+    try {
+      bound = await listen(server, 0, host)
+    } catch (err) {
+      lastErr = err
+    }
+  }
   if (bound == null) {
     const err = new Error(`Não consegui abrir a porta ${first}${first ? `–${first + PORT_TRIES - 1}` : ''}: ${lastErr?.code || lastErr?.message}`)
     err.code = lastErr?.code
