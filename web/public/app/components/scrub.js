@@ -2,13 +2,10 @@
 // Usa a tira de quadros que o app de desktop gera junto do proxy (src/media/quadros.js): um JPEG com N quadros em grade,
 // apontado pelo original em appProperties { quadros: <id>, quadrosGrade: 'n.cols.w.h' }. Sem tira, nada muda.
 //
-// Toque: segurar ~0,3 s liga (vibra no Android) e, daí em diante, arrastar para os lados corre o take; a lista não
-// rola enquanto isso e soltar não abre o arquivo. Mexeu o dedo antes de ligar = era rolagem, nada acontece.
+// Toque: quem decide é o gesto da miniatura (components/selecao.js useSegurar): segurar e arrastar para os lados corre
+// o take (`toqueX`); segurar e soltar sem arrastar seleciona o item. Mouse/caneta: passar por cima, como no computador.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import { streamReady, streamUrl } from '../lib/stream.js'
-
-const SEGURAR_MS = 300
-const FOLGA_PX = 10
 
 /** { id, n, cols, rows, w, h } da marca no original, ou null. */
 export function gradeDe(f) {
@@ -60,108 +57,42 @@ export function quadroStyle(g, i, caixa) {
 
 const fileDaTira = (g) => ({ id: g.id, mimeType: 'image/jpeg', name: 'quadros.jpg' })
 
-/** Camada por cima da miniatura (dentro de um contêiner `position: relative`). */
-export function Scrub({ f }) {
+/**
+ * Camada por cima da miniatura (dentro de um contêiner `position: relative`).
+ * `toqueX`: posição do dedo (clientX) enquanto o gesto da miniatura está arrastando; null = parado.
+ */
+export function Scrub({ f, toqueX = null }) {
   const g = gradeDe(f)
   const ref = useRef(null)
-  const [st, setSt] = useState(null) // { frac, pronta, caixa }
-  const t = useRef({ timer: 0, ativo: false, x: 0, y: 0, engolir: 0 })
-
-  // A rolagem só é impedida com o toque ligado (touchmove não passivo; os eventos de ponteiro não bastam no iOS).
+  const [mouse, setMouse] = useState(null) // clientX do cursor (mouse/caneta)
+  const [pronta, setPronta] = useState(false)
+  const x = toqueX ?? mouse
+  const src = g ? streamUrl(fileDaTira(g)) : null
   useEffect(() => {
-    const el = ref.current
-    if (!el || !g) return undefined
-    const onMove = (e) => {
-      if (t.current.ativo && e.cancelable) e.preventDefault()
-    }
-    el.addEventListener('touchmove', onMove, { passive: false })
-    return () => {
-      el.removeEventListener('touchmove', onMove)
-      clearTimeout(t.current.timer)
-    }
-  }, [!!g])
-
-  if (!g) return null
-  const src = streamUrl(fileDaTira(g))
-
-  const posicao = (clientX) => {
-    const r = ref.current?.getBoundingClientRect()
-    if (!r?.width) return null
-    return { frac: Math.min(1, Math.max(0, (clientX - r.left) / r.width)), caixa: { w: r.width, h: r.height } }
-  }
-  const ligar = (clientX) => {
-    const p = posicao(clientX)
-    if (!p) return
-    setSt({ ...p, pronta: false })
+    if (x == null || !src || pronta) return undefined
+    let vivo = true
     streamReady()
       .then((ok) => (ok ? carregar(src) : false))
-      .then((ok) => setSt((s) => (s ? { ...s, pronta: ok } : s)))
-  }
-  const mover = (clientX) => {
-    const p = posicao(clientX)
-    if (p) setSt((s) => (s ? { ...s, ...p } : s))
-  }
-  const desligar = () => {
-    clearTimeout(t.current.timer)
-    if (t.current.ativo) t.current.engolir = Date.now() + 500
-    t.current.ativo = false
-    setSt(null)
-  }
-
-  const onPointerDown = (e) => {
-    if (e.pointerType !== 'touch') return
-    const c = t.current
-    clearTimeout(c.timer)
-    c.x = e.clientX
-    c.y = e.clientY
-    const x = e.clientX
-    c.timer = setTimeout(() => {
-      c.ativo = true
-      navigator.vibrate?.(8)
-      ligar(x)
-    }, SEGURAR_MS)
-  }
-  const onPointerMove = (e) => {
-    const c = t.current
-    if (e.pointerType === 'touch') {
-      if (c.ativo) mover(e.clientX)
-      else if (Math.hypot(e.clientX - c.x, e.clientY - c.y) > FOLGA_PX) clearTimeout(c.timer)
-      return
+      .then((ok) => vivo && setPronta(ok))
+    return () => {
+      vivo = false
     }
-    if (st) mover(e.clientX)
-  }
-  const onPointerEnter = (e) => {
-    if (e.pointerType !== 'touch') ligar(e.clientX)
-  }
-  const onPointerLeave = (e) => {
-    if (e.pointerType !== 'touch') setSt(null)
-  }
-  // Soltar depois de correr o take não abre o arquivo.
-  const onClickCapture = (e) => {
-    if (Date.now() < t.current.engolir) {
-      e.preventDefault()
-      e.stopPropagation()
-    }
-  }
-  const onContextMenu = (e) => {
-    if (t.current.ativo || st) e.preventDefault()
-  }
-
+  }, [x == null, src])
+  if (!g) return null
+  let st = null
+  const r = x != null ? ref.current?.getBoundingClientRect() : null
+  if (r?.width) st = { frac: Math.min(1, Math.max(0, (x - r.left) / r.width)), caixa: { w: r.width, h: r.height } }
   const i = st ? Math.min(g.n - 1, Math.floor(st.frac * g.n)) : 0
+  const mouseX = (e) => (e.pointerType === 'touch' ? null : e.clientX)
   return html`<span
     class="hscrub"
     ref=${ref}
     aria-hidden="true"
-    onPointerDown=${onPointerDown}
-    onPointerMove=${onPointerMove}
-    onPointerUp=${desligar}
-    onPointerCancel=${desligar}
-    onPointerEnter=${onPointerEnter}
-    onPointerLeave=${onPointerLeave}
-    onClickCapture=${onClickCapture}
-    onContextMenu=${onContextMenu}
+    onPointerEnter=${(e) => setMouse(mouseX(e))}
+    onPointerMove=${(e) => e.pointerType !== 'touch' && setMouse(e.clientX)}
+    onPointerLeave=${(e) => e.pointerType !== 'touch' && setMouse(null)}
   >
-    ${st?.pronta
+    ${st && pronta
       ? html`<span class="hscrub-on">
           <span class="hscrub-frame" style=${`background-image:url("${src}");${quadroStyle(g, i, st.caixa)}`}></span>
           <span class="hscrub-bar" style=${`width:${(st.frac * 100).toFixed(2)}%`}></span>
