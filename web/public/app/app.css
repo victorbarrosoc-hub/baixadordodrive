@@ -2560,6 +2560,61 @@ code {
   position: absolute;
   inset: 0;
 }
+/* Segurar e arrastar (components/scrub.js): a tira de quadros por cima da miniatura, seguindo o dedo. */
+.hscrub {
+  position: absolute;
+  inset: 0;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.hscrub-on {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+}
+.hscrub-frame {
+  position: absolute;
+  background-repeat: no-repeat;
+}
+.hscrub-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--down);
+}
+.hscrub-carregando {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--down), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: hscrub-carregando 0.9s linear infinite;
+}
+@keyframes hscrub-carregando {
+  from {
+    background-position: -50% 0;
+  }
+  to {
+    background-position: 150% 0;
+  }
+}
+/* Correndo o take: o dedo segura a miniatura no lugar (sem o "afundar" do toque). */
+.tile:active .tile-media:has(.hscrub-on),
+.tile:active .tile-media:has(.hscrub-carregando) {
+  transform: none;
+  filter: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hscrub-carregando {
+    animation: none;
+  }
+}
 .tile-badge {
   position: absolute;
   right: 5px;

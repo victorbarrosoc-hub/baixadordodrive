@@ -122,7 +122,8 @@ export function kindOf(it) {
  * `counts` (por tipo, sem os do Mac escondidos) alimenta o menu Filtro; `mac` são os arquivos do Mac da pasta.
  */
 export function driveView(items, { sort = DEFAULT_SORT, filter = 'all', showMac = false } = {}) {
-  const all = items || []
+  // A tira de quadros do hover scrub (Proxy/<nome>.quadros.jpg) é peça interna do app: não aparece na lista.
+  const all = (items || []).filter((it) => it?.appProperties?.sobedesce !== 'quadros')
   const mac = all.filter(isMacFile)
   const base = showMac || !mac.length ? all : all.filter((it) => !isMacFile(it))
   const counts = { all: base.length, video: 0, image: 0, audio: 0, folder: 0, other: 0 }

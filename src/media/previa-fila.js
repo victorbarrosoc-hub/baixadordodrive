@@ -17,6 +17,7 @@ import { FOLDER_MIME, escapeQueryValue, toDriveItem } from '../google/drive.js'
 import { abortError, isAbortError } from '../util/backoff.js'
 import { newId } from '../util/ids.js'
 import { PREVIA_MARCA, PREVIA_PASTA, detectarMotor, gerarPrevia, isProxyDirName, isProxyName, motorResumo, podeTerProxy, previaName, splitExt } from './previa.js'
+import { QUADROS_MARCA, gerarQuadros, gradeTexto, quadrosName } from './quadros.js'
 
 /** Estados que ainda vão andar (voltam para a fila ao reabrir o app). */
 export const PREVIA_PENDENTE = Object.freeze(['fila', 'analisando', 'gerando', 'enviando', 'pausada'])
@@ -349,43 +350,126 @@ export class GeradorPrevias {
         pastas ??= (await procurarProxy(drive, { parentId, name, driveId, signal })).pastas
         folderId = pastas[0]?.id ?? (await drive.ensureFolderPath(parentId, PREVIA_PASTA, { signal, cache: this.folderCache, driveId }))
       }
-      const st = await fsp.stat(g.path)
-      const up = {
-        id: newId('prv'),
-        type: 'upload',
-        status: 'running',
+      const fileId = await this.#subir(drive, {
+        localPath: g.path,
         name: previaName(name),
-        size: g.size,
-        bytesDone: 0,
-        attempts: 0,
-        note: null,
-        verify: null,
-        local: { path: g.path, size: st.size, mtimeMs: st.mtimeMs },
-        target: { rootId: folderId || parentId, relDir: '', parentId: folderId || parentId, driveId, replaceFileId, fileId: null, appProperties: { sobedesce: PREVIA_MARCA, ...(originalId ? { original: originalId } : {}) } },
-        session: null,
+        parentId: folderId || parentId,
+        driveId,
+        replaceFileId,
+        appProperties: { sobedesce: PREVIA_MARCA, ...(originalId ? { original: originalId } : {}) },
+        signal,
+        onFrac: f => onFase?.('enviando', f),
+      })
+      // Tira de quadros (hover scrub) a partir do proxy que acabou de sair: nunca derruba o proxy.
+      if (originalId) {
+        await (async () => {
+          // Refazendo um proxy (replaceFileId): a tira vai para a pasta dele, não para a do original.
+          const pasta = folderId || (replaceFileId ? (await drive.getItem(replaceFileId, { signal }).catch(() => null))?.parents?.[0] : null) || parentId
+          await this.#quadros(drive, { motor, proxyPath: g.path, proxyId: fileId, name, folderId: pasta, driveId, originalId, signal })
+        })().catch(err => {
+          if (signal?.aborted || isAbortError(err)) throw err
+          this.log(`tira de quadros: "${name}" ficou sem (${err?.message || err})`)
+        })
       }
-      let sent = 0
-      const ctx = {
-        drive,
-        // A cópia é um arquivo novo e temporário: sem MD5 (nada a conferir depois) e, se o nome existir, sobe ao lado.
-        settings: { get: () => ({ ...(this.settings?.get?.() ?? {}), uploadConflict: 'rename', verifyChecksums: false }) },
-        limiter: this.limiter,
-        hasher: null,
-        folderCache: this.folderCache,
-        persist: () => {},
-        onBytes: n => {
-          sent += n
-          onFase?.('enviando', Math.min(0.999, sent / Math.max(1, g.size)))
-        },
-        log: this.log,
-      }
-      if (this.retryBaseMs != null) ctx.retryBaseMs = this.retryBaseMs
-      const task = this.createUpload(up, ctx)
-      await task.run(signal)
-      if (!up.target.fileId) throw new Error('o Drive não devolveu o arquivo da prévia')
-      return { estado: 'pronta', fileId: up.target.fileId, size: g.size, encoder: g.encoder, motivo: g.motivo }
+      return { estado: 'pronta', fileId, size: g.size, encoder: g.encoder, motivo: g.motivo }
     } finally {
       await g.limpar?.()
+    }
+  }
+
+  /** Sobe um arquivo gerado aqui (proxy, tira de quadros) com o UploadTask de sempre. Devolve o id no Drive. */
+  async #subir(drive, { localPath, name, parentId, driveId = null, replaceFileId = null, appProperties, signal, onFrac }) {
+    const st = await fsp.stat(localPath)
+    const up = {
+      id: newId('prv'),
+      type: 'upload',
+      status: 'running',
+      name,
+      size: st.size,
+      bytesDone: 0,
+      attempts: 0,
+      note: null,
+      verify: null,
+      local: { path: localPath, size: st.size, mtimeMs: st.mtimeMs },
+      target: { rootId: parentId, relDir: '', parentId, driveId, replaceFileId, fileId: null, appProperties },
+      session: null,
+    }
+    let sent = 0
+    const ctx = {
+      drive,
+      // Arquivo novo e temporário: sem MD5 (nada a conferir depois) e, se o nome existir, sobe ao lado.
+      settings: { get: () => ({ ...(this.settings?.get?.() ?? {}), uploadConflict: 'rename', verifyChecksums: false }) },
+      limiter: this.limiter,
+      hasher: null,
+      folderCache: this.folderCache,
+      persist: () => {},
+      onBytes: n => {
+        sent += n
+        onFrac?.(Math.min(0.999, sent / Math.max(1, st.size)))
+      },
+      log: this.log,
+    }
+    if (this.retryBaseMs != null) ctx.retryBaseMs = this.retryBaseMs
+    const task = this.createUpload(up, ctx)
+    await task.run(signal)
+    if (!up.target.fileId) throw new Error(`o Drive não devolveu o arquivo "${name}"`)
+    return up.target.fileId
+  }
+
+  /**
+   * Tira de quadros de um proxy local (media/quadros.js): gera, sobe em `folderId` (substitui a anterior, se o original
+   * já apontava para uma) e grava o endereço no original. Lança com motivo curto.
+   */
+  async #quadros(drive, { motor, proxyPath, proxyId, name, folderId, driveId, originalId, original = null, signal }) {
+    if (!motor?.ffmpeg?.path) return null
+    const q = await gerarQuadros(motor, proxyPath, { dir: path.dirname(proxyPath), signal })
+    const orig = original ?? (await drive.getItem(originalId, { signal, media: true }).catch(() => null))
+    let replaceFileId = null
+    const antiga = orig?.appProperties?.quadros
+    if (antiga) {
+      const it = await drive.getItem(antiga, { signal }).catch(() => null)
+      if (it && !it.trashed && it.parents?.includes(folderId)) replaceFileId = it.id
+    }
+    const id = await this.#subir(drive, {
+      localPath: q.path,
+      name: quadrosName(name),
+      parentId: folderId,
+      driveId,
+      replaceFileId,
+      appProperties: { sobedesce: QUADROS_MARCA, original: originalId, ...(proxyId ? { proxy: proxyId } : {}) },
+      signal,
+    })
+    await drive.setAppProperties(originalId, { quadros: id, quadrosGrade: gradeTexto(q.grade) }, { signal })
+    return { id, grade: q.grade }
+  }
+
+  /**
+   * Tira de quadros para um vídeo que já tem proxy no Drive (do app ou da câmera): baixa só o proxy (leve), gera e
+   * sobe ao lado dele. Na mesma vaga da fila. Usado pelo lote ("Gerar proxies da pasta").
+   */
+  quadrosDoProxy(opts) {
+    return this.#slot(() => this.#quadrosDoProxy(opts), opts.signal)
+  }
+
+  async #quadrosDoProxy({ drive, original, proxy, signal, onFase }) {
+    const motor = await this.motor()
+    if (!motor?.ffmpeg?.path) throw new Error('sem ffmpeg neste computador')
+    const b = await this.baixarOriginal(drive, proxy, { signal, onFase })
+    try {
+      onFase?.('gerando', 0)
+      return await this.#quadros(drive, {
+        motor,
+        proxyPath: b.path,
+        proxyId: proxy.id,
+        name: original.name,
+        folderId: proxy.parents?.[0],
+        driveId: original.driveId ?? null,
+        originalId: original.id,
+        original,
+        signal,
+      })
+    } finally {
+      await b.limpar()
     }
   }
 

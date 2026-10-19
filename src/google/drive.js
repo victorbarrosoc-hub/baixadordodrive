@@ -620,6 +620,20 @@ export class DriveClient {
     return { id: r.id ?? fileId, hasThumbnail: r.hasThumbnail === true }
   }
 
+  /**
+   * Grava marcas do app no arquivo (`appProperties`, só este app lê; null apaga a chave). Não mexe no conteúdo.
+   * Usado pela tira de quadros (media/quadros.js): o original aponta para a tira.
+   */
+  async setAppProperties(fileId, props, { signal, retries } = {}) {
+    const r = await this.api('PATCH', `files/${encodeURIComponent(fileId)}`, {
+      query: { fields: 'id,appProperties' },
+      body: { appProperties: props },
+      signal,
+      retries,
+    })
+    return { id: r.id ?? fileId, appProperties: r.appProperties || {} }
+  }
+
   // ─────────── compartilhamento (Copiar link) ───────────
 
   async listPermissions(fileId, { signal, resourceKey } = {}) {

@@ -7,6 +7,7 @@ import { clipTime } from '../lib/media.js'
 import { Icon } from './icons.js'
 import { Button, Checkbox } from './common.js'
 import { Thumb } from './drive-thumb.js'
+import { Scrub } from './scrub.js'
 import { isOpenable } from './drive-table.js'
 import { sizeShort } from './drive-tamanho.js'
 
@@ -29,6 +30,7 @@ const Card = memo(function Card({ item, index, selected, focused, accountId, pro
   >
     <div class="gthumb">
       <${Thumb} accountId=${accountId} item=${item} proxy=${proxy} folderLike=${folderLike} size=${480} iconSize=${folderLike ? 64 : 44} class="thumb-grid" />
+      ${!folderLike ? html`<${Scrub} accountId=${accountId} item=${item} />` : null}
       <span class="gcheck"><${Checkbox} checked=${selected} label=${`Selecionar ${item.name}`} tabIndex=${-1} onChange=${() => h.onCheck(index)} /></span>
       ${dur ? html`<span class="gbadge">${dur}</span>` : null}
       ${item.isGoogleDoc ? html`<span class="gbadge gbadge-left">Doc Google</span>` : null}

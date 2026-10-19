@@ -693,6 +693,32 @@ copia `build/ffmpeg/${os}-${arch}` para `<Resources>/ffmpeg` (fora de app/) e `b
 com as fontes). No Mac universal o `@electron/universal` junta os dois ffmpeg com `lipo` (por isso cada pasta só tem o
 executável). Windows arm64 sai sem ffmpeg próprio (usa o do sistema, se houver).
 
+### media/quadros.js — hover scrub (ver o take sem abrir)
+
+Passar o cursor na miniatura (app do computador e o site do celular no navegador) ou **segurar o dedo ~0,3 s e
+arrastar** (celular) corre o take, como no DaVinci. A imagem vem de uma **tira de quadros**: um JPEG só com 64 quadros
+em grade 8 × 8 (lado maior de 240 px por quadro; clipe curto: ~4 quadros por segundo, em linhas cheias de 8), ≈ 150–300
+KB, feito pelo ffmpeg a partir do **proxy** (decodifica rápido; acima de 5 min, só os quadros-chave, `-skip_frame nokey`).
+```js
+gerarQuadros(motor, file, { dir, signal }): { path, size, grade: { n, cols, w, h } }   // lança com motivo curto
+celula(w, h), argsQuadros({ input, output, durationS, cel, n, cols }), gradeTexto(g) / lerGrade(s), quadrosName(name)
+```
+Onde fica: `Proxy/<nome-base>.quadros.jpg` ao lado do proxy, com `appProperties { sobedesce: 'quadros', original, proxy }`.
+O **original** ganha `appProperties { quadros: <id da tira>, quadrosGrade: 'n.cols.w.h' }` (`drive.setAppProperties`,
+mescla com as outras marcas): a grade acha a tira sem consulta nenhuma. Quando é feita:
+- **Depois de cada proxy** (`GeradorPrevias.#gerarESubir` → `#quadros`, a partir do proxy local antes de apagar o
+  temporário). Refazer o proxy troca a mesma tira (`replaceFileId`). Falha = uma linha no log; o proxy fica. Sem ffmpeg
+  (Mac só com avconvert), sem tira.
+- **"Gerar proxies da pasta"** (`previa-lote.js`): quem já tem proxy (do app ou da câmera, inclusive BRAW/R3D com o
+  proxy da câmera) e ainda não tem tira entra numa segunda volta (`gerador.quadrosDoProxy`, na mesma vaga da fila):
+  baixa **só o proxy**, gera, sobe ao lado dele e aponta o original. Resumo: `quadrosAGerar`, `quadros`, `quadrosFalhou`.
+
+A tira não aparece nas listas (`driveView` no computador, `listPage` no celular) e o Comparar trata como peça do app
+(não é "só no Drive"). Interface: `public/components/scrub.js` (grade do Drive; some o botão de prévia enquanto corre) e
+`web/public/app/components/scrub.js` (grade do celular; a imagem vem pelo `/app/stream/<id>` do service worker;
+`touchmove` não passivo segura a rolagem só com o toque ligado; soltar não abre o arquivo; mexer o dedo antes de ligar é
+rolagem). Classes `.hscrub*` (`.scrub` já é a linha do tempo do player).
+
 ### referencias/ — Referências (contrato com o site em `docs/REFERENCIAS.md`, frente web)
 
 Vídeos e fotos de referência salvos em `SOBEDESCE Referências/<Coleção>/` no Drive de uma conta SOBEDESCE (`nuvem:<id>`).
