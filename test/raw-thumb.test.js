@@ -427,8 +427,8 @@ test('envio de .BRAW pela fila grava a miniatura no arquivo; .mov não chama o e
   await thumbnailer.idle()
   assert.equal(seen.length, 1)
   assert.match(seen[0].file, /A001_C004_0101AB\.BRAW$/)
-  assert.equal(seen[0].largura, 1280)
-  assert.equal(seen[0].timeoutMs, 20_000)
+  assert.equal(seen[0].largura, 960)
+  assert.equal(seen[0].timeoutMs, 90_000)
   const brawFile = m.get(brawId).target.fileId
   assert.ok(env.mock.getThumbnail(brawFile).data.equals(img))
   assert.equal(env.mock.getThumbnail(m.get(movId).target.fileId), null)

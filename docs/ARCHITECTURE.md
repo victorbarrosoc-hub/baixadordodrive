@@ -527,7 +527,7 @@ o motor grava um frame como miniatura. Ajuste `brawThumbnails` (padrão ligado; 
 
 ```js
 isRawThumbCandidate(name): boolean                 // RAW_THUMB_EXTS = ['.braw', '.r3d']
-async extrairFrame(path, { largura = 1280, maxBytes = 1,5 MB, timeoutMs = 20 s, signal, extractors?, log? })
+async extrairFrame(path, { largura = 960, maxBytes = 1,5 MB, timeoutMs = 90 s, signal, extractors?, log? })
   : Buffer|null                                    // JPEG (PNG se não houver conversão e couber). NUNCA lança:
                                                    // null + log(motivo curto). Tempo limite vale para tudo (mata o processo).
 async detectExtractor(): { supported, found, via: 'helper'|'quicklook'|'shell'|null, downloadUrl }   // para os Ajustes
