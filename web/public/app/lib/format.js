@@ -64,7 +64,7 @@ export function percent(frac) {
 const KINDS = {
   video: ['mov', 'mp4', 'mxf', 'braw', 'r3d', 'avi', 'mkv', 'm4v', 'mts', 'm2ts', 'webm', '3gp', 'hevc'],
   audio: ['wav', 'aif', 'aiff', 'mp3', 'flac', 'm4a', 'aac', 'bwf', 'ogg', 'opus', 'caf'],
-  image: ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'dng', 'cr3', 'cr2', 'arw', 'nef', 'raf', 'psd', 'heic', 'heif', 'gif', 'webp', 'avif', 'svg'],
+  image: ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'dng', 'cr3', 'cr2', 'arw', 'nef', 'raf', 'psd', 'psb', 'heic', 'heif', 'gif', 'webp', 'avif', 'svg'],
   archive: ['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'dmg', 'iso'],
   doc: ['pdf', 'doc', 'docx', 'txt', 'rtf', 'pages', 'xls', 'xlsx', 'csv', 'numbers', 'ppt', 'pptx', 'key', 'srt', 'vtt', 'md', 'json'],
 }
