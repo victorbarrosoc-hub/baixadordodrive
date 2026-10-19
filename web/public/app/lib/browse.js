@@ -328,7 +328,8 @@ export async function listPage(where, { sort = 'name', flip = false, filter = 'a
   for (;;) {
     try {
       const r = await driveCall('/files', { query, signal })
-      const files = r.files || []
+      // A tira de quadros do segurar-e-arrastar (Proxy/<nome>.quadros.jpg) é peça interna do app: fica fora da lista.
+      const files = (r.files || []).filter((f) => f.appProperties?.sobedesce !== 'quadros')
       return { files: query.orderBy ? files : sortLocal(files, srv.sort, srv.flip), next: r.nextPageToken || null }
     } catch (err) {
       if (err?.status !== 400) throw err
