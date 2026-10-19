@@ -411,10 +411,19 @@ private:
 // ─────────── abrir o clipe ───────────
 
 struct Sessao {
+	// O codec segura uma referência ao callback (SetCallback faz AddRef e o codec dá Release ao morrer): o callback tem
+	// que viver mais que o codec. Primeiro membro = destruído por último.
+	std::unique_ptr<Decodificador> dec;
 	Ptr<IBlackmagicRawFactory> factory;
 	Ptr<IBlackmagicRaw> codec;
 	Ptr<IBlackmagicRawClip> clip;
 	Ptr<IBlackmagicRawClipProcessingAttributes> attrs;
+	~Sessao() {
+		if (codec) {
+			codec->FlushJobs();
+			if (dec) codec->SetCallback(nullptr);
+		}
+	}
 };
 
 int abrir(Sessao& s, const std::string& lib, const std::string& input) {
@@ -481,7 +490,8 @@ int modoFrames(Sessao& s, uint32_t maxSide) {
 	uint64_t frames = 0;
 	s.clip->GetFrameCount(&frames);
 	const Escala e = escolherEscala(s.clip, maxSide);
-	Decodificador dec(e.scale, s.attrs);
+	s.dec = std::make_unique<Decodificador>(e.scale, s.attrs);
+	Decodificador& dec = *s.dec;
 	if (FAILED(s.codec->SetCallback(&dec))) {
 		erro("o Blackmagic RAW recusou o callback");
 		return kFalha;
@@ -567,7 +577,8 @@ int modoMiniatura(Sessao& s, const std::string& output, uint32_t width, uint64_t
 	// ~1 s depois do começo (o primeiro frame às vezes ainda está no ajuste de exposição), no máximo 10 % do clipe.
 	const uint64_t alvo = std::min<uint64_t>(static_cast<uint64_t>(fps > 0 ? fps : 24), frames / 10);
 	const Escala e = escolherEscala(s.clip, width);
-	Decodificador dec(e.scale, s.attrs);
+	s.dec = std::make_unique<Decodificador>(e.scale, s.attrs);
+	Decodificador& dec = *s.dec;
 	if (FAILED(s.codec->SetCallback(&dec)) || !dec.pedir(s.clip, alvo)) {
 		erro("o Blackmagic RAW não leu o frame");
 		return kFalha;

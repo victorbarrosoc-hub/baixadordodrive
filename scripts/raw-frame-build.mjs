@@ -133,7 +133,7 @@ async function bibliotecaMac(tmp, cadastro) {
 /** O framework do SDK (pasta "Libraries"), não o de dentro do Player. Copia preservando os links (ditto). */
 async function copiarFramework(lista, tmp) {
   log('frameworks achados:', lista.map(p => p.split(path.sep).slice(-5).join('/')).join(' | '))
-  const escolhido = lista.find(p => /Libraries/.test(p)) || lista[0]
+  const escolhido = lista.find(p => /Mac[\/]Libraries/.test(p)) || lista[0]
   const dest = path.join(tmp, 'BlackmagicRawAPI.framework')
   run('ditto', [escolhido, dest])
   return dest
@@ -171,7 +171,9 @@ async function bibliotecaWin(tmp, cadastro) {
     run('msiexec', ['/a', msi, '/qn', `TARGETDIR=${alvo}`])
     const dlls = await acharTodos(alvo, e => e.isFile() && e.name.toLowerCase() === 'blackmagicrawapi.dll')
     log(`${arch}: BlackmagicRawAPI.dll em`, dlls.map(p => path.relative(alvo, p)).join(' | ') || 'nenhum lugar')
-    const escolhido = dlls.find(p => /Libraries/i.test(p)) || dlls[0]
+    // O SDK traz Libraries\BlackmagicRawAPI.dll (x64), Libraries\ARM64\ e Libraries\ARM64EC\: cada arquitetura a sua.
+    const alvoRe = arch === 'arm64' ? /Libraries[\\/]ARM64[\\/]BlackmagicRawAPI\.dll$/i : /Libraries[\\/]BlackmagicRawAPI\.dll$/i
+    const escolhido = dlls.find(p => alvoRe.test(p))
     if (escolhido) porArch[arch] = path.dirname(escolhido)
   }
   if (!porArch.x64) throw new Error('sem BlackmagicRawAPI.dll para x64')
@@ -208,7 +210,9 @@ async function compilarWin(sdk, libs, tmp) {
     const cmd = [
       `call ${q(bat)} ${vc} >nul`,
       `midl /nologo /env ${midlEnv} /h BlackmagicRawAPI.h /iid BlackmagicRawAPI_i.c /out ${q(gen)} ${q(path.join(inc, 'BlackmagicRawAPI.idl'))}`,
-      `cl /nologo /std:c++17 /O2 /EHsc /MT /W3 /utf-8 /I${q(gen)} /I${q(inc)} /I${q(SRC)} /Fo${q(obj + '\\')} ${q(path.join(SRC, 'raw-frame.cpp'))} ${q(path.join(inc, 'BlackmagicRawAPIDispatch.cpp'))} ${q(path.join(gen, 'BlackmagicRawAPI_i.c'))} /Fe${q(exe)} /link ole32.lib oleaut32.lib`,
+      // Os .obj saem na pasta atual (obj-<arch>): "/Fo pasta\" entre aspas quebra a linha do cl (a \ escapa a aspa).
+      `cd /d ${q(obj)}`,
+      `cl /nologo /std:c++17 /O2 /EHsc /MT /W3 /utf-8 /I${q(gen)} /I${q(inc)} /I${q(SRC)} ${q(path.join(SRC, 'raw-frame.cpp'))} ${q(path.join(inc, 'BlackmagicRawAPIDispatch.cpp'))} ${q(path.join(gen, 'BlackmagicRawAPI_i.c'))} /Fe${q(exe)} /link ole32.lib oleaut32.lib`,
     ].join(' && ')
     const script = path.join(tmp, `build-${arch}.cmd`)
     await fs.writeFile(script, `@echo off\r\n${cmd}\r\n`)
