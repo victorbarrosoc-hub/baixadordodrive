@@ -24,7 +24,7 @@ const ESTADOS = [
 /** ".../SSD Backup/Casamento/SOBEDESCE_copia_….md5" → "SSD Backup" (o destino escolhido). */
 const discoDe = (arq) => arq.split(/[\\/]/).filter(Boolean).at(-3) || arq
 
-const duracao = (s) => {
+export const duracao = (s) => {
   if (!Number.isFinite(s)) return '—'
   if (s < 60) return `${Math.max(1, Math.round(s))} s`
   const m = Math.floor(s / 60)
@@ -32,7 +32,7 @@ const duracao = (s) => {
   return m < 60 ? `${m} min ${String(r).padStart(2, '0')} s` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`
 }
 
-function Velocidade({ bps, rotulo }) {
+export function Velocidade({ bps, rotulo }) {
   const v = speedParts(bps)
   return html`<div class="dk-num">
     <span class="dk-num-v">${v.value}<small>${v.unit}</small></span>
@@ -41,7 +41,7 @@ function Velocidade({ bps, rotulo }) {
 }
 
 /** Gráfico da velocidade nos últimos instantes (amostras guardadas pela tela). */
-function Grafico({ pontos }) {
+export function Grafico({ pontos }) {
   if (pontos.length < 2) return html`<div class="dk-graf is-vazio"></div>`
   const max = Math.max(...pontos, 1)
   const w = 300
