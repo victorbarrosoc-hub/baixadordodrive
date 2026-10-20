@@ -10,14 +10,17 @@ import { LevelMeter } from './meter.js'
 import { useAbout } from './drive-data.js'
 import { UpdateCard } from './versao.js'
 
+// O que se usa todo dia em cima; Dispositivos e Ajustes embaixo. "Criar" junta Frames e Cartões (abas na tela).
 const NAV = [
+  { id: 'painel', label: 'Início', icon: 'home' },
   { id: 'transferencias', label: 'Transferências', icon: 'transfers' },
   { id: 'drive', label: 'Drive', icon: 'cloud' },
   { id: 'referencias', label: 'Referências', icon: 'bookmark' },
-  { id: 'frames', label: 'Frames', icon: 'frames' },
+  { id: 'frames', label: 'Criar', icon: 'sparkle', tambem: ['cartoes'] },
   { id: 'comparar', label: 'Comparar', icon: 'compare' },
-  { id: 'computadores', label: 'Computadores', icon: 'laptop' },
-  { id: 'cartoes', label: 'Cartões', icon: 'sdcard' },
+]
+const NAV_BAIXO = [
+  { id: 'computadores', label: 'Dispositivos', icon: 'laptop' },
   { id: 'ajustes', label: 'Ajustes', icon: 'sliders' },
 ]
 
@@ -122,18 +125,24 @@ function AccountChip() {
   </div>`
 }
 
+function NavItem({ n, current }) {
+  const on = current === n.id || n.tambem?.includes(current)
+  return html`<a href=${`#/${n.id}`} class=${cx('nav-item', on && 'is-on')} aria-current=${on ? 'page' : undefined}>
+    <${Icon} name=${n.icon} size=${17} />
+    <span>${n.label}</span>
+    ${n.id === 'transferencias' ? html`<${NavBadge} />` : null}
+    ${n.id === 'referencias' ? html`<${RefBadge} />` : null}
+  </a>`
+}
+
 export function Sidebar({ current }) {
   return html`<aside class="sidebar">
-    <div class="sidebar-brand"><a href="#/transferencias" aria-label="SOBEDESCE — início"><${Wordmark} size=${22} /></a></div>
+    <div class="sidebar-brand"><a href="#/painel" aria-label="SOBEDESCE — início"><${Wordmark} size=${22} /></a></div>
     <nav class="nav" aria-label="Principal">
-      ${NAV.map(
-        (n) => html`<a href=${`#/${n.id}`} class=${cx('nav-item', current === n.id && 'is-on')} aria-current=${current === n.id ? 'page' : undefined}>
-          <${Icon} name=${n.icon} size=${17} />
-          <span>${n.label}</span>
-          ${n.id === 'transferencias' ? html`<${NavBadge} />` : null}
-          ${n.id === 'referencias' ? html`<${RefBadge} />` : null}
-        </a>`,
-      )}
+      ${NAV.map((n) => html`<${NavItem} n=${n} current=${current} />`)}
+    </nav>
+    <nav class="nav nav-baixo" aria-label="Dispositivos e ajustes">
+      ${NAV_BAIXO.map((n) => html`<${NavItem} n=${n} current=${current} />`)}
     </nav>
     <div class="sidebar-foot">
       <${UpdateCard} />
