@@ -12,32 +12,77 @@ const PULO_MS = 12_000
 
 const abortado = () => Object.assign(new Error('parado'), { name: 'AbortError' })
 
-/** Abre o vídeo (src = blob: da galeria ou /app/stream/… do Drive). Resolve com o elemento já com a duração. */
-export function abrirVideo(src, { signal } = {}) {
+/** Erro ao abrir: `formato` (o aparelho não decodifica), `rede` (não chegou) ou `outro`. */
+export class ErroVideo extends Error {
+  constructor(tipo, message) {
+    super(message)
+    this.name = 'ErroVideo'
+    this.tipo = tipo
+  }
+}
+
+/**
+ * Abre o vídeo (src = blob: da galeria ou /app/stream/… do Drive). Resolve com o elemento já com a duração e o
+ * primeiro quadro. O elemento fica na página (escondido): o Safari do iPhone carrega e decodifica melhor assim, e um
+ * play()/pause() mudo destrava o primeiro quadro onde ele não vem sozinho.
+ */
+export function abrirVideo(src, { signal, prazoMs = 30_000 } = {}) {
   return new Promise((resolve, reject) => {
     const v = document.createElement('video')
     v.muted = true
     v.playsInline = true
     v.preload = 'auto'
     v.setAttribute('playsinline', '')
+    v.setAttribute('muted', '')
+    v.setAttribute('aria-hidden', 'true')
+    v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:-1'
+    document.body.appendChild(v)
+    let feito = false
     const fim = (fn, x) => {
+      if (feito) return
+      feito = true
+      clearTimeout(prazo)
+      v.removeEventListener('loadedmetadata', meta)
       v.removeEventListener('loadeddata', ok)
       v.removeEventListener('error', erro)
       signal?.removeEventListener('abort', parar)
+      if (fn === reject) fechar(v)
       fn(x)
     }
-    const ok = () => (Number.isFinite(v.duration) && v.duration > 0 && v.videoWidth ? fim(resolve, v) : fim(reject, new Error('Não consegui ler este vídeo no celular.')))
-    const erro = () => fim(reject, new Error('O celular não abre este formato de vídeo. Peça ao computador.'))
-    const parar = () => {
-      v.removeAttribute('src')
-      v.load()
-      fim(reject, abortado())
+    const meta = () => {
+      // Sem o primeiro quadro em alguns iPhones até tocar: toca mudo um instante e pausa.
+      if (v.readyState < 2) v.play().then(() => v.pause(), () => {})
     }
+    const ok = () =>
+      Number.isFinite(v.duration) && v.duration > 0 && v.videoWidth
+        ? fim(resolve, v)
+        : fim(reject, new ErroVideo('formato', 'Não consegui ler este vídeo no celular.'))
+    const erro = () => {
+      const c = v.error?.code
+      if (c === 2) return fim(reject, new ErroVideo('rede', 'O vídeo não chegou: a internet caiu no meio. Tente de novo.'))
+      fim(reject, new ErroVideo(c === 3 || c === 4 ? 'formato' : 'outro', 'O celular não abre este formato de vídeo.'))
+    }
+    const parar = () => fim(reject, abortado())
+    const prazo = setTimeout(() => fim(reject, new ErroVideo('rede', 'O vídeo demorou demais para abrir. A internet está lenta?')), prazoMs)
+    v.addEventListener('loadedmetadata', meta)
     v.addEventListener('loadeddata', ok)
     v.addEventListener('error', erro)
     signal?.addEventListener('abort', parar, { once: true })
     v.src = src
+    v.load()
   })
+}
+
+/** Solta o vídeo (para de baixar e sai da página). */
+export function fechar(v) {
+  try {
+    v.pause()
+    v.removeAttribute('src')
+    v.load()
+  } catch {
+    // já fechado
+  }
+  v.remove()
 }
 
 /** Pula para `t` e espera o quadro estar pronto para desenhar. */

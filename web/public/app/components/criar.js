@@ -10,7 +10,8 @@ import { createFolder } from '../lib/drive.js'
 import { engine } from '../lib/uploader.js'
 import { framesPedidos, pedirFrames, tentarDeNovo } from '../lib/proxies.js'
 import { bytes, count } from '../lib/format.js'
-import { abrirVideo, amostrar, baseDoNome, escolher, nomeDoFrame, pastaDaCena, timecode, tirar } from '../lib/frames/celular.js'
+import { abrirVideo, amostrar, baseDoNome, escolher, fechar, nomeDoFrame, pastaDaCena, timecode, tirar } from '../lib/frames/celular.js'
+import { findProxy, mayPlay } from '../lib/browse.js'
 import { FUNDOS, LAYOUTS, desenharPost, fatiar, layoutPorId } from '../lib/frames/posts.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, cx } from './ui.js'
@@ -67,9 +68,11 @@ async function rodar(quantidade, formato) {
   }
   let v
   try {
-    const src = job.video.origem === 'drive' ? ((await streamReady()) ? streamUrl(job.video.file) : null) : job.video.blobUrl
-    if (!src) throw new Error('Abra o app pelo ícone da tela de início (ou recarregue) para ler vídeos do Drive.')
-    v = await abrirVideo(src, { signal: ac.signal })
+    job.fonte = null
+    if (job.video.origem === 'drive') {
+      if (!(await streamReady())) throw new Error('Abra o app pelo ícone da tela de início (ou recarregue) para ler vídeos do Drive.')
+      v = await abrirDoDrive(job.video.file, ac.signal)
+    } else v = await abrirVideo(job.video.blobUrl, { signal: ac.signal })
     const a = await amostrar(v, { signal: ac.signal, onProgress: (f) => passo('lendo', f) })
     const r = escolher(a, quantidade)
     job.cenas = r.cenas
@@ -87,14 +90,34 @@ async function rodar(quantidade, formato) {
   } catch (err) {
     if (job?.ac !== ac) return
     if (err?.name === 'AbortError') job.fase = 'ajustes'
-    else Object.assign(job, { fase: 'erro', erro: err?.message || 'Não deu para terminar.' })
+    else Object.assign(job, { fase: 'erro', erro: err?.message || 'Não deu para terminar.', erroFormato: Boolean(err?.formato || err?.tipo === 'formato') })
     mudou()
   } finally {
-    if (v) {
-      v.removeAttribute('src')
-      v.load()
+    if (v) fechar(v)
+  }
+}
+
+/**
+ * O original direto do Drive; se o celular não abre o formato (ProRes, MXF, alguns H.264 de edição no iPhone), o
+ * proxy que já está no Drive (a cópia leve do app ou da câmera). Sem nenhum dos dois: erro com "Pedir ao computador".
+ */
+async function abrirDoDrive(file, signal) {
+  let erro = null
+  if (mayPlay(file)) {
+    try {
+      return await abrirVideo(streamUrl(file), { signal })
+    } catch (err) {
+      if (err?.name === 'AbortError' || err?.tipo === 'rede') throw err
+      erro = err
     }
   }
+  const proxy = await findProxy(file, [], signal).catch(() => null)
+  if (proxy) {
+    const v = await abrirVideo(streamUrl(proxy), { signal })
+    job.fonte = { tipo: 'proxy', nome: proxy.name, largura: v.videoWidth, altura: v.videoHeight }
+    return v
+  }
+  throw Object.assign(new Error('O celular não abre o formato deste vídeo, e ele ainda não tem proxy no Drive.'), { formato: true, causa: erro })
 }
 
 // ───── salvar e subir ─────
@@ -234,13 +257,15 @@ function Ajustes({ j }) {
   const [q, setQ] = useState(12)
   const [fmt, setFmt] = useState('jpg')
   const grande = j.video.size > GRANDE
+  const semFormato = j.video.origem === 'drive' && !mayPlay(j.video.file)
   return html`<div class="cr-card">
     <div class="cr-video">
       <span class="cr-origem-ic"><${Icon} name=${j.video.origem === 'drive' ? 'drive' : 'film'} size=${20} /></span>
       <span><b>${j.video.nome}</b><small>${j.video.origem === 'drive' ? 'Direto do Drive' : 'Da galeria'}${j.video.size ? ` · ${bytes(j.video.size)}` : ''}</small></span>
       <button type="button" class="link-btn" onClick=${limpar}>Trocar</button>
     </div>
-    ${grande ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Vídeo pesado: pelo celular demora e depende da internet. O app do computador faz mais rápido, com takes.</p>` : null}
+    ${semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Este aparelho não abre o formato do original: os frames saem do proxy do Drive, se houver. Em alta, peça ao computador (abaixo).</p>` : null}
+    ${grande && !semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Vídeo pesado: pelo celular demora e depende da internet. O app do computador faz mais rápido, com takes.</p>` : null}
     <div class="cr-linha">
       <span>Quantos frames<small>espalhados pelas cenas, só os que valem</small></span>
       <div class="segmented" role="radiogroup" aria-label="Quantos frames">
@@ -264,8 +289,8 @@ const ESTADO = { pendente: 'Esperando o computador', gerando: 'O computador est�
  * Pedir ao computador: o trabalho completo (takes em 9:16 ou ProRes, TIFF, vídeo pesado), feito pelo app SOBEDESCE
  * do computador da mesma conta. A pasta pronta sobe ao lado do vídeo no Drive.
  */
-function NoComputador({ file, quantidade, formato }) {
-  const [aberto, setAberto] = useState(false)
+function NoComputador({ file, quantidade, formato, abertoInicial = false }) {
+  const [aberto, setAberto] = useState(abertoInicial)
   const [takes, setTakes] = useState({ quantidade: 6, duracao: 3, formato: '9:16', codec: 'h264' })
   const [pedidos, setPedidos] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -355,6 +380,9 @@ function Resultado({ j }) {
       <span><b>${count(j.frames.length)} frames</b> · ${count(j.cenas.length)} cenas</span>
       <button type="button" class="link-btn" onClick=${limpar}>Novo</button>
     </div>
+    ${j.fonte?.tipo === 'proxy'
+      ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />O iPhone não abre o original, então estes frames vieram do proxy (${j.fonte.largura}×${j.fonte.altura}). Para tirar do original em alta, peça ao computador.</p>`
+      : null}
     ${j.cenas.map((c) => {
       const fs = j.frames.filter((f) => f.cena === c.n)
       if (!fs.length) return null
@@ -397,7 +425,15 @@ function FramesTela({ onVoltar }) {
         : j.fase === 'lendo' || j.fase === 'frames'
           ? html`<${Andamento} j=${j} />`
           : j.fase === 'erro'
-            ? html`<div class="cr-card cr-erro" role="alert"><${Icon} name="warning" size=${24} /><b>Não terminei</b><p>${j.erro}</p><${Button} variant="secondary" onClick=${() => Object.assign(j, { fase: 'ajustes' }) && mudou()}>Tentar de novo</${Button}></div>`
+            ? html`<div class="cr-card cr-erro" role="alert">
+                <${Icon} name="warning" size=${24} /><b>${j.erroFormato ? 'O iPhone não abre este arquivo' : 'Não terminei'}</b><p>${j.erro}</p>
+                ${j.erroFormato && j.video.origem === 'drive'
+                  ? html`<div class="cr-erro-pc"><${NoComputador} file=${j.video.file} quantidade=${12} formato="jpg" abertoInicial=${true} /></div>`
+                  : j.erroFormato
+                    ? html`<p class="cr-erro-galeria">Suba o vídeo para o Drive (aba Enviar) e peça os frames ao computador: ele abre qualquer formato.</p>`
+                    : null}
+                <${Button} variant="secondary" onClick=${() => Object.assign(j, { fase: 'ajustes' }) && mudou()}>Tentar de novo</${Button}>
+              </div>`
             : html`<${Resultado} j=${j} />`}
   </div>`
 }
