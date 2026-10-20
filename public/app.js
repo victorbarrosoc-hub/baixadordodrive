@@ -8,6 +8,7 @@ import { Wordmark } from './components/icons.js'
 import { Button, Spinner } from './components/common.js'
 import { Sidebar } from './components/sidebar.js'
 import { TransfersScreen } from './components/transfers.js'
+import { PainelScreen } from './components/painel.js'
 import { DriveScreen } from './components/drive.js'
 import { ReferenciasScreen } from './components/referencias.js'
 import { FramesScreen } from './components/frames.js'
@@ -20,7 +21,7 @@ import { ModalHost } from './components/modal.js'
 import { Toasts } from './components/toasts.js'
 import { OAuthWaitDialog } from './components/oauth-wait.js'
 
-const TITLES = { transferencias: 'Transferências', drive: 'Drive', referencias: 'Referências', frames: 'Frames', comparar: 'Comparar', computadores: 'Computadores', cartoes: 'Cartões', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
+const TITLES = { painel: 'Início', transferencias: 'Transferências', drive: 'Drive', referencias: 'Referências', frames: 'Frames', comparar: 'Comparar', computadores: 'Computadores', cartoes: 'Cartões', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
 
 function Splash({ error }) {
   return html`<div class="splash">
@@ -59,12 +60,16 @@ function Shell({ route }) {
     case 'ajustes':
       screen = html`<${SettingsScreen} route=${route} />`
       break
-    default:
+    case 'transferencias':
       screen = html`<${TransfersScreen} />`
+      break
+    default:
+      screen = html`<${PainelScreen} />`
   }
+  // A tela nova entra com um movimento curto (a chave muda com a tela, não com a subpasta do Drive).
   return html`<div class="shell">
     <${Sidebar} current=${route.name} />
-    <main class="main" id="main">${screen}</main>
+    <main class="main" id="main"><div class="tela-entra" key=${route.name}>${screen}</div></main>
   </div>`
 }
 
@@ -89,12 +94,12 @@ function App() {
     // Já tem Drive e alguém abriu #/inicio sem querer trocar a chave nem conectar um Drive local → Transferências.
     // Logo depois de entrar na conta, a tela fica para mostrar o "Pronto" (o botão Começar segue).
     const sub = route.parts[1]
-    if (!needsSetup && route.name === 'inicio' && sub !== 'chave' && sub !== 'local' && !justSignedIn && !keepWelcome.current) navigate('transferencias', { replace: true })
+    if (!needsSetup && route.name === 'inicio' && sub !== 'chave' && sub !== 'local' && !justSignedIn && !keepWelcome.current) navigate('painel', { replace: true })
     if (needsSetup && route.name !== 'inicio') navigate('inicio', { replace: true })
   }, [status, needsSetup, route.name, route.parts[1], justSignedIn])
 
   useEffect(() => {
-    document.title = `${TITLES[inSetup ? 'inicio' : route.name] || 'Transferências'} — SOBEDESCE`
+    document.title = `${TITLES[inSetup ? 'inicio' : route.name] || 'Início'} — SOBEDESCE`
   }, [route.name, inSetup])
 
   // Rotas são por hash e a página inteira rola: sem isso, a tela nova abre na altura em que a anterior estava

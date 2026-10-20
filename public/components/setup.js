@@ -213,7 +213,7 @@ function CloudWelcome() {
 
   const begin = async () => {
     await cloudCancel() // limpa o "pronto" do login
-    navigate('transferencias')
+    navigate('painel')
   }
   const localPath = () => (setup.configured ? (location.href = '/api/auth/start') : navigate('inicio/local'))
 
