@@ -1,8 +1,9 @@
 // Frames → posts (tela Frames, aba Posts): os formatos que quem trabalha com audiovisual usa nas redes, desenhados num
 // <canvas> em alta (2× o tamanho do Instagram) a partir dos frames originais. Sem nada de rede: só geometria e desenho.
 //
-//   triade      3, 4 ou 5 frames empilhados (o "stills" de filme), com respiro e o título embaixo
-//   grade       2×2 ou 3×3, colagem colada ou com respiro
+//   triade      3, 4 ou 5 frames empilhados (o "stills" de filme), com respiro e o título embaixo; em tela cheia,
+//               os frames ocupam o post inteiro, sem bordas nem título
+//   grade       2×2 ou 3×3, colagem com respiro ou em tela cheia (colada)
 //   polaroid    1 a 3 fotos instantâneas sobre o fundo, com legenda escrita embaixo
 //   box         o frame dentro de uma moldura larga (passe-partout), com a ficha do filme em letras pequenas
 //   cinema      o frame em 2,39:1 no meio, barras pretas e o título espaçado, como cartão de filme
@@ -50,10 +51,18 @@ export function cobrir(iw, ih, w, h, fx = 0.5, fy = 0.5, zoom = 1) {
  * Onde cada frame entra (retângulos em px do post), sem desenhar: assim dá para testar e mostrar a prévia.
  * @returns {{ caixas: {x,y,w,h,rot?}[], texto?: {x,y,tam,alinha,peso,espaco}[], slides?: number }}
  */
-export function montar(layout, { w, h, n, respiro = 0.03, slides = 2 }) {
+export function montar(layout, { w, h, n, respiro = 0.03, slides = 2, cheio = false }) {
   const m = Math.round(w * respiro)
   switch (layout) {
     case 'triade': {
+      // Tela cheia: faixas da largura toda, dividindo a altura inteira (sem fundo aparecendo).
+      if (cheio) {
+        const caixas = Array.from({ length: n }, (_, i) => {
+          const y = Math.round((i * h) / n)
+          return { x: 0, y, w, h: Math.round(((i + 1) * h) / n) - y }
+        })
+        return { caixas, texto: [] }
+      }
       // Faixas de 16:9 empilhadas, centradas na altura que sobra; título embaixo.
       const fw = w - m * 2
       let fh = Math.round(fw * 9 / 16)
@@ -67,7 +76,7 @@ export function montar(layout, { w, h, n, respiro = 0.03, slides = 2 }) {
     }
     case 'grade': {
       const lado = Math.round(Math.sqrt(n))
-      const g = respiro ? m : 0
+      const g = respiro && !cheio ? m : 0
       const cw = (w - g * (lado + 1)) / lado
       const ch = (h - g * (lado + 1)) / lado
       const caixas = []
@@ -165,9 +174,9 @@ export function moverEnquadre(e, dx, dy, iw, ih, b) {
  * Qual frame está no ponto (px do post, já na escala do desenho)? Devolve { i, caixa } ou null. A caixa é a área da
  * foto (na polaroid, a foto dentro da moldura, sem o giro). No carrossel, é sempre o frame 0 na largura toda.
  */
-export function frameNoPonto(layout, { proporcao = '4:5', escala = 2, n, respiro = true, slides = 2 }, px, py) {
+export function frameNoPonto(layout, { proporcao = '4:5', escala = 2, n, respiro = true, slides = 2, cheio = false }, px, py) {
   const { w, h } = tamanhoPost(proporcao, escala)
-  const plano = montar(layout, { w, h, n, respiro: respiro ? 0.03 : 0, slides })
+  const plano = montar(layout, { w, h, n, respiro: respiro ? 0.03 : 0, slides, cheio })
   for (let i = plano.caixas.length - 1; i >= 0; i--) {
     const c = plano.caixas[i]
     if (layout === 'polaroid') {
@@ -205,7 +214,7 @@ function contornar(ctx, b) {
 }
 
 function escrever(ctx, t, texto, cor) {
-  if (!texto) return
+  if (!texto || !t) return
   ctx.save()
   ctx.fillStyle = cor
   ctx.font = `${t.peso} ${t.tam}px -apple-system, "SF Pro Display", "Inter", "Segoe UI", sans-serif`
@@ -232,13 +241,13 @@ function logoNoCanto(ctx, logo, w, h, { tamanho = 0.14, posicao = 'inf-dir', opa
 
 /**
  * Desenha o post. `imagens`: HTMLImageElement já carregados (na ordem). `textos`: { titulo, sub, legendas[] }.
- * `enquadres[i]`: { x, y, zoom } do frame i (ver enquadreDe). `destaque`: índice do frame que está sendo enquadrado
+ * `enquadres[i]`: { x, y, zoom } do frame i (ver enquadreDe). `cheio`: tríade e grade em tela cheia, sem bordas. `destaque`: índice do frame que está sendo enquadrado
  * (ganha um contorno, só na prévia). Devolve o canvas (para o carrossel, a imagem inteira; `fatiar` corta em slides).
  */
-export function desenharPost(canvas, { layout, proporcao = '4:5', escala = 2, imagens, fundo = 'preto', respiro = true, textos = {}, timecodes = [], logo = null, logoAjustes = null, slides = 2, foco = 0.5, enquadres = [], destaque = null }) {
+export function desenharPost(canvas, { layout, proporcao = '4:5', escala = 2, imagens, fundo = 'preto', respiro = true, textos = {}, timecodes = [], logo = null, logoAjustes = null, slides = 2, foco = 0.5, enquadres = [], destaque = null, cheio = false }) {
   const { w, h } = tamanhoPost(proporcao, escala)
   const n = imagens.length
-  const plano = montar(layout, { w, h, n, respiro: respiro ? 0.03 : 0, slides })
+  const plano = montar(layout, { w, h, n, respiro: respiro ? 0.03 : 0, slides, cheio })
   const larg = layout === 'carrossel' ? w * slides : w
   canvas.width = larg
   canvas.height = h

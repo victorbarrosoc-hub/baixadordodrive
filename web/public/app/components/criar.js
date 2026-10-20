@@ -572,9 +572,11 @@ export function FramesPostSheet({ ids = [] }) {
   const desenhar = async (alvo, escala, destaque = null) => {
     const imagens = await Promise.all(usados.map((f) => carregar(f.url)))
     const enquadres = usados.map((f) => enq[f.id])
-    return desenharPost(alvo, { layout: p.layout, proporcao: p.proporcao, escala, imagens, fundo: p.fundo, textos: { titulo: p.titulo, legendas: p.layout === 'polaroid' ? [p.titulo] : undefined }, timecodes: usados.map((f) => f.tc), slides: p.slides, enquadres, destaque })
+    return desenharPost(alvo, { layout: p.layout, proporcao: p.proporcao, escala, imagens, fundo: p.fundo, textos: { titulo: p.titulo, legendas: p.layout === 'polaroid' ? [p.titulo] : undefined }, timecodes: usados.map((f) => f.tc), slides: p.slides, cheio: cheio, enquadres, destaque })
   }
   const ultimo = p.layout === 'carrossel' ? 0 : usados.length - 1
+  const podeCheio = p.layout === 'triade' || p.layout === 'grade'
+  const cheio = podeCheio && p.cheio
   const emEdicao = ativo != null && ativo <= ultimo ? ativo : null
   useEffect(() => {
     let vivo = true
@@ -596,7 +598,7 @@ export function FramesPostSheet({ ids = [] }) {
     const r = cv.current.getBoundingClientRect()
     return { x: ((e.clientX - r.left) * cv.current.width) / r.width, y: ((e.clientY - r.top) * cv.current.height) / r.height }
   }
-  const noPonto = (pt) => frameNoPonto(p.layout, { proporcao: p.proporcao, escala: PREVIA, n: usados.length, slides: p.slides }, pt.x, pt.y)
+  const noPonto = (pt) => frameNoPonto(p.layout, { proporcao: p.proporcao, escala: PREVIA, n: usados.length, slides: p.slides, cheio }, pt.x, pt.y)
   const distancia = (d) => {
     const [a, b] = [...d.values()]
     return Math.hypot(a.x - b.x, a.y - b.y) || 1
@@ -700,8 +702,11 @@ export function FramesPostSheet({ ids = [] }) {
         : null}
       ${L.slides ? html`<div class="cr-linha"><span>Slides</span><div class="segmented">${L.slides.map((q) => html`<button type="button" class=${cx('segmented-opt', p.slides === q && 'is-on')} onClick=${() => muda({ slides: q })}>${q}</button>`)}</div></div>` : null}
       <div class="cr-linha"><span>Tamanho</span><div class="segmented">${['4:5', '1:1', '9:16'].map((q) => html`<button type="button" class=${cx('segmented-opt', p.proporcao === q && 'is-on')} onClick=${() => muda({ proporcao: q })}>${q}</button>`)}</div></div>
+      ${podeCheio
+        ? html`<div class="cr-linha is-switch"><span>Tela cheia<small>sem bordas do fundo</small></span><button type="button" class="cr-switch" role="switch" aria-checked=${p.cheio ? 'true' : 'false'} aria-label="Tela cheia, sem bordas" onClick=${() => muda({ cheio: !p.cheio })}><span class=${cx('switch', p.cheio && 'is-on')} aria-hidden="true"><span></span></span></button></div>`
+        : null}
       <div class="cr-linha"><span>Fundo</span><div class="segmented">${Object.keys(FUNDOS).map((q) => html`<button type="button" class=${cx('segmented-opt', p.fundo === q && 'is-on')} onClick=${() => muda({ fundo: q })}>${q[0].toUpperCase() + q.slice(1)}</button>`)}</div></div>
-      ${['triade', 'box', 'cinema', 'contato', 'polaroid'].includes(p.layout) ? html`<label class="cr-campo"><span>${p.layout === 'polaroid' ? 'Legenda' : 'Título'}</span><input class="input" value=${p.titulo} maxlength="60" onInput=${(e) => muda({ titulo: e.currentTarget.value })} /></label>` : null}
+      ${['triade', 'box', 'cinema', 'contato', 'polaroid'].includes(p.layout) && !(p.layout === 'triade' && cheio) ? html`<label class="cr-campo"><span>${p.layout === 'polaroid' ? 'Legenda' : 'Título'}</span><input class="input" value=${p.titulo} maxlength="60" onInput=${(e) => muda({ titulo: e.currentTarget.value })} /></label>` : null}
       <p class="cr-nota">${ids.length ? `Com os ${ids.length} frames que você escolheu.` : 'Escolha automática: os melhores de cada cena.'} JPEG em alta (2160 px).</p>
       <div class="cr-post-btns">
         <${Button} variant="secondary" size="xl" icon="download" loading=${busy === 'salvar'} onClick=${() => acao('salvar')}>Salvar no celular</${Button}>

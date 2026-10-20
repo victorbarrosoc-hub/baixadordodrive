@@ -6757,6 +6757,13 @@ html.is-dswipe body {
   touch-action: none;
   cursor: grab;
 }
+.cr-linha.is-switch {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.cr-switch {
+  padding: 4px 0;
+}
 .cr-dica-enq {
   display: flex;
   align-items: center;

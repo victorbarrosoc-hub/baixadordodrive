@@ -34,8 +34,8 @@ const nomeSemExt = (n) => String(n || '').replace(/\.[^.]{1,6}$/, '')
 
 // ─────────── novo trabalho ───────────
 
-function OrigemTile({ icon, titulo, dica, tag, onClick, ativo }) {
-  return html`<button type="button" class=${cx('fr-origem', ativo && 'is-on')} onClick=${onClick}>
+function OrigemTile({ icon, titulo, dica, tag, onClick, ativo, tom }) {
+  return html`<button type="button" class=${cx('fr-origem', tom && `is-${tom}`, ativo && 'is-on')} onClick=${onClick}>
     <span class="fr-origem-ic"><${Icon} name=${icon} size=${22} /></span>
     <span class="fr-origem-txt"><b>${titulo}</b><span>${dica}</span></span>
     ${tag ? html`<span class="fr-origem-tag">${tag}</span>` : null}
@@ -70,6 +70,78 @@ function LogoPrevia({ logo }) {
   return html`<div class="fr-logo-tela" aria-hidden="true">
     <span class="fr-logo-luz"></span>
     <img src=${logoUrl(logo.path)} alt="" style=${style} />
+  </div>`
+}
+
+function Passo({ n, titulo, dica, opcional, acao, children }) {
+  return html`<section class="frn-passo">
+    <header class="frn-passo-head">
+      <span class="frn-n">${n}</span>
+      <div class="frn-passo-tit">
+        <h2>${titulo}${opcional ? html` <small>opcional</small>` : null}</h2>
+        ${dica ? html`<p>${dica}</p>` : null}
+      </div>
+      ${acao ? html`<div class="frn-passo-acao">${acao}</div>` : null}
+    </header>
+    <div class="frn-passo-corpo">${children}</div>
+  </section>`
+}
+
+/** Desenho da proporção (16:9, 9:16, 4:5, 1:1) para as opções de formato. */
+function Arte({ proporcao }) {
+  const [w, h] = proporcao.split(':').map(Number)
+  const k = 26 / Math.max(w, h)
+  return html`<span class="frn-arte" aria-hidden="true"><i style=${`width:${Math.round(w * k)}px;height:${Math.round(h * k)}px`}></i></span>`
+}
+
+/** Opções grandes, lado a lado: o rótulo, uma linha de dica e, se houver, um ícone ou o desenho da proporção. */
+function Escolha({ value, opcoes, onChange, label, tom }) {
+  return html`<div class=${cx('frn-escolha', tom && `is-${tom}`)} role="radiogroup" aria-label=${label} style=${`--n:${opcoes.length}`}>
+    ${opcoes.map(
+      (o) => html`<button type="button" role="radio" aria-checked=${o.value === value ? 'true' : 'false'} class=${cx('frn-op', o.value === value && 'is-on')} onClick=${() => onChange(o.value)}>
+        ${o.arte ? html`<${Arte} proporcao=${o.arte} />` : o.icon ? html`<span class="frn-op-ic"><${Icon} name=${o.icon} size=${16} /></span>` : null}
+        <b>${o.label}</b>
+        ${o.dica ? html`<span>${o.dica}</span>` : null}
+        <span class="frn-op-ok" aria-hidden="true"><${Icon} name="check" size=${12} /></span>
+      </button>`,
+    )}
+  </div>`
+}
+
+/** "O que vai sair": o resumo ao vivo do trabalho, com os frames, os takes e o caminho até a nuvem desenhados. */
+function Resumo({ video, aj, nuvem, pastaDrive, busy, onComecar }) {
+  const nf = aj.frames.quantidade
+  const mostra = Math.min(nf, 24)
+  const takes = aj.takes.ligado ? aj.takes.quantidade : 0
+  const [tw, th] = (aj.takes.formato === 'original' ? '16:9' : aj.takes.formato).split(':').map(Number)
+  const destinoNuvem = nuvem === 'junto' ? 'Ao lado do vídeo' : nuvem === 'escolher' && pastaDrive ? pastaDrive.name : null
+  return html`<div class="frn-resumo">
+    <p class="frn-resumo-tit">O que vai sair</p>
+    <div class="frn-bloco is-frames">
+      <div class="frn-bloco-top"><b>${nf}</b><span>frames · ${aj.frames.formato.toUpperCase()}</span></div>
+      <div class="frn-mosaico" aria-hidden="true">
+        ${Array.from({ length: mostra }, (_, i) => html`<i key=${`${nf}-${i}`} style=${`--i:${i}`}></i>`)}
+        ${nf > mostra ? html`<em>+${nf - mostra}</em>` : null}
+      </div>
+    </div>
+    <div class=${cx('frn-bloco is-takes', !takes && 'is-off')}>
+      <div class="frn-bloco-top">${takes ? html`<b>${takes}</b><span>takes · ${aj.takes.duracao} s · ${aj.takes.codec === 'prores' ? 'ProRes' : 'H.264'}</span>` : html`<span>Sem takes</span>`}</div>
+      ${takes
+        ? html`<div class="frn-takes" aria-hidden="true">
+            ${Array.from({ length: Math.min(takes, 8) }, (_, i) => html`<i key=${`${aj.takes.formato}-${i}`} style=${`--i:${i};aspect-ratio:${tw}/${th};height:${tw > th ? 30 : 46}px`}><span></span></i>`)}
+          </div>`
+        : null}
+    </div>
+    <div class=${cx('frn-fluxo', !destinoNuvem && 'is-local')}>
+      <span class="frn-fluxo-no"><${Icon} name="desktop" size=${16} /><small>Computador</small></span>
+      <span class="frn-fluxo-linha" aria-hidden="true"><i></i></span>
+      <span class="frn-fluxo-no is-nuvem"><${Icon} name="cloud" size=${16} /><small>${destinoNuvem || 'Não sobe'}</small></span>
+    </div>
+    <button type="button" class="frn-cta" disabled=${!video || busy} onClick=${onComecar}>
+      ${busy ? html`<${Spinner} size=${16} />` : html`<${Icon} name="sparkle" size=${18} />`}
+      <span>Fazer frames${aj.takes.ligado ? ' e takes' : ''}</span>
+    </button>
+    <p class="frn-cta-dica">${video ? html`<b>${video.nome}</b>` : 'Escolha o vídeo para começar.'}</p>
   </div>`
 }
 
@@ -163,8 +235,14 @@ function Novo({ onComecou }) {
     }
   }
 
+  const nuvemOpcoes = [
+    ...(video?.tipo === 'drive' ? [{ value: 'junto', label: 'Ao lado do vídeo', dica: 'Na mesma pasta do Drive', icon: 'upload' }] : []),
+    { value: 'escolher', label: pastaDrive ? pastaDrive.name : 'Escolher pasta', dica: pastaDrive ? 'Toque para trocar' : 'Uma pasta do Drive', icon: 'cloud' },
+    { value: 'nao', label: 'Agora não', dica: 'Fica só no computador', icon: 'desktop' },
+  ]
+
   return html`<section
-    class=${cx('fr-novo', arrastando && 'is-drop')}
+    class=${cx('frn', arrastando && 'is-drop')}
     onDragOver=${(e) => {
       e.preventDefault()
       setArrastando(true)
@@ -172,102 +250,88 @@ function Novo({ onComecou }) {
     onDragLeave=${(e) => e.currentTarget.contains(e.relatedTarget) || setArrastando(false)}
     onDrop=${onDrop}
   >
-    <div class="fr-passo">
-      <span class="fr-passo-n">1</span>
-      <div class="fr-passo-corpo">
-        <h2>O vídeo final</h2>
+    <div class="frn-main">
+      <${Passo} n="1" titulo="O vídeo final" dica="O filme pronto, do computador ou do Drive.">
         ${video
           ? html`<div class="fr-video">
-              <span class="fr-video-ic"><${Icon} name=${video.tipo === 'drive' ? 'cloud' : 'film'} size=${20} /></span>
+              <span class=${cx('fr-video-ic', video.tipo === 'drive' && 'is-drive')}><${Icon} name=${video.tipo === 'drive' ? 'cloud' : 'film'} size=${20} /></span>
               <span class="fr-video-txt">
                 <b title=${video.nome}>${video.nome}</b>
                 <span>${video.tipo === 'drive' ? `Desce do Drive${video.size ? ` · ${bytes(video.size)}` : ''} e é apagado do computador no fim` : shortPath(video.caminho, home)}</span>
               </span>
-              <${Button} size="sm" variant="ghost" onClick=${() => setVideo(null)}>Trocar</${Button}>
+              <${Button} size="sm" onClick=${() => setVideo(null)}>Trocar</${Button}>
             </div>`
           : html`<div class="fr-origens">
-              <${OrigemTile} icon="desktop" titulo="Do computador" dica="Escolha ou arraste o arquivo aqui" onClick=${doComputador} />
-              <${OrigemTile} icon="cloud" titulo="Do Drive" dica="O vídeo desce, vira frames e sai do computador" tag="Desce" onClick=${doDrive} />
-            </div>`}
-      </div>
-    </div>
+                <${OrigemTile} icon="desktop" tom="local" titulo="Do computador" dica="Escolha ou arraste o arquivo" onClick=${doComputador} />
+                <${OrigemTile} icon="cloud" tom="drive" titulo="Do Drive" dica="Desce, vira frames e sai do computador" tag="Desce" onClick=${doDrive} />
+              </div>
+              <p class="frn-arraste"><${Icon} name="drop" size=${14} />Ou solte o vídeo em qualquer lugar desta tela</p>`}
+      </${Passo}>
 
-    <div class="fr-passo">
-      <span class="fr-passo-n">2</span>
-      <div class="fr-passo-corpo">
-        <h2>Frames</h2>
-        <div class="fr-linhas">
-          <div class="fr-linha">
-            <span class="fr-rot">Quantos<small>espalhados pelas cenas, só os que valem</small></span>
-            <${Slider} value=${aj.frames.quantidade} min=${6} max=${120} step=${1} label="Quantidade de frames" format=${(v) => `${v}`} onInput=${(v) => set('frames', { quantidade: v })} />
-          </div>
-          <div class="fr-linha">
-            <span class="fr-rot">Arquivo<small>no tamanho do vídeo</small></span>
-            <${Segmented}
-              size="sm"
-              label="Formato dos frames"
-              value=${aj.frames.formato}
-              onChange=${(v) => set('frames', { formato: v })}
-              options=${[{ value: 'jpg', label: 'JPG', title: 'JPEG na qualidade máxima (cor 4:4:4)' }, { value: 'png', label: 'PNG', title: 'Sem perda' }, { value: 'tiff', label: 'TIFF', title: 'Sem perda, para tratar' }]}
-            />
+      <${Passo} n="2" titulo="Frames" dica="Os melhores de cada cena, no tamanho do vídeo.">
+        <div class="frn-quant">
+          <div class="frn-quant-num"><b>${aj.frames.quantidade}</b><span>frames</span></div>
+          <div class="frn-quant-ctl">
+            <${Slider} value=${aj.frames.quantidade} min=${6} max=${120} step=${1} label="Quantidade de frames" format=${() => ''} onInput=${(v) => set('frames', { quantidade: v })} />
+            <div class="frn-atalhos">${[12, 24, 48, 96].map((q) => html`<button type="button" class=${cx('frn-atalho', aj.frames.quantidade === q && 'is-on')} onClick=${() => set('frames', { quantidade: q })}>${q}</button>`)}</div>
           </div>
         </div>
-      </div>
-    </div>
+        <${Escolha}
+          label="Formato dos frames"
+          value=${aj.frames.formato}
+          onChange=${(v) => set('frames', { formato: v })}
+          opcoes=${[
+            { value: 'jpg', label: 'JPG', dica: 'Leve, qualidade máxima' },
+            { value: 'png', label: 'PNG', dica: 'Sem perda' },
+            { value: 'tiff', label: 'TIFF', dica: 'Para tratar a cor' },
+          ]}
+        />
+      </${Passo}>
 
-    <div class="fr-passo">
-      <span class="fr-passo-n">3</span>
-      <div class="fr-passo-corpo">
-        <div class="fr-passo-head">
-          <h2>Takes</h2>
-          <${Switch} checked=${aj.takes.ligado} label="Gerar takes" onChange=${(v) => set('takes', { ligado: v })} />
-        </div>
+      <${Passo} n="3" titulo="Takes" dica="O melhor trecho de cada cena, pronto para as redes." acao=${html`<${Switch} checked=${aj.takes.ligado} label="Gerar takes" onChange=${(v) => set('takes', { ligado: v })} />`}>
         ${aj.takes.ligado
-          ? html`<div class="fr-linhas">
-              <div class="fr-linha">
-                <span class="fr-rot">Quantos<small>o melhor trecho de cada cena</small></span>
-                <${Stepper} value=${aj.takes.quantidade} min=${1} max=${30} label="Quantidade de takes" onChange=${(v) => set('takes', { quantidade: v })} />
+          ? html`<div class="frn-dupla">
+                <div class="frn-campo"><span class="frn-rot">Quantos</span><${Stepper} value=${aj.takes.quantidade} min=${1} max=${30} label="Quantidade de takes" onChange=${(v) => set('takes', { quantidade: v })} /></div>
+                <div class="frn-campo">
+                  <span class="frn-rot">Duração</span>
+                  <div class="frn-chips" role="radiogroup" aria-label="Duração dos takes">
+                    ${[2, 3, 5, 8].map((v) => html`<button type="button" role="radio" aria-checked=${aj.takes.duracao === v ? 'true' : 'false'} class=${cx('frn-chip', aj.takes.duracao === v && 'is-on')} onClick=${() => set('takes', { duracao: v })}>${v} s</button>`)}
+                  </div>
+                </div>
+                <div class="frn-campo"><span class="frn-rot">Som</span><${Switch} checked=${aj.takes.audio} label="Takes com som" onChange=${(v) => set('takes', { audio: v })} /></div>
               </div>
-              <div class="fr-linha">
-                <span class="fr-rot">Duração</span>
-                <${Segmented} size="sm" label="Duração dos takes" value=${aj.takes.duracao} onChange=${(v) => set('takes', { duracao: v })} options=${[2, 3, 5, 8].map((v) => ({ value: v, label: `${v} s` }))} />
-              </div>
-              <div class="fr-linha">
-                <span class="fr-rot">Formato<small>recorta pelo centro</small></span>
-                <${Segmented}
-                  size="sm"
-                  label="Formato dos takes"
-                  value=${aj.takes.formato}
-                  onChange=${(v) => set('takes', { formato: v })}
-                  options=${[{ value: 'original', label: 'Original' }, { value: '9:16', label: '9:16', title: 'Reels, Stories, TikTok' }, { value: '4:5', label: '4:5', title: 'Feed' }, { value: '1:1', label: '1:1' }]}
-                />
-              </div>
-              <div class="fr-linha">
-                <span class="fr-rot">Arquivo</span>
-                <${Segmented}
-                  size="sm"
-                  label="Codec dos takes"
-                  value=${aj.takes.codec}
-                  onChange=${(v) => set('takes', { codec: v })}
-                  options=${[{ value: 'h264', label: 'H.264 · redes' }, { value: 'prores', label: 'ProRes · edição', title: 'ProRes 422 HQ' }]}
-                />
-              </div>
-              <div class="fr-linha">
-                <span class="fr-rot">Som</span>
-                <${Switch} checked=${aj.takes.audio} label="Takes com som" onChange=${(v) => set('takes', { audio: v })} />
-              </div>
-            </div>`
+              <span class="frn-rot">Formato <small>recorta pelo centro</small></span>
+              <${Escolha}
+                label="Formato dos takes"
+                value=${aj.takes.formato}
+                onChange=${(v) => set('takes', { formato: v })}
+                opcoes=${[
+                  { value: 'original', label: 'Original', dica: 'Como foi filmado', arte: '16:9' },
+                  { value: '9:16', label: '9:16', dica: 'Reels e Stories', arte: '9:16' },
+                  { value: '4:5', label: '4:5', dica: 'Feed', arte: '4:5' },
+                  { value: '1:1', label: '1:1', dica: 'Quadrado', arte: '1:1' },
+                ]}
+              />
+              <span class="frn-rot">Arquivo</span>
+              <${Escolha}
+                label="Codec dos takes"
+                value=${aj.takes.codec}
+                onChange=${(v) => set('takes', { codec: v })}
+                opcoes=${[
+                  { value: 'h264', label: 'H.264', dica: 'Para postar', icon: 'upload' },
+                  { value: 'prores', label: 'ProRes 422 HQ', dica: 'Para editar', icon: 'film' },
+                ]}
+              />`
           : html`<p class="fr-off">Só frames desta vez.</p>`}
-      </div>
-    </div>
+      </${Passo}>
 
-    <div class="fr-passo">
-      <span class="fr-passo-n">4</span>
-      <div class="fr-passo-corpo">
-        <div class="fr-passo-head">
-          <h2>Logomarca <small>opcional</small></h2>
-          ${aj.logo ? html`<${Button} size="sm" variant="ghost" onClick=${() => setAj((a) => ({ ...a, logo: null, frames: { ...a.frames, logo: false }, takes: { ...a.takes, logo: false } }))}>Tirar</${Button}>` : null}
-        </div>
+      <${Passo}
+        n="4"
+        titulo="Logomarca"
+        opcional=${true}
+        dica="Vai nos frames, nos takes e nos posts."
+        acao=${aj.logo ? html`<${Button} size="sm" variant="ghost" onClick=${() => setAj((a) => ({ ...a, logo: null, frames: { ...a.frames, logo: false }, takes: { ...a.takes, logo: false } }))}>Tirar</${Button}>` : null}
+      >
         ${aj.logo
           ? html`<div class="fr-logo">
               <${LogoPrevia} logo=${aj.logo} />
@@ -284,41 +348,23 @@ function Novo({ onComecou }) {
                 </div>
               </div>
             </div>`
-          : html`<button type="button" class="fr-logo-vazio" onClick=${escolherLogo}><${Icon} name="plus" size=${16} /> Escolher a logomarca <span>PNG transparente fica melhor. Ela também vai para os posts.</span></button>`}
-      </div>
-    </div>
+          : html`<button type="button" class="fr-logo-vazio" onClick=${escolherLogo}><span class="fr-logo-vazio-ic"><${Icon} name="plus" size=${16} /></span><b>Escolher a logomarca</b><span>PNG com fundo transparente fica melhor</span></button>`}
+      </${Passo}>
 
-    <div class="fr-passo">
-      <span class="fr-passo-n">5</span>
-      <div class="fr-passo-corpo">
-        <h2>Sobe e desce</h2>
-        <div class="fr-linhas">
-          <div class="fr-linha">
-            <span class="fr-rot">No computador<small>pasta organizada por cena</small></span>
-            <span class="fr-pasta"><${Icon} name="folder" size=${15} /><span title=${destino || padrao}>${shortPath(destino || padrao, home)}</span><${Button} size="sm" variant="ghost" onClick=${trocarDestino}>Trocar</${Button}></span>
-          </div>
-          <div class="fr-linha">
-            <span class="fr-rot">Na nuvem<small>a pasta pronta sobe sozinha</small></span>
-            <${Segmented}
-              size="sm"
-              label="Subir para o Drive"
-              value=${nuvem}
-              onChange=${(v) => (v === 'escolher' ? escolherPastaDrive() : set('nuvem', v))}
-              options=${[
-                ...(video?.tipo === 'drive' ? [{ value: 'junto', label: 'Ao lado do vídeo', icon: 'upload' }] : []),
-                { value: 'escolher', label: pastaDrive ? pastaDrive.name : 'Escolher pasta…', icon: 'cloud' },
-                { value: 'nao', label: 'Agora não' },
-              ]}
-            />
-          </div>
+      <${Passo} n="5" titulo="Sobe e desce" dica="Onde a pasta pronta fica e para onde ela sobe.">
+        <div class="frn-pasta">
+          <span class="frn-pasta-ic"><${Icon} name="folder" size=${18} /></span>
+          <span class="frn-pasta-txt"><b>No computador</b><span title=${destino || padrao}>${shortPath(destino || padrao, home)} · uma pasta por cena</span></span>
+          <${Button} size="sm" onClick=${trocarDestino}>Trocar</${Button}>
         </div>
-      </div>
+        <span class="frn-rot">Na nuvem <small>a pasta pronta sobe sozinha</small></span>
+        <${Escolha} tom="sobe" label="Subir para o Drive" value=${nuvem} onChange=${(v) => (v === 'escolher' ? escolherPastaDrive() : set('nuvem', v))} opcoes=${nuvemOpcoes} />
+      </${Passo}>
     </div>
 
-    <div class="fr-acao">
-      <span class="fr-acao-txt">${video ? html`<b>${aj.frames.quantidade} frames</b>${aj.takes.ligado ? html` · <b>${aj.takes.quantidade} takes</b> de ${aj.takes.duracao} s` : null}${nuvem !== 'nao' ? ' · sobe para o Drive no fim' : ''}` : 'Escolha o vídeo para começar.'}</span>
-      <${Button} variant="primary" icon="sparkle" disabled=${!video} loading=${busy} onClick=${comecar}>Fazer frames${aj.takes.ligado ? ' e takes' : ''}</${Button}>
-    </div>
+    <aside class="frn-lado">
+      <${Resumo} video=${video} aj=${aj} nuvem=${nuvem} pastaDrive=${pastaDrive} busy=${busy} onComecar=${comecar} />
+    </aside>
     ${arrastando ? html`<div class="fr-drop"><${Icon} name="drop" size=${28} /><b>Solte o vídeo aqui</b></div>` : null}
   </section>`
 }
@@ -641,6 +687,9 @@ function escolhaAutomatica(m, n, salto = 0) {
   return out.sort((a, b) => a.t - b.t)
 }
 
+// Formatos que podem ir em tela cheia (os frames ocupam o post inteiro, sem bordas do fundo).
+const TELA_CHEIA = new Set(['triade', 'grade'])
+
 function AbaPosts({ m, setM, sel, irParaFrames }) {
   const [p, setP] = useState(() => ({ layout: 'triade', n: 3, proporcao: '4:5', fundo: 'preto', respiro: true, logo: !!m.ajustes.logo, titulo: nomeSemExt(m.video.nome), sub: '', slides: 2, ...storage.get('frames.post', {}) }))
   const [salto, setSalto] = useState(0)
@@ -656,7 +705,7 @@ function AbaPosts({ m, setM, sel, irParaFrames }) {
   const muda = (o) =>
     setP((x) => {
       const y = { ...x, ...o }
-      storage.set('frames.post', { layout: y.layout, n: y.n, proporcao: y.proporcao, fundo: y.fundo, respiro: y.respiro, slides: y.slides })
+      storage.set('frames.post', { layout: y.layout, n: y.n, proporcao: y.proporcao, fundo: y.fundo, respiro: y.respiro, slides: y.slides, cheio: y.cheio })
       return y
     })
   const escolhidos = useMemo(() => {
@@ -682,6 +731,7 @@ function AbaPosts({ m, setM, sel, irParaFrames }) {
       logo,
       logoAjustes: m.ajustes.logo,
       slides: p.slides,
+      cheio: TELA_CHEIA.has(p.layout) && p.cheio,
       enquadres: escolhidos.map((f) => enq[f.id]),
       destaque,
     })
@@ -711,7 +761,7 @@ function AbaPosts({ m, setM, sel, irParaFrames }) {
     const r = c.getBoundingClientRect()
     return { x: ((e.clientX - r.left) * c.width) / r.width, y: ((e.clientY - r.top) * c.height) / r.height }
   }
-  const noPonto = (pt) => frameNoPonto(p.layout, { proporcao: p.proporcao, escala: 0.5, n: escolhidos.length, respiro: p.respiro, slides: p.slides }, pt.x, pt.y)
+  const noPonto = (pt) => frameNoPonto(p.layout, { proporcao: p.proporcao, escala: 0.5, n: escolhidos.length, respiro: p.respiro, slides: p.slides, cheio: TELA_CHEIA.has(p.layout) && p.cheio }, pt.x, pt.y)
   const mudaEnq = (i, fn) => {
     const f = escolhidos[i]
     if (f) setEnq((x) => ({ ...x, [f.id]: fn(x[f.id], f) }))
@@ -831,8 +881,8 @@ function AbaPosts({ m, setM, sel, irParaFrames }) {
             : null}
           <div class="fr-linha"><span class="fr-rot">Tamanho</span><${Segmented} size="sm" label="Proporção" value=${p.proporcao} onChange=${(v) => muda({ proporcao: v })} options=${[{ value: '4:5', label: '4:5', title: 'Feed' }, { value: '1:1', label: '1:1' }, { value: '9:16', label: '9:16', title: 'Stories' }]} /></div>
           <div class="fr-linha"><span class="fr-rot">Fundo</span><${Segmented} size="sm" label="Fundo" value=${p.fundo} onChange=${(v) => muda({ fundo: v })} options=${Object.keys(FUNDOS).map((f) => ({ value: f, label: f[0].toUpperCase() + f.slice(1) }))} /></div>
-          ${p.layout === 'grade' ? html`<div class="fr-linha"><span class="fr-rot">Respiro</span><${Switch} checked=${p.respiro} label="Espaço entre os frames" onChange=${(v) => muda({ respiro: v })} /></div>` : null}
-          ${['triade', 'box', 'cinema', 'contato', 'polaroid'].includes(p.layout)
+          ${TELA_CHEIA.has(p.layout) ? html`<div class="fr-linha"><span class="fr-rot">Tela cheia<small>sem bordas do fundo</small></span><${Switch} checked=${!!p.cheio} label="Tela cheia, sem bordas" onChange=${(v) => muda({ cheio: v })} /></div>` : null}
+          ${['triade', 'box', 'cinema', 'contato', 'polaroid'].includes(p.layout) && !(p.layout === 'triade' && p.cheio)
             ? html`<label class="fr-campo"><span>${p.layout === 'polaroid' ? 'Legenda' : 'Título'}</span><input class="input" value=${p.titulo} maxlength="60" onInput=${(e) => muda({ titulo: e.currentTarget.value })} /></label>`
             : null}
           ${['box', 'cinema'].includes(p.layout) || (p.layout === 'polaroid' && n > 1)
