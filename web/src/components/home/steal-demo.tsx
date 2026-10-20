@@ -19,13 +19,13 @@ export function StealDemo() {
   const pctRef = useRef<HTMLSpanElement>(null);
   const markX = useRef<number[]>(Array(CONNS).fill(NaN));
   const hold = useRef(0);
-  const [caption, setCaption] = useState("8 conexões começam, cada uma num pedaço do arquivo.");
+  const [caption, setCaption] = useState("8 conexões, cada uma num pedaço.");
   const [active, setActive] = useState(CONNS);
   const reduce = usePrefersReducedMotion();
 
   const sim = useMemo(() => {
     const onSteal = (e: StealEvent) =>
-      setCaption(`A conexão ${e.thief + 1} terminou o seu pedaço e pegou metade do pedaço da conexão ${e.victim + 1}.`);
+      setCaption(`Conexão ${e.thief + 1} acabou e pegou metade do pedaço da ${e.victim + 1}.`);
     return new SegmentedDownload(CONNS, 11, 3, onSteal);
   }, []);
 
@@ -71,14 +71,14 @@ export function StealDemo() {
           hold.current = 0;
           sim.reset();
           markX.current.fill(NaN);
-          setCaption("8 conexões começam, cada uma num pedaço do arquivo.");
+          setCaption("8 conexões, cada uma num pedaço.");
           setActive(CONNS);
         }
       } else {
         sim.step(dt);
         const a = sim.active;
         setActive((prev) => (prev === a ? prev : a));
-        if (sim.done) setCaption("Arquivo completo. Todas as conexões trabalharam até o último byte.");
+        if (sim.done) setCaption("Pronto. Todas trabalharam até o último byte.");
       }
       paint(dt);
     },
@@ -148,7 +148,7 @@ export function StealDemo() {
           ))}
         </div>
       </div>
-      <p className="min-h-[4.5em] text-[15px] sm:min-h-[3em] leading-normal text-ink-2" aria-live="off">
+      <p className="min-h-[3em] text-[15px] leading-normal text-ink-2 sm:min-h-[1.5em]" aria-live="off">
         {caption}
       </p>
     </div>
