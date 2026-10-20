@@ -1,5 +1,5 @@
-// Abas do app (embaixo, como no iOS): Enviar (violeta), Drive (azul), Referências (para quem tem o recurso) e Criar
-// (Frames e as outras ferramentas do computador, adaptadas ao celular).
+// Abas do app (embaixo, como no iOS): Início (o botão de enviar, atalhos e a fila; violeta), Drive (azul), Referências
+// (para quem tem o recurso) e Criar (Frames e as outras ferramentas do computador, adaptadas ao celular).
 // No modo Wi-Fi não há abas: lá o celular não tem token do Google.
 import { html, useRef } from '../vendor/preact-htm.js'
 import { setTab, useApp } from '../lib/state.js'
@@ -19,10 +19,10 @@ function TabBar({ tab, refsOn }) {
   return html`<nav class="tabbar" aria-label="Seções">
     <button type="button" class=${cx('tab', 'tab-up', tab === 'send' && 'is-on')} aria-current=${tab === 'send' ? 'page' : undefined} onClick=${() => setTab('send')}>
       <span class="tab-icon">
-        <${Icon} name="upload" size=${24} strokeWidth=${tab === 'send' ? 2 : 1.7} />
+        <${Icon} name="home" size=${24} strokeWidth=${tab === 'send' ? 2 : 1.7} />
         ${busy ? html`<span class="tab-dot" aria-label="Enviando"></span>` : null}
       </span>
-      <span class="tab-label">Enviar</span>
+      <span class="tab-label">Início</span>
     </button>
     <button type="button" class=${cx('tab', 'tab-down', tab === 'drive' && 'is-on')} aria-current=${tab === 'drive' ? 'page' : undefined} onClick=${() => setTab('drive')}>
       <span class="tab-icon"><${Icon} name="drive" size=${24} strokeWidth=${tab === 'drive' ? 2 : 1.7} /></span>

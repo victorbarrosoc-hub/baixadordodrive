@@ -1,5 +1,5 @@
 // "No computador": quanto falta das transferências que ficaram rodando no app SOBEDESCE do computador.
-// Cartão no topo da tela Enviar (quando algo anda ou terminou nas últimas 24 h) e a folha com tudo: progresso,
+// Cartão no topo da tela Início (quando algo anda ou terminou nas últimas 24 h) e a folha com tudo: progresso,
 // velocidade, o que está passando agora, o que já passou e "Avisar no celular quando terminar".
 import { html, useEffect, useState } from '../vendor/preact-htm.js'
 import { bytes, count, percent, plural, speed } from '../lib/format.js'

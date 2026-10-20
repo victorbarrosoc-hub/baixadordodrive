@@ -348,7 +348,7 @@ function Ajustes({ j }) {
       <button type="button" class="link-btn" onClick=${limpar}>Trocar</button>
     </div>
     ${semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${naoAbre ? porqueNaoAbre(codec, j.video.nome) : 'Este aparelho não abre o formato do original.'} Os frames saem do proxy do Drive, se houver; em alta, peça ao computador.</p>` : null}
-    ${naoAbre && j.video.origem !== 'drive' ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${porqueNaoAbre(codec, j.video.nome)} Suba o vídeo para o Drive (aba Enviar) e peça os frames ao computador.</p>` : null}
+    ${naoAbre && j.video.origem !== 'drive' ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${porqueNaoAbre(codec, j.video.nome)} Suba o vídeo para o Drive (aba Início) e peça os frames ao computador.</p>` : null}
     ${grande && !semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Vídeo pesado: pelo celular demora e depende da internet. O app do computador faz mais rápido, com takes.</p>` : null}
     <div class="cr-linha">
       <span>Quantos frames<small>espalhados pelas cenas, só os que valem</small></span>
@@ -525,7 +525,7 @@ function FramesTela({ onVoltar }) {
                 ${j.erroFormato && j.video.origem === 'drive'
                   ? html`<div class="cr-erro-pc"><${NoComputador} file=${j.video.file} quantidade=${12} formato="jpg" abertoInicial=${true} /></div>`
                   : j.erroFormato
-                    ? html`<p class="cr-erro-galeria">Suba o vídeo para o Drive (aba Enviar) e peça os frames ao computador: ele abre qualquer formato.</p>`
+                    ? html`<p class="cr-erro-galeria">Suba o vídeo para o Drive (aba Início) e peça os frames ao computador: ele abre qualquer formato.</p>`
                     : null}
                 <${Button} variant="secondary" onClick=${() => Object.assign(j, { fase: 'ajustes' }) && mudou()}>Tentar de novo</${Button}>
               </div>`

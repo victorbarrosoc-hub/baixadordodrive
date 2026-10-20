@@ -7199,3 +7199,229 @@ html.is-dswipe body {
   aspect-ratio: auto;
   padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
 }
+
+/* ───── Início (components/inicio.js): saudação, atalhos, espaço e pastas recentes ───── */
+.ini-entra {
+  animation: ini-entra 0.5s var(--spring) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+@keyframes ini-entra {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+.ini-ola {
+  padding: 4px 4px 2px;
+}
+.ini-ola h1 {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+.ini-data {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.ini-data::first-letter {
+  text-transform: uppercase;
+}
+.ini-rotulo {
+  display: block;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.ini-atalhos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.ini-atalhos.n-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+.ini-atalho {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 12px 13px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  text-align: left;
+  transition: transform 0.12s var(--ease), background-color 0.15s;
+}
+.ini-atalho:active {
+  transform: scale(0.96);
+  background: var(--surface-2);
+}
+.ini-atalho b {
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.ini-atalho > span:last-child {
+  font-size: 12.5px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.ini-atalho-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  color: var(--text-2);
+  background: var(--fill-2);
+}
+.ini-atalho.tom-down .ini-atalho-icon {
+  color: var(--down-text);
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+}
+.ini-atalho.tom-refs .ini-atalho-icon {
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+}
+.ini-atalho.tom-criar .ini-atalho-icon {
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.ini-espaco {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 10px 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.ini-espaco-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ini-espaco-txt b {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.ini-espaco-sub {
+  font-size: 13px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.ini-espaco-barra {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  overflow: hidden;
+}
+.ini-espaco-barra span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--down), var(--up));
+  transform-origin: left;
+  transform: scaleX(var(--f, 0));
+  animation: ini-barra 0.9s var(--spring) 0.35s both;
+}
+.ini-espaco-barra.is-cheio span {
+  background: var(--err);
+}
+@keyframes ini-barra {
+  from {
+    transform: scaleX(0);
+  }
+}
+.ini-recentes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ini-recentes .ini-rotulo {
+  padding: 0 4px;
+}
+.ini-recentes ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.ini-recentes li + li button {
+  border-top: 1px solid var(--hairline);
+}
+.ini-recentes button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px 14px;
+  text-align: left;
+  transition: background-color 0.15s;
+}
+.ini-recentes button:active {
+  background: var(--press);
+}
+.ini-pasta-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 12%, transparent);
+}
+.ini-pasta-txt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ini-pasta-txt b,
+.ini-pasta-txt span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ini-pasta-txt b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ini-pasta-txt span {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.ini-pasta-ir {
+  flex: none;
+  color: var(--text-3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ini-entra,
+  .ini-espaco-barra span {
+    animation: none;
+  }
+}

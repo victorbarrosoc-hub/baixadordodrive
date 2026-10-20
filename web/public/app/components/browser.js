@@ -235,7 +235,7 @@ function destOf(scope, path) {
 
 /**
  * "Enviar aqui": a pasta aberta vira o destino e o seletor de arquivos abre na hora (o toque no rótulo é o gesto que
- * o iPhone exige). Escolhidos os arquivos, a fila começa e o app vai para a aba Enviar, onde se vê o andamento.
+ * o iPhone exige). Escolhidos os arquivos, a fila começa e o app vai para a aba Início, onde se vê o andamento.
  */
 function SendHere({ scope, path }) {
   const dest = destOf(scope, path)
