@@ -36,6 +36,7 @@ let state = {
   referencias: null, // Referências (src/referencias/service.js): { ativo, motivo, navegador, trabalhos, versoes, ytdlp }
   previas: null, // "Gerar prévias": o lote atual ou o último (mesmo formato)
   copia: null, // "Copiar de um link": a cópia atual ou a última (src/server/copiar.js)
+  discos: null, // Copiar entre discos: { fase, erro, plano, progresso, resultado } (src/server/discos.js)
   cenas: null, // Busca por cena: { disponivel, modelo: { pronto, baixando, recebido, total, erro }, fila, analisando } (src/server/cenas.js)
   frames: null, // Frames: o trabalho atual ou o último { jobId, status, fase, frac, texto, video, manifestoId, erro } (src/server/frames.js)
   versao: null, // aviso de versão nova (src/version.js): { atual, ultima, disponivel, nova, plataforma, baixarUrl, verificando, falhou, … }
@@ -110,6 +111,7 @@ function applyFull(data) {
     copia: data.copia !== undefined ? data.copia : state.copia,
     frames: data.frames !== undefined ? data.frames : state.frames,
     cenas: data.cenas !== undefined ? data.cenas : state.cenas,
+    discos: data.discos !== undefined ? data.discos : state.discos,
     versao: data.versao !== undefined ? data.versao : state.versao,
     referencias: data.referencias !== undefined ? data.referencias : state.referencias,
   })
@@ -247,6 +249,7 @@ function connect() {
   on('copiar', (d) => d?.jobId && setCopia(d))
   on('frames', (d) => d?.jobId && setFrames(d))
   on('cenas', (d) => d && typeof d === 'object' && setState({ cenas: d }))
+  on('discos', (d) => d && typeof d === 'object' && setState({ discos: d }))
   on('versao', (d) => setVersao(d?.versao || d))
   on('referencias', (d) => d && typeof d === 'object' && setState({ referencias: d.referencias || d }))
   on('toast', (d) => d?.message && toast(d.kind || 'info', d.message))

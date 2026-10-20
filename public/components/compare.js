@@ -1,5 +1,6 @@
 // Tela Comparar: pasta do computador × pasta do Drive. Mostra o que já subiu, o que falta e o que
 // só existe no Drive, pasta por pasta, com atalhos para subir/baixar a diferença.
+// "Entre discos" (discos.js): cartão/SSD → outros discos, comparando antes e conferindo o MD5.
 import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore, setCompareJob } from '../lib/store.js'
 import { api, attempt, enc } from '../lib/api.js'
@@ -12,6 +13,7 @@ import { toast } from '../lib/toasts.js'
 import { Icon } from './icons.js'
 import { Button, Checkbox, EmptyState, FileIcon, Pill, Segmented, Spinner } from './common.js'
 import { useLocalRoots } from './local-picker.js'
+import { DiscosPanel } from './discos.js'
 
 // lembra a última comparação enquanto o app está aberto (trocar de tela não perde o resultado)
 const mem = { jobId: null, result: null, startedAt: null }
@@ -430,7 +432,30 @@ function Results({ jobId, result, onReset }) {
 
 // ───── tela ─────
 
+const TIPOS = [
+  { value: 'drive', label: 'Computador × Drive', icon: 'cloud' },
+  { value: 'discos', label: 'Entre discos', icon: 'disk' },
+]
+
 export function CompareScreen() {
+  const [tipo, setTipo] = usePersistentState('compare.tipo', 'drive')
+  const cabeca = html`<header class="page-head">
+    <div>
+      <h1>Comparar</h1>
+      <p class="page-lead">${tipo === 'discos' ? 'Passe um cartão ou SSD para outro disco: compara, copia o que falta e confere.' : 'Veja o que já subiu e o que ainda falta — pasta por pasta.'}</p>
+    </div>
+    <${Segmented} label="O que comparar" value=${tipo} onChange=${setTipo} options=${TIPOS} />
+  </header>`
+  if (tipo === 'discos') {
+    return html`<div class="page page-compare">
+      ${cabeca}
+      <${DiscosPanel} />
+    </div>`
+  }
+  return html`<${CompareDrive} cabeca=${cabeca} />`
+}
+
+function CompareDrive({ cabeca }) {
   const accountId = useStore((s) => s.activeAccountId)
   const roots = useLocalRoots()
   const [local, setLocal] = usePersistentState('compare.local', null)
@@ -501,12 +526,7 @@ export function CompareScreen() {
   }
 
   return html`<div class="page page-compare">
-    <header class="page-head">
-      <div>
-        <h1>Comparar</h1>
-        <p class="page-lead">Veja o que já subiu e o que ainda falta — pasta por pasta.</p>
-      </div>
-    </header>
+    ${cabeca}
 
     <section class="cmp-setup">
       <div class="src-row">

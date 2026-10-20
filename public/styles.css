@@ -10828,3 +10828,523 @@ button.tree-twisty:hover {
 .player-video.is-idle .cor-switch {
   opacity: 0;
 }
+
+/* ───── Comparar → Entre discos (components/discos.js) ───── */
+.dk {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.dk-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dk-fluxo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+}
+.dk-seta {
+  align-self: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 12%, transparent);
+  animation: dk-seta 1.8s var(--ease) infinite;
+}
+@keyframes dk-seta {
+  0%,
+  100% {
+    transform: translateX(-2px);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dk-seta {
+    animation: none;
+  }
+}
+.dk-destinos {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dk-lado {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 14px 16px;
+  min-height: 74px;
+}
+.dk-lado.is-vazio {
+  border-style: dashed;
+}
+.dk-lado-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.dk-lado.is-dest .dk-lado-icon {
+  color: var(--ok-text);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.dk-lado-txt {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dk-lado-txt b {
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dk-lado-txt .mono-path {
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dk-lado-acoes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dk-mais {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-2);
+  background: transparent;
+  cursor: pointer;
+}
+.dk-mais:hover {
+  color: var(--text);
+  border-color: var(--text-3);
+}
+.dk-nome {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 320px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.dk-nome label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.dk-nome .mono-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dk-go {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.dk-ic-org {
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.dk-ic-dest {
+  color: var(--ok-text);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+/* plano (comparação) */
+.dk-plano,
+.dk-andamento,
+.dk-fim {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: dk-entra 0.35s var(--ease);
+}
+@keyframes dk-entra {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.dk-plano-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.dk-plano-head h2,
+.dk-and-txt h2,
+.dk-fim h2 {
+  margin: 0 0 3px;
+  font-size: 18px;
+}
+.dk-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.dk-tile {
+  --c: var(--up);
+  --t: var(--up-text);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--c) 22%, transparent);
+  border-radius: var(--r-lg);
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: color-mix(in srgb, var(--c) 7%, var(--surface));
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s var(--ease);
+}
+.dk-tile.is-ok {
+  --c: var(--ok);
+  --t: var(--ok-text);
+}
+.dk-tile.is-warn {
+  --c: var(--warn);
+  --t: var(--warn-text);
+}
+.dk-tile:hover {
+  transform: translateY(-1px);
+}
+.dk-tile.is-on {
+  border-color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, var(--surface));
+}
+.dk-tile-icon {
+  grid-row: span 2;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--t);
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+}
+.dk-tile-n {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--t);
+}
+.dk-tile-l {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.dk-espaco {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.dk-espaco-bar {
+  flex: 1;
+  max-width: 320px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.dk-espaco-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ok);
+  transition: width 0.4s var(--ease);
+}
+.dk-espaco.is-falta {
+  color: var(--err-text);
+}
+.dk-espaco.is-falta .dk-espaco-bar i {
+  background: var(--err);
+}
+.dk-lista {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.dk-lista.is-carregando {
+  display: grid;
+  place-items: center;
+  min-height: 80px;
+}
+.dk-lista ul {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+.dk-lista li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 14px;
+  font-size: 12.5px;
+}
+.dk-lista li .mono-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dk-lista-vazia,
+.dk-lista-mais {
+  margin: 0;
+  padding: 10px 14px;
+}
+.dk-opcoes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dk-opcao {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.dk-opcao.is-warn b {
+  color: var(--warn-text);
+}
+
+/* andamento */
+.dk-and-topo {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.dk-and-txt {
+  flex: 1;
+  min-width: 0;
+}
+.dk-and-txt .sub {
+  margin: 0;
+}
+.dk-atual {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dk-anel {
+  --p: 0;
+  width: 78px;
+  height: 78px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--up) calc(var(--p) * 1%), var(--fill) 0);
+  transition: background 0.3s;
+  position: relative;
+}
+.dk-anel::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.dk-anel span {
+  position: relative;
+  font-size: 20px;
+  font-weight: 700;
+}
+.dk-anel small {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.dk-nums {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.dk-num {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.dk-num:first-child {
+  background: color-mix(in srgb, var(--up) 10%, var(--surface-2));
+}
+.dk-num-v {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dk-num-v small {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.dk-num-l {
+  font-size: 11.5px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dk-graf {
+  width: 100%;
+  height: 64px;
+  display: block;
+}
+.dk-graf.is-vazio {
+  height: 64px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.dk-graf-area {
+  fill: color-mix(in srgb, var(--up) 16%, transparent);
+}
+.dk-graf-linha {
+  fill: none;
+  stroke: var(--up);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.dk-aviso {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--warn-text);
+}
+
+/* fim */
+.dk-fim-topo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.dk-fim-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.dk-fim.is-ok {
+  border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+  background: color-mix(in srgb, var(--ok) 6%, var(--surface));
+}
+.dk-fim.is-ok .dk-fim-icon {
+  color: var(--ok-text);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+.dk-fim.is-problema .dk-fim-icon {
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+.dk-falhas {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 200px;
+  overflow: auto;
+}
+.dk-falhas li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 0;
+  border-top: 1px solid var(--hairline);
+  font-size: 12.5px;
+}
+.dk-rel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.dk-rel .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+@media (max-width: 860px) {
+  .dk-fluxo {
+    grid-template-columns: 1fr;
+  }
+  .dk-seta {
+    justify-self: center;
+    transform: rotate(90deg);
+    animation: none;
+  }
+  .dk-nums {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .dk-nome {
+    grid-template-columns: 1fr;
+  }
+}
+.dk-alg {
+  flex-wrap: wrap;
+  cursor: default;
+}
+.dk-cobertura {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dk-cobertura li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 9px 12px;
+  border-radius: var(--r);
+  font-size: 13px;
+  background: color-mix(in srgb, var(--ok) 9%, transparent);
+}
+.dk-cobertura li.is-ok > svg {
+  color: var(--ok-text);
+}
+.dk-cobertura li.is-falta {
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.dk-cobertura li.is-falta > svg {
+  color: var(--warn-text);
+}

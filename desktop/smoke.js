@@ -1,6 +1,6 @@
 // Teste de fumaça do app empacotado (`SOBEDESCE --smoke`, rodado pelo CI no Mac e no Windows depois do build).
 // O maior risco de mexer em asar, fusíveis e cofre é o app instalado não abrir: aqui o motor de verdade sobe dentro do
-// Electron e confere o que mais quebra (código dentro do app.asar, worker do MD5, interface servida, ffmpeg, yt-dlp,
+// Electron e confere o que mais quebra (código dentro do app.asar, worker do MD5, cópia entre discos, interface servida, ffmpeg, yt-dlp,
 // QuickJS, o decodificador de Blackmagic RAW e o cofre do sistema). Sem Electron também roda (test/protecao.test.js), com os binários como "aviso".
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -12,6 +12,7 @@ import { ffmpegCandidates, primeiro, quickjsCandidates, ytdlpCandidates } from '
 import { MOBILE_DIR } from '../src/mobile/receiver.js'
 import { helperCandidates } from '../src/media/raw-thumb.js'
 import { carregarOrt } from '../src/cenas/modelo.js'
+import { DiscosService } from '../src/discos/servico.js'
 
 // ONNX mínimo (opset 13): uma soma, y = x + x. Gerado com onnx.helper; só para provar que o runtime carrega.
 const MODELO_DOBRO = 'CAgSCXNvYmVkZXNjZTo5Cg4KAXgKAXgSAXkiA0FkZBIFZG9icm9aDwoBeBIKCggIARIECgIIAmIPCgF5EgoKCAgBEgQKAggCQgQKABAN'
@@ -80,6 +81,29 @@ export async function verificar({ app, guarda = null, exigirBinarios = false, ex
       const md5 = await app.hasher.hash(file)
       return md5 === esperado ? { detalhe: 'worker_threads ok' } : { ok: false, detalhe: `md5 ${md5} ≠ ${esperado}` }
     } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  await passo('copiar entre discos (worker + xxHash64)', async () => {
+    // A cópia roda num worker que carrega o xxhash-wasm de dentro do asar: é o que mais pode quebrar empacotado.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sobedesce-smoke-discos-'))
+    const svc = new DiscosService({ keepAwake: { setActive() {} } })
+    try {
+      const dados = crypto.randomBytes(3 * 1024 * 1024 + 7)
+      await fs.mkdir(path.join(dir, 'CARD'))
+      await fs.mkdir(path.join(dir, 'SSD'))
+      await fs.writeFile(path.join(dir, 'CARD', 'C0001.MP4'), dados)
+      await svc.planejar({ origem: path.join(dir, 'CARD'), destinos: [path.join(dir, 'SSD')] })
+      await svc.iniciar({ conferir: true, relatorio: true })
+      for (let i = 0; i < 600 && svc.fase === 'copiando'; i++) await new Promise((ok) => setTimeout(ok, 50))
+      const v = svc.view()
+      const copia = await fs.readFile(path.join(dir, 'SSD', 'CARD', 'C0001.MP4')).catch(() => null)
+      const rel = v.resultado?.relatorios?.[0] ? await fs.readFile(v.resultado.relatorios[0], 'utf8') : ''
+      if (v.fase !== 'feito' || !copia?.equals(dados)) return { ok: false, detalhe: `fase ${v.fase}: ${v.erro || v.resultado?.falhas?.[0]?.erro || 'cópia diferente'}` }
+      return /^[0-9a-f]{16} {2}C0001\.MP4$/m.test(rel) ? { detalhe: 'cópia conferida, relatório .xxh64' } : { ok: false, detalhe: `relatório inesperado: ${rel.slice(0, 80)}` }
+    } finally {
+      await svc.close()
       await fs.rm(dir, { recursive: true, force: true })
     }
   })
