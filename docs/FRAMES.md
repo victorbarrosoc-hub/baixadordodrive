@@ -86,6 +86,9 @@ Progresso pelo SSE `frames`: `{ jobId, status, fase, frac, texto, video, manifes
   - Salvar no celular: pela folha de compartilhar (Salvar imagem ou Arquivos); sem ela, um download por arquivo.
   - Subir pro Drive: `<Vídeo> — Frames/Cena NN — …/` e `Posts/`, ao lado do vídeo (ou onde a pessoa escolher, se veio da galeria).
   - Na aba Drive, a seleção de um vídeo ganha "Frames".
+  - **Codec antes de abrir** (`lib/frames/codec.js`): lê só a caixa `moov` do MP4/MOV (Range do Drive ou `File.slice`), mesmo quando ela vem no fim do arquivo. A tela mostra o codec ("H.264 10-bit 4:2:2").
+    - H.264 de 10 bits ou 4:2:2/4:4:4 (XAVC S-I, Canon, Panasonic) e DNxHD: nenhum iPhone decodifica, então nem tenta o original e vai direto ao proxy do Drive ou ao computador. A mensagem diz o motivo ("Este MP4 é H.264 10-bit 4:2:2, o modo de alta qualidade da câmera").
+    - HEVC 4:2:2 e ProRes dependem do aparelho: tenta e, se falhar, explica pelo codec.
 - **Completo, no computador** (`src/engine/pedidos-frames.js`):
   - O celular pede na mesma fila dos pedidos de proxy, com `tipo: "frames"` e os ajustes: frames, takes (9:16, 4:5, original; H.264 ou ProRes) e formato.
   - Apps do computador antigos não veem esses pedidos, porque a lista sem `tipo` é só de proxy.

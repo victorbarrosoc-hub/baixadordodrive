@@ -11,6 +11,8 @@ import { engine } from '../lib/uploader.js'
 import { framesPedidos, pedirFrames, tentarDeNovo } from '../lib/proxies.js'
 import { bytes, count } from '../lib/format.js'
 import { abrirVideo, amostrar, baseDoNome, escolher, fechar, nomeDoFrame, pastaDaCena, timecode, tirar } from '../lib/frames/celular.js'
+import { celularAbre, lerCodec, porqueNaoAbre, rotuloCodec } from '../lib/frames/codec.js'
+import { faixa } from '../lib/psd.js'
 import { findProxy, mayPlay } from '../lib/browse.js'
 import { FUNDOS, LAYOUTS, desenharPost, fatiar, layoutPorId } from '../lib/frames/posts.js'
 import { Icon } from './icons.js'
@@ -52,10 +54,30 @@ export function framesDoDrive(file) {
   limpar()
   setState({ escolher: null })
   job = { video: { origem: 'drive', file, nome: file.name, size: Number(file.size) || 0 }, fase: 'ajustes' }
+  detectar(job)
   setState({ criarTela: 'frames' })
   setTab('criar')
   mudou()
 }
+
+/**
+ * Lê o codec do vídeo escolhido (só o cabeçalho: alguns KB do Drive ou do arquivo) e guarda em video.codec. Assim a
+ * tela diz antes o que tem dentro do MP4 e, se o celular com certeza não abre, já vai para o proxy ou o computador.
+ */
+function detectar(alvo) {
+  const v = alvo.video
+  const ler = v.origem === 'drive' ? (a, b) => faixa(v.file.id, a, b) : async (a, b) => new Uint8Array(await v.arquivo.slice(a, b).arrayBuffer())
+  v.codecLido = lerCodec(ler, v.size || null)
+    .catch(() => null)
+    .then((c) => {
+      v.codec = c
+      if (job === alvo) mudou()
+      return c
+    })
+}
+
+/** O celular não abre (pelo codec): o erro com o motivo de verdade. */
+const erroDoCodec = (codec, nome, resto = '') => Object.assign(new Error(`${porqueNaoAbre(codec, nome)}${resto}`), { formato: true })
 
 async function rodar(quantidade, formato) {
   const ac = new AbortController()
@@ -72,8 +94,14 @@ async function rodar(quantidade, formato) {
     job.fonte = null
     if (job.video.origem === 'drive') {
       if (!(await streamReady())) throw new Error('Abra o app pelo ícone da tela de início (ou recarregue) para ler vídeos do Drive.')
-      v = await abrirDoDrive(job.video.file, ac.signal)
-    } else v = await abrirVideo(job.video.blobUrl, { signal: ac.signal })
+      v = await abrirDoDrive(job.video.file, ac.signal, await job.video.codecLido)
+    } else {
+      const codec = await job.video.codecLido
+      if (celularAbre(codec) === false) throw erroDoCodec(codec, job.video.nome)
+      v = await abrirVideo(job.video.blobUrl, { signal: ac.signal }).catch((err) => {
+        throw err?.tipo === 'formato' && codec && celularAbre(codec) !== true ? erroDoCodec(codec, job.video.nome) : err
+      })
+    }
     const a = await amostrar(v, { signal: ac.signal, onProgress: (f) => passo('lendo', f) })
     const r = escolher(a, quantidade)
     job.cenas = r.cenas
@@ -99,12 +127,13 @@ async function rodar(quantidade, formato) {
 }
 
 /**
- * O original direto do Drive; se o celular não abre o formato (ProRes, MXF, alguns H.264 de edição no iPhone), o
- * proxy que já está no Drive (a cópia leve do app ou da câmera). Sem nenhum dos dois: erro com "Pedir ao computador".
+ * O original direto do Drive; se o celular não abre o formato (ProRes, MXF, H.264 10-bit 4:2:2 de câmera), o proxy
+ * que já está no Drive (a cópia leve do app ou da câmera). Sem nenhum dos dois: erro com "Pedir ao computador".
+ * Quando o codec já diz que não abre, nem tenta o original (era só espera).
  */
-async function abrirDoDrive(file, signal) {
+async function abrirDoDrive(file, signal, codec = null) {
   let erro = null
-  if (mayPlay(file)) {
+  if (mayPlay(file) && celularAbre(codec) !== false) {
     try {
       return await abrirVideo(streamUrl(file), { signal })
     } catch (err) {
@@ -118,6 +147,7 @@ async function abrirDoDrive(file, signal) {
     job.fonte = { tipo: 'proxy', nome: proxy.name, largura: v.videoWidth, altura: v.videoHeight }
     return v
   }
+  if (codec && celularAbre(codec) !== true) throw Object.assign(erroDoCodec(codec, file.name, ' E ele ainda não tem proxy no Drive.'), { causa: erro })
   throw Object.assign(new Error('O celular não abre o formato deste vídeo, e ele ainda não tem proxy no Drive.'), { formato: true, causa: erro })
 }
 
@@ -230,7 +260,8 @@ function Escolher() {
     e.currentTarget.value = ''
     if (!f) return
     limpar()
-    job = { video: { origem: 'galeria', nome: f.name, size: f.size, blobUrl: URL.createObjectURL(f) }, fase: 'ajustes' }
+    job = { video: { origem: 'galeria', nome: f.name, size: f.size, arquivo: f, blobUrl: URL.createObjectURL(f) }, fase: 'ajustes' }
+    detectar(job)
     mudou()
   }
   return html`<div class="cr-origens">
@@ -258,14 +289,17 @@ function Ajustes({ j }) {
   const [q, setQ] = useState(12)
   const [fmt, setFmt] = useState('jpg')
   const grande = j.video.size > GRANDE
-  const semFormato = j.video.origem === 'drive' && !mayPlay(j.video.file)
+  const codec = j.video.codec
+  const naoAbre = celularAbre(codec) === false
+  const semFormato = j.video.origem === 'drive' && (!mayPlay(j.video.file) || naoAbre)
   return html`<div class="cr-card">
     <div class="cr-video">
       <span class="cr-origem-ic"><${Icon} name=${j.video.origem === 'drive' ? 'drive' : 'film'} size=${20} /></span>
-      <span><b>${j.video.nome}</b><small>${j.video.origem === 'drive' ? 'Direto do Drive' : 'Da galeria'}${j.video.size ? ` · ${bytes(j.video.size)}` : ''}</small></span>
+      <span><b>${j.video.nome}</b><small>${j.video.origem === 'drive' ? 'Direto do Drive' : 'Da galeria'}${j.video.size ? ` · ${bytes(j.video.size)}` : ''}${codec ? ` · ${rotuloCodec(codec)}` : ''}</small></span>
       <button type="button" class="link-btn" onClick=${limpar}>Trocar</button>
     </div>
-    ${semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Este aparelho não abre o formato do original: os frames saem do proxy do Drive, se houver. Em alta, peça ao computador (abaixo).</p>` : null}
+    ${semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${naoAbre ? porqueNaoAbre(codec, j.video.nome) : 'Este aparelho não abre o formato do original.'} Os frames saem do proxy do Drive, se houver; em alta, peça ao computador.</p>` : null}
+    ${naoAbre && j.video.origem !== 'drive' ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${porqueNaoAbre(codec, j.video.nome)} Suba o vídeo para o Drive (aba Enviar) e peça os frames ao computador.</p>` : null}
     ${grande && !semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Vídeo pesado: pelo celular demora e depende da internet. O app do computador faz mais rápido, com takes.</p>` : null}
     <div class="cr-linha">
       <span>Quantos frames<small>espalhados pelas cenas, só os que valem</small></span>
