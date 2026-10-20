@@ -17,6 +17,8 @@ import { Modelo, carregarOrt } from './modelo.js'
 import { amostrarPonto, amostrarSeguido, entradaArgs } from './amostrar.js'
 import { buscar, desempacotar, empacotar, trechos as fazerTrechos } from './indice.js'
 import { abrirPonte } from './ponte.js'
+import { PERFIS, cube } from '../cor/lut.js'
+import { PEDACO, ehPerfil, pareceLog, perfilDosBytes } from '../cor/detectar.js'
 
 export const PASSO = 2 // segundos entre amostras
 const LOTE = 16 // imagens por vez no modelo
@@ -81,7 +83,7 @@ export class CenasService {
     return {
       disponivel: this.disponivel !== false,
       modelo: { pronto: this.modeloPronto === true, baixando: st.baixando, recebido: st.progresso?.recebido ?? 0, total: st.total, erro: st.erro },
-      fila: this.fila.slice(-60).map(({ item, raiz, ...f }) => f),
+      fila: this.fila.slice(-60).map(({ item, raiz, perfilPedido, ...f }) => f),
       analisando: this.fila.some((f) => f.fase === 'na_fila' || f.fase === 'lendo'),
     }
   }
@@ -126,7 +128,8 @@ export class CenasService {
    * Põe na fila os vídeos de uma pasta (e das subpastas), menos proxies e os já analisados (mesma versão).
    * @returns {Promise<{ novos: number, prontos: number, total: number }>}
    */
-  async analisarPasta({ accountId, folderId, signal }) {
+  async analisarPasta({ accountId, folderId, perfil = 'auto', signal }) {
+    if (perfil !== 'auto' && !ehPerfil(perfil)) throw new CenasError(400, 'Perfil de cor inválido.')
     if (this.disponivel === false) throw new CenasError(409, 'A busca por cena não roda neste computador (precisa de um Mac com Apple Silicon ou Windows).')
     const drive = this.drive(accountId)
     const { items } = await drive.walk(folderId, { signal, media: true, appProps: true })
@@ -135,12 +138,13 @@ export class CenasService {
     let prontos = 0
     for (const item of videos) {
       const ind = await this.#indice(accountId, item.id)
-      if (ind && ind.arquivo?.versao === versaoDe(item)) {
+      // Mesma versão e mesmo jeito de ver a cor: já está analisado. Trocou o perfil escolhido: analisa de novo.
+      if (ind && ind.arquivo?.versao === versaoDe(item) && (perfil === 'auto' || ind.arquivo?.perfil === perfil)) {
         prontos++
         continue
       }
       if (this.fila.some((f) => f.accountId === accountId && f.fileId === item.id && (f.fase === 'na_fila' || f.fase === 'lendo'))) continue
-      this.fila.push({ id: crypto.randomUUID(), accountId, fileId: item.id, nome: item.name, pasta: item.relDir || '', raiz: folderId, fase: 'na_fila', frac: 0, erro: null, item })
+      this.fila.push({ id: crypto.randomUUID(), accountId, fileId: item.id, nome: item.name, pasta: item.relDir || '', raiz: folderId, perfilPedido: perfil, fase: 'na_fila', frac: 0, erro: null, item })
       novos++
     }
     this.#mudou()
@@ -184,6 +188,10 @@ export class CenasService {
     const { proxy } = await this.procurarProxy(drive, { parentId: item.parents?.[0], name: item.name, driveId: item.driveId || null, excludeId: item.id, signal }).catch(() => ({ proxy: null }))
     const fonte = proxy && Number(proxy.size) > 0 ? proxy : item
     const duracao = (item.video?.durationMs || fonte.video?.durationMs || 0) / 1000 || null
+    // Cor: LOG vira Rec.709 antes do modelo olhar (e as miniaturas já saem bonitas).
+    const cor = f.perfilPedido && f.perfilPedido !== 'auto' ? { perfil: f.perfilPedido, origem: 'escolhido' } : await this.perfilDe({ accountId: f.accountId, fileId: item.id, ffmpeg, duracao, signal })
+    f.perfil = cor.perfil
+    const lut = await this.#lut(cor.perfil)
     const ponte = await abrirPonte(drive, fonte.id)
     const entrada = { url: ponte.url }
     const chave = chaveDe(f.accountId, item.id)
@@ -207,6 +215,7 @@ export class CenasService {
           passo,
           pastaMinis: tmp,
           signal,
+          lut,
           onAmostra: async (rgb, k) => {
             lote.push({ rgb, t: k * passo, k })
             if (duracao) f.frac = Math.min(0.99, (k * passo) / duracao)
@@ -225,7 +234,7 @@ export class CenasService {
           for (;;) {
             const k = pontos.shift()
             if (k == null || signal.aborted) return
-            const rgb = await amostrarPonto({ ffmpeg, entrada, t: k * passo, miniatura: path.join(tmp, `${String(k + 1).padStart(6, '0')}.jpg`), signal }).catch(() => null)
+            const rgb = await amostrarPonto({ ffmpeg, entrada, t: k * passo, miniatura: path.join(tmp, `${String(k + 1).padStart(6, '0')}.jpg`), signal, lut }).catch(() => null)
             if (rgb) lote.push({ rgb, t: k * passo, k })
             f.frac = Math.min(0.99, ++feitos / Math.max(1, Math.floor(duracao / passo)))
             if (lote.length >= LOTE) await esvaziar()
@@ -265,6 +274,8 @@ export class CenasService {
         largura: item.video?.width || null,
         altura: item.video?.height || null,
         fonte: fonte === item ? 'original' : 'proxy',
+        perfil: cor.perfil,
+        perfilOrigem: cor.origem,
         analisadoEm: new Date().toISOString(),
       }
       const j = empacotar({ arquivo, origem: arquivo.fonte, duracao: duracao || amostras.at(-1).t + passo, passo, trechos: ts })
@@ -307,7 +318,7 @@ export class CenasService {
   async pasta({ accountId, folderId }) {
     const todos = await this.#todosDaConta(accountId)
     const daPasta = todos.filter((i) => !folderId || i.arquivo.parents?.includes(folderId) || i.arquivo.raiz === folderId)
-    return { videos: daPasta.map((i) => ({ fileId: i.arquivo.id, nome: i.arquivo.nome, trechos: i.trechos.length, duracao: i.duracao, fonte: i.arquivo.fonte, analisadoEm: i.arquivo.analisadoEm })), total: todos.length }
+    return { videos: daPasta.map((i) => ({ fileId: i.arquivo.id, nome: i.arquivo.nome, trechos: i.trechos.length, duracao: i.duracao, fonte: i.arquivo.fonte, perfil: i.arquivo.perfil || 'rec709', analisadoEm: i.arquivo.analisadoEm })), total: todos.length }
   }
 
   /**
@@ -325,7 +336,7 @@ export class CenasService {
     const rs = buscar(q, indices, { limite })
     return {
       videos: indices.length,
-      resultados: rs.map((r) => ({ fileId: r.arquivo.id, nome: r.arquivo.nome, pasta: r.arquivo.pasta, i: r.i, ini: r.ini, fim: r.fim, t: r.t, nota: r.nota, s: r.s, item: itemDe(r.arquivo) })),
+      resultados: rs.map((r) => ({ fileId: r.arquivo.id, nome: r.arquivo.nome, pasta: r.arquivo.pasta, perfil: r.arquivo.perfil || 'rec709', i: r.i, ini: r.ini, fim: r.fim, t: r.t, nota: r.nota, s: r.s, item: itemDe(r.arquivo) })),
     }
   }
 
@@ -336,6 +347,80 @@ export class CenasService {
     const p = path.join(this.dir, 'minis', chaveDe(accountId, fileId), `${n}.jpg`)
     if (!(await fsp.stat(p).catch(() => null))) throw new CenasError(404, 'Miniatura não encontrada.')
     return p
+  }
+
+  // ─────────── cor ───────────
+
+  /** O .cube do perfil em <dados>/cenas/lut/ (gerado uma vez). Rec.709: sem LUT. */
+  async #lut(perfil) {
+    if (!perfil || !PERFIS[perfil]?.curva) return null
+    const dir = path.join(this.dir, 'lut')
+    const arq = path.join(dir, `${perfil}-v1.cube`)
+    if (!(await fsp.stat(arq).catch(() => null))) {
+      await fsp.mkdir(dir, { recursive: true })
+      await fsp.writeFile(`${arq}.tmp`, cube(perfil))
+      await fsp.rename(`${arq}.tmp`, arq)
+    }
+    return arq
+  }
+
+  /**
+   * O perfil de cor do vídeo: pelos metadados (começo e fim do arquivo original, pela ponte) e, sem eles, pela imagem
+   * (3 quadros). Guarda na memória (a prévia pergunta de novo a cada abertura).
+   * @returns {Promise<{ perfil: string, origem: 'metadados'|'imagem'|'padrao' }>}
+   */
+  async perfilDe({ accountId, fileId, ffmpeg = null, duracao = null, signal }) {
+    const chave = `${accountId}\n${fileId}`
+    if (this.perfis?.has(chave)) return this.perfis.get(chave)
+    this.perfis ??= new Map()
+    const drive = this.drive(accountId)
+    const ponte = await abrirPonte(drive, fileId)
+    let r = null
+    try {
+      // Um pedaço do arquivo. Falhou no meio (conexão caiu, servidor que ignora o Range)? Fica com o que veio: os
+      // metadados são só uma dica, a imagem decide depois.
+      const ler = async (range) => {
+        const partes = []
+        try {
+          const res = await fetch(ponte.url, { headers: { range }, signal })
+          if (!res.ok && res.status !== 206) return Buffer.alloc(0)
+          const reader = res.body.getReader()
+          let n = 0
+          while (n < PEDACO) {
+            const { done, value } = await reader.read()
+            if (done) break
+            partes.push(value)
+            n += value.length
+          }
+          reader.cancel().catch(() => {})
+        } catch (err) {
+          if (signal?.aborted) throw err
+        }
+        return Buffer.concat(partes.map((p) => Buffer.from(p)))
+      }
+      const perfil = perfilDosBytes(Buffer.concat([await ler(`bytes=0-${PEDACO - 1}`), await ler(`bytes=-${PEDACO}`)]))
+      if (perfil) r = { perfil, origem: 'metadados' }
+      else if (ffmpeg) {
+        const pontos = duracao ? [0.15, 0.5, 0.85].map((x) => x * duracao) : [1, 4, 8]
+        const quadros = []
+        for (const t of pontos) {
+          const tmp = path.join(this.dir, 'tmp')
+          await fsp.mkdir(tmp, { recursive: true })
+          const mini = path.join(tmp, `perfil-${crypto.randomUUID()}.jpg`)
+          const q = await amostrarPonto({ ffmpeg, entrada: { url: ponte.url }, t, miniatura: mini, signal }).catch(() => null)
+          await fsp.rm(mini, { force: true }).catch(() => {})
+          if (q) quadros.push(q)
+        }
+        if (pareceLog(quadros)) r = { perfil: 'log', origem: 'imagem' }
+      }
+    } finally {
+      await ponte.fechar().catch(() => {})
+    }
+    // Cancelado no meio (a prévia fechou): não guarda um "Rec.709" que ninguém conferiu.
+    if (signal?.aborted) throw new CenasError(499, 'Cancelado.')
+    r ??= { perfil: 'rec709', origem: 'padrao' }
+    if (r.origem !== 'padrao' || ffmpeg) this.perfis.set(chave, r)
+    return r
   }
 
   async esquecer({ accountId, fileId = null }) {

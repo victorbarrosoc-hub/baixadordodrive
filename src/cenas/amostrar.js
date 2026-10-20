@@ -28,6 +28,17 @@ export function entradaArgs(entrada, { ss = null, soChave = false } = {}) {
 }
 
 const filtroModelo = `scale=${LADO}:${LADO}:force_original_aspect_ratio=increase:flags=bicubic,crop=${LADO}:${LADO}`
+
+/**
+ * Material em LOG: a LUT (.cube, src/cor/lut.js) entra antes de tudo, para o modelo e a miniatura verem em Rec.709.
+ * O ffmpeg roda na pasta da LUT e recebe só o nome (um caminho do Windows, com "C:\", quebraria o filtro).
+ */
+function comLut(lut) {
+  if (!lut) return { pre: '', cwd: undefined }
+  const nome = path.basename(lut)
+  if (!/^[\w.-]+$/.test(nome)) throw new Error('nome de LUT inválido')
+  return { pre: `format=rgb24,lut3d=file=${nome}:interp=tetrahedral,`, cwd: path.dirname(lut) }
+}
 const filtroMini = 'scale=320:-2:flags=bicubic'
 
 /**
@@ -41,19 +52,20 @@ const filtroMini = 'scale=320:-2:flags=bicubic'
  * @param {AbortSignal} [o.signal]
  * @returns {Promise<number>} quantas amostras
  */
-export async function amostrarSeguido({ ffmpeg, entrada, passo, pastaMinis, onAmostra, signal }) {
+export async function amostrarSeguido({ ffmpeg, entrada, passo, pastaMinis, onAmostra, signal, lut = null }) {
   await fsp.mkdir(pastaMinis, { recursive: true })
+  const L = comLut(lut)
   const args = [
     ...entradaArgs(entrada, { soChave: true }),
     '-an',
     '-sn',
     '-filter_complex',
-    `[0:v:0]fps=1/${passo}:round=near,split=2[a][b];[a]${filtroModelo}[m];[b]${filtroMini}[t]`,
+    `[0:v:0]fps=1/${passo}:round=near,${L.pre}split=2[a][b];[a]${filtroModelo}[m];[b]${filtroMini}[t]`,
     '-map', '[m]', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1',
     '-map', '[t]', '-q:v', '5', '-f', 'image2', '-start_number', '1', path.join(pastaMinis, '%06d.jpg'),
   ]
   return new Promise((resolve, reject) => {
-    const p = spawn(ffmpeg, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const p = spawn(ffmpeg, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, cwd: L.cwd })
     let erro = ''
     let k = 0
     let resto = Buffer.alloc(0)
@@ -93,18 +105,19 @@ export async function amostrarSeguido({ ffmpeg, entrada, passo, pastaMinis, onAm
 }
 
 /** Uma amostra no ponto `t` (RGB do modelo e a miniatura), para vídeos grandes demais para ler inteiros. */
-export function amostrarPonto({ ffmpeg, entrada, t, miniatura, signal }) {
+export function amostrarPonto({ ffmpeg, entrada, t, miniatura, signal, lut = null }) {
+  const L = comLut(lut)
   const args = [
     ...entradaArgs(entrada, { ss: t }),
     '-an',
     '-sn',
     '-frames:v', '1',
-    '-filter_complex', `[0:v:0]split=2[a][b];[a]${filtroModelo}[m];[b]${filtroMini}[t]`,
+    '-filter_complex', `[0:v:0]${L.pre}split=2[a][b];[a]${filtroModelo}[m];[b]${filtroMini}[t]`,
     '-map', '[m]', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1',
     '-map', '[t]', '-frames:v', '1', '-q:v', '5', '-y', miniatura,
   ]
   return new Promise((resolve, reject) => {
-    const p = spawn(ffmpeg, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const p = spawn(ffmpeg, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, cwd: L.cwd })
     const partes = []
     let erro = ''
     const parar = () => p.kill('SIGKILL')

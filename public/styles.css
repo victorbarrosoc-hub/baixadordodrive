@@ -10698,3 +10698,133 @@ button.tree-twisty:hover {
 .cn-mais:hover {
   color: var(--text);
 }
+.cn-analisar-grupo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.cn-cor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 4px 0 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: var(--fill-2);
+}
+.cn-cor select {
+  height: 30px;
+  max-width: 230px;
+  border: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+}
+.cn-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cn-log {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+/* LOG → Rec.709 na prévia: o canvas convertido fica por cima do <video> (os cliques passam para ele) */
+.player-video .player-cor {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: none;
+  pointer-events: none;
+}
+.player-video .player-cor.is-on {
+  display: block;
+}
+.player-video .player-cor:not([data-pronto]) {
+  visibility: hidden;
+}
+.cor-switch {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  transition: opacity 0.3s var(--ease);
+}
+.cor-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 11px 0 9px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  color: rgba(255, 255, 255, 0.72);
+  background: transparent;
+  cursor: pointer;
+}
+.cor-switch button:hover {
+  color: #fff;
+}
+.cor-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+.cor-switch.is-on button {
+  color: #fff;
+  background: color-mix(in srgb, var(--up) 85%, transparent);
+}
+.cor-switch.is-on .cor-dot {
+  border-color: #fff;
+  background: #fff;
+}
+.cor-switch select {
+  height: 24px;
+  max-width: 240px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+}
+.cor-switch select option {
+  color: #000;
+}
+.cor-switch button:focus-visible,
+.cor-switch select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.player-video.is-idle .cor-switch {
+  opacity: 0;
+}

@@ -5,6 +5,8 @@
 // mostra a miniatura grande e "Este formato não toca na prévia".
 // Vídeo grande (> 30 MB, qualquer codec): procura antes a cópia leve (Proxy/<nome>.mp4, gerada pelo app ou pela
 // câmera) e toca ela, fluida como no Drive; "Original" no canto troca para o arquivo de verdade no mesmo ponto.
+// Vídeo em LOG: "Rec.709" no canto direito converte só o que se vê (LUT 3D na placa de vídeo, cor-gl.js). O app lê o
+// perfil nos metadados da câmera (ou pela imagem) e já abre convertido; dá para trocar a câmera ou desligar.
 import { html, useEffect, useLayoutEffect, useRef, useState } from '/vendor/preact-htm.js'
 import { bytes, extOf, fullDate, relTime } from '../lib/format.js'
 import { cx } from '../lib/ui.js'
@@ -14,6 +16,9 @@ import { openExternal } from '../lib/desktop.js'
 import { driveFileUrl } from '../lib/actions.js'
 import { clipTime, findProxy, fullImage, knownProxy, previewKind, proxyWorth, streamUrl, thumbUrl, tryPlayAudio, tryPlayVideo } from '../lib/media.js'
 import { isPreviaItem, isVideoName, openProxyArquivo } from './previa.js'
+import { withQuery } from '../lib/api.js'
+import { PERFIS } from '../lib/cor-lut.js'
+import { filtroCor } from '../lib/cor-gl.js'
 import { Icon } from './icons.js'
 import { Button, IconButton, Spinner, FileIcon } from './common.js'
 
@@ -244,9 +249,12 @@ function playerKeys(e, a, { onFullscreen } = {}) {
   return false
 }
 
-function VideoPlayer({ src, poster, onFail, keysRef, badge, startAt = 0, timeRef }) {
+function VideoPlayer({ src, poster, onFail, keysRef, badge, startAt = 0, timeRef, lut = null, corUi = null }) {
   const vref = useRef(null)
   const box = useRef(null)
+  const cref = useRef(null)
+  const filtro = useRef(null)
+  const [semGl, setSemGl] = useState(false)
   const [st, a] = useMedia(vref, { onFail })
   if (timeRef) timeRef.current = st.time
   const [full, setFull] = useState(false)
@@ -268,8 +276,19 @@ function VideoPlayer({ src, poster, onFail, keysRef, badge, startAt = 0, timeRef
       document.removeEventListener('fullscreenchange', onFs)
       clearTimeout(timer.current)
       if (document.fullscreenElement === box.current) document.exitFullscreen?.().catch(() => {})
+      filtro.current?.fechar()
     }
   }, [])
+
+  // LOG → Rec.709: o filtro nasce na primeira vez que liga e fica até o player fechar.
+  useEffect(() => {
+    if (!lut && !filtro.current) return
+    if (!filtro.current) {
+      filtro.current = filtroCor(cref.current, vref.current)
+      if (!filtro.current) return setSemGl(true)
+    }
+    filtro.current.perfil(lut)
+  }, [lut])
 
   const wake = () => {
     setIdle(false)
@@ -301,10 +320,12 @@ function VideoPlayer({ src, poster, onFail, keysRef, badge, startAt = 0, timeRef
       onClick=${a.toggle}
       onDblClick=${fullscreen}
     ></video>
+    <canvas ref=${cref} class=${cx('player-cor', lut && !semGl && 'is-on')} aria-hidden="true"></canvas>
     ${st.waiting && st.ready ? html`<span class="player-wait"><${Spinner} size=${28} /></span>` : null}
     ${!st.ready ? html`<span class="player-wait"><${Spinner} size=${28} /></span>` : null}
     ${!st.playing && st.ready ? html`<button type="button" class="player-bigplay" onClick=${a.toggle} aria-label="Tocar"><${Icon} name="play" size=${30} /></button>` : null}
     ${badge}
+    ${semGl ? null : corUi}
     <${Controls} st=${st} a=${a} video onFullscreen=${fullscreen} full=${full} />
   </div>`
 }
@@ -408,6 +429,37 @@ function LiteSwitch({ proxy, on, canOriginal, onPick }) {
   </div>`
 }
 
+const lembrado = () => {
+  try {
+    const p = localStorage.getItem('previa.perfil')
+    return PERFIS[p]?.curva ? p : 'slog3-cine'
+  } catch {
+    return 'slog3-cine'
+  }
+}
+
+/** "Rec.709" no canto do player: liga/desliga a conversão e escolhe o LOG da câmera. */
+function CorSwitch({ ligado, perfil, detectado, onLigar, onPerfil }) {
+  const nome = PERFIS[perfil]?.nome || 'LOG'
+  return html`<div class=${cx('cor-switch', ligado && 'is-on')} onClick=${(e) => e.stopPropagation()} onDblClick=${(e) => e.stopPropagation()}>
+    <button
+      type="button"
+      aria-pressed=${ligado ? 'true' : 'false'}
+      onClick=${() => onLigar(!ligado)}
+      title=${ligado ? `Vendo em Rec.709, convertido de ${nome}. Só a prévia muda; o arquivo fica como está.` : 'Gravou em LOG? Veja em Rec.709 (só a prévia muda)'}
+    >
+      <span class="cor-dot"></span>Rec.709
+    </button>
+    ${ligado
+      ? html`<select value=${perfil} aria-label="LOG da câmera" onChange=${(e) => onPerfil(e.currentTarget.value)} onKeyDown=${(e) => e.stopPropagation()}>
+          ${Object.entries(PERFIS)
+            .filter(([, p]) => p.curva)
+            .map(([k, p]) => html`<option value=${k}>${p.nome}${detectado === k ? ' · do arquivo' : ''}</option>`)}
+        </select>`
+      : null}
+  </div>`
+}
+
 /** Escolhe o que mostrar: cópia leve, original, proxy (procura quando o original não toca) ou "não toca". */
 function Content({ accountId, item, keysRef, onDownload, inicio = 0 }) {
   const kind = previewKind(item)
@@ -468,6 +520,36 @@ function Content({ accountId, item, keysRef, onDownload, inicio = 0 }) {
     }
   }, [mode])
 
+  // Perfil de cor do original (o proxy da câmera grava no mesmo LOG). null = automático; 'off' = desligado.
+  const [corAuto, setCorAuto] = useState(null)
+  const [corEscolha, setCorEscolha] = useState(null)
+  useEffect(() => {
+    if (kind !== 'video' || !accountId) return undefined
+    const ac = new AbortController()
+    fetch(withQuery('/api/cor/perfil', { accountId, fileId: item.id }), { headers: { accept: 'application/json' }, cache: 'no-store', signal: ac.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => r?.perfil && setCorAuto({ perfil: r.perfil, origem: r.origem }))
+      .catch(() => {})
+    return () => ac.abort()
+  }, [])
+  const perfilAuto = PERFIS[corAuto?.perfil]?.curva ? corAuto.perfil : null
+  const lut = corEscolha === 'off' ? null : corEscolha || perfilAuto
+  const corUi =
+    kind === 'video'
+      ? html`<${CorSwitch}
+          ligado=${!!lut}
+          perfil=${lut || perfilAuto || lembrado()}
+          detectado=${corAuto?.origem === 'metadados' ? corAuto.perfil : null}
+          onLigar=${(on) => setCorEscolha(on ? perfilAuto || lembrado() : 'off')}
+          onPerfil=${(p) => {
+            setCorEscolha(p)
+            try {
+              localStorage.setItem('previa.perfil', p)
+            } catch {}
+          }}
+        />`
+      : null
+
   const bigPoster = thumbUrl(accountId, item, 1600) || (proxy ? thumbUrl(accountId, proxy, 1600) : null)
   keysRef.current = null
 
@@ -479,6 +561,8 @@ function Content({ accountId, item, keysRef, onDownload, inicio = 0 }) {
       keysRef=${keysRef}
       startAt=${startAt}
       timeRef=${at}
+      lut=${lut}
+      corUi=${corUi}
       onFail=${(why) => why !== 'stall' && setMode(baseMode())}
       badge=${html`<${LiteSwitch} proxy=${proxy} on=${true} canOriginal=${tryPlayVideo(item)} onPick=${pick} />`}
     />`
@@ -497,6 +581,8 @@ function Content({ accountId, item, keysRef, onDownload, inicio = 0 }) {
       keysRef=${keysRef}
       startAt=${startAt}
       timeRef=${at}
+      lut=${lut}
+      corUi=${corUi}
       badge=${wantsLite && proxy ? html`<${LiteSwitch} proxy=${proxy} on=${false} canOriginal=${true} onPick=${pick} />` : null}
       onFail=${(why) => {
         if (why === 'stall') {
@@ -513,6 +599,8 @@ function Content({ accountId, item, keysRef, onDownload, inicio = 0 }) {
       src=${streamUrl(accountId, proxy)}
       poster=${thumbUrl(accountId, proxy, 1280) || thumbUrl(accountId, item, 1280)}
       keysRef=${keysRef}
+      lut=${lut}
+      corUi=${corUi}
       onFail=${(why) => why !== 'stall' && setMode('fail')}
       badge=${isPreviaItem(proxy)
         ? html`<div class="proxy-note"><span class="proxy-tag is-previa">Proxy</span><span>Cópia leve em 720p. O Baixar traz o original.</span></div>`
