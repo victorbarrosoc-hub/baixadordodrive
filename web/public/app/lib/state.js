@@ -20,6 +20,7 @@ let state = {
   sheet: null, // { name, props }
   tab: 'send', // 'send' (envio) | 'drive' (navegar e baixar) | 'refs' (Referências) | 'criar' (Frames…); no modo Wi-Fi só 'send'
   criarTela: 'hub', // aba Criar: 'hub' | 'frames' | 'calc'
+  escolher: null, // aba Drive escolhendo um arquivo para outra tela: { para: 'frames' } (tocar no vídeo leva para lá)
   recursos: {}, // de /api/eu: { referencias: boolean }
   refs: { status: 'idle', colecoes: [], fila: [], raiz: null, error: null, at: 0 }, // Referências (lib/referencias.js)
   refsOpen: null, // id da coleção aberta na aba Referências

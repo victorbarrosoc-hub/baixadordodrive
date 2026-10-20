@@ -7011,3 +7011,47 @@ html.is-dswipe body {
   font-size: 13.5px;
   color: var(--text-2);
 }
+
+/* Aba Drive escolhendo um vídeo para os Frames (aba Criar → Do Drive) */
+.escolher-faixa {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: var(--primary-fg);
+  background: var(--primary-bg);
+  animation: cr-faixa 0.25s var(--ease);
+}
+.escolher-faixa > span {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.escolher-faixa b {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.escolher-faixa small {
+  font-size: 12.5px;
+  opacity: 0.7;
+}
+.escolher-faixa .link-btn {
+  color: var(--primary-fg);
+  opacity: 0.85;
+}
+.drive-screen.is-escolhendo .tile:not(.is-video):not(.is-pasta),
+.drive-screen.is-escolhendo .lrow:not(.is-video):not(.is-pasta) {
+  opacity: 0.35;
+}
+.drive-screen.is-escolhendo .tile.is-video .tile-media {
+  box-shadow: 0 0 0 2px var(--text);
+}
+@keyframes cr-faixa {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
