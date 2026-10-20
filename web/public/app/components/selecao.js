@@ -1,6 +1,7 @@
 // Selecionar itens na aba Drive: segurar um item liga a seleção (vibra no Android); com ela ligada, tocar marca e
 // desmarca. A barra de baixo diz quantos e quanto pesam, marca todos ou nenhum e faz as ações só nos marcados:
-// Baixar (um depois do outro), Copiar links, Gerar proxy (o computador gera; components/proxies.js) e Mover para a
+// Baixar (um depois do outro), Copiar links, Gerar proxy (o computador gera; components/proxies.js), Frames (aba Criar,
+// components/criar.js) e Mover para a
 // lixeira (com confirmação; dá para recuperar por 30 dias).
 //
 // O gesto de segurar é o mesmo do "segurar e arrastar" das miniaturas com tira de quadros (components/scrub.js):
@@ -16,6 +17,7 @@ import { Icon } from './icons.js'
 import { Button, SheetHead, copyText, cx } from './ui.js'
 import { FileName } from './queue.js'
 import { podeProxy } from '../lib/proxies.js'
+import { framesDoDrive } from './criar.js'
 
 export const SEGURAR_MS = 380
 const FOLGA_PX = 10 // mexeu mais que isso antes do tempo: é rolagem
@@ -198,6 +200,9 @@ export function BarraSelecao({ sel, visiveis, onSair, onRemovidos }) {
       </button>
       <button type="button" class="selact" disabled=${!videos.length} onClick=${() => openSheet('proxySelecao', { itens: videos, fora: n - videos.length })}>
         <${Icon} name="film" size=${20} /><span>Gerar proxy</span>
+      </button>
+      <button type="button" class="selact" disabled=${videos.length !== 1 || n !== 1} title="Um vídeo por vez" onClick=${() => (onSair(), framesDoDrive(videos[0]))}>
+        <${Icon} name="sparkle" size=${20} /><span>Frames</span>
       </button>
       <button
         type="button"

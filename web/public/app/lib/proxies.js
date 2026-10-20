@@ -60,3 +60,21 @@ export async function tentarDeNovo(id) {
 export async function cancelar(id) {
   await api(`${API}/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
+
+// ───── Frames pedido ao computador (docs/FRAMES.md §Celular): mesma fila, tipo "frames" ─────
+
+/** Pede ao computador os Frames completos (frames, takes, TIFF/ProRes) de um vídeo do Drive. */
+export async function pedirFrames(file, ajustes) {
+  const conta = getState().drive?.id
+  if (!conta) throw new Error('Escolha um Drive primeiro.')
+  const body = { contaGoogleId: conta, tipo: 'frames', ajustes, itens: [{ fileId: file.id, nome: file.name, tamanho: file.size != null ? Number(file.size) : undefined }] }
+  const r = await api(API, { method: 'POST', body })
+  return { pedido: (r.pedidos || [])[0] || null, novo: Number(r.novos) > 0 }
+}
+
+/** Os pedidos de Frames deste vídeo, do mais novo para o mais velho. */
+export async function framesPedidos(fileId, signal) {
+  const r = await api(`${API}?tipo=frames&fileIds=${encodeURIComponent(fileId)}`, { signal })
+  return r.pedidos || []
+}
+

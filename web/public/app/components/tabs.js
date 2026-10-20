@@ -1,4 +1,5 @@
-// Abas do app (embaixo, como no iOS): Enviar (violeta), Drive (azul) e, para quem tem o recurso, Referências.
+// Abas do app (embaixo, como no iOS): Enviar (violeta), Drive (azul), Referências (para quem tem o recurso) e Criar
+// (Frames e as outras ferramentas do computador, adaptadas ao celular).
 // No modo Wi-Fi não há abas: lá o celular não tem token do Google.
 import { html, useRef } from '../vendor/preact-htm.js'
 import { setTab, useApp } from '../lib/state.js'
@@ -8,6 +9,8 @@ import { cx, useEngine } from './ui.js'
 import { MainScreen } from './main.js'
 import { DriveScreen } from './browser.js'
 import { RefsScreen } from './referencias.js'
+import { CriarScreen } from './criar.js'
+import { Calculadora } from './calculadora.js'
 
 function TabBar({ tab, refsOn }) {
   useEngine()
@@ -31,6 +34,10 @@ function TabBar({ tab, refsOn }) {
           <span class="tab-label">Referências</span>
         </button>`
       : null}
+    <button type="button" class=${cx('tab', 'tab-criar', tab === 'criar' && 'is-on')} aria-current=${tab === 'criar' ? 'page' : undefined} onClick=${() => setTab('criar')}>
+      <span class="tab-icon"><${Icon} name="sparkle" size=${24} strokeWidth=${tab === 'criar' ? 2 : 1.7} /></span>
+      <span class="tab-label">Criar</span>
+    </button>
   </nav>`
 }
 
@@ -44,6 +51,7 @@ export function Tabs() {
     <div class="tab-pane" hidden=${tab !== 'send'}><${MainScreen} /></div>
     ${seen.current.drive ? html`<div class="tab-pane" hidden=${tab !== 'drive'}><${DriveScreen} active=${tab === 'drive'} /></div>` : null}
     ${seen.current.refs && refsOn ? html`<div class="tab-pane" hidden=${tab !== 'refs'}><${RefsScreen} active=${tab === 'refs'} /></div>` : null}
+    ${seen.current.criar ? html`<div class="tab-pane" hidden=${tab !== 'criar'}><${CriarScreen} active=${tab === 'criar'} Calculadora=${Calculadora} /></div>` : null}
     <${TabBar} tab=${tab} refsOn=${refsOn} />
   </div>`
 }
