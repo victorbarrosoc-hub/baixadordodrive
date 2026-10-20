@@ -98,9 +98,11 @@ async function realSetup(t, gerarOpts = {}, settings = {}) {
     await env.cleanup()
   })
   const drive = m.driveFor(env.accountId)
-  const send = async (paths, destFolderId = 'root', { proxy } = {}) => {
+  // `pausado`: entra já pausado na fila (pausar depois de adicionar corre com o envio de arquivos pequenos).
+  const send = async (paths, destFolderId = 'root', { proxy, pausado = false } = {}) => {
     const plan = await planUploads({ drive, accountId: env.accountId, paths, destFolderId })
     if (typeof proxy === 'boolean') for (const r of plan.records) r.proxy = proxy
+    if (pausado) for (const r of plan.records) r.status = 'paused'
     await m.add({ batch: plan.batch, records: plan.records })
     return plan.records.map(r => r.id)
   }
@@ -176,8 +178,8 @@ test('por arquivo: "Proxy: não" na fila vale no fim; "Gerar proxy" depois de en
   const pasta = mock.addFolder('Por arquivo')
   const a = await put(dir, 'A002.mov', 60_000)
   const wav = await put(dir, 'Som.wav', 10_000)
-  await m.pause('all')
-  const [ia, iw] = await send([a, wav], pasta.id)
+  const [ia, iw] = await send([a, wav], pasta.id, { pausado: true })
+  assert.equal(m.get(ia).status, 'paused')
   // Pausado na fila: muda a escolha. Áudio não conta.
   assert.equal(m.setProxy([ia, iw], false), 1)
   assert.equal(m.get(ia).proxy, false)
