@@ -33,7 +33,14 @@ export function registerDiscos({ route, ctx, HttpProblem, servico }) {
     return svc.itens({ estado, destino: Math.max(0, Math.min(3, Number(query.get('destino')) || 0)), de: Math.max(0, Number(query.get('de')) || 0), limite: 300 })
   }))
 
-  route('POST', '/api/discos/iniciar', tratar(async ({ body }) => svc.iniciar({ substituir: body.substituir === true, conferir: body.conferir !== false, relatorio: body.relatorio !== false })))
+  route('POST', '/api/discos/iniciar', tratar(async ({ body }) =>
+    svc.iniciar({
+      substituir: body.substituir === true,
+      conferir: body.conferir !== false,
+      conferirIguais: body.conferirIguais === true,
+      relatorio: body.relatorio !== false,
+      algoritmo: body.algoritmo == null ? 'xxh64' : String(body.algoritmo),
+    })))
 
   route('POST', '/api/discos/cancelar', tratar(async () => svc.cancelar()))
 

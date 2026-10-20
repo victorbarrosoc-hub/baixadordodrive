@@ -1,15 +1,18 @@
-// Copiar entre discos (docs/DISCOS.md): cartão → SSD, SSD → SSD, para um ou mais destinos ao mesmo tempo, com MD5
-// conferido, velocidade e tempo restante. Um trabalho por vez: planejar (comparar) → copiar → relatório.
+// Copiar entre discos (docs/DISCOS.md): cartão → SSD, SSD → SSD, para um ou mais destinos ao mesmo tempo, com checksum
+// conferido (xxHash64 ou MD5), velocidade e tempo restante. Um trabalho por vez: planejar (comparar) → copiar → relatório.
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { KeepAwake } from '../engine/power.js'
 import { DiscosError, planejar } from './planejar.js'
+import { ALGORITMOS } from './copiar.js'
 
 const WORKER_URL = new URL('./worker.js', import.meta.url)
 const JANELA_MS = 3000 // velocidade "agora": média dos últimos 3 s
 const AVISO_MS = 250
 const MAX_FALHAS = 500
+const SIMULTANEOS = 24 // arquivos pequenos ao mesmo tempo (cada um com fsync: em paralelo o disco agrupa)
+const GRANDE = 64 * 1024 * 1024 // daqui para cima, um por vez
 
 const carimbo = (d = new Date()) => {
   const z = (n) => String(n).padStart(2, '0')
@@ -125,19 +128,24 @@ export class DiscosService {
   // ───── copiar ─────
 
   /**
-   * @param {{ substituir?: boolean, conferir?: boolean, relatorio?: boolean }} o
-   *   substituir: grava por cima dos que existem com outro tamanho; conferir: lê o destino de novo e compara o MD5;
-   *   relatorio: grava "SOBEDESCE_copia_<data>.md5" em cada destino (formato do md5sum).
+   * @param {{ substituir?: boolean, conferir?: boolean, conferirIguais?: boolean, relatorio?: boolean, algoritmo?: string }} o
+   *   substituir: grava por cima dos que existem com outro tamanho; conferir: lê o destino de novo e compara o checksum;
+   *   conferirIguais: os que já estavam no destino (mesmo tamanho) também têm o checksum comparado; se não bater, são
+   *   copiados de novo;
+   *   relatorio: grava "SOBEDESCE_copia_<data>.xxh64" (ou .md5) em cada destino, no formato do xxhsum/md5sum;
+   *   algoritmo: 'xxh64' (padrão, rápido) ou 'md5' (o mesmo checksum do Google Drive).
    */
-  async iniciar({ substituir = false, conferir = true, relatorio = true } = {}) {
+  async iniciar({ substituir = false, conferir = true, conferirIguais = false, relatorio = true, algoritmo = 'xxh64' } = {}) {
+    if (!ALGORITMOS.includes(algoritmo)) throw new DiscosError(400, 'Checksum inválido.')
     if (this.fase === 'copiando') throw new DiscosError(409, 'Já está copiando.')
     if (!this.plano || this.fase !== 'pronto') throw new DiscosError(409, 'Compare as pastas antes de copiar.')
     const p = this.plano
-    p.opcoes = { substituir, conferir, relatorio }
+    p.opcoes = { substituir, conferir, conferirIguais, relatorio, algoritmo }
     const quer = (e) => e === 'novo' || (e === 'diferente' && substituir)
+    const indices = (fn) => (it) => it.estados.map((e, i) => (fn(e) ? i : -1)).filter((i) => i >= 0)
     const trabalho = p.itens
-      .map((it) => ({ it, alvos: it.estados.map((e, i) => (quer(e) ? i : -1)).filter((i) => i >= 0) }))
-      .filter((x) => x.alvos.length)
+      .map((it) => ({ it, alvos: indices(quer)(it), checar: conferirIguais ? indices((e) => e === 'igual')(it) : [] }))
+      .filter((x) => x.alvos.length || x.checar.length)
     // Espaço: o que vai para cada destino (substituir conta o tamanho inteiro, por segurança).
     for (let di = 0; di < p.destinos.length; di++) {
       const d = p.destinos[di]
@@ -146,7 +154,8 @@ export class DiscosService {
         throw new DiscosError(507, `Não cabe em ${d.caminho}: precisa de ${(precisa / 1e9).toFixed(1)} GB e tem ${(d.livre / 1e9).toFixed(1)} GB livres.`)
       }
     }
-    const totalBytes = trabalho.reduce((s, x) => s + x.it.size, 0)
+    const totalBytes = trabalho.reduce((s, x) => s + (x.alvos.length ? x.it.size : 0), 0)
+    const totalConferir = (conferir ? totalBytes : 0) + trabalho.reduce((s, x) => s + (x.checar.length ? x.it.size : 0), 0)
     this.prog = {
       inicio: Date.now(),
       fim: null,
@@ -155,9 +164,11 @@ export class DiscosService {
       copiados: 0,
       totalBytes,
       conferidos: 0,
-      totalConferir: conferir ? totalBytes : 0,
+      totalConferir,
       trabalho: 0,
-      totalTrabalho: totalBytes * (conferir ? 2 : 1),
+      totalTrabalho: totalBytes + totalConferir,
+      jaConferidos: 0,
+      corrigidos: 0,
       amostras: [{ t: Date.now(), trabalho: 0 }],
       atual: null,
       etapa: 'copiando',
@@ -169,18 +180,23 @@ export class DiscosService {
     this.cancelado = false
     this.keepAwake?.setActive(true)
     this.#mudou(true)
-    this.rodando = this.#rodar(trabalho, { conferir, relatorio }).catch((err) => this.log('discos', err))
+    this.rodando = this.#rodar(trabalho, { conferir, relatorio, algoritmo }).catch((err) => this.log('discos', err))
     return this.view()
   }
 
-  async #rodar(trabalho, { conferir, relatorio }) {
+  async #rodar(trabalho, { conferir, relatorio, algoritmo }) {
     const p = this.plano
     const g = this.prog
-    const md5s = p.destinos.map(() => []) // por destino: [md5, relPath] dos que deram certo
+    const hashes = p.destinos.map(() => []) // por destino: [hash, relPath] dos que deram certo
+    const verificados = p.destinos.map(() => new Set()) // por destino: relPath com o checksum lido de volta e igual
     let fatal = null
     const w = new Worker(this.workerUrl)
     this.worker = w
-    let espera = null
+    const esperando = new Map() // id → resolve
+    const soltarTodos = (msg) => {
+      for (const ok of esperando.values()) ok(msg)
+      esperando.clear()
+    }
     w.on('message', (m) => {
       if (m.tipo === 'bytes') {
         g.copiados += m.copiando
@@ -190,41 +206,86 @@ export class DiscosService {
         if (g.amostras.length > 200) g.amostras.splice(0, 100)
         this.#mudou()
       } else if (m.tipo === 'feito' || m.tipo === 'erro') {
-        espera?.ok(m)
+        const ok = esperando.get(m.id)
+        esperando.delete(m.id)
+        ok?.(m)
       }
     })
-    w.on('error', (err) => espera?.ok({ tipo: 'erro', erro: err.message }))
-    w.on('exit', () => espera?.ok({ tipo: 'erro', erro: 'O processo de cópia parou.' }))
-    const pedir = (msg) => new Promise((ok) => ((espera = { ok }), w.postMessage(msg)))
-
+    w.on('error', (err) => soltarTodos({ tipo: 'erro', erro: err.message }))
+    w.on('exit', () => soltarTodos({ tipo: 'erro', erro: 'O processo de cópia parou.' }))
     let id = 0
-    for (const { it, alvos } of trabalho) {
-      if (this.cancelado || fatal) break
+    const pedir = (msg) => new Promise((ok) => (esperando.set(msg.id, ok), w.postMessage(msg)))
+
+    // Vários arquivos pequenos ao mesmo tempo (fotos, áudio: o disco fica sempre ocupado); um grande por vez (leitura
+    // sequencial, o que cartões e HDs preferem). Peso = vagas: um grande ocupa todas.
+    let livres = SIMULTANEOS
+    const filaVaga = []
+    const pegarVaga = (peso) =>
+      new Promise((ok) => {
+        const tentar = () => (livres >= peso ? ((livres -= peso), ok(), true) : false)
+        if (!filaVaga.length && tentar()) return
+        filaVaga.push(tentar)
+      })
+    const soltarVaga = (peso) => {
+      livres += peso
+      while (filaVaga.length && filaVaga[0]()) filaVaga.shift()
+    }
+
+    const destinoDe = (di, it) => path.join(p.destinos[di].pasta, ...it.relPath.split('/'))
+    // Acerta a conta de um arquivo (mudou de tamanho no meio, falhou, conferência parou): anda o tamanho certo.
+    const acertar = (it, r, campo, fase) => {
+      const delta = it.size - (r.contados?.[fase] || 0)
+      g[campo] += delta
+      g.trabalho += delta
+    }
+    const umArquivo = async ({ it, alvos: copiar, checar }) => {
       g.atual = it.relPath
-      g.etapa = 'copiando'
       this.#mudou()
-      const antes = { copiados: g.copiados, conferidos: g.conferidos }
-      const destinos = alvos.map((di) => path.join(p.destinos[di].pasta, ...it.relPath.split('/')))
-      const r = await pedir({ tipo: 'copiar', id: ++id, origem: it.caminho, destinos, mtimeMs: it.mtimeMs, conferir })
-      // Acerta a conta (arquivo que mudou de tamanho no meio, conferência que falhou): o progresso anda o tamanho certo.
-      const corrigir = (campo, alvo) => {
-        const delta = alvo - (g[campo] - antes[campo])
-        g[campo] += delta
-        g.trabalho += delta
+      const alvos = [...copiar]
+      if (checar.length) {
+        // Já estava no destino com o mesmo tamanho: compara o conteúdo. O que não bate entra na cópia (por cima).
+        const c = await pedir({ tipo: 'comparar', id: ++id, origem: it.caminho, destinos: checar.map((di) => destinoDe(di, it)), tamanho: it.size, algoritmo })
+        if (c.tipo === 'erro' && c.cancelado) return
+        acertar(it, c, 'conferidos', 'conferindo')
+        if (c.tipo === 'erro') {
+          if (g.falhas.length < MAX_FALHAS) g.falhas.push({ relPath: it.relPath, destino: null, erro: traduzir(c) })
+          g.arquivos++
+          return
+        }
+        c.destinos.forEach((d, k) => {
+          if (d.ok) {
+            hashes[checar[k]].push([c.hash, it.relPath])
+            verificados[checar[k]].add(it.relPath)
+            g.jaConferidos++
+          } else {
+            alvos.push(checar[k])
+            g.corrigidos++
+            g.totalBytes += it.size
+            g.totalTrabalho += it.size * (conferir ? 2 : 1)
+            if (conferir) g.totalConferir += it.size
+          }
+        })
+        if (!alvos.length) {
+          g.arquivos++
+          this.#mudou()
+          return
+        }
       }
+      const destinos = alvos.map((di) => destinoDe(di, it))
+      const r = await pedir({ tipo: 'copiar', id: ++id, origem: it.caminho, destinos, tamanho: it.size, mtimeMs: it.mtimeMs, conferir, algoritmo })
+      if (r.tipo === 'erro' && r.cancelado) return
+      acertar(it, r, 'copiados', 'copiando')
+      if (conferir) acertar(it, r, 'conferidos', 'conferindo')
       if (r.tipo === 'erro') {
-        if (r.cancelado) break
         if (r.codigo === 'ENOSPC') fatal = 'Um dos destinos encheu. A cópia parou.'
         if (g.falhas.length < MAX_FALHAS) g.falhas.push({ relPath: it.relPath, destino: null, erro: traduzir(r) })
-        corrigir('copiados', it.size)
-        if (conferir) corrigir('conferidos', it.size)
       } else {
-        corrigir('copiados', it.size)
-        if (conferir) corrigir('conferidos', it.size)
         r.destinos.forEach((d, k) => {
           const di = alvos[k]
-          if (d.ok) md5s[di].push([r.md5, it.relPath])
-          else {
+          if (d.ok) {
+            hashes[di].push([r.hash, it.relPath])
+            if (conferir) verificados[di].add(it.relPath)
+          } else {
             // Cópia que não bate com a origem não pode ficar com cara de pronta (a próxima comparação acharia "igual").
             fsp.rm(d.caminho, { force: true }).catch(() => {})
             if (g.falhas.length < MAX_FALHAS) g.falhas.push({ relPath: it.relPath, destino: p.destinos[di].caminho, erro: `${d.erro} A cópia ruim foi apagada; copie de novo.` })
@@ -236,6 +297,19 @@ export class DiscosService {
       this.#mudou()
     }
 
+    const rodando = new Set()
+    for (const x of trabalho) {
+      const peso = x.it.size >= GRANDE ? SIMULTANEOS : 1 // conferir um grande também lê muito: um por vez
+      await pegarVaga(peso)
+      if (this.cancelado || fatal) {
+        soltarVaga(peso)
+        break
+      }
+      const t = umArquivo(x).finally(() => (rodando.delete(t), soltarVaga(peso)))
+      rodando.add(t)
+    }
+    await Promise.all(rodando)
+
     if (this.cancelado) w.postMessage({ tipo: 'cancelar' })
     await w.terminate().catch(() => {})
     this.worker = null
@@ -246,31 +320,48 @@ export class DiscosService {
     const relatorios = []
     if (relatorio && !this.cancelado) {
       for (let di = 0; di < p.destinos.length; di++) {
-        if (!md5s[di].length) continue
-        const arq = path.join(p.destinos[di].pasta, `SOBEDESCE_copia_${carimbo()}.md5`)
+        if (!hashes[di].length) continue
+        hashes[di].sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0))
+        const arq = path.join(p.destinos[di].pasta, `SOBEDESCE_copia_${carimbo()}.${algoritmo}`)
         try {
           await fsp.mkdir(p.destinos[di].pasta, { recursive: true })
-          await fsp.writeFile(arq, md5s[di].map(([m, r]) => `${m}  ${r}`).join('\n') + '\n')
+          await fsp.writeFile(arq, hashes[di].map(([h, r]) => `${h}  ${r}`).join('\n') + '\n')
           relatorios.push(arq)
         } catch (err) {
           this.log('discos: relatório', err.message)
         }
       }
     }
-    const ok = md5s.reduce((s, l) => s + l.length, 0)
+    const ok = hashes.reduce((s, l) => s + l.length, 0)
+    // Cobertura: quantos arquivos da origem estão em cada destino agora (gravados agora, ou que já estavam lá) e quantos
+    // tiveram o conteúdo conferido pelo checksum.
+    const cobertura = p.destinos.map((d, di) => {
+      const gravados = new Set(hashes[di].map(([, r]) => r))
+      const ruins = new Set(g.falhas.filter((f) => !f.destino || f.destino === d.caminho).map((f) => f.relPath))
+      let presentes = 0
+      let diferentes = 0 // ficaram com outro tamanho no destino (não marcou "Substituir os diferentes")
+      for (const it of p.itens) {
+        if (gravados.has(it.relPath) || (it.estados[di] === 'igual' && !ruins.has(it.relPath))) presentes++
+        else if (it.estados[di] === 'diferente' && !p.opcoes.substituir) diferentes++
+      }
+      return { caminho: d.caminho, total: p.itens.length, presentes, conferidos: verificados[di].size, diferentes }
+    })
     this.resultado = {
+      cobertura,
+      jaConferidos: g.jaConferidos,
+      corrigidos: g.corrigidos,
       copiados: g.arquivos - new Set(g.falhas.map((f) => f.relPath)).size,
       gravacoes: ok,
       bytes: g.copiados,
       segundos: (g.fim - g.inicio) / 1000,
       conferido: conferir,
+      algoritmo,
       falhas: g.falhas,
       relatorios,
       erro: fatal,
     }
     this.fase = this.cancelado ? 'cancelado' : fatal ? 'erro' : 'feito'
     this.erro = fatal
-    // O que foi copiado agora está "igual" no destino: comparar de novo mostra a situação real.
     this.#mudou(true)
   }
 
@@ -314,5 +405,8 @@ function traduzir(r) {
   if (c === 'ENOENT') return 'O arquivo sumiu (o disco foi desconectado?).'
   if (c === 'EIO') return 'Erro de leitura/gravação no disco (cabo, cartão ou SSD com problema).'
   if (c === 'EROFS') return 'O destino é somente leitura.'
+  if (c === 'EFBIG') return 'O destino não aceita arquivos deste tamanho (FAT32 vai só até 4 GB): formate o disco em exFAT, APFS ou NTFS.'
+  if (c === 'EINVAL' || c === 'ENAMETOOLONG') return 'O destino não aceita este nome de arquivo (caractere ou tamanho do nome).'
+  if (c === 'ETIMEDOUT' || c === 'ENXIO' || c === 'ENODEV') return 'O disco parou de responder (desconectado ou dormindo).'
   return r.erro || 'Não consegui copiar.'
 }

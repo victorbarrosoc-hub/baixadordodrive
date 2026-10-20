@@ -10,6 +10,11 @@ import { Icon } from './icons.js'
 import { Button, Checkbox, EmptyState, Segmented, Spinner } from './common.js'
 import { useLocalRoots } from './local-picker.js'
 
+const ALGS = [
+  { value: 'xxh64', label: 'xxHash64 · rápido' },
+  { value: 'md5', label: 'MD5 · igual ao Drive' },
+]
+
 const ESTADOS = [
   { id: 'novo', label: 'Novos', tom: 'up', icon: 'plus' },
   { id: 'igual', label: 'Já estão lá', tom: 'ok', icon: 'check' },
@@ -105,6 +110,7 @@ function Plano({ v, opcoes, setOpcoes, onCopiar, copiando }) {
     }),
     [p, opcoes.substituir],
   )
+  const conferirSo = opcoes.conferirIguais && p.destinos.some((x) => x.iguais)
   const falta = p.destinos.some((x) => x.livre != null && x.bytesNovos + (opcoes.substituir ? x.bytesDiferentes : 0) > x.livre)
   return html`<section class="card dk-plano">
     <header class="dk-plano-head">
@@ -130,17 +136,25 @@ function Plano({ v, opcoes, setOpcoes, onCopiar, copiando }) {
     <${Espaco} d=${d} precisa=${d.bytesNovos + (opcoes.substituir ? d.bytesDiferentes : 0)} />
     <${Lista} destino=${destino} estado=${estado} />
     <div class="dk-opcoes">
-      <label class="dk-opcao"><${Checkbox} checked=${opcoes.conferir} onChange=${(on) => setOpcoes({ ...opcoes, conferir: on })} label="Conferir" /><span><b>Conferir cada arquivo (MD5)</b><span class="sub"> · lê o destino de novo e compara com a origem</span></span></label>
-      <label class="dk-opcao"><${Checkbox} checked=${opcoes.relatorio} onChange=${(on) => setOpcoes({ ...opcoes, relatorio: on })} label="Relatório" /><span><b>Salvar o relatório .md5 no destino</b><span class="sub"> · a lista de checksums, para conferir depois</span></span></label>
+      <label class="dk-opcao"><${Checkbox} checked=${opcoes.conferir} onChange=${(on) => setOpcoes({ ...opcoes, conferir: on })} label="Conferir" /><span><b>Conferir cada arquivo copiado</b><span class="sub"> · lê o destino de novo e compara o checksum com a origem</span></span></label>
+      ${p.destinos.some((x) => x.iguais)
+        ? html`<label class="dk-opcao"><${Checkbox} checked=${opcoes.conferirIguais} onChange=${(on) => setOpcoes({ ...opcoes, conferirIguais: on })} label="Conferir os que já estão lá" /><span><b>Conferir também os que já estão no destino</b><span class="sub"> · compara o conteúdo, não só o tamanho; o que não bater é copiado de novo</span></span></label>`
+        : null}
+      <label class="dk-opcao"><${Checkbox} checked=${opcoes.relatorio} onChange=${(on) => setOpcoes({ ...opcoes, relatorio: on })} label="Relatório" /><span><b>Salvar o relatório de checksums no destino</b><span class="sub"> · para conferir de novo depois</span></span></label>
+      <div class="dk-opcao dk-alg">
+        <span class="sub">Checksum</span>
+        <${Segmented} size="sm" label="Checksum" value=${opcoes.algoritmo || 'xxh64'} onChange=${(a) => setOpcoes({ ...opcoes, algoritmo: a })} options=${ALGS} />
+        <span class="sub">${(opcoes.algoritmo || 'xxh64') === 'md5' ? 'o mesmo do Google Drive; mais lento em SSD rápido' : 'o padrão das ferramentas de offload de cinema; ~4 GB/s'}</span>
+      </div>
       ${p.destinos.some((x) => x.diferentes)
         ? html`<label class="dk-opcao is-warn"><${Checkbox} checked=${opcoes.substituir} onChange=${(on) => setOpcoes({ ...opcoes, substituir: on })} label="Substituir" /><span><b>Substituir os diferentes</b><span class="sub"> · grava por cima dos que têm outro tamanho no destino</span></span></label>`
         : null}
     </div>
     <div class="dk-go">
-      <${Button} variant="primary" size="lg" icon="copy" onClick=${onCopiar} loading=${copiando} disabled=${!total.arquivos || falta}>
-        ${total.arquivos ? `Copiar ${plural(total.arquivos, 'arquivo', 'arquivos')} · ${bytes(total.bytes)}` : 'Nada para copiar'}
+      <${Button} variant="primary" size="lg" icon="copy" onClick=${onCopiar} loading=${copiando} disabled=${(!total.arquivos && !conferirSo) || falta}>
+        ${total.arquivos ? `Copiar ${plural(total.arquivos, 'arquivo', 'arquivos')} · ${bytes(total.bytes)}` : conferirSo ? 'Conferir o que já está lá' : 'Nada para copiar'}
       </${Button}>
-      ${!total.arquivos ? html`<span class="sub">Tudo já está no destino.</span>` : null}
+      ${!total.arquivos && !conferirSo ? html`<span class="sub">Tudo já está no destino. Marque “Conferir também os que já estão no destino” para checar o conteúdo.</span>` : null}
     </div>
   </section>`
 }
@@ -187,6 +201,20 @@ function Resultado({ v, onDeNovo, onNova }) {
         ${r.erro ? html`<p class="dk-aviso">${r.erro}</p>` : null}
       </div>
     </div>
+    ${r.cobertura?.length
+      ? html`<ul class="dk-cobertura">
+          ${r.cobertura.map((c) => {
+            const completo = c.presentes === c.total
+            return html`<li class=${cx(completo ? 'is-ok' : 'is-falta')}>
+              <${Icon} name=${completo ? 'circle-check' : 'warning'} size=${16} />
+              <b>${baseName(c.caminho) || c.caminho}</b>
+              <span class="num">${completo ? `todos os ${count(c.total)} arquivos da origem estão aqui` : `${count(c.presentes)} de ${count(c.total)} arquivos · faltam ${count(c.total - c.presentes)}${c.diferentes ? ` (${plural(c.diferentes, 'está', 'estão')} com outro tamanho no destino: marque “Substituir os diferentes”)` : ''}`}</span>
+              <span class="sub num">${count(c.conferidos)} conferidos pelo conteúdo (${(r.algoritmo || 'xxh64') === 'md5' ? 'MD5' : 'xxHash64'})</span>
+            </li>`
+          })}
+        </ul>`
+      : null}
+    ${r.corrigidos ? html`<p class="dk-aviso"><${Icon} name="info" size=${14} /> ${plural(r.corrigidos, 'arquivo que já estava no destino estava diferente e foi copiado de novo', 'arquivos que já estavam no destino estavam diferentes e foram copiados de novo')}.</p>` : null}
     ${r.falhas.length
       ? html`<ul class="dk-falhas">
           ${r.falhas.slice(0, 100).map((f) => html`<li><span class="mono-path">${f.relPath}</span><span class="sub">${f.destino ? `${baseName(f.destino)}: ` : ''}${f.erro}</span></li>`)}
@@ -194,7 +222,7 @@ function Resultado({ v, onDeNovo, onNova }) {
       : null}
     ${r.relatorios.length
       ? html`<div class="dk-rel">
-          ${r.relatorios.map((arq) => html`<button type="button" class="link-btn" onClick=${() => revealPath(arq)} title=${arq}><${Icon} name="doc" size=${14} /> Relatório .md5 em ${discoDe(arq)} · ${revealLabel()}</button>`)}
+          ${r.relatorios.map((arq) => html`<button type="button" class="link-btn" onClick=${() => revealPath(arq)} title=${arq}><${Icon} name="doc" size=${14} /> Relatório de checksums em ${discoDe(arq)} · ${revealLabel()}</button>`)}
         </div>`
       : null}
     <div class="dk-go">
@@ -210,7 +238,7 @@ export function DiscosPanel() {
   const [origem, setOrigem] = usePersistentState('discos.origem', null)
   const [destinos, setDestinos] = usePersistentState('discos.destinos', [null])
   const [nome, setNome] = usePersistentState('discos.nome', '')
-  const [opcoes, setOpcoes] = usePersistentState('discos.opcoes', { conferir: true, relatorio: true, substituir: false })
+  const [opcoes, setOpcoes] = usePersistentState('discos.opcoes', { conferir: true, conferirIguais: false, relatorio: true, substituir: false, algoritmo: 'xxh64' })
   const [ocupado, setOcupado] = useState(false)
   const [pontos, setPontos] = useState([])
   const avisado = useRef(null)

@@ -11317,3 +11317,34 @@ button.tree-twisty:hover {
     grid-template-columns: 1fr;
   }
 }
+.dk-alg {
+  flex-wrap: wrap;
+  cursor: default;
+}
+.dk-cobertura {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dk-cobertura li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 9px 12px;
+  border-radius: var(--r);
+  font-size: 13px;
+  background: color-mix(in srgb, var(--ok) 9%, transparent);
+}
+.dk-cobertura li.is-ok > svg {
+  color: var(--ok-text);
+}
+.dk-cobertura li.is-falta {
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.dk-cobertura li.is-falta > svg {
+  color: var(--warn-text);
+}
