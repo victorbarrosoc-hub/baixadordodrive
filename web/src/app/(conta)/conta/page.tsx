@@ -6,14 +6,13 @@ import { Moldura, Secao } from "@/components/conta/moldura";
 import { Card } from "@/components/ui/card";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { listarDispositivos } from "@/lib/auth/sessao";
-import { Comecar } from "@/components/conta/comecar";
+import { NoComputador } from "@/components/conta/no-computador";
+import { InicioConta } from "@/components/conta/inicio";
 import { MenuConta } from "@/components/conta/menu";
 import { contaComSenha } from "@/lib/auth/contas";
 import { linksLigados } from "@/lib/auth/encerrar";
 import { ehAdmin } from "@/lib/admin";
 import { podeUsar } from "@/lib/recursos";
-import { EntradaReferencias } from "@/components/conta/referencias";
-import { TransferenciasAgora } from "@/components/conta/transferencias";
 import { listarComputadores } from "@/lib/acompanhar/status";
 import { googleDeEntrar, listarContas } from "@/lib/google/contas";
 import { NOME_PLATAFORMA, tempoRelativo } from "@/lib/tempo";
@@ -43,9 +42,10 @@ export default async function Conta({ searchParams }: Props) {
   const erro = typeof q.erro === "string" ? q.erro : undefined;
   const conectou = q.google === "ok";
   const primeiroNome = usuario.nome.split(" ")[0];
+  const drivesOk = contas.filter((c) => c.estado === "ok").length;
 
   return (
-    <Moldura larga titulo={`Olá, ${primeiroNome}`} subtitulo="Seus Drives e computadores ficam aqui." acao={<MenuConta admin={admin} sair={false} />}>
+    <Moldura larga titulo={`Olá, ${primeiroNome}`} acao={<MenuConta admin={admin} sair={false} />}>
       {q.aviso === "nao-fui-eu" ? (
         // "Não fui eu" dos e-mails de aviso: o passo a passo para tirar da conta quem não devia estar nela.
         <Aviso tom="erro" className="mb-10">
@@ -99,9 +99,15 @@ export default async function Conta({ searchParams }: Props) {
         </Aviso>
       ) : null}
 
-      {contas.some((c) => c.estado === "ok") ? <Comecar /> : null}
-      {dispositivos.length ? <TransferenciasAgora computadores={computadores} /> : null}
-      {referencias && contas.some((c) => c.estado === "ok") ? <EntradaReferencias /> : null}
+      <InicioConta
+        drivesOk={drivesOk}
+        drivesProblema={contas.length - drivesOk}
+        computadores={dispositivos.length}
+        andamento={computadores}
+        referencias={referencias && drivesOk > 0}
+      />
+
+      <h2 className="mb-8 border-t border-line pt-10 font-display text-[26px] font-semibold tracking-[-0.02em] sm:text-[30px]">Ajustes da conta</h2>
 
       {/* Desktop largo: Drives e computadores na esquerda, dados e senha na direita. No celular, uma coluna como antes. */}
       <div className="mt-12 first:mt-0 xl:grid xl:grid-cols-2 xl:items-start xl:gap-x-[clamp(40px,4vw,96px)]">
@@ -133,6 +139,11 @@ export default async function Conta({ searchParams }: Props) {
           ) : null}
 
           <Secao titulo="Computadores" id="computadores" descricao="O app SOBEDESCE do computador entra na sua conta e usa os mesmos Drives.">
+            {dispositivos.length ? null : (
+              <Card id="instalar" className="mb-4 scroll-mt-24 overflow-hidden">
+                <NoComputador />
+              </Card>
+            )}
             <Card className="overflow-hidden">
               <Computadores
                 itens={dispositivos.map((d) => ({
