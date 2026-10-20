@@ -180,6 +180,9 @@ test('tokens: cache, uma requisição por vez por conta, rede fora → retry, 40
   // Rede fora: 'retry' (o motor espera e tenta de novo), nada de sair da conta.
   site.down = true
   await assert.rejects(cloud.getAccessToken('g2'), err => err.name === 'SobeDesceError' && err.kind === 'retry')
+  // Uma atualização que começou antes da rede cair (a do login) pode ainda estar no ar: refresh() espera por ela
+  // e devolve o estado dela. A segunda chamada já vai ao site fora do ar.
+  await cloud.refresh()
   const st = await cloud.refresh()
   assert.equal(st.conectado, true)
   assert.match(st.erro, /Sem conexão/)
