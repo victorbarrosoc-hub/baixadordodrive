@@ -6,18 +6,23 @@
 import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js'
 import { closeSheet, getState, openSheet, setState, setTab, toast, useApp } from '../lib/state.js'
 import { streamReady, streamUrl } from '../lib/stream.js'
-import { createFolder } from '../lib/drive.js'
+import { createFolder, driveCall } from '../lib/drive.js'
 import { engine } from '../lib/uploader.js'
 import { framesPedidos, pedirFrames, tentarDeNovo } from '../lib/proxies.js'
 import { bytes, count } from '../lib/format.js'
 import { abrirVideo, amostrar, baseDoNome, escolher, fechar, nomeDoFrame, pastaDaCena, timecode, tirar } from '../lib/frames/celular.js'
+import { celularAbre, lerCodec, porqueNaoAbre, rotuloCodec } from '../lib/frames/codec.js'
+import { faixa } from '../lib/psd.js'
 import { findProxy, mayPlay } from '../lib/browse.js'
-import { FUNDOS, LAYOUTS, desenharPost, fatiar, layoutPorId } from '../lib/frames/posts.js'
+import { FUNDOS, LAYOUTS, ZOOM_MAX, desenharPost, enquadreDe, fatiar, frameNoPonto, layoutPorId, moverEnquadre } from '../lib/frames/posts.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, cx } from './ui.js'
 
 const QUANTOS = [6, 12, 24, 36]
 const GRANDE = 1.5e9 // acima disso, pelo celular demora: sugere o computador
+// Até isso, o vídeo do Drive desce inteiro uma vez (seguido é rápido) e a análise pula no próprio celular. Acima, lê
+// pelo stream, que espera a internet a cada pulo: menos pontos e três leitores ao mesmo tempo.
+const BAIXAR_ATE = 150e6
 const nomeSemExt = (n) => String(n || '').replace(/\.[^.]{1,6}$/, '')
 const tc = (s) => String(s || '').replace(/-/g, ':')
 
@@ -43,6 +48,7 @@ function limpar() {
     URL.revokeObjectURL(f.miniUrl)
   }
   if (job?.video?.blobUrl) URL.revokeObjectURL(job.video.blobUrl)
+  if (job?.video?.baixado) URL.revokeObjectURL(job.video.baixado)
   job = null
   mudou()
 }
@@ -52,14 +58,34 @@ export function framesDoDrive(file) {
   limpar()
   setState({ escolher: null })
   job = { video: { origem: 'drive', file, nome: file.name, size: Number(file.size) || 0 }, fase: 'ajustes' }
+  detectar(job)
   setState({ criarTela: 'frames' })
   setTab('criar')
   mudou()
 }
 
+/**
+ * Lê o codec do vídeo escolhido (só o cabeçalho: alguns KB do Drive ou do arquivo) e guarda em video.codec. Assim a
+ * tela diz antes o que tem dentro do MP4 e, se o celular com certeza não abre, já vai para o proxy ou o computador.
+ */
+function detectar(alvo) {
+  const v = alvo.video
+  const ler = v.origem === 'drive' ? (a, b) => faixa(v.file.id, a, b) : async (a, b) => new Uint8Array(await v.arquivo.slice(a, b).arrayBuffer())
+  v.codecLido = lerCodec(ler, v.size || null)
+    .catch(() => null)
+    .then((c) => {
+      v.codec = c
+      if (job === alvo) mudou()
+      return c
+    })
+}
+
+/** O celular não abre (pelo codec): o erro com o motivo de verdade. */
+const erroDoCodec = (codec, nome, resto = '') => Object.assign(new Error(`${porqueNaoAbre(codec, nome)}${resto}`), { formato: true })
+
 async function rodar(quantidade, formato) {
   const ac = new AbortController()
-  Object.assign(job, { fase: 'lendo', frac: 0, erro: null, ac, frames: [], cenas: [], formato })
+  Object.assign(job, { fase: 'lendo', frac: 0, erro: null, ac, frames: [], cenas: [], formato, baixou: false })
   mudou()
   const passo = (fase, frac) => {
     if (job?.ac !== ac) return
@@ -68,13 +94,42 @@ async function rodar(quantidade, formato) {
     mudou()
   }
   let v
+  let extras = []
   try {
     job.fonte = null
     if (job.video.origem === 'drive') {
-      if (!(await streamReady())) throw new Error('Abra o app pelo ícone da tela de início (ou recarregue) para ler vídeos do Drive.')
-      v = await abrirDoDrive(job.video.file, ac.signal)
-    } else v = await abrirVideo(job.video.blobUrl, { signal: ac.signal })
-    const a = await amostrar(v, { signal: ac.signal, onProgress: (f) => passo('lendo', f) })
+      const { file } = job.video
+      const codec = await job.video.codecLido
+      const size = Number(file.size) || 0
+      if (job.video.baixado || (size > 0 && size <= BAIXAR_ATE && mayPlay(file) && celularAbre(codec) !== false)) {
+        job.baixou = true
+        if (!job.video.baixado) {
+          passo('baixando', 0)
+          job.video.baixado = URL.createObjectURL(await baixarDoDrive(file, ac.signal, (f) => passo('baixando', f)))
+        }
+        passo('lendo', 0)
+        v = await abrirVideo(job.video.baixado, { signal: ac.signal }).catch((err) => {
+          if (err?.tipo !== 'formato') throw err
+          return null
+        })
+      }
+      if (!v) {
+        if (!(await streamReady())) throw new Error('Abra o app pelo ícone da tela de início (ou recarregue) para ler vídeos do Drive.')
+        v = await abrirDoDrive(file, ac.signal, codec, { original: !job.baixou })
+      }
+    } else {
+      const codec = await job.video.codecLido
+      if (celularAbre(codec) === false) throw erroDoCodec(codec, job.video.nome)
+      v = await abrirVideo(job.video.blobUrl, { signal: ac.signal }).catch((err) => {
+        throw err?.tipo === 'formato' && codec && celularAbre(codec) !== true ? erroDoCodec(codec, job.video.nome) : err
+      })
+    }
+    // Mais leitores no mesmo endereço leem outros trechos juntos: pelo stream, cada pulo espera a internet, e três
+    // esperas juntas custam quase o mesmo que uma; baixado, o celular decodifica em paralelo. Em 4K, só um a mais.
+    extras = await maisLeitores(v, v.videoWidth * v.videoHeight > 2.2e6 ? 1 : 2, ac.signal)
+    const pelaRede = !(v.currentSrc || v.src).startsWith('blob:')
+    const a = await amostrar([v, ...extras], { signal: ac.signal, max: pelaRede ? 120 : 240, onProgress: (f) => passo('lendo', f) })
+    for (const x of extras.splice(0)) fechar(x)
     const r = escolher(a, quantidade)
     job.cenas = r.cenas
     job.descartes = r.descartes
@@ -95,16 +150,39 @@ async function rodar(quantidade, formato) {
     mudou()
   } finally {
     if (v) fechar(v)
+    for (const x of extras) fechar(x)
   }
 }
 
+async function maisLeitores(v, n, signal) {
+  const r = await Promise.allSettled(Array.from({ length: n }, () => abrirVideo(v.currentSrc || v.src, { signal })))
+  return r.filter((x) => x.status === 'fulfilled').map((x) => x.value)
+}
+
+/** O vídeo inteiro do Drive, de uma vez (um download seguido é muito mais rápido que centenas de pulos pela rede). */
+async function baixarDoDrive(file, signal, onProgress) {
+  const res = await driveCall(`/files/${encodeURIComponent(file.id)}`, { query: { alt: 'media', supportsAllDrives: true }, raw: true, signal, retries: 2 })
+  const total = Number(file.size) || 0
+  let got = 0
+  const contando = new TransformStream({
+    transform(pedaco, ctl) {
+      got += pedaco.byteLength
+      if (total) onProgress(Math.min(1, got / total))
+      ctl.enqueue(pedaco)
+    },
+  })
+  // O navegador monta o arquivo (sem juntar pedaços na memória do JS).
+  return new Response(res.body.pipeThrough(contando), { headers: { 'Content-Type': file.mimeType || 'video/mp4' } }).blob()
+}
+
 /**
- * O original direto do Drive; se o celular não abre o formato (ProRes, MXF, alguns H.264 de edição no iPhone), o
- * proxy que já está no Drive (a cópia leve do app ou da câmera). Sem nenhum dos dois: erro com "Pedir ao computador".
+ * O original direto do Drive; se o celular não abre o formato (ProRes, MXF, H.264 10-bit 4:2:2 de câmera), o proxy
+ * que já está no Drive (a cópia leve do app ou da câmera). Sem nenhum dos dois: erro com "Pedir ao computador".
+ * Quando o codec já diz que não abre, nem tenta o original (era só espera).
  */
-async function abrirDoDrive(file, signal) {
+async function abrirDoDrive(file, signal, codec = null, { original = true } = {}) {
   let erro = null
-  if (mayPlay(file)) {
+  if (original && mayPlay(file) && celularAbre(codec) !== false) {
     try {
       return await abrirVideo(streamUrl(file), { signal })
     } catch (err) {
@@ -118,6 +196,7 @@ async function abrirDoDrive(file, signal) {
     job.fonte = { tipo: 'proxy', nome: proxy.name, largura: v.videoWidth, altura: v.videoHeight }
     return v
   }
+  if (codec && celularAbre(codec) !== true) throw Object.assign(erroDoCodec(codec, file.name, ' E ele ainda não tem proxy no Drive.'), { causa: erro })
   throw Object.assign(new Error('O celular não abre o formato deste vídeo, e ele ainda não tem proxy no Drive.'), { formato: true, causa: erro })
 }
 
@@ -230,7 +309,8 @@ function Escolher() {
     e.currentTarget.value = ''
     if (!f) return
     limpar()
-    job = { video: { origem: 'galeria', nome: f.name, size: f.size, blobUrl: URL.createObjectURL(f) }, fase: 'ajustes' }
+    job = { video: { origem: 'galeria', nome: f.name, size: f.size, arquivo: f, blobUrl: URL.createObjectURL(f) }, fase: 'ajustes' }
+    detectar(job)
     mudou()
   }
   return html`<div class="cr-origens">
@@ -258,14 +338,17 @@ function Ajustes({ j }) {
   const [q, setQ] = useState(12)
   const [fmt, setFmt] = useState('jpg')
   const grande = j.video.size > GRANDE
-  const semFormato = j.video.origem === 'drive' && !mayPlay(j.video.file)
+  const codec = j.video.codec
+  const naoAbre = celularAbre(codec) === false
+  const semFormato = j.video.origem === 'drive' && (!mayPlay(j.video.file) || naoAbre)
   return html`<div class="cr-card">
     <div class="cr-video">
       <span class="cr-origem-ic"><${Icon} name=${j.video.origem === 'drive' ? 'drive' : 'film'} size=${20} /></span>
-      <span><b>${j.video.nome}</b><small>${j.video.origem === 'drive' ? 'Direto do Drive' : 'Da galeria'}${j.video.size ? ` · ${bytes(j.video.size)}` : ''}</small></span>
+      <span><b>${j.video.nome}</b><small>${j.video.origem === 'drive' ? 'Direto do Drive' : 'Da galeria'}${j.video.size ? ` · ${bytes(j.video.size)}` : ''}${codec ? ` · ${rotuloCodec(codec)}` : ''}</small></span>
       <button type="button" class="link-btn" onClick=${limpar}>Trocar</button>
     </div>
-    ${semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Este aparelho não abre o formato do original: os frames saem do proxy do Drive, se houver. Em alta, peça ao computador (abaixo).</p>` : null}
+    ${semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${naoAbre ? porqueNaoAbre(codec, j.video.nome) : 'Este aparelho não abre o formato do original.'} Os frames saem do proxy do Drive, se houver; em alta, peça ao computador.</p>` : null}
+    ${naoAbre && j.video.origem !== 'drive' ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${porqueNaoAbre(codec, j.video.nome)} Suba o vídeo para o Drive (aba Enviar) e peça os frames ao computador.</p>` : null}
     ${grande && !semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Vídeo pesado: pelo celular demora e depende da internet. O app do computador faz mais rápido, com takes.</p>` : null}
     <div class="cr-linha">
       <span>Quantos frames<small>espalhados pelas cenas, só os que valem</small></span>
@@ -346,14 +429,25 @@ function NoComputador({ file, quantidade, formato, abertoInicial = false }) {
   </div>`
 }
 
+// Onde cada fase fica na barra: com o download antes, ele pega o começo.
+const FAIXAS = { baixando: [0, 40], lendo: [40, 80], frames: [80, 100] }
+const FAIXAS_STREAM = { lendo: [0, 50], frames: [50, 100] }
+
 function Andamento({ j }) {
-  const lendo = j.fase === 'lendo'
   const pct = Math.round((j.frac || 0) * 100)
+  const [ini, fim] = (j.baixou ? FAIXAS : FAIXAS_STREAM)[j.fase] || [0, 100]
+  const titulo = { baixando: 'Descendo o vídeo…', lendo: 'Assistindo o vídeo…' }[j.fase] || 'Tirando os frames em alta…'
+  const sub =
+    j.fase === 'baixando'
+      ? `${bytes((j.frac || 0) * j.video.size)} de ${bytes(j.video.size)}`
+      : j.fase === 'lendo'
+        ? 'Escuro, desfocado, tremido, perto de corte e repetido ficam de fora.'
+        : `${count(j.frames?.length || 0)} prontos`
   return html`<div class="cr-card cr-anda" aria-live="polite">
     <div class="cr-scan" aria-hidden="true"><span style=${`left:${pct}%`}></span></div>
-    <b>${lendo ? 'Assistindo o vídeo…' : 'Tirando os frames em alta…'}</b>
-    <small>${lendo ? 'Escuro, desfocado, tremido, perto de corte e repetido ficam de fora.' : `${count(j.frames?.length || 0)} prontos`}</small>
-    <div class="cr-barra"><span style=${`width:${lendo ? pct / 2 : 50 + pct / 2}%`}></span></div>
+    <b>${titulo}</b>
+    <small>${sub}</small>
+    <div class="cr-barra"><span style=${`width:${ini + ((fim - ini) * pct) / 100}%`}></span></div>
     <${Button} variant="secondary" onClick=${() => j.ac?.abort()}>Parar</${Button}>
   </div>`
 }
@@ -423,7 +517,7 @@ function FramesTela({ onVoltar }) {
       ? html`<p class="cr-lead">Escolha o vídeo final. O celular escolhe os melhores frames de cada cena, no tamanho do vídeo.</p><${Escolher} />`
       : j.fase === 'ajustes'
         ? html`<${Ajustes} j=${j} />`
-        : j.fase === 'lendo' || j.fase === 'frames'
+        : j.fase === 'baixando' || j.fase === 'lendo' || j.fase === 'frames'
           ? html`<${Andamento} j=${j} />`
           : j.fase === 'erro'
             ? html`<div class="cr-card cr-erro" role="alert">
@@ -456,10 +550,15 @@ const carregar = (url) => {
   return imgs.get(url)
 }
 
+const PREVIA = 0.4 // escala da prévia (o post sai em 2)
+
 export function FramesPostSheet({ ids = [] }) {
   const j = job
   const [p, setP] = useState({ layout: 'triade', n: 3, proporcao: '4:5', fundo: 'preto', titulo: nomeSemExt(j?.video.nome), slides: 2 })
   const [busy, setBusy] = useState(null)
+  const [enq, setEnq] = useState({}) // id do frame → { x, y, zoom }: vale em qualquer formato
+  const [ativo, setAtivo] = useState(null) // índice do frame sendo enquadrado
+  const toque = useRef({ dedos: new Map() })
   const cv = useRef(null)
   const L = layoutPorId(p.layout)
   const n = L.quantos.includes(p.n) ? p.n : L.padrao
@@ -470,14 +569,17 @@ export function FramesPostSheet({ ids = [] }) {
     const resto = j.frames.filter((f) => !s.includes(f)).sort((a, b) => b.nota - a.nota)
     return s.concat(resto).slice(0, n).sort((a, b) => a.t - b.t)
   }, [ids, n])
-  const desenhar = async (alvo, escala) => {
+  const desenhar = async (alvo, escala, destaque = null) => {
     const imagens = await Promise.all(usados.map((f) => carregar(f.url)))
-    return desenharPost(alvo, { layout: p.layout, proporcao: p.proporcao, escala, imagens, fundo: p.fundo, textos: { titulo: p.titulo, legendas: p.layout === 'polaroid' ? [p.titulo] : undefined }, timecodes: usados.map((f) => f.tc), slides: p.slides })
+    const enquadres = usados.map((f) => enq[f.id])
+    return desenharPost(alvo, { layout: p.layout, proporcao: p.proporcao, escala, imagens, fundo: p.fundo, textos: { titulo: p.titulo, legendas: p.layout === 'polaroid' ? [p.titulo] : undefined }, timecodes: usados.map((f) => f.tc), slides: p.slides, enquadres, destaque })
   }
+  const ultimo = p.layout === 'carrossel' ? 0 : usados.length - 1
+  const emEdicao = ativo != null && ativo <= ultimo ? ativo : null
   useEffect(() => {
     let vivo = true
     const c = document.createElement('canvas')
-    desenhar(c, 0.4).then(() => {
+    desenhar(c, PREVIA, emEdicao).then(() => {
       if (!vivo || !cv.current) return
       cv.current.width = c.width
       cv.current.height = c.height
@@ -486,8 +588,66 @@ export function FramesPostSheet({ ids = [] }) {
     return () => {
       vivo = false
     }
-  }, [p, usados])
+  }, [p, usados, enq, emEdicao])
   if (!j) return null
+
+  // ── enquadrar: tocar escolhe o frame; arrastar move; pinça (ou a barra) aproxima ──
+  const ponto = (e) => {
+    const r = cv.current.getBoundingClientRect()
+    return { x: ((e.clientX - r.left) * cv.current.width) / r.width, y: ((e.clientY - r.top) * cv.current.height) / r.height }
+  }
+  const noPonto = (pt) => frameNoPonto(p.layout, { proporcao: p.proporcao, escala: PREVIA, n: usados.length, slides: p.slides }, pt.x, pt.y)
+  const distancia = (d) => {
+    const [a, b] = [...d.values()]
+    return Math.hypot(a.x - b.x, a.y - b.y) || 1
+  }
+  const mudaEnq = (i, fn) => {
+    const f = usados[i]
+    if (f) setEnq((x) => ({ ...x, [f.id]: fn(x[f.id], f) }))
+  }
+  const desce = (e) => {
+    const t = toque.current
+    const pt = ponto(e)
+    t.dedos.set(e.pointerId, pt)
+    if (t.dedos.size === 1) {
+      t.alvo = noPonto(pt)
+      t.andou = 0
+      // Já enquadrando: tocar noutro frame passa para ele e já arrasta.
+      if (emEdicao != null && t.alvo) {
+        if (t.alvo.i !== emEdicao) setAtivo(t.alvo.i)
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+      }
+    } else if (t.dedos.size === 2 && emEdicao != null) {
+      t.dist0 = distancia(t.dedos)
+      t.zoom0 = enquadreDe(enq[usados[emEdicao]?.id]).zoom
+    }
+  }
+  const move = (e) => {
+    const t = toque.current
+    const ant = t.dedos.get(e.pointerId)
+    if (!ant) return
+    const pt = ponto(e)
+    t.dedos.set(e.pointerId, pt)
+    t.andou += Math.abs(pt.x - ant.x) + Math.abs(pt.y - ant.y)
+    if (emEdicao == null || !t.alvo) return
+    if (t.dedos.size >= 2) {
+      if (t.dist0) mudaEnq(emEdicao, (x) => ({ ...enquadreDe(x), zoom: Math.min(ZOOM_MAX, Math.max(1, (t.zoom0 * distancia(t.dedos)) / t.dist0)) }))
+      return
+    }
+    mudaEnq(t.alvo.i, (x, f) => moverEnquadre(x, pt.x - ant.x, pt.y - ant.y, f.largura, f.altura, t.alvo.caixa))
+  }
+  const sobe = (e) => {
+    const t = toque.current
+    if (!t.dedos.delete(e.pointerId)) return
+    if (t.dedos.size < 2) t.dist0 = 0
+    // Toque sem arrastar: escolhe o frame (fora de todos, sai do enquadramento).
+    if (t.dedos.size === 0 && t.andou < 6 && e.type === 'pointerup') setAtivo(t.alvo ? t.alvo.i : null)
+  }
+  const atual = emEdicao != null ? enquadreDe(enq[usados[emEdicao]?.id]) : null
+  const ajustado = (f) => {
+    const e = enq[f.id]
+    return Boolean(e) && (e.zoom > 1.001 || Math.abs(e.x - 0.5) > 0.001 || Math.abs(e.y - 0.5) > 0.001)
+  }
   const gerar = async () => {
     const c = await desenhar(document.createElement('canvas'), 2)
     const partes = p.layout === 'carrossel' ? fatiar(c, p.slides) : [c]
@@ -516,7 +676,22 @@ export function FramesPostSheet({ ids = [] }) {
   const muda = (o) => setP((x) => ({ ...x, ...o }))
   return html`<${SheetHead} title="Post" left=${html`<button type="button" class="link-btn" onClick=${closeSheet}>Fechar</button>`} />
     <div class="sheet-scroll"><div class="cr-post">
-      <div class=${cx('cr-post-tela', p.layout === 'carrossel' && 'is-carrossel')}><canvas ref=${cv} aria-label="Prévia do post"></canvas></div>
+      <div class=${cx('cr-post-tela', p.layout === 'carrossel' && 'is-carrossel', emEdicao != null && 'is-enquadrando')}>
+        <canvas ref=${cv} aria-label="Prévia do post. Toque num frame para enquadrar." onPointerDown=${desce} onPointerMove=${move} onPointerUp=${sobe} onPointerCancel=${sobe}></canvas>
+      </div>
+      ${atual
+        ? html`<div class="cr-enq" role="group" aria-label=${`Enquadrar o frame ${emEdicao + 1}`}>
+            <div class="cr-enq-top">
+              <span><b>Frame ${emEdicao + 1}</b><small>Arraste e use a pinça para aproximar.</small></span>
+              <button type="button" class="link-btn" disabled=${!ajustado(usados[emEdicao])} onClick=${() => mudaEnq(emEdicao, () => undefined)}>Centralizar</button>
+              <button type="button" class="cr-enq-ok" onClick=${() => setAtivo(null)}>Pronto</button>
+            </div>
+            <label class="cr-enq-zoom"><${Icon} name="zoom" size=${16} />
+              <input type="range" aria-label="Zoom" min="1" max=${ZOOM_MAX} step="0.01" value=${atual.zoom} onInput=${(e) => mudaEnq(emEdicao, (x) => ({ ...enquadreDe(x), zoom: Number(e.currentTarget.value) }))} />
+              <output>${atual.zoom.toFixed(1).replace('.', ',')}×</output>
+            </label>
+          </div>`
+        : html`<p class="cr-dica-enq"><${Icon} name="crop" size=${14} />Toque num frame para mudar o enquadramento.</p>`}
       <div class="cr-layouts" role="radiogroup" aria-label="Formato">
         ${LAYOUTS.map((l) => html`<button type="button" role="radio" aria-checked=${p.layout === l.id ? 'true' : 'false'} class=${cx('cr-chip', p.layout === l.id && 'is-on')} onClick=${() => muda({ layout: l.id, n: l.padrao })}>${l.nome}</button>`)}
       </div>

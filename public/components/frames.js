@@ -12,7 +12,7 @@ import { clipTime } from '../lib/media.js'
 import { toast } from '../lib/toasts.js'
 import { bridge, pathsFromDrop, pickFolderPath, revealLabel, revealPath } from '../lib/desktop.js'
 import { openModal, pickDriveFolder, promptDialog } from '../lib/modals.js'
-import { FUNDOS, LAYOUTS, desenharPost, fatiar, layoutPorId } from '../lib/frames-posts.js'
+import { FUNDOS, LAYOUTS, ZOOM_MAX, desenharPost, enquadreDe, fatiar, frameNoPonto, layoutPorId, moverEnquadre } from '../lib/frames-posts.js'
 import { Icon } from './icons.js'
 import { Button, EmptyState, IconButton, Segmented, Slider, Spinner, Stepper, Switch } from './common.js'
 
@@ -646,6 +646,10 @@ function AbaPosts({ m, setM, sel, irParaFrames }) {
   const [salto, setSalto] = useState(0)
   const [salvando, setSalvando] = useState(false)
   const [falta, setFalta] = useState(false)
+  const [enq, setEnq] = useState({}) // id do frame → { x, y, zoom }: vale em qualquer formato
+  const [ativo, setAtivo] = useState(null) // índice do frame sendo enquadrado
+  const arrasto = useRef(null)
+  const tamanhos = useRef(new Map()) // id do frame → [largura, altura] da imagem em alta
   const canvas = useRef(null)
   const L = layoutPorId(p.layout)
   const n = L.quantos.includes(p.n) ? p.n : L.padrao
@@ -662,8 +666,9 @@ function AbaPosts({ m, setM, sel, irParaFrames }) {
     const auto = escolhaAutomatica(m, n + s.length, salto).filter((f) => !s.includes(f))
     return s.concat(auto).slice(0, n)
   }, [m, sel, n, salto])
-  const desenhar = async (cv, escala) => {
+  const desenhar = async (cv, escala, destaque = null) => {
     const imgs = await Promise.all(escolhidos.map((f) => carregarImagem(arquivoUrl(m.id, { alta: f.id }))))
+    imgs.forEach((img, i) => tamanhos.current.set(escolhidos[i].id, [img.naturalWidth, img.naturalHeight]))
     const logo = p.logo && m.ajustes.logo ? await carregarImagem(logoUrl(m.ajustes.logo.path)).catch(() => null) : null
     return desenharPost(cv, {
       layout: p.layout,
@@ -677,12 +682,15 @@ function AbaPosts({ m, setM, sel, irParaFrames }) {
       logo,
       logoAjustes: m.ajustes.logo,
       slides: p.slides,
+      enquadres: escolhidos.map((f) => enq[f.id]),
+      destaque,
     })
   }
+  const emEdicao = ativo != null && ativo <= (p.layout === 'carrossel' ? 0 : escolhidos.length - 1) ? ativo : null
   useEffect(() => {
     let vivo = true
     const cv = document.createElement('canvas')
-    desenhar(cv, 0.5)
+    desenhar(cv, 0.5, emEdicao)
       .then(() => {
         if (!vivo || !canvas.current) return
         const alvo = canvas.current
@@ -695,7 +703,62 @@ function AbaPosts({ m, setM, sel, irParaFrames }) {
     return () => {
       vivo = false
     }
-  }, [escolhidos, p])
+  }, [escolhidos, p, enq, emEdicao])
+
+  // ── enquadrar: clicar escolhe o frame; arrastar move; a roda do mouse (ou a barra) aproxima ──
+  const ponto = (e) => {
+    const c = canvas.current
+    const r = c.getBoundingClientRect()
+    return { x: ((e.clientX - r.left) * c.width) / r.width, y: ((e.clientY - r.top) * c.height) / r.height }
+  }
+  const noPonto = (pt) => frameNoPonto(p.layout, { proporcao: p.proporcao, escala: 0.5, n: escolhidos.length, respiro: p.respiro, slides: p.slides }, pt.x, pt.y)
+  const mudaEnq = (i, fn) => {
+    const f = escolhidos[i]
+    if (f) setEnq((x) => ({ ...x, [f.id]: fn(x[f.id], f) }))
+  }
+  const desce = (e) => {
+    const pt = ponto(e)
+    const alvo = noPonto(pt)
+    arrasto.current = { alvo, ultimo: pt, andou: 0 }
+    if (alvo) {
+      setAtivo(alvo.i)
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+    }
+  }
+  const move = (e) => {
+    const a = arrasto.current
+    if (!a?.alvo) return
+    const pt = ponto(e)
+    const dx = pt.x - a.ultimo.x
+    const dy = pt.y - a.ultimo.y
+    a.ultimo = pt
+    a.andou += Math.abs(dx) + Math.abs(dy)
+    const tam = tamanhos.current.get(escolhidos[a.alvo.i]?.id)
+    if (tam) mudaEnq(a.alvo.i, (x) => moverEnquadre(x, dx, dy, tam[0], tam[1], a.alvo.caixa))
+  }
+  const sobe = () => {
+    const a = arrasto.current
+    arrasto.current = null
+    if (a && !a.alvo && a.andou < 4) setAtivo(null)
+  }
+  const roda = (e) => {
+    const alvo = noPonto(ponto(e))
+    if (!alvo) return
+    e.preventDefault()
+    setAtivo(alvo.i)
+    mudaEnq(alvo.i, (x) => {
+      const q = enquadreDe(x)
+      return { ...q, zoom: Math.min(ZOOM_MAX, Math.max(1, q.zoom * Math.exp(-e.deltaY * 0.002))) }
+    })
+  }
+  useEffect(() => {
+    // A roda precisa de passive: false para não rolar a página enquanto aproxima.
+    const c = canvas.current
+    if (!c) return
+    c.addEventListener('wheel', roda, { passive: false })
+    return () => c.removeEventListener('wheel', roda)
+  })
+  const atual = emEdicao != null ? enquadreDe(enq[escolhidos[emEdicao]?.id]) : null
 
   const salvar = async () => {
     setSalvando(true)
@@ -728,10 +791,21 @@ function AbaPosts({ m, setM, sel, irParaFrames }) {
     <div class="fr-posts">
       <div class="fr-posts-palco">
         <div class=${cx('fr-posts-tela', p.layout === 'carrossel' && 'is-carrossel')} style=${p.layout === 'carrossel' ? '' : `aspect-ratio:${ar}`}>
-          <canvas ref=${canvas} aria-label="Prévia do post"></canvas>
+          <canvas ref=${canvas} class=${cx(emEdicao != null && 'is-enquadrando')} aria-label="Prévia do post. Clique num frame para enquadrar." onPointerDown=${desce} onPointerMove=${move} onPointerUp=${sobe} onPointerCancel=${sobe}></canvas>
           ${falta ? html`<span class="fr-posts-erro">Não consegui abrir um dos frames.</span>` : null}
           ${p.layout === 'carrossel' ? html`<span class="fr-posts-cortes" style=${`--n:${p.slides}`}></span>` : null}
         </div>
+        ${atual
+          ? html`<div class="fr-enq" role="group" aria-label=${`Enquadrar o frame ${emEdicao + 1}`}>
+              <span class="fr-enq-t"><b>Frame ${emEdicao + 1}</b><small>Arraste; a roda do mouse aproxima.</small></span>
+              <label class="fr-enq-zoom"><${Icon} name="zoom" size=${15} />
+                <input type="range" aria-label="Zoom" min="1" max=${ZOOM_MAX} step="0.01" value=${atual.zoom} onInput=${(e) => mudaEnq(emEdicao, (x) => ({ ...enquadreDe(x), zoom: Number(e.currentTarget.value) }))} />
+                <output>${atual.zoom.toFixed(1).replace('.', ',')}×</output>
+              </label>
+              <${Button} size="sm" variant="ghost" disabled=${!enq[escolhidos[emEdicao]?.id]} onClick=${() => mudaEnq(emEdicao, () => undefined)}>Centralizar</${Button}>
+              <${Button} size="sm" variant="secondary" onClick=${() => setAtivo(null)}>Pronto</${Button}>
+            </div>`
+          : html`<p class="fr-enq-dica"><${Icon} name="crop" size=${13} />Clique num frame para mudar o enquadramento.</p>`}
         <div class="fr-posts-usados">
           ${escolhidos.map((f) => html`<img key=${f.id} src=${arquivoUrl(m.id, { mini: f.id })} alt=${f.id} title=${`${f.id} · ${tc(f.tc)}`} />`)}
           <span class="fr-posts-usados-txt">${sel.length ? `${sel.length} escolhido${sel.length > 1 ? 's' : ''} na aba Frames` : 'Escolha automática'}</span>

@@ -57,6 +57,7 @@ cor, uma impressão digital (dHash) e a diferença para a amostra anterior.
 - Posts (`public/lib/frames-posts.js`, canvas em 2160 px): Tríade (3, 4, 5), Grade (2×2, 3×3), Polaroid (1 a 3),
   Box, Cinema (2,39:1), Contato e Carrossel contínuo (2 ou 3 slides). 4:5, 1:1 ou 9:16; fundo preto, branco ou
   grafite; título, legenda e logomarca. Usa os frames escolhidos na aba Frames ou escolhe sozinho.
+- Enquadramento por frame (`enquadres[i] = { x, y, zoom }`, zoom até 3×): tocar ou clicar no frame da prévia escolhe; arrastar move (até a borda do frame encostar na caixa); pinça, roda do mouse ou a barra aproximam; Centralizar volta ao meio. Vale em qualquer formato (fica guardado por frame) e sai igual no post em alta. `frameNoPonto` acha o frame tocado (na polaroid, desfaz o giro).
 
 ## API
 
@@ -80,12 +81,19 @@ Progresso pelo SSE `frames`: `{ jobId, status, fase, frac, texto, video, manifes
 
 - **Frames no celular** (`web/public/app/lib/frames/celular.js`, `components/criar.js`):
   - O vídeo vem direto do Drive, pelo stream do app (não baixa inteiro), ou da galeria.
-  - Um `<video>` escondido pula entre 24 e 240 pontos do filme e mede cada um em 256 px.
+  - Um `<video>` escondido pula entre 24 e 240 pontos do filme (2 por segundo) e mede cada um em 256 px.
+  - Velocidade:
+    - Vídeo do Drive até 150 MB desce inteiro uma vez (um download seguido) e a análise pula no próprio celular. Acima disso, lê pelo stream, com no máximo 120 pontos.
+    - Três leitores (`<video>` no mesmo endereço; dois em 4K) leem trechos diferentes ao mesmo tempo.
+    - Cada pulo espera o aviso de quadro novo (`requestVideoFrameCallback`, pedido antes do pulo). O vídeo fica com opacidade 0,01: com 0, o aviso nunca chega e cada pulo esperava o prazo inteiro (250 ms).
   - A escolha usa as **mesmas regras** do computador: `medidas.js`, `escolha.js` e `posts.js` são cópias idênticas, conferidas em `test/frames.test.js`.
   - Os frames saem no tamanho do vídeo, em JPEG 0,95 ou PNG.
   - Salvar no celular: pela folha de compartilhar (Salvar imagem ou Arquivos); sem ela, um download por arquivo.
   - Subir pro Drive: `<Vídeo> — Frames/Cena NN — …/` e `Posts/`, ao lado do vídeo (ou onde a pessoa escolher, se veio da galeria).
   - Na aba Drive, a seleção de um vídeo ganha "Frames".
+  - **Codec antes de abrir** (`lib/frames/codec.js`): lê só a caixa `moov` do MP4/MOV (Range do Drive ou `File.slice`), mesmo quando ela vem no fim do arquivo. A tela mostra o codec ("H.264 10-bit 4:2:2").
+    - H.264 de 10 bits ou 4:2:2/4:4:4 (XAVC S-I, Canon, Panasonic) e DNxHD: nenhum iPhone decodifica, então nem tenta o original e vai direto ao proxy do Drive ou ao computador. A mensagem diz o motivo ("Este MP4 é H.264 10-bit 4:2:2, o modo de alta qualidade da câmera").
+    - HEVC 4:2:2 e ProRes dependem do aparelho: tenta e, se falhar, explica pelo codec.
 - **Completo, no computador** (`src/engine/pedidos-frames.js`):
   - O celular pede na mesma fila dos pedidos de proxy, com `tipo: "frames"` e os ajustes: frames, takes (9:16, 4:5, original; H.264 ou ProRes) e formato.
   - Apps do computador antigos não veem esses pedidos, porque a lista sem `tipo` é só de proxy.

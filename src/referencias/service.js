@@ -36,6 +36,7 @@ const MANTER_FEITOS = 80 // trabalhos terminados guardados para a tela
 const COLECOES_TTL_MS = 60_000
 const ITENS_TTL_MS = 60_000
 const IMAGEM_MAX = 40 * 1024 * 1024
+const terminando = new WeakSet() // trabalhos já no #terminar (ele espera apagar os temporários antes de gravar o fim)
 const MINIATURA_MAX = 2 * 1024 * 1024
 const ATIVAS = new Set(['na_fila', 'baixando', 'enviando', 'concluindo'])
 const FINAIS = new Set(['pronto', 'erro', 'cancelado'])
@@ -888,12 +889,15 @@ export class ReferenciasService extends EventEmitter {
 
   /** Estado final: grava, apaga os temporários e avisa o site quando o trabalho veio da fila do celular. */
   async #terminar(j, fase, erro, extra = {}) {
-    if (!this.jobs.has(j.id) || FINAIS.has(j.fase)) return
+    if (!this.jobs.has(j.id) || FINAIS.has(j.fase) || terminando.has(j)) return
+    terminando.add(j)
     clearInterval(this.vida.get(j.id))
     this.vida.delete(j.id)
     const daFila = j.filaId
-    this.#touch(j, { fase, erro, progresso: null, miniatura: null, ...extra })
+    // Apaga os temporários antes de anunciar o fim: quem vê "pronto" (a tela, os testes) não encontra resto.
     if (fase === 'pronto' || fase === 'cancelado' || fase === 'erro') await fs.rm(path.join(this.enviosDir, j.id), { recursive: true, force: true }).catch(() => {})
+    this.#touch(j, { fase, erro, progresso: null, miniatura: null, ...extra })
+    terminando.delete(j) // daqui em diante a fase final barra; "Tentar de novo" reusa o mesmo trabalho
     if (j.transferId && fase !== 'enviando') this.byTransfer.delete(j.transferId)
     if (fase === 'pronto') this.#bump(j.colecao.id)
     if (fase === 'erro' && j.origem !== 'fila') this.#toast('error', `${j.colecao?.nome ? `${j.colecao.nome}: ` : ''}${erro?.mensagem || 'não deu para salvar.'}`)

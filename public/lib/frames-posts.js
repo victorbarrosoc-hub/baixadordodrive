@@ -35,9 +35,12 @@ export function tamanhoPost(proporcao, escala = 2) {
   return { w: p.w * escala, h: p.h * escala }
 }
 
-/** Retângulo de origem para cobrir `w`×`h` (object-fit: cover), com o foco horizontal/vertical (0–1). */
-export function cobrir(iw, ih, w, h, fx = 0.5, fy = 0.5) {
-  const r = Math.max(w / iw, h / ih)
+/**
+ * Retângulo de origem para cobrir `w`×`h` (object-fit: cover), com o foco horizontal/vertical (0–1) e o zoom (1 = o
+ * frame inteiro cabendo pelo lado menor; 2 = metade).
+ */
+export function cobrir(iw, ih, w, h, fx = 0.5, fy = 0.5, zoom = 1) {
+  const r = Math.max(w / iw, h / ih) * Math.max(1, zoom)
   const sw = w / r
   const sh = h / r
   return { sx: (iw - sw) * fx, sy: (ih - sh) * fy, sw, sh }
@@ -134,11 +137,71 @@ export function montar(layout, { w, h, n, respiro = 0.03, slides = 2 }) {
   }
 }
 
-function desenharImagem(ctx, img, b, foco = 0.5) {
+// ───── enquadramento de cada frame ─────
+// Cada frame do post tem um enquadre { x, y, zoom }: x/y de 0 a 1 dizem que parte do frame aparece na caixa (0,5 =
+// centro) e o zoom aproxima. Sem enquadre, o frame entra centralizado (com o `foco` horizontal do post).
+
+export const ZOOM_MAX = 3
+const entre = (v, a, b) => Math.min(b, Math.max(a, v))
+
+/** O enquadre com os padrões preenchidos e os valores dentro dos limites. */
+export function enquadreDe(e, foco = 0.5) {
+  return { x: entre(Number.isFinite(e?.x) ? e.x : foco, 0, 1), y: entre(Number.isFinite(e?.y) ? e.y : 0.5, 0, 1), zoom: entre(Number.isFinite(e?.zoom) ? e.zoom : 1, 1, ZOOM_MAX) }
+}
+
+/**
+ * Arrastar o frame dentro da caixa `b` (px do post): `dx`/`dy` é quanto o dedo andou, em px do post. O frame anda
+ * junto com o dedo, até a borda dele encostar na borda da caixa.
+ */
+export function moverEnquadre(e, dx, dy, iw, ih, b) {
+  const q = enquadreDe(e)
+  const r = Math.max(b.w / iw, b.h / ih) * q.zoom
+  const sobraX = iw * r - b.w
+  const sobraY = ih * r - b.h
+  return { ...q, x: sobraX > 0.5 ? entre(q.x - dx / sobraX, 0, 1) : q.x, y: sobraY > 0.5 ? entre(q.y - dy / sobraY, 0, 1) : q.y }
+}
+
+/**
+ * Qual frame está no ponto (px do post, já na escala do desenho)? Devolve { i, caixa } ou null. A caixa é a área da
+ * foto (na polaroid, a foto dentro da moldura, sem o giro). No carrossel, é sempre o frame 0 na largura toda.
+ */
+export function frameNoPonto(layout, { proporcao = '4:5', escala = 2, n, respiro = true, slides = 2 }, px, py) {
+  const { w, h } = tamanhoPost(proporcao, escala)
+  const plano = montar(layout, { w, h, n, respiro: respiro ? 0.03 : 0, slides })
+  for (let i = plano.caixas.length - 1; i >= 0; i--) {
+    const c = plano.caixas[i]
+    if (layout === 'polaroid') {
+      // Desfaz o giro em volta do centro da moldura e confere dentro da foto.
+      const cx = c.x + c.w / 2
+      const cy = c.y + c.h / 2
+      const a = (-(c.rot || 0) * Math.PI) / 180
+      const lx = (px - cx) * Math.cos(a) - (py - cy) * Math.sin(a) + c.w / 2
+      const ly = (px - cx) * Math.sin(a) + (py - cy) * Math.cos(a) + c.h / 2
+      if (lx >= 0 && ly >= 0 && lx <= c.w && ly <= c.h) return { i, caixa: c.foto }
+      continue
+    }
+    if (px >= c.x && py >= c.y && px <= c.x + c.w && py <= c.y + c.h) return { i: layout === 'carrossel' ? 0 : i, caixa: c }
+  }
+  return null
+}
+
+function desenharImagem(ctx, img, b, e) {
   const iw = img.naturalWidth || img.width
   const ih = img.naturalHeight || img.height
-  const s = cobrir(iw, ih, b.w, b.h, foco, 0.5)
+  const s = cobrir(iw, ih, b.w, b.h, e.x, e.y, e.zoom)
   ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, b.x, b.y, b.w, b.h)
+}
+
+/** O contorno do frame em edição (só na prévia). */
+function contornar(ctx, b) {
+  const l = Math.max(2, Math.round(Math.min(b.w, b.h) * 0.012))
+  ctx.save()
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = l
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'
+  ctx.shadowBlur = l * 2
+  ctx.strokeRect(b.x + l / 2, b.y + l / 2, b.w - l, b.h - l)
+  ctx.restore()
 }
 
 function escrever(ctx, t, texto, cor) {
@@ -169,9 +232,10 @@ function logoNoCanto(ctx, logo, w, h, { tamanho = 0.14, posicao = 'inf-dir', opa
 
 /**
  * Desenha o post. `imagens`: HTMLImageElement já carregados (na ordem). `textos`: { titulo, sub, legendas[] }.
- * Devolve o canvas (para o carrossel, a imagem inteira; `fatiar` corta em slides).
+ * `enquadres[i]`: { x, y, zoom } do frame i (ver enquadreDe). `destaque`: índice do frame que está sendo enquadrado
+ * (ganha um contorno, só na prévia). Devolve o canvas (para o carrossel, a imagem inteira; `fatiar` corta em slides).
  */
-export function desenharPost(canvas, { layout, proporcao = '4:5', escala = 2, imagens, fundo = 'preto', respiro = true, textos = {}, timecodes = [], logo = null, logoAjustes = null, slides = 2, foco = 0.5 }) {
+export function desenharPost(canvas, { layout, proporcao = '4:5', escala = 2, imagens, fundo = 'preto', respiro = true, textos = {}, timecodes = [], logo = null, logoAjustes = null, slides = 2, foco = 0.5, enquadres = [], destaque = null }) {
   const { w, h } = tamanhoPost(proporcao, escala)
   const n = imagens.length
   const plano = montar(layout, { w, h, n, respiro: respiro ? 0.03 : 0, slides })
@@ -198,7 +262,8 @@ export function desenharPost(canvas, { layout, proporcao = '4:5', escala = 2, im
       ctx.fillStyle = '#fbfaf6'
       ctx.fillRect(0, 0, c.w, c.h)
       ctx.shadowColor = 'transparent'
-      desenharImagem(ctx, img, c.foto, foco)
+      desenharImagem(ctx, img, c.foto, enquadreDe(enquadres[i], foco))
+      if (destaque === i) contornar(ctx, c.foto)
       const t = plano.texto[i]
       ctx.fillStyle = '#2a2a2a'
       ctx.font = `italic ${t.peso} ${t.tam}px "Bradley Hand", "Segoe Print", "Marker Felt", "Comic Sans MS", cursive`
@@ -212,7 +277,8 @@ export function desenharPost(canvas, { layout, proporcao = '4:5', escala = 2, im
     plano.caixas.forEach((c, i) => {
       const img = imagens[layout === 'carrossel' ? 0 : i]
       if (!img) return
-      desenharImagem(ctx, img, c, layout === 'carrossel' ? 0.5 : foco)
+      desenharImagem(ctx, img, c, enquadreDe(enquadres[layout === 'carrossel' ? 0 : i], layout === 'carrossel' ? 0.5 : foco))
+      if (destaque === (layout === 'carrossel' ? 0 : i)) contornar(ctx, c)
       if (c.legenda) escrever(ctx, { x: c.x, y: c.y + c.h + plano.legenda * 0.55, tam: Math.round(plano.legenda * 0.42), alinha: 'left', peso: 500, espaco: 0.08 }, timecodes[i] ? timecodes[i].replace(/-/g, ':') : '', cor.sub)
     })
     const t = plano.texto || []

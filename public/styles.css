@@ -8724,6 +8724,66 @@ button.tree-twisty:hover {
   color: #fff;
   background: rgba(0, 0, 0, 0.6);
 }
+.fr-posts-tela canvas {
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.fr-posts-tela canvas.is-enquadrando {
+  cursor: grab;
+}
+.fr-posts-tela canvas.is-enquadrando:active {
+  cursor: grabbing;
+}
+.fr-enq-dica {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.fr-enq {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--fill);
+}
+.fr-enq-t {
+  flex: 1;
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.fr-enq-t b {
+  font-size: 13px;
+}
+.fr-enq-t small {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.fr-enq-zoom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+}
+.fr-enq-zoom input {
+  width: 120px;
+  accent-color: var(--text);
+}
+.fr-enq-zoom output {
+  min-width: 30px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .fr-posts-usados {
   display: flex;
   align-items: center;

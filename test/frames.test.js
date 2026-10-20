@@ -221,3 +221,28 @@ test('celular: medidas, escolha e posts são cópias idênticas das do computado
   ]
   for (const [a, b] of par) assert.equal(await fs.readFile(new URL(b, import.meta.url), 'utf8'), await fs.readFile(new URL(a, import.meta.url), 'utf8'), `${b} difere de ${a}`)
 })
+
+test('posts: enquadramento de cada frame (arrastar, zoom e qual frame está no ponto)', async () => {
+  const { cobrir, enquadreDe, moverEnquadre, frameNoPonto, ZOOM_MAX } = await import('../public/lib/frames-posts.js')
+  // Sem enquadre: centralizado, zoom 1; valores fora do limite voltam para dentro.
+  assert.deepEqual(enquadreDe(undefined), { x: 0.5, y: 0.5, zoom: 1 })
+  assert.deepEqual(enquadreDe({ x: 2, y: -1, zoom: 9 }), { x: 1, y: 0, zoom: ZOOM_MAX })
+  // Zoom 2 pega metade do frame (em cada lado), no ponto pedido.
+  assert.deepEqual(cobrir(1920, 1080, 100, 100, 0.5, 0.5, 2), { sx: 690, sy: 270, sw: 540, sh: 540 })
+  // Caixa quadrada, frame 16:9: sobra na horizontal. Arrastar para a direita mostra mais da esquerda (x desce).
+  const b = { x: 0, y: 0, w: 100, h: 100 }
+  const e1 = moverEnquadre(undefined, 20, 0, 1920, 1080, b)
+  assert.ok(e1.x < 0.5 && e1.y === 0.5, JSON.stringify(e1))
+  assert.equal(moverEnquadre(undefined, 0, 40, 1920, 1080, b).y, 0.5, 'sem sobra na vertical: não anda')
+  assert.equal(moverEnquadre(undefined, 10_000, 0, 1920, 1080, b).x, 0, 'para na borda')
+  // Com zoom, também anda na vertical.
+  assert.ok(moverEnquadre({ zoom: 2 }, 0, 20, 1920, 1080, b).y < 0.5)
+  // Qual frame está no ponto: tríade de 3 (o do meio), carrossel (sempre o 0), polaroid girada e fora de tudo.
+  const meio = frameNoPonto('triade', { n: 3, escala: 1 }, 540, 520)
+  assert.equal(meio?.i, 1)
+  assert.equal(frameNoPonto('carrossel', { n: 1, escala: 1, slides: 3 }, 2500, 600)?.i, 0)
+  const pol = frameNoPonto('polaroid', { n: 2, escala: 1 }, 1080 * 0.6, 1350 * 0.64)
+  assert.equal(pol?.i, 1)
+  assert.ok(pol.caixa.w > 0 && pol.caixa.x < pol.caixa.w, 'a caixa da polaroid é a foto dentro da moldura')
+  assert.equal(frameNoPonto('box', { n: 1, escala: 1 }, 2, 2), null)
+})
