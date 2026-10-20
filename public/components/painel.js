@@ -239,7 +239,7 @@ export function PainelScreen() {
   useEffect(() => {
     if (!cloud?.conectado) return undefined
     let vivo = true
-    const buscar = () => api.get('/api/lan/computadores').then((r) => vivo && setComputadores(r.computadores || []), () => {})
+    const buscar = () => api.get('/api/lan/computadores').then((r) => vivo && setComputadores([...(r.computadores || []), ...(r.porPerto || [])]), () => {})
     buscar()
     const t = setInterval(buscar, 30_000)
     return () => {
