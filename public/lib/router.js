@@ -1,13 +1,13 @@
-// Rotas por hash: #/transferencias (padrão), #/drive, #/comparar, #/ajustes, #/inicio.
+// Rotas por hash: #/painel (Início, padrão), #/transferencias, #/drive, #/comparar, #/ajustes; #/inicio = Primeiros passos.
 import { useEffect, useState } from '/vendor/preact-htm.js'
 
-export const ROUTES = ['transferencias', 'drive', 'referencias', 'frames', 'comparar', 'computadores', 'cartoes', 'ajustes', 'inicio']
+export const ROUTES = ['painel', 'transferencias', 'drive', 'referencias', 'frames', 'comparar', 'computadores', 'cartoes', 'ajustes', 'inicio']
 
 export function parseHash(hash = location.hash) {
   const raw = hash.replace(/^#\/?/, '')
   const [p, qs] = raw.split('?')
   const parts = p.split('/').filter(Boolean).map(decodeURIComponent)
-  const name = ROUTES.includes(parts[0]) ? parts[0] : 'transferencias'
+  const name = ROUTES.includes(parts[0]) ? parts[0] : 'painel'
   return { name, parts, query: new URLSearchParams(qs || '') }
 }
 
