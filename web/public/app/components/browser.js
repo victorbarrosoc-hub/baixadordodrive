@@ -37,7 +37,8 @@ import { Preview } from './preview.js'
 import { KindGlyph, Thumb } from './thumb.js'
 import { FileName } from './queue.js'
 import { CopyButton } from './copiar.js'
-import { MY_DRIVE, closeSheet, getState, openSheet, pushRecent, setState, setTab, toast } from '../lib/state.js'
+import { MY_DRIVE, closeSheet, getState, openSheet, pushRecent, setState, setTab, toast, useApp } from '../lib/state.js'
+import { framesDoDrive } from './criar.js'
 import { engine } from '../lib/uploader.js'
 import { isIOS } from '../lib/platform.js'
 import { LAN } from '../lib/config.js'
@@ -154,7 +155,7 @@ function Tile({ f, siblings, onOpen, selecionando = false, marcado = false, onMa
   return html`<li>
     <button
       type="button"
-      class=${cx('tile', selecionando && 'is-selecting', marcado && 'is-marked')}
+      class=${cx('tile', selecionando && 'is-selecting', marcado && 'is-marked', kind === 'video' && 'is-video', isFolder(f) && 'is-pasta')}
       ref=${gesto.ref}
       onPointerDown=${gesto.onPointerDown}
       onPointerMove=${gesto.onPointerMove}
@@ -189,7 +190,7 @@ function Row({ f, siblings, onOpen, driveId, selecionando = false, marcado = fal
   return html`<li class=${calc ? 'has-calc' : undefined}>
     <button
       type="button"
-      class=${cx('lrow', selecionando && 'is-selecting', marcado && 'is-marked')}
+      class=${cx('lrow', selecionando && 'is-selecting', marcado && 'is-marked', kind === 'video' && 'is-video', isFolder(f) && 'is-pasta')}
       ref=${gesto.ref}
       onPointerDown=${gesto.onPointerDown}
       onPointerMove=${gesto.onPointerMove}
@@ -893,6 +894,11 @@ export function DriveScreen({ active }) {
   const [wantAll, setWantAll] = useState(false) // "Somar tudo": carregar a pasta toda
   const [preview, setPreview] = useState(null) // { files, index }
   const sel = useSelecao()
+  const escolher = useApp((s) => s.escolher)
+  // Saiu da aba Drive no meio da escolha: desiste dela.
+  useEffect(() => {
+    if (!active && escolher) setState({ escolher: null })
+  }, [active])
   const root = useRef(null)
   const behindRef = useRef(null)
   const [swipe, setSwipe] = useState(false) // gesto da borda em andamento (mostra a pasta de cima por trás)
@@ -1030,6 +1036,12 @@ export function DriveScreen({ active }) {
     return () => window.removeEventListener('popstate', onPop)
   }, [])
   const open = (f) => {
+    // Escolhendo para os Frames (aba Criar → Do Drive): tocar no vídeo leva para lá.
+    if (escolher && !isFolder(f)) {
+      if (kindOf(f) === 'video') framesDoDrive(f)
+      else toast('Escolha um vídeo', { ms: 2000 })
+      return
+    }
     if (isFolder(f)) {
       const t = target(f)
       const base = search ? [] : nav.path
@@ -1098,8 +1110,15 @@ export function DriveScreen({ active }) {
   const huntText = needsAll(prefs.sort) ? 'Carregando a pasta toda para agrupar por tipo…' : wantAll ? 'Somando tudo…' : 'Procurando…'
 
   return html`${swipe ? html`<${SwipeBehind} scope=${nav.scope} path=${nav.path.slice(0, -1)} prefs=${prefs} innerRef=${behindRef} />` : null}
-  <div class=${cx('screen', 'drive-screen', view === 'list' && 'is-list', sel.ativa && 'is-selecting')} ref=${root}>
+  <div class=${cx('screen', 'drive-screen', view === 'list' && 'is-list', sel.ativa && 'is-selecting', escolher && 'is-escolhendo')} ref=${root}>
     <header class="topbar dtop">
+      ${escolher
+        ? html`<div class="escolher-faixa" role="status">
+            <${Icon} name="sparkle" size=${16} />
+            <span><b>Escolha o vídeo para os Frames</b><small>Abra a pasta e toque no vídeo</small></span>
+            <button type="button" class="link-btn" onClick=${() => (setState({ escolher: null }), setTab('criar'))}>Cancelar</button>
+          </div>`
+        : null}
       <div class="dtop-row">
         ${nav.path.length && !search
           ? html`<button type="button" class="icon-btn dtop-back" onClick=${() => up(nav.path.length - 1)} aria-label="Voltar">

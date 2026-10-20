@@ -50,6 +50,7 @@ function limpar() {
 /** Chamado pela aba Drive (seleção → Frames): abre a aba Criar com o vídeo escolhido. */
 export function framesDoDrive(file) {
   limpar()
+  setState({ escolher: null })
   job = { video: { origem: 'drive', file, nome: file.name, size: Number(file.size) || 0 }, fase: 'ajustes' }
   setState({ criarTela: 'frames' })
   setTab('criar')
@@ -237,12 +238,12 @@ function Escolher() {
       type="button"
       class="cr-origem"
       onClick=${() => {
+        setState({ escolher: { para: 'frames' } })
         setTab('drive')
-        toast('Segure um vídeo e toque em Frames', { ms: 4500 })
       }}
     >
       <span class="cr-origem-ic"><${Icon} name="drive" size=${22} /></span>
-      <span><b>Do Drive</b><small>Usa direto da nuvem, sem baixar</small></span>
+      <span><b>Do Drive</b><small>Abra a pasta e toque no vídeo</small></span>
       <span class="cr-tag">Desce</span>
     </button>
     <button type="button" class="cr-origem" onClick=${() => input.current?.click()}>
