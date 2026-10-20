@@ -193,7 +193,7 @@ test('estado, ajustes e SSE: hello igual a /api/state, ajustes e stats chegam ao
     assert.match(res.headers['content-type'], /^text\/event-stream/)
     await waitFor(() => ev.of('hello').length === 1)
     const hello = ev.of('hello')[0]
-    assert.deepEqual(Object.keys(hello).sort(), ['accounts', 'app', 'batches', 'cloud', 'copia', 'frames', 'media', 'previas', 'rawThumbs', 'referencias', 'settings', 'setup', 'stats', 'transfers', 'versao'])
+    assert.deepEqual(Object.keys(hello).sort(), ['accounts', 'app', 'batches', 'cenas', 'cloud', 'copia', 'frames', 'media', 'previas', 'rawThumbs', 'referencias', 'settings', 'setup', 'stats', 'transfers', 'versao'])
     assert.equal(hello.accounts[0].id, env.accountId)
 
     let r = await call('PATCH', '/api/settings', { body: { maxConcurrentDownloads: 5, bandwidthLimitUp: 2_000_000 } })

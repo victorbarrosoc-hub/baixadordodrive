@@ -11,6 +11,10 @@ import path from 'node:path'
 import { ffmpegCandidates, primeiro, quickjsCandidates, ytdlpCandidates } from '../src/referencias/binarios.js'
 import { MOBILE_DIR } from '../src/mobile/receiver.js'
 import { helperCandidates } from '../src/media/raw-thumb.js'
+import { carregarOrt } from '../src/cenas/modelo.js'
+
+// ONNX mínimo (opset 13): uma soma, y = x + x. Gerado com onnx.helper; só para provar que o runtime carrega.
+const MODELO_DOBRO = 'CAgSCXNvYmVkZXNjZTo5Cg4KAXgKAXgSAXkiA0FkZBIFZG9icm9aDwoBeBIKCggIARIECgIIAmIPCgF5EgoKCAgBEgQKAggCQgQKABAN'
 
 function rodar(cmd, args, timeoutMs = 60_000) {
   return new Promise(resolve => {
@@ -111,6 +115,18 @@ export async function verificar({ app, guarda = null, exigirBinarios = false, ex
     if (!c) return { aviso: true, detalhe: 'não veio no app (o .braw fica sem proxy)' }
     const r = await rodar(c, ['--check'])
     return r.code === 0 ? { detalhe: `biblioteca da Blackmagic abriu (${c})` } : { ok: false, detalhe: `--check saiu com ${r.code}: ${r.erro || r.saida.slice(0, 300)}` }
+  })
+
+  await passo('busca por cena (onnxruntime)', async () => {
+    // O motor da IA da busca por cena (src/cenas/modelo.js) carrega de dentro do app e roda um modelo de 78 bytes
+    // (y = x + x). O Mac Intel não tem binário do onnxruntime: lá a busca avisa que não roda, e o teste só avisa.
+    const ort = await carregarOrt()
+    if (!ort) return falta(exigirBinarios && !(platform === 'darwin' && arch === 'x64'), 'o onnxruntime-node não carregou')
+    const s = await ort.InferenceSession.create(Buffer.from(MODELO_DOBRO, 'base64'))
+    const r = await s.run({ x: new ort.Tensor('float32', Float32Array.from([1.5, -2]), [2]) })
+    await s.release?.()
+    const y = Array.from(r.y.data)
+    return y[0] === 3 && y[1] === -4 ? { detalhe: 'modelo de teste rodou (y = x + x)' } : { ok: false, detalhe: `saída errada: ${y}` }
   })
 
   await passo('cofre', async () => {

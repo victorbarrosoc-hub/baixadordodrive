@@ -21,6 +21,7 @@ import { registerPrevias } from './previas.js'
 import { registerTamanho } from './tamanho.js'
 import { registerCopiar } from './copiar.js'
 import { registerFrames } from './frames.js'
+import { registerCenas } from './cenas.js'
 
 const BODY_LIMIT = 1024 * 1024
 const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba a conexão
@@ -442,6 +443,8 @@ export function createApi(ctx) {
       copia: copias.view(),
       // Frames: o trabalho atual (ou o último).
       frames: frames.view(),
+      // Busca por cena: o modelo (baixado ou não) e a fila de análise.
+      cenas: cenas.view(),
     }
   }
 
@@ -509,6 +512,9 @@ export function createApi(ctx) {
       return enqueue(plan)
     },
   })
+
+  // Busca por cena (src/server/cenas.js): analisar os vídeos de uma pasta e procurar por texto, tudo no computador.
+  const cenas = registerCenas({ route, ctx, account, HttpProblem, baseHeaders, servico: ctx.cenasServico })
 
   const stringList = (v, max = 10_000) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, max) : null)
 
@@ -1050,6 +1056,7 @@ export function createApi(ctx) {
       tamanhos.close()
       copias.close()
       frames.close()
+      cenas.close()
     },
   }
 }

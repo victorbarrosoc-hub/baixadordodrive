@@ -409,7 +409,7 @@ function LiteSwitch({ proxy, on, canOriginal, onPick }) {
 }
 
 /** Escolhe o que mostrar: cópia leve, original, proxy (procura quando o original não toca) ou "não toca". */
-function Content({ accountId, item, keysRef, onDownload }) {
+function Content({ accountId, item, keysRef, onDownload, inicio = 0 }) {
   const kind = previewKind(item)
   const ext = extOf(item.name).toUpperCase()
   const original = streamUrl(accountId, item)
@@ -426,8 +426,8 @@ function Content({ accountId, item, keysRef, onDownload }) {
   const [mode, setMode] = useState(() => (wantsLite ? (known ? 'lite' : known === null ? baseMode() : 'lite-look') : baseMode()))
   const [proxy, setProxy] = useState(() => known ?? undefined)
   const [forced, setForced] = useState(false)
-  const at = useRef(0) // onde o player estava (para trocar entre leve e original no mesmo ponto)
-  const [startAt, setStartAt] = useState(0)
+  const at = useRef(inicio) // onde o player estava (para trocar entre leve e original no mesmo ponto)
+  const [startAt, setStartAt] = useState(inicio) // `inicio`: abriu de um resultado da busca por cena
   const pick = (lite) => {
     setStartAt(at.current || 0)
     if (lite) setMode('lite')
@@ -603,9 +603,10 @@ function infoRows(item) {
 /**
  * @param {{ accountId: string, items: any[], index: number, onIndex: (i:number)=>void, onClose: ()=>void,
  *           onDownload: (item)=>Promise<boolean>, dest: string, destLabel?: string, onChangeDest: ()=>void,
- *           extra?: (item)=>any }} props   `extra`: bloco a mais no painel de informações (Referências: origem, autor, legenda)
+ *           extra?: (item)=>any, inicioDe?: (item)=>number }} props   `extra`: bloco a mais no painel de informações
+ *           (Referências: origem, autor, legenda); `inicioDe`: em que segundo o vídeo começa (busca por cena)
  */
-export function DrivePreview({ accountId, items, index, onIndex, onClose, onDownload, dest, destLabel, onChangeDest, extra }) {
+export function DrivePreview({ accountId, items, index, onIndex, onClose, onDownload, dest, destLabel, onChangeDest, extra, inicioDe }) {
   const item = items[index]
   const root = useRef(null)
   const keys = useRef(null)
@@ -703,7 +704,7 @@ export function DrivePreview({ accountId, items, index, onIndex, onClose, onDown
       </header>
       <div class="qlook-main">
         <div class="qlook-stage">
-          <${Content} key=${item.id} accountId=${accountId} item=${item} keysRef=${keys} onDownload=${download} />
+          <${Content} key=${`${item.id}:${inicioDe?.(item) || 0}`} accountId=${accountId} item=${item} keysRef=${keys} onDownload=${download} inicio=${inicioDe?.(item) || 0} />
           ${hasPrev ? html`<button type="button" class="qlook-nav is-prev" onClick=${() => onIndex(index - 1)} aria-label="Anterior" title="Anterior (←)"><${Icon} name="chevron-left" size=${20} /></button>` : null}
           ${hasNext ? html`<button type="button" class="qlook-nav is-next" onClick=${() => onIndex(index + 1)} aria-label="Próximo" title="Próximo (→)"><${Icon} name="chevron-right" size=${20} /></button>` : null}
         </div>

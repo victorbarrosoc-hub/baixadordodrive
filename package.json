@@ -32,5 +32,8 @@
   "devDependencies": {
     "electron": "44.5.1",
     "electron-builder": "26.15.3"
+  },
+  "optionalDependencies": {
+    "onnxruntime-node": "1.30.0"
   }
 }
