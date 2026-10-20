@@ -17,8 +17,9 @@ do cartão, a conta de quanta mídia levar e o resgate do que se perdeu.
 
 | # | Parte | Estado |
 |---|---|---|
-| 1 | Calculadora | **feita**: aba Cartões no app do computador e página grátis `sobedesce.com/calculadora`. Conta em `web/src/lib/midia/conta.js` (cópia igual em `public/lib/midia-conta.js`), modos com fonte em `modos.js`, testes em `test/midia-conta.test.js` |
-| 2–8 | Painel, logger, velocidade, resgate, câmeras, teste de cartão | a fazer |
+| 1 | Calculadora | **feita**: aba Cartões no app do computador e página grátis `sobedesce.com/calculadora`. Conta em `web/src/lib/midia/conta.js` (cópia igual em `public/lib/midia-conta.js`), 47 modos prontos de 20 câmeras, cada um com o link do fabricante, em `modos.js`, testes em `test/midia-conta.test.js` |
+| 7 | Resgate: o motor | **feito** (sem tela ainda): consertar clipe sem índice e varredura por assinatura, código próprio sem GPL. Ver `docs/RESGATE.md` |
+| 2–6, 8 | Painel, logger, velocidade, câmeras, teste de cartão; a tela do Resgate | a fazer |
 
 ### Conferido no código (o que o documento diz que "já tem")
 

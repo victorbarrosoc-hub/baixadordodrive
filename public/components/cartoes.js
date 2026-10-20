@@ -28,7 +28,7 @@ function LinhaCamera({ c, onChange, onRemove, podeRemover }) {
         <select value=${c.modo} onChange=${(e) => onChange({ ...c, modo: e.currentTarget.value })}>
           ${cameras.map(
             (cam) => html`<optgroup label=${cam}>
-              ${MODOS.filter((m) => m.camera === cam).map((m) => html`<option value=${m.id}>${m.modo} · ${num(m.mbps)} Mb/s</option>`)}
+              ${MODOS.filter((m) => m.camera === cam).map((m) => html`<option value=${m.id}>${m.camera} · ${m.modo} · ${num(m.mbps)} Mb/s</option>`)}
             </optgroup>`,
           )}
           <option value="manual">Outra: digitar o bitrate</option>

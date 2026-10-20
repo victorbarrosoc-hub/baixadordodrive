@@ -92,7 +92,7 @@ export function Calculadora() {
                         .filter((x) => x.camera === cam)
                         .map((x) => (
                           <option key={x.id} value={x.id}>
-                            {x.modo} · {num(x.mbps)} Mb/s
+                            {x.camera} · {x.modo} · {num(x.mbps)} Mb/s
                           </option>
                         ))}
                     </optgroup>

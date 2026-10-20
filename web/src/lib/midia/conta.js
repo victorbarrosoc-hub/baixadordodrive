@@ -78,7 +78,7 @@ export function calcular({ cameras, cartaoGB, margem = 0.2, copias = 2, leitorMB
   const hdGB = totalGB * copias
   const conta = []
   if (linhas.length) {
-    conta.push(`Total gravado: ${linhas.map((l) => tamanho(l.gb)).join(' + ')} = ${tamanho(totalGB)}`)
+    if (linhas.length > 1) conta.push(`Total gravado: ${linhas.map((l) => tamanho(l.gb)).join(' + ')} = ${tamanho(totalGB)}`)
     conta.push(`Backup: ${tamanho(totalGB)} × ${copias} ${copias === 1 ? 'cópia' : 'cópias'} = ${tamanho(hdGB)} (${copias === 1 ? 'um HD' : `um HD de pelo menos ${tamanho(totalGB)} para cada cópia`})`)
   }
   // Tempo: o cartão é lido uma vez e os HDs gravam juntos (vale o mais lento); conferir é ler de volta de cada HD.

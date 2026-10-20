@@ -30,6 +30,7 @@ describe('calculadora de mídia', () => {
     assert.equal(r.tempoTotalS, null, 'sem velocidade, sem tempo')
     assert.match(fx3.conta[0], /240 Mb\/s × 3\.600 s ÷ 8 ÷ 1\.000 = 108 GB por hora/)
     assert.match(r.conta[1], /× 2 cópias = 2,7 TB/)
+    assert.match(r.conta[0], /^Total gravado: 1,08 TB \+ 270 GB = 1,35 TB/)
   })
 
   test('cartão exato não ganha um a mais; sem margem, conta seca', () => {
