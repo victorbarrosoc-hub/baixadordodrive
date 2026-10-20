@@ -14,6 +14,7 @@ Tudo roda **neste computador**. O vídeo não vai para nenhum serviço de IA, e 
    - Cada vídeo é lido uma vez. Vídeos já analisados, na mesma versão, não são lidos de novo.
 3. Escreva o que procura. Escolha **Nesta pasta** ou **Em tudo** (todos os vídeos analisados da conta).
 4. Cada resultado mostra a miniatura, o tempo e uma barra de "quanto parece".
+   - Vídeo gravado em LOG leva o selo **LOG → 709**: foi analisado já convertido (veja `docs/COR.md`).
    - Clicar abre a prévia já no ponto.
    - **Salvar trecho** corta do original, sem recodificar, para `Downloads/Cenas`.
 
@@ -23,8 +24,9 @@ Tudo roda **neste computador**. O vídeo não vai para nenhum serviço de IA, e 
 Analisar ──▶ fila (um vídeo por vez, servico.js)
   modelo (arquivos.js: baixa uma vez, versões fixas, SHA-256 conferido)
   ──▶ proxy do Drive se houver (procurarProxy), senão o original
+  ──▶ perfil de cor (metadados da câmera ou imagem; ou o escolhido em "Cor"): LOG ganha a LUT para Rec.709 (docs/COR.md)
   ──▶ amostrar.js: ffmpeg lê pelo Drive (token no cabeçalho, sem baixar para o disco), só quadros-chave, uma amostra
-      a cada 2 s em 224×224 + miniatura de 320 px
+      a cada 2 s em 224×224 + miniatura de 320 px (com a LUT, se for LOG)
       (original > 6 GB sem proxy: pula de ponto em ponto, até 600 pontos)
   ──▶ modelo.js: cada amostra vira 512 números (CLIP ViT-B/32, onnxruntime-node na CPU)
   ──▶ indice.js: amostras seguidas parecidas viram um trecho (até 20 s); vetores em 8 bits
@@ -50,13 +52,14 @@ Procurar ──▶ texto.js (WordPiece) + modelo de texto multilíngue ──▶
 | --- | --- |
 | `GET /api/cenas` | estado (modelo, fila); também no SSE `cenas` |
 | `POST /api/cenas/modelo` | baixa a IA agora |
-| `POST /api/cenas/analisar` | `{ accountId, folderId }` → `{ novos, prontos, total }` |
+| `POST /api/cenas/analisar` | `{ accountId, folderId, perfil? }` (`auto` ou um perfil de `docs/COR.md`) → `{ novos, prontos, total }` |
 | `POST /api/cenas/parar` | para a análise |
 | `GET /api/cenas/pasta?accountId&folderId` | vídeos já analisados da pasta |
 | `POST /api/cenas/procurar` | `{ accountId, texto, fileIds? }` → `{ resultados: [{ fileId, nome, ini, fim, t, nota, item }] }` |
 | `POST /api/cenas/trecho` | `{ accountId, fileId, ini, fim }` → `{ caminho }` |
 | `POST /api/cenas/esquecer` | `{ accountId, fileId? }` |
 | `GET /api/cenas/mini?accountId&fileId&i&k` | miniatura do trecho (chave da mídia) |
+| `GET /api/cor/perfil?accountId&fileId` | perfil de cor do vídeo (`docs/COR.md`) |
 
 ## Empacotamento
 

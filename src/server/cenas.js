@@ -54,7 +54,8 @@ export function registerCenas({ route, ctx, account, HttpProblem, baseHeaders, s
   route('POST', '/api/cenas/analisar', tratar(async ({ body }) => {
     const acc = account(body.accountId)
     const folderId = body.folderId === 'root' || body.folderId == null ? 'root' : id(body.folderId, 'Pasta inválida.')
-    return svc.analisarPasta({ accountId: acc.id, folderId })
+    const perfil = body.perfil == null ? 'auto' : String(body.perfil)
+    return svc.analisarPasta({ accountId: acc.id, folderId, perfil })
   }))
 
   route('POST', '/api/cenas/parar', tratar(async () => {
@@ -83,6 +84,13 @@ export function registerCenas({ route, ctx, account, HttpProblem, baseHeaders, s
   route('POST', '/api/cenas/trecho', tratar(async ({ body, signal }) => {
     const acc = account(body.accountId)
     return svc.salvarTrecho({ accountId: acc.id, fileId: id(body.fileId, 'Arquivo inválido.'), ini: Number(body.ini), fim: Number(body.fim), signal })
+  }))
+
+  // Perfil de cor de um vídeo (LOG → Rec.709 na prévia): metadados do arquivo e, sem eles, a imagem.
+  route('GET', '/api/cor/perfil', tratar(async ({ query, signal }) => {
+    const acc = account(query.get('accountId'))
+    const ffmpeg = (await Promise.resolve(motor()).catch(() => null))?.ffmpeg?.path || null
+    return svc.perfilDe({ accountId: acc.id, fileId: id(query.get('fileId'), 'Arquivo inválido.'), ffmpeg, signal })
   }))
 
   // Miniatura de um trecho (para <img>): a chave `k` da mídia, como as miniaturas do Drive.

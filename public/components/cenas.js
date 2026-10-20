@@ -10,6 +10,7 @@ import { toast } from '../lib/toasts.js'
 import { revealLabel, revealPath } from '../lib/desktop.js'
 import { Icon } from './icons.js'
 import { Button, Spinner } from './common.js'
+import { PERFIS } from '../lib/cor-lut.js'
 
 const EXEMPLOS = ['noiva com o buquê', 'DJ tocando', 'criança entrando na cerimônia', 'flor vermelha no altar', 'banda no palco', 'pista de dança cheia']
 const tc = (s) => {
@@ -34,6 +35,19 @@ export function CenasPainel({ accountId, folderId, folderNome, videosAqui, onAbr
   const [buscando, setBuscando] = useState(false)
   const [salvando, setSalvando] = useState(null)
   const [todos, setTodos] = useState(false)
+  const [perfil, setPerfil] = useState(() => {
+    try {
+      return localStorage.getItem('cenas.perfil') || 'auto'
+    } catch {
+      return 'auto'
+    }
+  })
+  const mudaPerfil = (v) => {
+    setPerfil(v)
+    try {
+      localStorage.setItem('cenas.perfil', v)
+    } catch {}
+  }
   const campo = useRef(null)
   const analisando = cenas?.analisando
   const fila = cenas?.fila || []
@@ -73,7 +87,7 @@ export function CenasPainel({ accountId, folderId, folderNome, videosAqui, onAbr
     }
   }
   const analisar = async () => {
-    const r = await attempt(api.post('/api/cenas/analisar', { accountId, folderId }))
+    const r = await attempt(api.post('/api/cenas/analisar', { accountId, folderId, perfil }))
     if (!r) return
     if (!r.total) toast('info', 'Não há vídeos nesta pasta.')
     else if (!r.novos) toast('success', `Os ${r.total} vídeos desta pasta já estão analisados.`)
@@ -132,7 +146,16 @@ export function CenasPainel({ accountId, folderId, folderNome, videosAqui, onAbr
             : null}
           ${analisando
             ? html`<${Button} size="sm" variant="ghost" onClick=${() => attempt(api.post('/api/cenas/parar', {}))}>Parar</${Button}>`
-            : html`<button type="button" class="cn-analisar" onClick=${analisar}><${Icon} name="sparkle" size=${15} />Analisar os vídeos desta pasta</button>`}
+            : html`<div class="cn-analisar-grupo">
+                <label class="cn-cor" title="Material em LOG vira Rec.709 antes da análise (a IA vê as cores certas, como a flor vermelha)">
+                  <span>Cor</span>
+                  <select value=${perfil} onChange=${(e) => mudaPerfil(e.currentTarget.value)} aria-label="Cor do material">
+                    <option value="auto">Automático (detecta LOG)</option>
+                    ${Object.entries(PERFIS).map(([k, p]) => html`<option value=${k}>${p.nome}</option>`)}
+                  </select>
+                </label>
+                <button type="button" class="cn-analisar" onClick=${analisar}><${Icon} name="sparkle" size=${15} />Analisar os vídeos desta pasta</button>
+              </div>`}
         </div>`}
 
     ${res
@@ -149,7 +172,10 @@ export function CenasPainel({ accountId, folderId, folderNome, videosAqui, onAbr
                   </button>
                   <div class="cn-meta">
                     <span class="cn-nome" title=${r.nome}>${r.nome}</span>
-                    ${r.pasta ? html`<span class="cn-pasta" title=${r.pasta}>${r.pasta}</span>` : null}
+                    <span class="cn-sub">
+                      ${r.pasta ? html`<span class="cn-pasta" title=${r.pasta}>${r.pasta}</span>` : null}
+                      ${r.perfil && r.perfil !== 'rec709' ? html`<span class="cn-log" title=${`${PERFIS[r.perfil]?.nome || 'LOG'} → Rec.709`}>LOG → 709</span>` : null}
+                    </span>
                   </div>
                   <div class="cn-acoes">
                     <button type="button" onClick=${() => salvar(r)} disabled=${salvando === `${r.fileId}:${r.i}`} title="Corta este trecho do original (sem perder qualidade) para Downloads/Cenas">

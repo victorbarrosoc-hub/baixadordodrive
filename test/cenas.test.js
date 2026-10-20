@@ -24,6 +24,41 @@ const tmp = async (t) => {
 
 const temFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
+/**
+ * Um "Drive" em 127.0.0.1: serve os arquivos por id, só com o token, com Range como o Google (inclusive `bytes=-N` e
+ * fim além do tamanho).
+ */
+async function driveFalso(t, arquivos) {
+  let semToken = 0
+  const srv = http.createServer((req, res) => {
+    if (req.headers.authorization !== 'Bearer t0k3n') {
+      semToken++
+      res.writeHead(401)
+      return res.end()
+    }
+    const arq = arquivos[req.url.slice(1)]
+    if (!arq) {
+      res.writeHead(404)
+      return res.end()
+    }
+    const tam = fs.statSync(arq).size
+    const m = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '')
+    let ini = 0
+    let fim = tam - 1
+    if (m && m[1] === '') ini = Math.max(0, tam - Number(m[2]))
+    else if (m) {
+      ini = Number(m[1])
+      if (m[2]) fim = Math.min(tam - 1, Number(m[2]))
+    }
+    res.writeHead(m ? 206 : 200, { 'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'content-length': fim - ini + 1, ...(m ? { 'content-range': `bytes ${ini}-${fim}/${tam}` } : {}) })
+    if (req.method === 'HEAD') return res.end()
+    fs.createReadStream(arq, { start: ini, end: fim }).pipe(res)
+  })
+  await new Promise((ok) => srv.listen(0, '127.0.0.1', ok))
+  t.after(() => srv.close())
+  return { base: `http://127.0.0.1:${srv.address().port}`, semToken: () => semToken }
+}
+
 /** Vetor "de cor": o eixo 0 é vermelho, 1 verde, 2 azul (o resto zero). */
 const cor = (r, g, b) => {
   const v = new Float32Array(DIM)
@@ -110,22 +145,7 @@ describe('busca por cena', () => {
     const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=red:s=320x180:r=25:d=6', '-f', 'lavfi', '-i', 'color=green:s=320x180:r=25:d=6', '-f', 'lavfi', '-i', 'color=blue:s=320x180:r=25:d=6', '-filter_complex', '[0][1][2]concat=n=3:v=1', '-c:v', 'libx264', '-g', '25', '-pix_fmt', 'yuv420p', video])
     assert.equal(r.status, 0, String(r.stderr))
     const tam = fs.statSync(video).size
-    let semToken = 0
-    const srv = http.createServer((req, res) => {
-      if (req.headers.authorization !== 'Bearer t0k3n') {
-        semToken++
-        res.writeHead(401)
-        return res.end()
-      }
-      const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '')
-      const ini = m ? Number(m[1]) : 0
-      const fim = m && m[2] ? Number(m[2]) : tam - 1
-      res.writeHead(m ? 206 : 200, { 'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'content-length': fim - ini + 1, ...(m ? { 'content-range': `bytes ${ini}-${fim}/${tam}` } : {}) })
-      fs.createReadStream(video, { start: ini, end: fim }).pipe(res)
-    })
-    await new Promise((ok) => srv.listen(0, '127.0.0.1', ok))
-    t.after(() => srv.close())
-    const base = `http://127.0.0.1:${srv.address().port}`
+    const { base, semToken } = await driveFalso(t, { v1: video })
     const item = { id: 'v1', name: 'Cores.mp4', size: String(tam), md5Checksum: 'm1', parents: ['p1'], mimeType: 'video/mp4', relDir: 'Cam A' }
     const walk = { items: [item, { id: 'px', name: 'Cores.mp4', relPath: 'Cam A/Proxy/Cores.mp4', appProperties: { sobedesce: 'previa' } }, { id: 'pdf', name: 'roteiro.pdf', mimeType: 'application/pdf' }] }
     const drive = { walk: async () => walk, mediaUrl: (id) => `${base}/${id}`, authHeader: async () => ({ authorization: 'Bearer t0k3n' }) }
@@ -157,7 +177,7 @@ describe('busca por cena', () => {
     const f = svc.view().fila[0]
     assert.equal(f.fase, 'pronto', f.erro)
     assert.equal(f.trechos, 3, 'três cores, três trechos')
-    assert.equal(semToken, 0, 'todo pedido ao "Drive" levou o token')
+    assert.equal(semToken(), 0, 'todo pedido ao "Drive" levou o token')
     assert.ok(imagens >= 8 && imagens <= 10, `amostras a cada 2 s (${imagens})`)
 
     const p = await svc.pasta({ accountId: 'nuvem:g1', folderId: 'p1' })
@@ -184,6 +204,68 @@ describe('busca por cena', () => {
     assert.equal((await svc.procurar({ accountId: 'nuvem:g1', texto: 'azul' })).resultados.length, 0)
     assert.ok(mudancas.length > 0, 'avisou a tela pelo SSE')
     assert.deepEqual(await fsp.readdir(path.join(dir, 'cenas', 'tmp')), [], 'sem temporários')
+  })
+
+  test('serviço: vídeo em S-Log3 (metadado da Sony) é analisado em Rec.709; o escolhido manda; Rec.709 não converte', { skip: !temFfmpeg && 'sem ffmpeg' }, async (t) => {
+    const dir = await tmp(t)
+    // Cinza 50% "em LOG" (6 s): convertido, o S-Log3 vira ~64% (luz da cena ~39%, mais clara que o cinza médio).
+    const fazer = (nome, comentario) => {
+      const v = path.join(dir, nome)
+      const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=0x808080:s=320x180:r=25:d=6', '-c:v', 'libx264', '-g', '25', '-pix_fmt', 'yuv420p', '-color_range', 'pc', ...(comentario ? ['-metadata', `comment=${comentario}`] : []), v])
+      assert.equal(r.status, 0, String(r.stderr))
+      return v
+    }
+    const log = fazer('log.mp4', '<CaptureGammaEquation value="s-log3-cine"/><CaptureColorPrimaries value="S-Gamut3.Cine"/>')
+    // Cinza liso parece LOG pela imagem; o metadado da câmera diz que é Rec.709 e vale ele.
+    const normal = fazer('normal.mp4', '<CaptureGammaEquation value="rec709"/>')
+    const { base } = await driveFalso(t, { log, normal })
+    const itens = ['log', 'normal'].map((id) => ({ id, name: `${id}.mp4`, size: String(fs.statSync(id === 'log' ? log : normal).size), md5Checksum: id, parents: ['p1'], mimeType: 'video/mp4' }))
+    const drive = { walk: async () => ({ items: itens }), mediaUrl: (id) => `${base}/${id}`, authHeader: async () => ({ authorization: 'Bearer t0k3n' }) }
+    const medias = {}
+    let atual = null
+    const modelo = {
+      abrir: async () => {},
+      imagens: async (lista) =>
+        lista.map((rgb) => {
+          let soma = 0
+          for (let i = 0; i < rgb.length; i++) soma += rgb[i]
+          ;(medias[atual] ??= []).push(soma / rgb.length)
+          return cor(1, 1, 1)
+        }),
+      texto: async () => cor(1, 1, 1),
+      fechar: async () => {},
+    }
+    const arquivos = { prontos: async () => true, status: () => ({ baixando: false, progresso: null, erro: null, total: 1 }), caminhos: () => ({}) }
+    const svc = new CenasService({ dataRoot: dir, drive: () => drive, motor: async () => ({ ffmpeg: { path: 'ffmpeg' } }), pastaTrechos: () => path.join(dir, 'Cenas'), arquivos, modelo, ort: {} })
+    t.after(() => svc.close())
+    await svc.init()
+    const esperar = async () => {
+      for (let i = 0; i < 300 && svc.view().analisando; i++) await new Promise((ok) => setTimeout(ok, 50))
+    }
+    const media = (id) => medias[id].reduce((a, b) => a + b, 0) / medias[id].length
+
+    // O perfil pelo arquivo, sem analisar.
+    assert.deepEqual(await svc.perfilDe({ accountId: 'a', fileId: 'log' }), { perfil: 'slog3-cine', origem: 'metadados' })
+
+    for (const id of ['log', 'normal']) {
+      atual = id
+      drive.walk = async () => ({ items: itens.filter((x) => x.id === id) })
+      await svc.analisarPasta({ accountId: 'a', folderId: 'p1' })
+      await esperar()
+      assert.equal(svc.view().fila.at(-1).fase, 'pronto', svc.view().fila.at(-1).erro)
+    }
+    assert.ok(Math.abs(media('normal') - 128) < 4, `sem LOG fica como está (${media('normal')})`)
+    assert.ok(media('log') > 155 && media('log') < 175, `S-Log3 → Rec.709 clareia o cinza (${media('log')})`)
+    const p = await svc.pasta({ accountId: 'a', folderId: 'p1' })
+    assert.deepEqual(Object.fromEntries(p.videos.map((v) => [v.fileId, v.perfil])), { log: 'slog3-cine', normal: 'rec709' })
+    assert.ok(fs.existsSync(path.join(dir, 'cenas', 'lut', 'slog3-cine-v1.cube')), 'a LUT fica guardada')
+
+    // Escolher "Rec.709" reanalisa sem converter.
+    atual = 'log-sem'
+    drive.walk = async () => ({ items: itens.filter((x) => x.id === 'log') })
+    assert.equal((await svc.analisarPasta({ accountId: 'a', folderId: 'p1', perfil: 'rec709' })).novos, 1, 'perfil novo = analisa de novo')
+    await esperar()
+    assert.ok(Math.abs(media('log-sem') - 128) < 4, `escolhido manda (${media('log-sem')})`)
   })
 
   test('serviço: sem o onnxruntime neste computador, avisa em vez de quebrar', async (t) => {
