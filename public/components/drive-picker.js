@@ -51,7 +51,11 @@ function FolderResults({ search, term, onOpen }) {
   </ul>`
 }
 
-export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', subtitle, confirmLabel, initialFolderId = 'root', proxyChoice = false, destinos = false, onClose }) {
+/**
+ * `arquivo`: escolher um ARQUIVO em vez de pasta (ex.: o vídeo do Frames). Recebe { aceita(item), nome } e devolve o
+ * item do Drive escolhido (dois cliques também escolhem).
+ */
+export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', subtitle, confirmLabel, initialFolderId = 'root', proxyChoice = false, destinos = false, arquivo = null, onClose }) {
   const [folderId, setFolderId] = useState(initialFolderId || 'root')
   const [query, setQuery] = useState('')
   const q = useDebounced(query, 300).trim()
@@ -91,6 +95,10 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
 
   const confirm = () => {
     if (!folder) return
+    if (arquivo) {
+      if (chosenSub) onClose(chosenSub)
+      return
+    }
     if (chosenSub) {
       onClose({ id: chosenSub.id, name: chosenSub.name, path: [...crumbs, chosenSub.name].join(' / '), driveId: chosenSub.driveId || folder.driveId || null, ...extra })
     } else {
@@ -108,13 +116,13 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
     }
   }
 
-  const label = confirmLabel || (chosenSub ? `Escolher “${chosenSub.name}”` : 'Escolher esta pasta')
+  const label = confirmLabel || (arquivo ? (chosenSub ? `Escolher “${chosenSub.name}”` : `Escolha ${arquivo.nome || 'o arquivo'}`) : chosenSub ? `Escolher “${chosenSub.name}”` : 'Escolher esta pasta')
 
   return html`<${Modal}
     size="xl"
     class="picker picker-drive"
     title=${title}
-    subtitle=${subtitle || 'Dê dois cliques para entrar numa pasta. Sem nada marcado, vale a pasta aberta.'}
+    subtitle=${subtitle || (arquivo ? 'Dê dois cliques para entrar numa pasta ou para escolher o arquivo.' : 'Dê dois cliques para entrar numa pasta. Sem nada marcado, vale a pasta aberta.')}
     onClose=${() => onClose(null)}
     onKeyDown=${(e) => {
       if (e.key === 'Enter' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest?.('.drow')) {
@@ -127,9 +135,9 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
         <${Icon} name="cloud" size=${15} />
         <span class="mono-path" title=${crumbs.join(' / ')}>${[...crumbs, ...(chosenSub ? [chosenSub.name] : [])].join(' / ') || '…'}</span>
       </div>
-      <${Button} icon="folder-plus" onClick=${newFolder} disabled=${!folder}>Nova pasta</${Button}>
+      ${arquivo ? null : html`<${Button} icon="folder-plus" onClick=${newFolder} disabled=${!folder}>Nova pasta</${Button}>`}
       <${Button} onClick=${() => onClose(null)}>Cancelar</${Button}>
-      <${Button} variant="primary" onClick=${confirm} disabled=${!folder}>${label}</${Button}>
+      <${Button} variant="primary" onClick=${confirm} disabled=${!folder || (arquivo && !chosenSub)}>${label}</${Button}>
     `}
   >
     <div class="picker-grid">
@@ -179,7 +187,10 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
         ${searching
           ? html`<div class="picker-results"><${FolderResults} search=${search} term=${q} onOpen=${open} /></div>`
           : html`<${DriveTable}
-          mode="folder"
+          mode=${arquivo ? 'file' : 'folder'}
+          pode=${arquivo?.aceita}
+          onPick=${(it) => onClose(it)}
+          accountId=${arquivo ? accountId : undefined}
           compact
           items=${data?.items || null}
           selected=${selected}
@@ -189,7 +200,9 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
           error=${error}
           onRetry=${reload}
           resetKey=${folderId}
-          empty=${html`<div class="table-empty"><${Icon} name="folder" size=${22} /><b>Sem subpastas</b><span>Escolha esta mesma ou crie uma nova.</span></div>`}
+          empty=${arquivo
+            ? html`<div class="table-empty"><${Icon} name="film" size=${22} /><b>Pasta vazia</b><span>Volte e abra outra pasta.</span></div>`
+            : html`<div class="table-empty"><${Icon} name="folder" size=${22} /><b>Sem subpastas</b><span>Escolha esta mesma ou crie uma nova.</span></div>`}
         />`}
         ${proxyChoice ? html`<div class="picker-proxy"><${ProxyChoice} checked=${proxy} onChange=${setProxy} ask=${settings?.proxyAoEnviar === 'perguntar'} /></div>` : null}
       </section>

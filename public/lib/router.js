@@ -1,7 +1,7 @@
 // Rotas por hash: #/transferencias (padrão), #/drive, #/comparar, #/ajustes, #/inicio.
 import { useEffect, useState } from '/vendor/preact-htm.js'
 
-export const ROUTES = ['transferencias', 'drive', 'referencias', 'comparar', 'cartoes', 'ajustes', 'inicio']
+export const ROUTES = ['transferencias', 'drive', 'referencias', 'frames', 'comparar', 'cartoes', 'ajustes', 'inicio']
 
 export function parseHash(hash = location.hash) {
   const raw = hash.replace(/^#\/?/, '')

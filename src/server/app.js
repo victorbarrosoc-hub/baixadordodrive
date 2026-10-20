@@ -253,7 +253,9 @@ export async function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', pub
       }
       const method = req.method
       if (method !== 'GET' && method !== 'HEAD') {
-        if (!isJsonType(req.headers['content-type'])) return sendJSON(res, 415, { ok: false, error: 'Requisição recusada: falta Content-Type: application/json.' })
+        // Post do Frames: a imagem vai crua (PNG/JPEG), o que também pede a checagem prévia do navegador (CORS).
+        const imagemDoFrames = method === 'POST' && /^\/api\/frames\/frm_[\w-]+\/post$/.test(url.pathname) && /^image\/(png|jpeg)$/i.test(String(req.headers['content-type'] || '').split(';')[0].trim())
+        if (!imagemDoFrames && !isJsonType(req.headers['content-type'])) return sendJSON(res, 415, { ok: false, error: 'Requisição recusada: falta Content-Type: application/json.' })
         const origin = req.headers.origin
         if (origin && !origins().has(String(origin).toLowerCase())) return sendJSON(res, 403, { ok: false, error: 'Origem não permitida.' })
       }

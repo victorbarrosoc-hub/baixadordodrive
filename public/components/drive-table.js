@@ -13,9 +13,9 @@ const PAGE = 200
 
 export const isOpenable = isFolderLike
 
-const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview, fsize, onCalcSize, hasProxy, onLink }) {
+const Row = memo(function Row({ item, index, selected, focused, mode, blocked, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview, fsize, onCalcSize, hasProxy, onLink }) {
   const folderLike = isOpenable(item)
-  const disabled = mode === 'folder' && !folderLike
+  const disabled = blocked ?? (mode === 'folder' && !folderLike)
   return html`<div
     class=${cx('drow', selected && 'is-selected', disabled && 'is-disabled', folderLike && 'is-folder')}
     role="row"
@@ -27,7 +27,7 @@ const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick
     onDblClick=${() => onRowDouble(index)}
     onKeyDown=${(e) => onKey(e, index)}
   >
-    ${mode !== 'folder'
+    ${mode === 'browse'
       ? html`<span class="drow-check" role="gridcell"><${Checkbox} checked=${selected} label=${`Selecionar ${item.name}`} tabIndex=${-1} onChange=${() => onCheck(index)} /></span>`
       : null}
     <span class="drow-name" role="gridcell">
@@ -67,7 +67,7 @@ const Row = memo(function Row({ item, index, selected, focused, mode, onRowClick
  * @param {{ items: any[], mode?: 'browse'|'folder', selected: Set<string>, onSelect: (s:Set<string>)=>void,
  *           onOpen: (item)=>void, loading?: boolean, error?: string|null, onRetry?: ()=>void, empty?: any, resetKey?: string }} props
  */
-export function DriveTable({ items, sorted: sortedProp, mode = 'browse', selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort, sizeOf, onCalcSize, comProxy, onCopyLink }) {
+export function DriveTable({ items, sorted: sortedProp, mode = 'browse', pode, onPick, selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort, sizeOf, onCalcSize, comProxy, onCopyLink }) {
   const [sortLocal, setSortLocal] = useState(DEFAULT_SORT)
   const sort = normalizeSort(sortProp || sortLocal)
   const setSort = onSort || setSortLocal
@@ -85,7 +85,8 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', selecte
   // `sorted` pronto (tela Drive: já filtrado e na ordem do botão "Ordenar") ou a ordem daqui (seletor de pasta).
   const sorted = useMemo(() => sortedProp || (items || []).slice().sort(compareItems(sort.key, sort.dir)), [sortedProp, items, sort.key, sort.dir])
   const shown = sorted.slice(0, limit)
-  const selectable = (it) => (mode === 'folder' ? isOpenable(it) : true)
+  // 'file' (escolher um arquivo, ex.: o vídeo do Frames): só o que `pode` aceita; pastas abrem.
+  const selectable = (it) => (mode === 'folder' ? isOpenable(it) : mode === 'file' ? !isOpenable(it) && !!pode?.(it) : true)
 
   const focusRow = (i) => {
     const n = Math.max(0, Math.min(shown.length - 1, i))
@@ -104,7 +105,7 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', selecte
     const it = shown[i]
     setFocus(i)
     if (!selectable(it)) return
-    if (mode === 'folder') {
+    if (mode === 'folder' || mode === 'file') {
       onSelect(selected.has(it.id) ? new Set() : new Set([it.id]))
       return
     }
@@ -131,6 +132,7 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', selecte
   const onRowDouble = (i) => {
     const it = shown[i]
     if (isOpenable(it)) onOpen(it)
+    else if (mode === 'file') selectable(it) && onPick?.(it)
     else if (onPreview && mode !== 'folder') onPreview(it)
   }
 
@@ -143,11 +145,12 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', selecte
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (isOpenable(it)) onOpen(it)
+      else if (mode === 'file') selectable(it) && onPick?.(it)
       else if (onPreview && mode !== 'folder') onPreview(it)
     } else if (e.key === ' ') {
       e.preventDefault()
       // Espaço = prévia (como o Quick Look do Mac); em pastas marca/desmarca
-      if (mode === 'folder') onRowClick({}, i)
+      if (mode === 'folder' || mode === 'file') onRowClick({}, i)
       else if (onPreview && !isOpenable(it)) onPreview(it)
       else onCheck(i)
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && mode !== 'folder') {
@@ -216,6 +219,7 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', selecte
         hasProxy=${!!comProxy?.has(it.id)}
         index=${i}
         mode=${mode}
+        blocked=${mode === 'file' ? !isOpenable(it) && !selectable(it) : undefined}
         selected=${selected.has(it.id)}
         focused=${i === focus}
         onRowClick=${h.onRowClick}
@@ -236,9 +240,9 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', selecte
         </button>`
       : null}`
 
-  return html`<div class=${cx('dtable', mode === 'folder' && 'is-folder-mode', compact && 'is-compact', loading && items && 'is-refreshing')} role="grid" aria-busy=${loading ? 'true' : 'false'}>
+  return html`<div class=${cx('dtable', mode !== 'browse' && 'is-folder-mode', compact && 'is-compact', loading && items && 'is-refreshing')} role="grid" aria-busy=${loading ? 'true' : 'false'}>
     <div class="dhead" role="row">
-      ${mode !== 'folder'
+      ${mode === 'browse'
         ? html`<span class="drow-check"><${Checkbox}
             checked=${allSel}
             indeterminate=${someSel}

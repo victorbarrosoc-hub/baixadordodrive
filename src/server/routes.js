@@ -20,6 +20,7 @@ import { referenciasRoutes } from './referencias.js'
 import { registerPrevias } from './previas.js'
 import { registerTamanho } from './tamanho.js'
 import { registerCopiar } from './copiar.js'
+import { registerFrames } from './frames.js'
 
 const BODY_LIMIT = 1024 * 1024
 const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba a conexão
@@ -412,7 +413,7 @@ function revealCommand(platform, target) {
  */
 export function createApi(ctx) {
   const routes = []
-  const route = (method, pattern, handler, { raw = false } = {}) => routes.push({ method, pattern: pattern.split('/').filter(Boolean), handler, raw })
+  const route = (method, pattern, handler, { raw = false, corpo = true } = {}) => routes.push({ method, pattern: pattern.split('/').filter(Boolean), handler, raw, corpo })
   const jobs = new CompareJobs(ctx)
   const thumbJobs = new RawThumbJobs(ctx)
 
@@ -439,6 +440,8 @@ export function createApi(ctx) {
       previas: previas.view(),
       // "Copiar de um link": a cópia atual (ou a última).
       copia: copias.view(),
+      // Frames: o trabalho atual (ou o último).
+      frames: frames.view(),
     }
   }
 
@@ -488,6 +491,21 @@ export function createApi(ctx) {
       const st = ctx.settings.get()
       const plan = await planDownloads({ drive: ctx.manager.driveFor(accountId), accountId, items, destDir, conflict: st.downloadConflict, signal, reservedPaths: ctx.manager.reservedPaths() })
       if (plan.batch) plan.batch.destino = path.basename(path.resolve(destDir)) || null
+      return enqueue(plan)
+    },
+  })
+
+  // Frames (src/server/frames.js): frames, takes e posts de um vídeo final; a pasta pronta sobe pela fila de envio.
+  const frames = registerFrames({
+    route,
+    ctx,
+    account,
+    HttpProblem,
+    baseHeaders,
+    subir: async ({ accountId, pasta, folderId, driveId, name }) => {
+      const plan = await planUploads({ drive: ctx.manager.driveFor(accountId), accountId, paths: [pasta], destFolderId: folderId, driveId, signal: undefined })
+      for (const r of plan.records || []) r.proxy = false
+      if (plan.batch) plan.batch.destino = name || null
       return enqueue(plan)
     },
   })
@@ -997,7 +1015,7 @@ export function createApi(ctx) {
         if (!res.writableFinished) ac.abort()
       })
       try {
-        const body = req.method === 'GET' || req.method === 'HEAD' ? {} : await readBody(req)
+        const body = req.method === 'GET' || req.method === 'HEAD' || !r.corpo ? {} : await readBody(req)
         const out = await r.handler({ req, res, url, params, query: url.searchParams, body, signal: ac.signal })
         if (!r.raw) sendJSON(res, 200, { ok: true, ...(out || {}) })
       } catch (err) {
@@ -1031,6 +1049,7 @@ export function createApi(ctx) {
       previas.close()
       tamanhos.close()
       copias.close()
+      frames.close()
     },
   }
 }
