@@ -14,6 +14,7 @@ const NAV = [
   { id: 'transferencias', label: 'Transferências', icon: 'transfers' },
   { id: 'drive', label: 'Drive', icon: 'cloud' },
   { id: 'referencias', label: 'Referências', icon: 'bookmark' },
+  { id: 'frames', label: 'Frames', icon: 'frames' },
   { id: 'comparar', label: 'Comparar', icon: 'compare' },
   { id: 'ajustes', label: 'Ajustes', icon: 'sliders' },
 ]

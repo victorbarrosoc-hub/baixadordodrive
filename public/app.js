@@ -10,6 +10,7 @@ import { Sidebar } from './components/sidebar.js'
 import { TransfersScreen } from './components/transfers.js'
 import { DriveScreen } from './components/drive.js'
 import { ReferenciasScreen } from './components/referencias.js'
+import { FramesScreen } from './components/frames.js'
 import { CompareScreen } from './components/compare.js'
 import { SettingsScreen } from './components/settings.js'
 import { SetupScreen } from './components/setup.js'
@@ -17,7 +18,7 @@ import { ModalHost } from './components/modal.js'
 import { Toasts } from './components/toasts.js'
 import { OAuthWaitDialog } from './components/oauth-wait.js'
 
-const TITLES = { transferencias: 'Transferências', drive: 'Drive', referencias: 'Referências', comparar: 'Comparar', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
+const TITLES = { transferencias: 'Transferências', drive: 'Drive', referencias: 'Referências', frames: 'Frames', comparar: 'Comparar', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
 
 function Splash({ error }) {
   return html`<div class="splash">
@@ -40,6 +41,9 @@ function Shell({ route }) {
       break
     case 'referencias':
       screen = html`<${ReferenciasScreen} route=${route} />`
+      break
+    case 'frames':
+      screen = html`<${FramesScreen} route=${route} />`
       break
     case 'comparar':
       screen = html`<${CompareScreen} />`

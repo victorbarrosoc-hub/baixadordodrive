@@ -36,6 +36,7 @@ let state = {
   referencias: null, // Referências (src/referencias/service.js): { ativo, motivo, navegador, trabalhos, versoes, ytdlp }
   previas: null, // "Gerar prévias": o lote atual ou o último (mesmo formato)
   copia: null, // "Copiar de um link": a cópia atual ou a última (src/server/copiar.js)
+  frames: null, // Frames: o trabalho atual ou o último { jobId, status, fase, frac, texto, video, manifestoId, erro } (src/server/frames.js)
   versao: null, // aviso de versão nova (src/version.js): { atual, ultima, disponivel, nova, plataforma, baixarUrl, verificando, falhou, … }
 }
 
@@ -106,6 +107,7 @@ function applyFull(data) {
     rawThumbs: data.rawThumbs !== undefined ? data.rawThumbs : state.rawThumbs,
     previas: data.previas !== undefined ? data.previas : state.previas,
     copia: data.copia !== undefined ? data.copia : state.copia,
+    frames: data.frames !== undefined ? data.frames : state.frames,
     versao: data.versao !== undefined ? data.versao : state.versao,
     referencias: data.referencias !== undefined ? data.referencias : state.referencias,
   })
@@ -166,6 +168,10 @@ export function setRawThumbs(job) {
 
 export function setPrevias(job) {
   setState({ previas: job || null })
+}
+
+export function setFrames(job) {
+  setState({ frames: job || null })
 }
 
 export function setCopia(job) {
@@ -237,6 +243,7 @@ function connect() {
   on('rawthumbs', (d) => d?.jobId && setRawThumbs(d))
   on('previas', (d) => d?.jobId && setPrevias(d))
   on('copiar', (d) => d?.jobId && setCopia(d))
+  on('frames', (d) => d?.jobId && setFrames(d))
   on('versao', (d) => setVersao(d?.versao || d))
   on('referencias', (d) => d && typeof d === 'object' && setState({ referencias: d.referencias || d }))
   on('toast', (d) => d?.message && toast(d.kind || 'info', d.message))
