@@ -13,6 +13,10 @@ directories:
 # Windows): mexer no JavaScript instalado faz o app não abrir, em vez de rodar código trocado. Os executáveis (ffmpeg,
 # yt-dlp, QuickJS) ficam fora, em extraResources, e não precisam de asarUnpack.
 asar: true
+# O onnxruntime-node (busca por cena, src/cenas/) é biblioteca nativa (.node + .dylib/.dll): o Electron não carrega de
+# dentro do asar, então vai em app.asar.unpacked (fora do hash do asar, como os executáveis).
+asarUnpack:
+  - node_modules/onnxruntime-node/**/*
 
 # Fusíveis do Electron (@electron/fuses, aplicados pelo electron-builder logo antes de assinar). Revisão de segurança A9.
 #  - runAsNode: false → ninguém usa o executável do app como um Node (ELECTRON_RUN_AS_NODE) com as permissões dele.
@@ -46,6 +50,8 @@ files:
   - web/public/app/icons/**/*
   - "!**/*.map"
   - "!**/*.md"
+  # onnxruntime-node traz os binários de todos os sistemas (≈ 290 MB): só vai o deste (${platform} = darwin/win32/linux).
+  - "!node_modules/onnxruntime-node/bin/napi-v6/!(${platform})/**"
 
 # ffmpeg da prévia leve (src/media/previa.js), baixado por `node scripts/ffmpeg-baixar.mjs` (o CI roda antes do dist).
 # Fica fora de app/, em <Resources>/ffmpeg/ (o motor procura ali). No Mac universal o electron-builder empacota x64 e
@@ -82,7 +88,9 @@ mac:
     # proxy). Já universal (o clang gera as duas arquiteturas; o framework da Blackmagic também é): fora do lipo.
     - from: build/raw-frame/mac
       to: raw-frame
-  x64ArchFiles: "Contents/Resources/{yt-dlp/yt-dlp,raw-frame/**}"
+  # onnxruntime-node: só existe para Apple Silicon (o mesmo arquivo nas duas metades do universal; no Mac Intel a busca
+  # por cena avisa que não roda).
+  x64ArchFiles: "Contents/Resources/{yt-dlp/yt-dlp,raw-frame/**,app.asar.unpacked/node_modules/onnxruntime-node/**}"
   # Sem certificado da Apple por enquanto: assinatura ad-hoc (o macOS pede "Abrir Mesmo Assim" na primeira vez).
   identity: "-"
   hardenedRuntime: false

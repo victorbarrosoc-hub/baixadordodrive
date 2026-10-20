@@ -10315,3 +10315,386 @@ button.tree-twisty:hover {
     animation: none;
   }
 }
+
+/* ───────────── Drive → Procurar cenas (components/cenas.js) ───────────── */
+.cn-botao {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--down), var(--up));
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--up) 80%, transparent);
+  transition: transform 0.15s var(--ease), box-shadow 0.15s;
+}
+.cn-botao:hover {
+  transform: translateY(-1px);
+}
+.cn-botao.is-on {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--up) 60%, transparent);
+}
+.cn {
+  display: grid;
+  gap: 16px;
+  margin: 0 0 18px;
+  padding: 22px 24px 24px;
+  border-radius: 20px;
+  background:
+    radial-gradient(90% 120% at 0% 0%, color-mix(in srgb, var(--down) 12%, transparent), transparent 60%),
+    radial-gradient(90% 120% at 100% 100%, color-mix(in srgb, var(--up) 14%, transparent), transparent 60%),
+    var(--surface);
+  box-shadow: 0 0 0 1px var(--hairline), var(--shadow-md);
+  animation: fr-in 0.25s var(--ease) both;
+}
+.cn-topo {
+  display: grid;
+  gap: 14px;
+}
+.cn-titulo {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.cn-titulo > div {
+  flex: 1;
+  min-width: 0;
+}
+.cn-titulo h2 {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.cn-titulo p {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.cn-ic {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--down), var(--up));
+}
+.cn-busca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 54px;
+  padding: 0 8px 0 16px;
+  border-radius: 16px;
+  color: var(--text-3);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--hairline-2), var(--shadow-sm);
+  transition: box-shadow 0.15s;
+}
+.cn-busca:focus-within {
+  box-shadow: inset 0 0 0 2px var(--up), 0 8px 24px -14px var(--up);
+}
+.cn-busca input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  font-size: 16px;
+  color: var(--text);
+  background: transparent;
+}
+.cn-busca input:focus {
+  outline: none;
+}
+.cn-escopo {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--seg-bg);
+}
+.cn-escopo button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cn-escopo button.is-on {
+  color: var(--text);
+  background: var(--seg-on);
+  box-shadow: var(--shadow-sm);
+}
+.cn-ir {
+  height: 40px;
+  min-width: 96px;
+  padding: 0 18px;
+  border-radius: 12px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 650;
+  color: #fff;
+  background: linear-gradient(135deg, var(--down), var(--up));
+}
+.cn-ir:disabled {
+  opacity: 0.45;
+}
+.cn-exemplos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cn-ex {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: var(--fill-2);
+  transition: color 0.15s, background 0.15s;
+}
+.cn-ex:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.cn-estado {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.cn-estado-txt {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.cn-estado-txt b {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cn-estado-txt span {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.cn-barra {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  overflow: hidden;
+}
+.cn-barra span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--down), var(--up));
+  transition: width 0.4s var(--ease);
+}
+.cn-analisar {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--up) 30%, transparent);
+}
+.cn-analisar:hover {
+  background: color-mix(in srgb, var(--up) 18%, transparent);
+}
+.cn-aviso {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+.cn-res-head {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.cn-res-head b {
+  color: var(--text);
+}
+.cn-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.cn-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  animation: frn-pop 0.35s var(--ease) both;
+  animation-delay: calc(var(--i) * 25ms);
+}
+.cn-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-3);
+  box-shadow: 0 0 0 1px var(--hairline);
+}
+.cn-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s var(--ease);
+}
+.cn-thumb:hover img {
+  transform: scale(1.04);
+}
+.cn-tc {
+  position: absolute;
+  left: 8px;
+  bottom: 10px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font: 600 11px/1.5 var(--mono);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.cn-nota {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.35);
+}
+.cn-nota i {
+  display: block;
+  height: 100%;
+  background: var(--text-3);
+}
+.cn-nota.is-alta i {
+  background: var(--ok);
+}
+.cn-nota.is-media i {
+  background: linear-gradient(90deg, var(--down), var(--up));
+}
+.cn-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 42px;
+  height: 42px;
+  margin: -21px 0 0 -21px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.18s, transform 0.18s var(--ease);
+}
+.cn-thumb:hover .cn-play,
+.cn-thumb:focus-visible .cn-play {
+  opacity: 1;
+  transform: none;
+}
+.cn-meta {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.cn-nome {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cn-pasta {
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cn-acoes {
+  display: flex;
+  gap: 6px;
+}
+.cn-acoes button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--fill-2);
+}
+.cn-acoes button:first-child {
+  flex: 1;
+  justify-content: center;
+}
+.cn-acoes button:hover:not(:disabled) {
+  color: var(--text);
+}
+.cn-vazio {
+  padding: 20px;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+@media (max-width: 860px) {
+  .cn-busca {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 10px 12px;
+  }
+  .cn-busca input {
+    flex-basis: calc(100% - 30px);
+    height: 36px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cn,
+  .cn-card {
+    animation: none;
+  }
+}
+.cn-mais {
+  justify-self: center;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--fill-2);
+}
+.cn-mais:hover {
+  color: var(--text);
+}

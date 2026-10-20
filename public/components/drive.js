@@ -25,6 +25,7 @@ import { copyDriveLink } from './link-share.js'
 import { DEFAULT_SORT, FILTERS, driveView, filterChips, keepVisible, normalizeSort, visibleSummary } from '../lib/ordenar.js'
 import { FilterMenu, MacLine, SortMenu, openMacTrash } from './drive-ordenar.js'
 import { openCopyLink, useCopiaRunning } from './copiar-link.js'
+import { CenasPainel } from './cenas.js'
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
@@ -160,6 +161,9 @@ export function DriveScreen({ route }) {
   const [filter, setFilter] = useState('all')
   const [showMac, setShowMac] = useState(false)
   const [peek, setPeek] = useState(null) // id do item na prévia
+  // Busca por cena: o painel aberto e o resultado aberto na prévia (o vídeo pode estar em outra pasta).
+  const [cenasAberto, setCenasAberto] = usePersistentState('drive.cenas', false)
+  const [cenaPrevia, setCenaPrevia] = useState(null) // { item, t }
   const [, setProxyTick] = useState(0)
   useEffect(() => onProxies(() => setProxyTick((n) => n + 1)), [])
   // "Gerar miniaturas" terminou: recarrega a pasta para as miniaturas novas aparecerem.
@@ -394,6 +398,11 @@ export function DriveScreen({ route }) {
             { icon: 'link', label: 'Copiar de um link para cá…', title: 'Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para esta pasta', disabled: searching || !folder, onSelect: copiarDeLink },
           ]}
         />
+        ${accountId
+          ? html`<button type="button" class=${cx('cn-botao', cenasAberto && 'is-on')} aria-pressed=${cenasAberto ? 'true' : 'false'} onClick=${() => setCenasAberto(!cenasAberto)} title="Achar momentos nos vídeos escrevendo o que você quer (noiva, DJ, criança entrando…)">
+              <${Icon} name="sparkle" size=${15} />Procurar cenas
+            </button>`
+          : null}
         <${Button} variant="primary" icon="upload" onClick=${uploadHere} disabled=${searching}>Enviar para esta pasta</${Button}>
       </div>
     </div>
@@ -413,6 +422,16 @@ export function DriveScreen({ route }) {
             ${macLine ? html`<span class="dsum-end">${macLine}</span>` : null}
           </div>`
         : null}
+    ${cenasAberto && accountId && !searching
+      ? html`<${CenasPainel}
+          accountId=${accountId}
+          folderId=${folderId}
+          folderNome=${folder ? folderLabel(folder, drives) : ''}
+          videosAqui=${(data?.items || []).filter((it) => !it.isFolder && isVideoName(it.name)).length}
+          onAbrir=${(item, t) => setCenaPrevia({ item, t })}
+          onFechar=${() => setCenasAberto(false)}
+        />`
+      : null}
     <div class=${cx('card', view === 'grid' ? 'card-grid' : 'card-table')}>
       ${view === 'grid'
         ? html`<${DriveGrid}
@@ -465,6 +484,20 @@ export function DriveScreen({ route }) {
             setSelected(new Set([it.viaShortcut || it.id]))
           }}
           onClose=${() => setPeek(null)}
+          onDownload=${downloadOne}
+          dest=${dest}
+          destLabel=${shortPath(dest, home)}
+          onChangeDest=${chooseDest}
+        />`
+      : null}
+    ${cenaPrevia
+      ? html`<${DrivePreview}
+          accountId=${accountId}
+          items=${[cenaPrevia.item]}
+          index=${0}
+          inicioDe=${() => cenaPrevia.t}
+          onIndex=${() => {}}
+          onClose=${() => setCenaPrevia(null)}
           onDownload=${downloadOne}
           dest=${dest}
           destLabel=${shortPath(dest, home)}
