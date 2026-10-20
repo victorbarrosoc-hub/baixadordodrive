@@ -237,6 +237,30 @@ export const atalhos = pgTable(
  * Uma linha por sessão de dispositivo: some junto com a sessão (desconectar, trocar a senha, apagar a conta)
  * e quando fica 7 dias sem notícia.
  */
+/**
+ * "Entre computadores" (docs/LAN.md): cada app de computador com a recepção ligada avisa onde está na rede (endereços
+ * e porta) e a chave de recepção dele, cifrada com SOBEDESCE_KEY. Os outros computadores da mesma conta leem para
+ * mandar arquivos direto pela rede. Some com a sessão (cascade) ou quando o app desliga a recepção.
+ */
+export const lanPresenca = pgTable(
+  "lan_presenca",
+  {
+    sessaoId: text()
+      .primaryKey()
+      .references(() => sessoes.id, { onDelete: "cascade" }),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    /** IPs da rede local (privados), em ordem de preferência. */
+    enderecos: jsonb().$type<string[]>().notNull(),
+    porta: integer().notNull(),
+    /** Chave de recepção (32 bytes base64url), selada (AES-256-GCM) com o contexto "lan_presenca.chave:<sessaoId>". */
+    chaveEnc: text().notNull(),
+    atualizadoEm: agora(),
+  },
+  (t) => [index("lan_presenca_usuario_idx").on(t.usuarioId)],
+);
+
 export const dispositivoStatus = pgTable(
   "dispositivo_status",
   {

@@ -143,6 +143,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   mobileReceive: false,
   /** Porta fixa: o QR code e o Atalho do iPhone guardam o endereço com ela. */
   mobilePort: 4319,
+  // "Entre computadores" (docs/LAN.md): receber arquivos de outro computador da mesma conta pela rede local.
+  lanReceber: false,
+  lanPorta: 4320,
+  lanPasta: path.join(os.homedir(), 'SOBEDESCE Recebidos'),
   /** Onde os arquivos do celular ficam no computador antes (e, se quiser, depois) de subir. */
   mobileStagingDir: path.join(os.homedir(), 'SOBEDESCE Recebidos'),
   /** Apaga do computador o que veio do celular depois de subir e conferir no Drive. */
@@ -169,6 +173,7 @@ const LIMITS = {
   bandwidthLimitUp: [0, Number.MAX_SAFE_INTEGER],
   stallTimeoutMs: [5_000, 600_000],
   mobilePort: [1024, 65535],
+  lanPorta: [1024, 65535],
   versaoDispensada: [0, Number.MAX_SAFE_INTEGER],
 }
 const ENUMS = {
@@ -202,7 +207,7 @@ const OPTIONAL_STRINGS = {
   mobileWebUrl: v => v === '' || (v.length <= 2048 && isWebUrl(v)),
   webClientId: v => v === '' || /^[A-Za-z0-9][\w.-]*\.apps\.googleusercontent\.com$/.test(v),
 }
-const PATH_STRINGS = new Set(['downloadDir', 'mobileStagingDir'])
+const PATH_STRINGS = new Set(['downloadDir', 'mobileStagingDir', 'lanPasta'])
 
 /** Valida e normaliza um patch de ajustes. Campos desconhecidos são ignorados. Lança Error com mensagem em PT-BR. */
 export function validateSettings(patch, base = DEFAULT_SETTINGS) {

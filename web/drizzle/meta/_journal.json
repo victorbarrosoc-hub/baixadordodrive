@@ -64,6 +64,13 @@
       "when": 1792467492954,
       "tag": "0008_pedidos_tipo",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792534434939,
+      "tag": "0009_lan_presenca",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import { DriveScreen } from './components/drive.js'
 import { ReferenciasScreen } from './components/referencias.js'
 import { FramesScreen } from './components/frames.js'
 import { CompareScreen } from './components/compare.js'
+import { ComputadoresScreen } from './components/computadores.js'
 import { CartoesScreen } from './components/cartoes.js'
 import { SettingsScreen } from './components/settings.js'
 import { SetupScreen } from './components/setup.js'
@@ -19,7 +20,7 @@ import { ModalHost } from './components/modal.js'
 import { Toasts } from './components/toasts.js'
 import { OAuthWaitDialog } from './components/oauth-wait.js'
 
-const TITLES = { transferencias: 'Transferências', drive: 'Drive', referencias: 'Referências', frames: 'Frames', comparar: 'Comparar', cartoes: 'Cartões', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
+const TITLES = { transferencias: 'Transferências', drive: 'Drive', referencias: 'Referências', frames: 'Frames', comparar: 'Comparar', computadores: 'Computadores', cartoes: 'Cartões', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
 
 function Splash({ error }) {
   return html`<div class="splash">
@@ -48,6 +49,9 @@ function Shell({ route }) {
       break
     case 'comparar':
       screen = html`<${CompareScreen} />`
+      break
+    case 'computadores':
+      screen = html`<${ComputadoresScreen} />`
       break
     case 'cartoes':
       screen = html`<${CartoesScreen} />`

@@ -23,6 +23,7 @@ import { registerCopiar } from './copiar.js'
 import { registerFrames } from './frames.js'
 import { registerCenas } from './cenas.js'
 import { registerDiscos } from './discos.js'
+import { registerLan } from './lan.js'
 
 const BODY_LIMIT = 1024 * 1024
 const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba a conexão
@@ -448,6 +449,8 @@ export function createApi(ctx) {
       cenas: cenas.view(),
       // Copiar entre discos: o plano (comparação) e a cópia atual (ou a última).
       discos: discos.view(),
+      // Entre computadores: recepção pela rede (ligada?, recebendo) e o envio atual.
+      lan: lan.view(),
     }
   }
 
@@ -520,6 +523,8 @@ export function createApi(ctx) {
   const cenas = registerCenas({ route, ctx, account, HttpProblem, baseHeaders, servico: ctx.cenasServico })
   // Copiar entre discos (src/server/discos.js): cartão/SSD → um ou mais SSDs, com MD5 conferido.
   const discos = registerDiscos({ route, ctx, HttpProblem, servico: ctx.discosServico })
+  // Entre computadores (src/server/lan.js): manda e recebe arquivos pela rede local, entre computadores da mesma conta.
+  const lan = registerLan({ route, ctx, account, HttpProblem, receptor: ctx.lanReceptor, enviador: ctx.lanEnviador })
 
   const stringList = (v, max = 10_000) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, max) : null)
 
@@ -1063,6 +1068,7 @@ export function createApi(ctx) {
       frames.close()
       cenas.close()
       discos.close()
+      lan.close()
     },
   }
 }

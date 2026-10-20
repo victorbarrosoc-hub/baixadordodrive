@@ -11348,3 +11348,219 @@ button.tree-twisty:hover {
 .dk-cobertura li.is-falta > svg {
   color: var(--warn-text);
 }
+
+/* ───── Computadores ("Entre computadores", components/computadores.js) ───── */
+.page-computadores {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.pc-receber,
+.pc-mandar,
+.pc-chegando {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pc-receber h2,
+.pc-mandar h2,
+.pc-chegando h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.pc-receber-topo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.pc-receber-topo > div {
+  flex: 1;
+}
+.pc-receber-topo .sub {
+  margin: 2px 0 0;
+}
+.pc-receber-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--text-3);
+  background: var(--fill);
+}
+.pc-receber.is-on {
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+}
+.pc-receber.is-on .pc-receber-icon {
+  color: var(--ok-text);
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+}
+.pc-pasta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  min-width: 0;
+}
+.pc-pasta .mono-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-lista {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+.pc-comp {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-lg);
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s var(--ease);
+}
+.pc-comp:hover {
+  transform: translateY(-1px);
+}
+.pc-comp.is-on {
+  border-color: var(--up);
+  background: color-mix(in srgb, var(--up) 10%, var(--surface));
+}
+.pc-comp-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.pc-comp-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pc-comp-txt b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-online {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+  animation: pc-pulso 2s var(--ease) infinite;
+}
+@keyframes pc-pulso {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 0%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pc-online {
+    animation: none;
+  }
+}
+.pc-carregando,
+.pc-vazio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+.pc-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px;
+  border: 1.5px dashed var(--hairline-strong);
+  border-radius: var(--r-lg);
+  transition: border-color 0.2s, background 0.2s;
+}
+.pc-drop .sub {
+  margin: 0;
+}
+.pc-drop.is-sobre {
+  border-color: var(--up);
+  background: color-mix(in srgb, var(--up) 7%, transparent);
+}
+.pc-origens {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pc-origens li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  min-width: 0;
+}
+.pc-origens .mono-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-chegando ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pc-chegando-linha {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 13px;
+}
+.pc-chegando-estado {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.pc-barra {
+  margin-top: 6px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.pc-barra i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--up);
+  transition: width 0.3s var(--ease);
+}
+.pc-chegando li.is-pronta .pc-barra i {
+  background: var(--ok);
+}

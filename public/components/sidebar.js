@@ -16,6 +16,7 @@ const NAV = [
   { id: 'referencias', label: 'Referências', icon: 'bookmark' },
   { id: 'frames', label: 'Frames', icon: 'frames' },
   { id: 'comparar', label: 'Comparar', icon: 'compare' },
+  { id: 'computadores', label: 'Computadores', icon: 'laptop' },
   { id: 'cartoes', label: 'Cartões', icon: 'sdcard' },
   { id: 'ajustes', label: 'Ajustes', icon: 'sliders' },
 ]
