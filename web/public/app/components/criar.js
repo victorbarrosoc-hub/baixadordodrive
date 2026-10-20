@@ -14,7 +14,7 @@ import { abrirVideo, amostrar, baseDoNome, escolher, fechar, nomeDoFrame, pastaD
 import { celularAbre, lerCodec, porqueNaoAbre, rotuloCodec } from '../lib/frames/codec.js'
 import { faixa } from '../lib/psd.js'
 import { findProxy, mayPlay } from '../lib/browse.js'
-import { FUNDOS, LAYOUTS, desenharPost, fatiar, layoutPorId } from '../lib/frames/posts.js'
+import { FUNDOS, LAYOUTS, ZOOM_MAX, desenharPost, enquadreDe, fatiar, frameNoPonto, layoutPorId, moverEnquadre } from '../lib/frames/posts.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, cx } from './ui.js'
 
@@ -550,10 +550,15 @@ const carregar = (url) => {
   return imgs.get(url)
 }
 
+const PREVIA = 0.4 // escala da prévia (o post sai em 2)
+
 export function FramesPostSheet({ ids = [] }) {
   const j = job
   const [p, setP] = useState({ layout: 'triade', n: 3, proporcao: '4:5', fundo: 'preto', titulo: nomeSemExt(j?.video.nome), slides: 2 })
   const [busy, setBusy] = useState(null)
+  const [enq, setEnq] = useState({}) // id do frame → { x, y, zoom }: vale em qualquer formato
+  const [ativo, setAtivo] = useState(null) // índice do frame sendo enquadrado
+  const toque = useRef({ dedos: new Map() })
   const cv = useRef(null)
   const L = layoutPorId(p.layout)
   const n = L.quantos.includes(p.n) ? p.n : L.padrao
@@ -564,14 +569,17 @@ export function FramesPostSheet({ ids = [] }) {
     const resto = j.frames.filter((f) => !s.includes(f)).sort((a, b) => b.nota - a.nota)
     return s.concat(resto).slice(0, n).sort((a, b) => a.t - b.t)
   }, [ids, n])
-  const desenhar = async (alvo, escala) => {
+  const desenhar = async (alvo, escala, destaque = null) => {
     const imagens = await Promise.all(usados.map((f) => carregar(f.url)))
-    return desenharPost(alvo, { layout: p.layout, proporcao: p.proporcao, escala, imagens, fundo: p.fundo, textos: { titulo: p.titulo, legendas: p.layout === 'polaroid' ? [p.titulo] : undefined }, timecodes: usados.map((f) => f.tc), slides: p.slides })
+    const enquadres = usados.map((f) => enq[f.id])
+    return desenharPost(alvo, { layout: p.layout, proporcao: p.proporcao, escala, imagens, fundo: p.fundo, textos: { titulo: p.titulo, legendas: p.layout === 'polaroid' ? [p.titulo] : undefined }, timecodes: usados.map((f) => f.tc), slides: p.slides, enquadres, destaque })
   }
+  const ultimo = p.layout === 'carrossel' ? 0 : usados.length - 1
+  const emEdicao = ativo != null && ativo <= ultimo ? ativo : null
   useEffect(() => {
     let vivo = true
     const c = document.createElement('canvas')
-    desenhar(c, 0.4).then(() => {
+    desenhar(c, PREVIA, emEdicao).then(() => {
       if (!vivo || !cv.current) return
       cv.current.width = c.width
       cv.current.height = c.height
@@ -580,8 +588,66 @@ export function FramesPostSheet({ ids = [] }) {
     return () => {
       vivo = false
     }
-  }, [p, usados])
+  }, [p, usados, enq, emEdicao])
   if (!j) return null
+
+  // ── enquadrar: tocar escolhe o frame; arrastar move; pinça (ou a barra) aproxima ──
+  const ponto = (e) => {
+    const r = cv.current.getBoundingClientRect()
+    return { x: ((e.clientX - r.left) * cv.current.width) / r.width, y: ((e.clientY - r.top) * cv.current.height) / r.height }
+  }
+  const noPonto = (pt) => frameNoPonto(p.layout, { proporcao: p.proporcao, escala: PREVIA, n: usados.length, slides: p.slides }, pt.x, pt.y)
+  const distancia = (d) => {
+    const [a, b] = [...d.values()]
+    return Math.hypot(a.x - b.x, a.y - b.y) || 1
+  }
+  const mudaEnq = (i, fn) => {
+    const f = usados[i]
+    if (f) setEnq((x) => ({ ...x, [f.id]: fn(x[f.id], f) }))
+  }
+  const desce = (e) => {
+    const t = toque.current
+    const pt = ponto(e)
+    t.dedos.set(e.pointerId, pt)
+    if (t.dedos.size === 1) {
+      t.alvo = noPonto(pt)
+      t.andou = 0
+      // Já enquadrando: tocar noutro frame passa para ele e já arrasta.
+      if (emEdicao != null && t.alvo) {
+        if (t.alvo.i !== emEdicao) setAtivo(t.alvo.i)
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+      }
+    } else if (t.dedos.size === 2 && emEdicao != null) {
+      t.dist0 = distancia(t.dedos)
+      t.zoom0 = enquadreDe(enq[usados[emEdicao]?.id]).zoom
+    }
+  }
+  const move = (e) => {
+    const t = toque.current
+    const ant = t.dedos.get(e.pointerId)
+    if (!ant) return
+    const pt = ponto(e)
+    t.dedos.set(e.pointerId, pt)
+    t.andou += Math.abs(pt.x - ant.x) + Math.abs(pt.y - ant.y)
+    if (emEdicao == null || !t.alvo) return
+    if (t.dedos.size >= 2) {
+      if (t.dist0) mudaEnq(emEdicao, (x) => ({ ...enquadreDe(x), zoom: Math.min(ZOOM_MAX, Math.max(1, (t.zoom0 * distancia(t.dedos)) / t.dist0)) }))
+      return
+    }
+    mudaEnq(t.alvo.i, (x, f) => moverEnquadre(x, pt.x - ant.x, pt.y - ant.y, f.largura, f.altura, t.alvo.caixa))
+  }
+  const sobe = (e) => {
+    const t = toque.current
+    if (!t.dedos.delete(e.pointerId)) return
+    if (t.dedos.size < 2) t.dist0 = 0
+    // Toque sem arrastar: escolhe o frame (fora de todos, sai do enquadramento).
+    if (t.dedos.size === 0 && t.andou < 6 && e.type === 'pointerup') setAtivo(t.alvo ? t.alvo.i : null)
+  }
+  const atual = emEdicao != null ? enquadreDe(enq[usados[emEdicao]?.id]) : null
+  const ajustado = (f) => {
+    const e = enq[f.id]
+    return Boolean(e) && (e.zoom > 1.001 || Math.abs(e.x - 0.5) > 0.001 || Math.abs(e.y - 0.5) > 0.001)
+  }
   const gerar = async () => {
     const c = await desenhar(document.createElement('canvas'), 2)
     const partes = p.layout === 'carrossel' ? fatiar(c, p.slides) : [c]
@@ -610,7 +676,22 @@ export function FramesPostSheet({ ids = [] }) {
   const muda = (o) => setP((x) => ({ ...x, ...o }))
   return html`<${SheetHead} title="Post" left=${html`<button type="button" class="link-btn" onClick=${closeSheet}>Fechar</button>`} />
     <div class="sheet-scroll"><div class="cr-post">
-      <div class=${cx('cr-post-tela', p.layout === 'carrossel' && 'is-carrossel')}><canvas ref=${cv} aria-label="Prévia do post"></canvas></div>
+      <div class=${cx('cr-post-tela', p.layout === 'carrossel' && 'is-carrossel', emEdicao != null && 'is-enquadrando')}>
+        <canvas ref=${cv} aria-label="Prévia do post. Toque num frame para enquadrar." onPointerDown=${desce} onPointerMove=${move} onPointerUp=${sobe} onPointerCancel=${sobe}></canvas>
+      </div>
+      ${atual
+        ? html`<div class="cr-enq" role="group" aria-label=${`Enquadrar o frame ${emEdicao + 1}`}>
+            <div class="cr-enq-top">
+              <span><b>Frame ${emEdicao + 1}</b><small>Arraste e use a pinça para aproximar.</small></span>
+              <button type="button" class="link-btn" disabled=${!ajustado(usados[emEdicao])} onClick=${() => mudaEnq(emEdicao, () => undefined)}>Centralizar</button>
+              <button type="button" class="cr-enq-ok" onClick=${() => setAtivo(null)}>Pronto</button>
+            </div>
+            <label class="cr-enq-zoom"><${Icon} name="zoom" size=${16} />
+              <input type="range" aria-label="Zoom" min="1" max=${ZOOM_MAX} step="0.01" value=${atual.zoom} onInput=${(e) => mudaEnq(emEdicao, (x) => ({ ...enquadreDe(x), zoom: Number(e.currentTarget.value) }))} />
+              <output>${atual.zoom.toFixed(1).replace('.', ',')}×</output>
+            </label>
+          </div>`
+        : html`<p class="cr-dica-enq"><${Icon} name="crop" size=${14} />Toque num frame para mudar o enquadramento.</p>`}
       <div class="cr-layouts" role="radiogroup" aria-label="Formato">
         ${LAYOUTS.map((l) => html`<button type="button" role="radio" aria-checked=${p.layout === l.id ? 'true' : 'false'} class=${cx('cr-chip', p.layout === l.id && 'is-on')} onClick=${() => muda({ layout: l.id, n: l.padrao })}>${l.nome}</button>`)}
       </div>

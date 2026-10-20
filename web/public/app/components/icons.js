@@ -23,6 +23,8 @@ const P = {
   'folder-plus': [folderShape, 'M12 10.25v5.5', 'M9.25 13h5.5'],
   'folder-up': [folderShape, 'M12 16v-5', 'M9.75 13l2.25-2.25L14.25 13'],
   search: [c(10.5, 10.5, 6), 'M15 15l4.5 4.5'],
+  crop: ['M7 3.5v13.5h13.5', 'M3.5 7H17v13.5'],
+  zoom: [c(10.5, 10.5, 6), 'M15 15l4.5 4.5', 'M10.5 8v5', 'M8 10.5h5'],
   'chevron-right': ['M9.5 6l6 6-6 6'],
   'chevron-left': ['M14.5 6l-6 6 6 6'],
   'chevron-down': ['M6 9.5l6 6 6-6'],

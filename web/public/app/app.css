@@ -6746,6 +6746,79 @@ html.is-dswipe body {
   height: 100%;
   width: auto;
 }
+.cr-post-tela canvas {
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* Enquadrando: o dedo move o frame (não rola a folha). */
+.cr-post-tela.is-enquadrando canvas {
+  touch-action: none;
+  cursor: grab;
+}
+.cr-dica-enq {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: -4px 0 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.cr-enq {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--fill);
+}
+.cr-enq-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cr-enq-top > span {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.cr-enq-top b {
+  font-size: 15px;
+}
+.cr-enq-top small {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.cr-enq-top .link-btn:disabled {
+  opacity: 0.4;
+}
+.cr-enq-ok {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-fg);
+  background: var(--primary-bg);
+}
+.cr-enq-zoom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-2);
+}
+.cr-enq-zoom input {
+  flex: 1;
+  accent-color: var(--text);
+}
+.cr-enq-zoom output {
+  min-width: 34px;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
 .cr-post-tela.is-carrossel {
   height: auto;
   width: 100%;

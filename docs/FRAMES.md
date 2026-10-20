@@ -57,6 +57,7 @@ cor, uma impressão digital (dHash) e a diferença para a amostra anterior.
 - Posts (`public/lib/frames-posts.js`, canvas em 2160 px): Tríade (3, 4, 5), Grade (2×2, 3×3), Polaroid (1 a 3),
   Box, Cinema (2,39:1), Contato e Carrossel contínuo (2 ou 3 slides). 4:5, 1:1 ou 9:16; fundo preto, branco ou
   grafite; título, legenda e logomarca. Usa os frames escolhidos na aba Frames ou escolhe sozinho.
+- Enquadramento por frame (`enquadres[i] = { x, y, zoom }`, zoom até 3×): tocar ou clicar no frame da prévia escolhe; arrastar move (até a borda do frame encostar na caixa); pinça, roda do mouse ou a barra aproximam; Centralizar volta ao meio. Vale em qualquer formato (fica guardado por frame) e sai igual no post em alta. `frameNoPonto` acha o frame tocado (na polaroid, desfaz o giro).
 
 ## API
 
