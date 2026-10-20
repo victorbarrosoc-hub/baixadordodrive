@@ -17,8 +17,8 @@ import { Modelo, carregarOrt } from './modelo.js'
 import { amostrarPonto, amostrarSeguido, entradaArgs } from './amostrar.js'
 import { buscar, desempacotar, empacotar, trechos as fazerTrechos } from './indice.js'
 import { abrirPonte } from './ponte.js'
-import { PERFIS, cube } from '../cor/lut.js'
-import { PEDACO, ehPerfil, pareceLog, perfilDosBytes } from '../cor/detectar.js'
+import { PERFIS, cube, ehPerfil } from '../cor/lut.js'
+import { PEDACO, pareceLog, perfilDosBytes } from '../cor/detectar.js'
 
 export const PASSO = 2 // segundos entre amostras
 const LOTE = 16 // imagens por vez no modelo
