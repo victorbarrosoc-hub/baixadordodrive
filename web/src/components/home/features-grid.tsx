@@ -1,36 +1,18 @@
 import { Check, Cloud, Pause, ShieldCheck, Smartphone } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { CompareDemo } from "./compare-demo";
-import { Reveal } from "./motion";
+import { Card, CardTitle } from "./feature-card";
 import { Container, SectionHeading } from "./section";
 import { StealDemo } from "./steal-demo";
 
 const VELOCIDADE = ["Até 32 conexões por arquivo", "Conexão lenta é refeita sozinha", "4 arquivos sobem ao mesmo tempo"];
 
 const SMALL = [
-  { icon: Pause, title: "Pausa e retoma", text: "Fecha o app, cai a internet: volta de onde parou, sem recomeçar.", tone: "text-up-text bg-up/10" },
-  { icon: ShieldCheck, title: "Cada arquivo conferido", text: "MD5 no fim de cada transferência. Chegou igual ou avisa.", tone: "text-ok-text bg-ok/10" },
-  { icon: Smartphone, title: "Celular sem instalar", text: "Do iPhone ou Android direto para o Drive, pelo navegador.", tone: "text-down-text bg-down/10" },
-  { icon: Cloud, title: "Vários Drives, uma conta", text: "Conecte quantos Drives quiser. Computador e celular usam os mesmos.", tone: "text-ink bg-ink/5" },
+  { icon: Pause, title: "Pausa e retoma", text: "Caiu a internet? Volta de onde parou.", tone: "text-up-text bg-up/10" },
+  { icon: ShieldCheck, title: "Cada arquivo conferido", text: "MD5 no fim. Chegou igual ou avisa.", tone: "text-ok-text bg-ok/10" },
+  { icon: Smartphone, title: "Celular sem instalar", text: "iPhone ou Android, pelo navegador.", tone: "text-down-text bg-down/10" },
+  { icon: Cloud, title: "Vários Drives, uma conta", text: "Os mesmos no computador e no celular.", tone: "text-ink bg-ink/5" },
 ];
-
-function Card({ className, children, delay = 0 }: { className?: string; children: React.ReactNode; delay?: number }) {
-  return (
-    <Reveal delay={delay} className={cn("rounded-[24px] bg-surface p-6 ring-1 ring-line sm:p-8", className)}>
-      {children}
-    </Reveal>
-  );
-}
-
-function CardTitle({ eyebrow, title, text, tone }: { eyebrow: string; title: string; text: string; tone: string }) {
-  return (
-    <div className="grid gap-2">
-      <p className={cn("text-[13px] font-semibold", tone)}>{eyebrow}</p>
-      <h3 className="font-display text-[24px] leading-tight font-semibold tracking-[-0.02em] text-ink sm:text-[28px]">{title}</h3>
-      <p className="max-w-md text-[15px] leading-relaxed text-ink-2">{text}</p>
-    </div>
-  );
-}
 
 /** Os recursos em grade: dois destaques com demonstração e quatro cartões curtos. */
 export function FeaturesGrid() {
@@ -44,8 +26,9 @@ export function FeaturesGrid() {
             <CardTitle
               eyebrow="Velocidade"
               tone="text-down-text"
+              dir="desce"
               title="Toda a banda, num arquivo só."
-              text="Várias conexões dividem o mesmo arquivo, cada uma num pedaço."
+              text="Várias conexões, cada uma num pedaço do arquivo."
             />
             <StealDemo />
             <ul className="mt-auto grid gap-3 border-t border-line pt-6">
@@ -63,8 +46,9 @@ export function FeaturesGrid() {
             <CardTitle
               eyebrow="Comparador"
               tone="text-up-text"
+              dir="sobe"
               title="O que subiu e o que falta."
-              text="Pasta por pasta, contra o Drive. Um toque sobe só o que falta."
+              text="Pasta por pasta. Um toque sobe só o que falta."
             />
             <CompareDemo />
           </Card>

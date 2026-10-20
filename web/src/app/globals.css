@@ -168,6 +168,28 @@
   }
 }
 
+/* Link sendo digitado (Referências): a largura cresce letra a letra; --n é o tamanho do texto em ch. */
+@keyframes sd-type {
+  from {
+    width: 0;
+  }
+  to {
+    width: var(--n);
+  }
+}
+
+/* Cartão que cai na coleção (Referências). */
+@keyframes sd-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-28px) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @keyframes sd-pulse {
   0%,
   100% {

@@ -86,9 +86,8 @@ export function PlatformsSection() {
         </div>
 
         <p className="mx-auto mt-8 max-w-2xl text-center text-[13px] leading-relaxed text-ink-3">
-          Versão de teste, sem assinatura da Apple e da Microsoft. Pelo Terminal ou pelo PowerShell, o comando baixa, confere e instala sem aviso.
-          Baixando pelo navegador, na primeira vez o Mac pede para liberar em Ajustes do Sistema → Privacidade e Segurança, e o Windows em Mais
-          informações → Executar assim mesmo.
+          Versão de teste, ainda sem assinatura da Apple e da Microsoft. Pelo comando, instala sem aviso. Pelo navegador, libere na primeira vez:
+          no Mac em Privacidade e Segurança, no Windows em Mais informações → Executar assim mesmo.
         </p>
       </Container>
     </section>

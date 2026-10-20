@@ -4,6 +4,7 @@ import { ClosingSection } from "@/components/home/closing-section";
 import { FeaturesGrid } from "@/components/home/features-grid";
 import { Hero } from "@/components/home/hero";
 import { MotionProvider } from "@/components/home/motion";
+import { NovidadesSection } from "@/components/home/novidades-section";
 import { PlatformScript } from "@/components/home/platform";
 import { PlatformsSection } from "@/components/home/platforms-section";
 import { StatsStrip } from "@/components/home/stats-strip";
@@ -29,6 +30,7 @@ export default function Home() {
           <Hero />
           <StatsStrip />
           <FeaturesGrid />
+          <NovidadesSection />
           <PlatformsSection />
           <ClosingSection />
         </main>

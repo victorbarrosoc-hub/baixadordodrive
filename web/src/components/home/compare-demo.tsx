@@ -27,10 +27,10 @@ type Phase = "comparando" | "resultado" | "subindo" | "pronto";
 type Mode = "rapido" | "completo";
 
 const MODES: Record<Mode, { label: string; text: string; scan: string; ms: number }> = {
-  rapido: { label: "Rápido", text: "Compara nome e tamanho. Leva segundos, mesmo em pastas enormes.", scan: "Comparando nomes e tamanhos", ms: 1600 },
+  rapido: { label: "Rápido", text: "Nome e tamanho. Segundos, mesmo em pasta enorme.", scan: "Comparando nomes e tamanhos", ms: 1600 },
   completo: {
     label: "Completo",
-    text: "Confere o conteúdo (MD5) de cada arquivo. Lê tudo do disco na primeira vez; depois fica guardado.",
+    text: "Confere o MD5 de cada arquivo. Lento só na primeira vez.",
     scan: "Lendo o MD5 de cada arquivo",
     ms: 2600,
   },
