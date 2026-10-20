@@ -17,7 +17,7 @@ import { cofreDisponivel, responderCofre } from '../desktop/cofre.js'
 import { marcarAvisado, migrarCookies, precisaAvisar } from '../desktop/cookies-cifrados.js'
 import { relatorio, verificar } from '../desktop/smoke.js'
 import { startApp } from '../src/index.js'
-import { loginWithMock, makeTmpDir } from './helpers.js'
+import { loginWithMock, makeTmpDir, waitFor } from './helpers.js'
 import { startMockDrive } from './mock-drive.js'
 import { startMockCloud } from './mock-cloud.js'
 
@@ -221,6 +221,8 @@ test('CloudAuth: a sessão da conta SOBEDESCE vai cifrada, reabre e some ao sair
   const ate = Date.now() + 5000
   while (cloud.status().login.estado !== 'pronto' && Date.now() < ate) await new Promise(r => setTimeout(r, 20))
   assert.equal(cloud.status().conectado, true)
+  // "pronto" aparece antes da sessão ser gravada (a tela confirma na hora): espera o arquivo cifrado.
+  await waitFor(() => existe(caminhoCifrado(paths.cloud)), { message: 'a sessão cifrada não foi gravada' })
   cloud.close()
   assert.equal(await existe(paths.cloud), false)
   const bruto = await fs.readFile(caminhoCifrado(paths.cloud), 'utf8')
