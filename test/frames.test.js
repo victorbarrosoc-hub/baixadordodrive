@@ -246,3 +246,22 @@ test('posts: enquadramento de cada frame (arrastar, zoom e qual frame está no p
   assert.ok(pol.caixa.w > 0 && pol.caixa.x < pol.caixa.w, 'a caixa da polaroid é a foto dentro da moldura')
   assert.equal(frameNoPonto('box', { n: 1, escala: 1 }, 2, 2), null)
 })
+
+test('posts: tela cheia (tríade e grade sem bordas do fundo)', async () => {
+  const { montar } = await import('../public/lib/frames-posts.js')
+  const t = montar('triade', { w: 1080, h: 1920, n: 5, cheio: true })
+  assert.equal(t.caixas.length, 5)
+  assert.deepEqual(t.texto, [], 'sem título em tela cheia')
+  assert.equal(t.caixas[0].y, 0)
+  assert.equal(t.caixas.at(-1).y + t.caixas.at(-1).h, 1920, 'vai até o fim do post')
+  for (const [i, c] of t.caixas.entries()) {
+    assert.equal(c.x, 0)
+    assert.equal(c.w, 1080)
+    if (i) assert.equal(c.y, t.caixas[i - 1].y + t.caixas[i - 1].h, 'sem espaço entre os frames')
+  }
+  const g = montar('grade', { w: 1080, h: 1350, n: 4, respiro: 0.03, cheio: true })
+  assert.equal(g.caixas[0].x, 0)
+  assert.equal(g.caixas[3].x + g.caixas[3].w, 1080)
+  // Sem tela cheia, continua com a borda.
+  assert.ok(montar('triade', { w: 1080, h: 1350, n: 3, respiro: 0.03 }).caixas[0].x > 0)
+})
