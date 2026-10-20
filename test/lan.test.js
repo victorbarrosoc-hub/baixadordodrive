@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { abrir, cifradorDeDados, decifradorDeDados, lerMeta, meta, novaChave, selar } from '../src/lan/cripto.js'
+import { abrir, chaveDeOutraConta, chaveParaOutraConta, cifradorDeDados, decifradorDeDados, lerMeta, meta, novaChave, novoPar, selar } from '../src/lan/cripto.js'
 import { LanReceptor, caminhoSeguro } from '../src/lan/receptor.js'
 import { LanEnviador } from '../src/lan/enviador.js'
 import { makeTmpDir } from './helpers.js'
@@ -38,7 +38,10 @@ async function montar(t, { chaveDoReceptor, chaveNoSite, pedaco } = {}) {
   const rec = new LanReceptor({ settings, chave: () => chave, nome: () => 'PC do Edu', plataforma: 'win32', onFim: (o) => fins.push(o) })
   const porta = await rec.iniciar()
   t.after(() => rec.parar())
-  const cloud = { signedIn: true, request: async () => ({ data: { computadores: [{ id: 'pc1', nome: 'PC do Edu', plataforma: 'windows', enderecos: ['10.255.255.1', '127.0.0.1'], porta, chave: chaveNoSite || chave }] } }) }
+  const cloud = {
+    signedIn: true,
+    request: async (_m, p) => ({ data: { computadores: p === '/api/lan/computadores' ? [{ id: 'pc1', nome: 'PC do Edu', plataforma: 'windows', enderecos: ['10.255.255.1', '127.0.0.1'], porta, chave: chaveNoSite || chave }] : [] } }),
+  }
   const drive = []
   const env = new LanEnviador({ cloud, nome: () => 'MacBook do Victor', subirDrive: async (o) => (drive.push(o), {}), pedaco })
   t.after(() => env.close())
@@ -145,5 +148,64 @@ describe('entre computadores', () => {
     assert.equal(v.fase, 'erro')
     assert.match(v.erro, /recusou a chave/)
     assert.deepEqual(await fsp.readdir(path.join(dir, 'Recebidos')).catch(() => []), [])
+  })
+
+  test('outra conta: só com a chave pública; pedido pendente até aceitar; recusa avisa; aceito com Drive de quem recebe', async (t) => {
+    const dir = await tmp(t)
+    const par = novoPar()
+    // A chave combinada só fecha com a privada certa.
+    const k = chaveParaOutraConta(par.publica)
+    assert.equal(chaveDeOutraConta(par, k.efemera), k.chave)
+    assert.notEqual(chaveDeOutraConta(novoPar(), k.efemera), k.chave)
+
+    let aceita = true
+    const pedidos = []
+    const subidas = []
+    const settings = { get: () => ({ lanPasta: path.join(dir, 'Recebidos do Marcos'), lanPorta: 0 }) }
+    const rec = new LanReceptor({ settings, chave: () => novaChave(), par: () => par, aceitaOutros: () => aceita, nome: () => 'PC da Edição', onPedido: (p) => pedidos.push(p), onSubirDrive: async (o) => subidas.push(o) })
+    const porta = await rec.iniciar()
+    t.after(() => rec.parar())
+    const outro = { id: 'pc-marcos', nome: 'PC da Edição', plataforma: 'windows', dono: 'Marcos', enderecos: ['127.0.0.1'], porta, chavePublica: par.publica }
+    const cloud = { signedIn: true, request: async (_m, p) => ({ data: { computadores: p === '/api/lan/proximos' ? [outro] : [] } }) }
+    const env = new LanEnviador({ cloud, nome: () => 'MacBook do Victor', pessoa: () => 'Victor' })
+    t.after(() => env.close())
+    const lista = await env.computadores()
+    assert.deepEqual(lista.porPerto.map((c) => [c.nome, c.dono, c.chavePublica]), [['PC da Edição', 'Marcos', undefined]], 'a chave pública fica no motor')
+
+    const dados = crypto.randomBytes(3 * 1024 * 1024 + 9)
+    await escrever(path.join(dir, 'origem', 'Brutos', 'A001.MOV'), dados)
+
+    // 1. Recusado.
+    await env.enviar({ para: 'pc-marcos', origens: [path.join(dir, 'origem', 'Brutos')], pasta: 'Brutos Victor' })
+    for (let i = 0; i < 200 && !rec.view().pedidos.length; i++) await new Promise((ok) => setTimeout(ok, 10))
+    assert.equal(env.view().envio.fase, 'aguardando')
+    assert.deepEqual(rec.view().pedidos.map((p) => [p.de, p.pessoa, p.arquivos]), [['MacBook do Victor', 'Victor', 1]])
+    assert.equal(pedidos.length, 1, 'avisou o pedido')
+    assert.deepEqual(await fsp.readdir(path.join(dir, 'Recebidos do Marcos')).catch(() => []), [], 'nada chega antes de aceitar')
+    rec.responder(rec.view().pedidos[0].id, false)
+    let v = await esperarFim(env)
+    assert.equal(v.fase, 'erro')
+    assert.match(v.erro, /Marcos recusou/)
+
+    // 2. Aceito, com o Drive de quem recebe.
+    env.limpar()
+    await env.enviar({ para: 'pc-marcos', origens: [path.join(dir, 'origem', 'Brutos')], pasta: 'Brutos Victor' })
+    for (let i = 0; i < 200 && !rec.view().pedidos.length; i++) await new Promise((ok) => setTimeout(ok, 10))
+    rec.responder(rec.view().pedidos[0].id, true, { drive: { accountId: 'g-marcos', folderId: 'f9', folderName: 'Projetos' } })
+    v = await esperarFim(env)
+    assert.equal(v.fase, 'pronto', v.erro || JSON.stringify(v.falhas))
+    const chegou = path.join(dir, 'Recebidos do Marcos', 'Brutos Victor', 'A001.MOV')
+    assert.ok((await fsp.readFile(chegou)).equals(dados))
+    for (let i = 0; i < 100 && !subidas.length; i++) await new Promise((ok) => setTimeout(ok, 10))
+    assert.deepEqual(subidas, [{ caminhos: [path.join(dir, 'Recebidos do Marcos', 'Brutos Victor')], accountId: 'g-marcos', folderId: 'f9', folderName: 'Projetos' }])
+    assert.equal(rec.view().recebendo[0].outra, true)
+
+    // 3. Quem recebe desligou "outras contas": recusa sem ler nada.
+    aceita = false
+    env.limpar()
+    await env.enviar({ para: 'pc-marcos', origens: [path.join(dir, 'origem', 'Brutos')], pasta: 'De novo' })
+    v = await esperarFim(env)
+    assert.equal(v.fase, 'erro')
+    assert.match(v.erro, /não está aceitando pedidos de outras contas/)
   })
 })

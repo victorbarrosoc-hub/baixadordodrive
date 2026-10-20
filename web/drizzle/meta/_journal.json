@@ -71,6 +71,13 @@
       "when": 1792534434939,
       "tag": "0009_lan_presenca",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792536251744,
+      "tag": "0010_lan_outras_contas",
+      "breakpoints": true
     }
   ]
 }

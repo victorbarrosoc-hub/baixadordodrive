@@ -145,6 +145,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   mobilePort: 4319,
   // "Entre computadores" (docs/LAN.md): receber arquivos de outro computador da mesma conta pela rede local.
   lanReceber: false,
+  // Aceitar pedidos de outras contas SOBEDESCE na mesma rede (sempre pergunta na tela antes de receber).
+  lanOutros: false,
   lanPorta: 4320,
   lanPasta: path.join(os.homedir(), 'SOBEDESCE Recebidos'),
   /** Onde os arquivos do celular ficam no computador antes (e, se quiser, depois) de subir. */

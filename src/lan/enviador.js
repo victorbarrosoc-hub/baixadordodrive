@@ -7,7 +7,7 @@ import http from 'node:http'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { abrir, BLOCO, cifradorDeDados, meta, selar } from './cripto.js'
+import { abrir, BLOCO, chaveParaOutraConta, cifradorDeDados, meta, selar } from './cripto.js'
 import { criarHash } from '../discos/copiar.js'
 import { scanLocal } from '../local/scan.js'
 import { SISTEMA } from '../discos/planejar.js'
@@ -18,6 +18,8 @@ const GRANDE = 64 * 1024 * 1024
 const TENTATIVAS = 6
 const PING_MS = 2500
 const JANELA_MS = 3000
+const ESPERA_ACEITE_MS = 3 * 60_000 // outra conta: quanto tempo espera a pessoa aceitar
+const CONSULTA_ACEITE_MS = 1500
 
 export class EnvioError extends Error {
   constructor(message, { status = 0, offset = null } = {}) {
@@ -43,7 +45,7 @@ const esvaziar = (req) =>
 const hostDe = (ip) => (ip.includes(':') ? `[${ip}]` : ip)
 
 /** Um pedido ao outro computador. `corpo`: objeto (selado) ou função que escreve o corpo no `req` (dados). */
-export function pedir({ agente, endereco, porta, chave, metodo, caminho, corpo, extraMeta = {}, timeoutMs = 30_000 }) {
+export function pedir({ agente, endereco, porta, chave, eph = null, metodo, caminho, corpo, extraMeta = {}, timeoutMs = 30_000 }) {
   return new Promise((ok, falha) => {
     const selado = typeof corpo === 'function' || corpo === undefined ? null : selar(chave, corpo, `${metodo} ${caminho}`)
     const req = http.request(
@@ -55,6 +57,7 @@ export function pedir({ agente, endereco, porta, chave, metodo, caminho, corpo, 
         agent: agente,
         headers: {
           'x-sd-meta': meta(chave, metodo, caminho, extraMeta),
+          ...(eph ? { 'x-sd-eph': eph } : {}),
           'content-type': 'application/octet-stream',
           ...(selado ? { 'content-length': selado.length } : {}),
         },
@@ -111,8 +114,9 @@ export class LanEnviador {
    *           subirDrive?: (o: { caminhos: string[], accountId: string, folderId: string, folderName?: string }) => Promise<object>,
    *           log?: Function }} o
    */
-  constructor({ cloud, nome, onChange = () => {}, subirDrive = null, log = null, pedaco = PEDACO }) {
+  constructor({ cloud, nome, pessoa = () => null, onChange = () => {}, subirDrive = null, log = null, pedaco = PEDACO }) {
     this.pedaco = pedaco
+    this.pessoa = pessoa
     this.cloud = cloud
     this.nome = nome
     this.onChange = onChange
@@ -123,23 +127,33 @@ export class LanEnviador {
     this.timer = null
   }
 
-  /** Os outros computadores da conta com a recepção ligada (sem a chave: ela fica aqui dentro). */
+  /**
+   * Os computadores da conta com a recepção ligada e os de outras contas por perto (mesma rede, aceitam pedidos).
+   * As chaves ficam aqui dentro; a tela recebe só nome, plataforma e dono.
+   */
   async computadores() {
-    if (!this.cloud?.signedIn) return { conectado: false, computadores: [] }
-    const { data } = await this.cloud.request('GET', '/api/lan/computadores')
-    this.cache = new Map((data?.computadores || []).map((c) => [c.id, c]))
-    return { conectado: true, computadores: (data?.computadores || []).map(({ chave, ...c }) => c) }
+    if (!this.cloud?.signedIn) return { conectado: false, computadores: [], porPerto: [] }
+    const [minha, perto] = await Promise.all([
+      this.cloud.request('GET', '/api/lan/computadores'),
+      this.cloud.request('GET', '/api/lan/proximos').catch(() => ({ data: { computadores: [] } })),
+    ])
+    const daConta = (minha.data?.computadores || []).map((c) => ({ ...c, tipo: 'conta' }))
+    const outros = (perto.data?.computadores || []).map((c) => ({ ...c, tipo: 'outro' }))
+    this.cache = new Map([...daConta, ...outros].map((c) => [c.id, c]))
+    const limpar = ({ chave, chavePublica, ...c }) => c
+    return { conectado: true, computadores: daConta.map(limpar), porPerto: outros.map(limpar) }
   }
 
   /** Acha um endereço que responde com a chave certa (todos ao mesmo tempo; vale o primeiro). */
-  async #alcancar(c) {
+  async #alcancar(c, chave, eph) {
     const tentativas = c.enderecos.map((ip) =>
-      pedir({ endereco: ip, porta: c.porta, chave: c.chave, metodo: 'POST', caminho: '/lan/v1/ping', corpo: {}, timeoutMs: PING_MS }).then((r) => ({ ip, r })),
+      pedir({ endereco: ip, porta: c.porta, chave, eph, metodo: 'POST', caminho: '/lan/v1/ping', corpo: {}, timeoutMs: PING_MS }).then((r) => ({ ip, r })),
     )
     try {
       return await Promise.any(tentativas)
     } catch (err) {
       const recusou = err.errors?.find((e) => e.status === 403)
+      if (recusou && c.tipo === 'outro') throw new EnvioError(`${c.nome} não está aceitando pedidos de outras contas agora.`)
       throw new EnvioError(recusou ? recusou.message : `${c.nome} não respondeu nesta rede. Os dois computadores estão na mesma rede (Wi-Fi ou cabo)?`)
     }
   }
@@ -158,6 +172,7 @@ export class LanEnviador {
       envio: {
         id: e.id,
         para: e.para,
+        dono: e.dono,
         endereco: e.endereco,
         pasta: e.pasta,
         fase: e.fase,
@@ -203,6 +218,7 @@ export class LanEnviador {
     const e = {
       id: crypto.randomUUID(),
       para: c.nome,
+      dono: c.tipo === 'outro' ? c.dono : null,
       paraId: c.id,
       endereco: null,
       pasta: String(pasta || '').trim() || path.basename(origens[0]) || 'Arquivos',
@@ -246,7 +262,9 @@ export class LanEnviador {
   }
 
   async #rodar(e, c, origens, drive) {
-    const { ip } = await this.#alcancar(c)
+    // Outra conta: chave só deste envio, combinada com a chave pública dela (só aquele computador abre).
+    const { chave, efemera } = c.tipo === 'outro' ? chaveParaOutraConta(c.chavePublica) : { chave: c.chave, efemera: null }
+    const { ip } = await this.#alcancar(c, chave, efemera)
     e.endereco = ip
     e.lista = await listarOrigens(origens, { signal: e.ac.signal })
     if (!e.lista.length) throw new EnvioError('Nada para mandar (pasta vazia?).')
@@ -259,13 +277,27 @@ export class LanEnviador {
       )
     }
     const agente = new http.Agent({ keepAlive: true, maxSockets: SIMULTANEOS })
-    const alvo = { agente, endereco: ip, porta: c.porta, chave: c.chave }
+    const alvo = { agente, endereco: ip, porta: c.porta, chave, eph: efemera }
     e.de = String((await this.nome()) || 'Outro computador')
+    const pessoa = (await Promise.resolve(this.pessoa?.()).catch(() => null)) || null
     const lista = e.lista.map((a) => ({ relPath: a.relPath, size: a.size, mtimeMs: a.mtimeMs }))
     // A mesma oferta de novo devolve onde cada arquivo parou (retomada).
-    const oferecer = () => pedir({ ...alvo, metodo: 'POST', caminho: '/lan/v1/ofertas', corpo: { id: e.id, de: e.de, pasta: e.pasta, arquivos: lista } })
+    const oferecer = () => pedir({ ...alvo, metodo: 'POST', caminho: '/lan/v1/ofertas', corpo: { id: e.id, de: e.de, pessoa, pasta: e.pasta, arquivos: lista } })
     try {
-      const of = await oferecer()
+      let of = await oferecer()
+      // Outra conta: a pessoa precisa aceitar na tela dela. Pergunta de novo até aceitar, recusar ou cansar.
+      if (of.aguardando) {
+        e.fase = 'aguardando'
+        this.#mudou(true)
+        const limite = Date.now() + ESPERA_ACEITE_MS
+        while (of.aguardando) {
+          if (e.ac.signal.aborted) throw new EnvioError('Cancelado.')
+          if (Date.now() > limite) throw new EnvioError(`${c.dono || c.nome} não respondeu a tempo.`)
+          await esperar(CONSULTA_ACEITE_MS)
+          of = await oferecer()
+        }
+      }
+      if (of.recusada) throw new EnvioError(`${c.dono || c.nome} recusou o envio.`)
       e.pasta = of.pasta || e.pasta
       e.fase = 'enviando'
       const pular = new Set(of.arquivos.filter((x) => x.estado === 'igual' || x.estado === 'pronto').map((x) => x.n))

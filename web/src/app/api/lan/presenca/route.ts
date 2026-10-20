@@ -1,6 +1,6 @@
 import { apagarPresenca, gravarPresenca, presencaSchema } from "@/lib/lan/presenca";
 import { SEM_SESSAO, usuarioDaRequisicao } from "@/lib/auth/requisicao";
-import { erro, json, lerJson, semConteudo } from "@/lib/http";
+import { erro, ipDe, json, lerJson, semConteudo } from "@/lib/http";
 
 /**
  * "Entre computadores" (docs/LAN.md): o app de computador com a recepção ligada avisa onde está na rede local.
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   const corpo = await lerJson(req, 4 * 1024);
   const lido = presencaSchema.safeParse(corpo);
   if (!lido.success) return erro(400, "entrada", "Endereço da rede em formato desconhecido.");
-  await gravarPresenca(atual.sessao.id, atual.usuario.id, lido.data);
+  await gravarPresenca(atual.sessao.id, atual.usuario.id, lido.data, ipDe(req.headers));
   return json({ ok: true });
 }
 

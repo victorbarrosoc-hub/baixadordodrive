@@ -253,6 +253,15 @@ function connect() {
   on('cenas', (d) => d && typeof d === 'object' && setState({ cenas: d }))
   on('discos', (d) => d && typeof d === 'object' && setState({ discos: d }))
   on('lan', (d) => d && typeof d === 'object' && setState({ lan: d }))
+  // Outra conta por perto pediu para mandar arquivos: aviso aqui e no sistema (desktop.js), a resposta é na tela.
+  on('lan-pedido', (d) => {
+    if (!d?.id) return
+    const quem = d.pessoa || d.de || 'Alguém'
+    toast('info', `${quem} quer te mandar arquivos.`, { action: { label: 'Responder', href: '#/computadores' }, duration: 30_000 })
+    try {
+      window.dispatchEvent(new CustomEvent('sd:lan-pedido', { detail: { quem, de: d.de } }))
+    } catch {}
+  })
   on('versao', (d) => setVersao(d?.versao || d))
   on('referencias', (d) => d && typeof d === 'object' && setState({ referencias: d.referencias || d }))
   on('toast', (d) => d?.message && toast(d.kind || 'info', d.message))

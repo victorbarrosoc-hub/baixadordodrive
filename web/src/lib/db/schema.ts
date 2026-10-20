@@ -256,9 +256,15 @@ export const lanPresenca = pgTable(
     porta: integer().notNull(),
     /** Chave de recepção (32 bytes base64url), selada (AES-256-GCM) com o contexto "lan_presenca.chave:<sessaoId>". */
     chaveEnc: text().notNull(),
+    /** Chave pública X25519 (base64url): pessoas de outras contas cifram para ela (só este computador abre). */
+    chavePublica: text(),
+    /** Aceita envio de outras contas na mesma rede (sempre pedindo para aceitar na tela). */
+    aceitaOutros: boolean().notNull().default(false),
+    /** A rede de onde avisou: HMAC do IP público (IPv6: o /64). Quem vem da mesma rede vê como "por perto". O IP não fica guardado. */
+    rede: text(),
     atualizadoEm: agora(),
   },
-  (t) => [index("lan_presenca_usuario_idx").on(t.usuarioId)],
+  (t) => [index("lan_presenca_usuario_idx").on(t.usuarioId), index("lan_presenca_rede_idx").on(t.rede)],
 );
 
 export const dispositivoStatus = pgTable(

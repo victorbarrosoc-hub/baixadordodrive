@@ -4,10 +4,12 @@
 // "<lanPasta>/.sobedesce-recebendo/" com o xxHash64 calculado no caminho, e no fim é conferido com o de quem mandou,
 // sincronizado com o disco e só então ganha o nome final em "<lanPasta>/<pasta da oferta>/<caminho>".
 // A conexão caiu? Quem manda pergunta onde parou (POST da oferta de novo) e segue dali.
+// Outras contas (lanOutros ligado): o pedido vem cifrado para a chave pública deste computador (cabeçalho x-sd-eph,
+// cripto.js) e a oferta fica "pendente" até a pessoa aceitar na tela; aceitando, pode subir tudo pro Drive dela.
 import http from 'node:http'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { abrir, decifradorDeDados, lerMeta, selar, VERSAO } from './cripto.js'
+import { abrir, chaveDeOutraConta, decifradorDeDados, ehPublica, lerMeta, selar, VERSAO } from './cripto.js'
 import { criarHash } from '../discos/copiar.js'
 import { nomeDePasta } from '../discos/planejar.js'
 
@@ -17,6 +19,8 @@ const MAX_ARQUIVOS = 200_000
 const OCIOSO_MS = 60_000
 const GUARDA_OFERTA_MS = 24 * 60 * 60_000
 const MAX_HISTORICO = 20
+const MAX_PENDENTES = 3 // pedidos de outras contas esperando resposta ao mesmo tempo
+const PENDENTE_MS = 5 * 60_000 // pedido sem resposta some depois disso
 
 export class LanError extends Error {
   constructor(status, message) {
@@ -71,9 +75,14 @@ export class LanReceptor {
    * @param {{ settings: { get(): object }, chave: () => string, nome: () => Promise<string>|string, plataforma?: string,
    *           onChange?: Function, onFim?: Function, log?: Function }} o
    */
-  constructor({ settings, chave, nome, plataforma = process.platform, onChange = () => {}, onFim = () => {}, log = null }) {
+  constructor({ settings, chave, par = null, aceitaOutros = () => false, nome, plataforma = process.platform, onChange = () => {}, onFim = () => {}, onPedido = () => {}, onSubirDrive = null, log = null }) {
     this.settings = settings
     this.chave = chave
+    this.par = par
+    this.aceitaOutros = aceitaOutros
+    this.onPedido = onPedido
+    this.onSubirDrive = onSubirDrive
+    this.chavesEfemeras = new Map() // efêmera → chave do envio (conta feita uma vez)
     this.nome = nome
     this.plataforma = plataforma
     this.onChange = onChange
@@ -124,11 +133,15 @@ export class LanReceptor {
   // ───── estado para a tela ─────
 
   view() {
-    const lista = [...this.ofertas.values()].sort((a, b) => b.criadaEm - a.criadaEm).slice(0, MAX_HISTORICO)
+    const todas = [...this.ofertas.values()].sort((a, b) => b.criadaEm - a.criadaEm)
+    const lista = todas.filter((o) => o.estado !== 'pendente' && o.estado !== 'recusada').slice(0, MAX_HISTORICO)
     return {
       rodando: this.rodando,
       porta: this.porta,
       pasta: this.settings.get().lanPasta,
+      pedidos: todas
+        .filter((o) => o.estado === 'pendente')
+        .map((o) => ({ id: o.id, de: o.de, pessoa: o.pessoa, pasta: o.pasta, arquivos: o.arquivos.length, bytes: o.total, criadaEm: o.criadaEm })),
       recebendo: lista.map((o) => ({
         id: o.id,
         de: o.de,
@@ -140,6 +153,9 @@ export class LanReceptor {
         bytes: o.total,
         recebidos: o.arquivos.reduce((s, a) => s + (a.estado === 'igual' ? 0 : a.offset), 0),
         estado: o.estado,
+        outra: !!o.eph,
+        pessoa: o.pessoa || null,
+        drive: o.drive ? { pasta: o.drive.folderName || null, estado: o.driveEstado || null } : null,
         criadaEm: o.criadaEm,
         fimEm: o.fimEm || null,
       })),
@@ -163,14 +179,31 @@ export class LanReceptor {
   async #atender(req, res) {
     const url = new URL(req.url, 'http://x')
     const caminho = url.pathname
+    // A chave deste pedido: a de recepção (mesma conta) ou a combinada com a efêmera de quem manda (outra conta).
+    const eph = req.headers['x-sd-eph']
+    let chave = null
+    if (eph === undefined) chave = this.chave()
+    else if (this.aceitaOutros() && this.par && ehPublica(eph)) {
+      chave = this.chavesEfemeras.get(eph)
+      if (!chave) {
+        try {
+          chave = chaveDeOutraConta(this.par(), eph)
+          if (this.chavesEfemeras.size > 500) this.chavesEfemeras.clear()
+          this.chavesEfemeras.set(eph, chave)
+        } catch {
+          chave = null
+        }
+      }
+    }
+    const ctx = { chave, eph: eph === undefined ? null : eph }
     const responder = (status, obj) => {
-      const corpo = obj === undefined ? null : selar(this.chave(), obj, `resp ${req.method} ${caminho}`)
+      const corpo = obj === undefined || !chave ? null : selar(chave, obj, `resp ${req.method} ${caminho}`)
       res.writeHead(status, { 'content-type': 'application/octet-stream', 'cache-control': 'no-store', ...(corpo ? { 'content-length': corpo.length } : {}) })
       res.end(corpo)
     }
     try {
       // Sem a chave certa: 403 sem dizer nada (e sem ler o corpo).
-      const m = lerMeta(this.chave(), req.headers['x-sd-meta'], req.method, caminho)
+      const m = chave ? lerMeta(chave, req.headers['x-sd-meta'], req.method, caminho) : null
       if (!m) {
         res.writeHead(403, { connection: 'close' })
         return res.end()
@@ -179,13 +212,13 @@ export class LanReceptor {
       if (!r) throw new LanError(404, 'Rota desconhecida.')
       const [, tipo, ofertaId, n, fim] = r
       if (req.method === 'POST' && tipo === 'ping' && !ofertaId) {
-        await this.#corpo(req, caminho, 1024)
+        await this.#corpo(req, caminho, 1024, chave)
         return responder(200, { versao: VERSAO, nome: await this.nome(), plataforma: this.plataforma })
       }
-      if (tipo === 'ofertas' && req.method === 'POST' && !ofertaId) return responder(200, await this.#oferta(await this.#corpo(req, caminho, MAX_CONTROLE)))
-      if (tipo === 'ofertas' && req.method === 'PUT' && ofertaId && n != null && !fim) return responder(200, await this.#dados(req, ofertaId, Number(n), m))
-      if (tipo === 'ofertas' && req.method === 'POST' && ofertaId && n != null && fim) return responder(200, await this.#fimArquivo(ofertaId, Number(n), await this.#corpo(req, caminho, 4096)))
-      if (tipo === 'ofertas' && req.method === 'POST' && ofertaId && n == null && fim) return responder(200, await this.#fimOferta(ofertaId, await this.#corpo(req, caminho, 4096)))
+      if (tipo === 'ofertas' && req.method === 'POST' && !ofertaId) return responder(200, await this.#oferta(await this.#corpo(req, caminho, MAX_CONTROLE, chave), ctx))
+      if (tipo === 'ofertas' && req.method === 'PUT' && ofertaId && n != null && !fim) return responder(200, await this.#dados(req, ofertaId, Number(n), m, ctx))
+      if (tipo === 'ofertas' && req.method === 'POST' && ofertaId && n != null && fim) return responder(200, await this.#fimArquivo(ofertaId, Number(n), await this.#corpo(req, caminho, 4096, chave), ctx))
+      if (tipo === 'ofertas' && req.method === 'POST' && ofertaId && n == null && fim) return responder(200, await this.#fimOferta(ofertaId, await this.#corpo(req, caminho, 4096, chave), ctx))
       throw new LanError(405, 'Método não aceito.')
     } catch (err) {
       const status = err instanceof LanError ? err.status : 500
@@ -195,7 +228,7 @@ export class LanReceptor {
     }
   }
 
-  async #corpo(req, caminho, limite) {
+  async #corpo(req, caminho, limite, chave) {
     const partes = []
     let n = 0
     for await (const p of req) {
@@ -204,7 +237,7 @@ export class LanReceptor {
       partes.push(p)
     }
     try {
-      return abrir(this.chave(), Buffer.concat(partes), `${req.method} ${caminho}`)
+      return abrir(chave, Buffer.concat(partes), `${req.method} ${caminho}`)
     } catch {
       throw new LanError(400, 'Pedido ilegível.')
     }
@@ -212,11 +245,14 @@ export class LanReceptor {
 
   // ───── oferta ─────
 
-  async #oferta(o) {
+  async #oferta(o, ctx) {
     if (typeof o?.id !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(o.id)) throw new LanError(400, 'Oferta sem id.')
     if (!Array.isArray(o.arquivos) || !o.arquivos.length || o.arquivos.length > MAX_ARQUIVOS) throw new LanError(400, 'Lista de arquivos inválida.')
     let oferta = this.ofertas.get(o.id)
+    if (oferta && oferta.eph !== ctx.eph) throw new LanError(404, 'Oferta desconhecida.')
     if (!oferta) {
+      this.#esquecerPendentesVelhos()
+      if (ctx.eph && [...this.ofertas.values()].filter((x) => x.estado === 'pendente').length >= MAX_PENDENTES) throw new LanError(429, 'Este computador já tem pedidos esperando resposta. Tente daqui a pouco.')
       const base = this.settings.get().lanPasta
       const pasta = nomeDePasta(o.pasta) || 'Recebidos'
       const dir = path.join(base, pasta)
@@ -247,20 +283,49 @@ export class LanReceptor {
       oferta = {
         id: o.id,
         de: String(o.de || 'Outro computador').slice(0, 120),
+        pessoa: typeof o.pessoa === 'string' ? o.pessoa.slice(0, 60) : null,
+        eph: ctx.eph,
         pasta,
         dir,
         parcial: path.join(base, RECEBENDO, o.id),
         arquivos,
         total,
-        estado: 'recebendo',
+        // Outra conta: espera a pessoa aceitar. A própria conta: entra direto.
+        estado: ctx.eph ? 'pendente' : 'recebendo',
         criadaEm: Date.now(),
       }
       this.ofertas.set(o.id, oferta)
       this.#esquecerVelhas()
       this.#mudou(true)
+      if (oferta.estado === 'pendente') {
+        try {
+          this.onPedido({ id: oferta.id, de: oferta.de, pessoa: oferta.pessoa, arquivos: arquivos.length, bytes: total })
+        } catch {}
+      }
     }
     oferta.vistaEm = Date.now()
+    if (oferta.estado === 'pendente') return { aceita: false, aguardando: true, pasta: oferta.pasta }
+    if (oferta.estado === 'recusada') return { aceita: false, recusada: true }
     return { aceita: true, pasta: oferta.pasta, arquivos: oferta.arquivos.map((a) => ({ n: a.n, estado: a.estado, offset: a.offset })) }
+  }
+
+  /**
+   * A pessoa respondeu um pedido de outra conta. `drive`: { accountId, folderId, folderName?, driveId? } para subir o
+   * que chegar pro Drive dela.
+   */
+  responder(id, aceitar, { drive = null } = {}) {
+    const oferta = this.ofertas.get(id)
+    if (!oferta || oferta.estado !== 'pendente') throw new LanError(404, 'Esse pedido não está mais esperando.')
+    oferta.estado = aceitar ? 'recebendo' : 'recusada'
+    oferta.drive = aceitar ? drive : null
+    oferta.fimEm = aceitar ? null : Date.now()
+    this.#mudou(true)
+    return this.view()
+  }
+
+  #esquecerPendentesVelhos() {
+    const corte = Date.now() - PENDENTE_MS
+    for (const [id, o] of this.ofertas) if (o.estado === 'pendente' && (o.vistaEm || o.criadaEm) < corte) this.ofertas.delete(id)
   }
 
   #esquecerVelhas() {
@@ -268,9 +333,10 @@ export class LanReceptor {
     for (const [id, o] of this.ofertas) if ((o.vistaEm || o.criadaEm) < corte && o.estado !== 'recebendo') this.ofertas.delete(id)
   }
 
-  #arquivo(ofertaId, n) {
+  #arquivo(ofertaId, n, ctx) {
     const oferta = this.ofertas.get(ofertaId)
-    if (!oferta) throw new LanError(404, 'Oferta desconhecida (o outro computador reiniciou?). Mande de novo.')
+    if (!oferta || oferta.eph !== ctx.eph) throw new LanError(404, 'Oferta desconhecida (o outro computador reiniciou?). Mande de novo.')
+    if (oferta.estado === 'pendente' || oferta.estado === 'recusada') throw new LanError(403, 'Ainda não foi aceito.')
     const a = oferta.arquivos[n]
     if (!a) throw new LanError(404, 'Arquivo desconhecido.')
     return { oferta, a }
@@ -278,8 +344,8 @@ export class LanReceptor {
 
   // ───── dados ─────
 
-  async #dados(req, ofertaId, n, m) {
-    const { oferta, a } = this.#arquivo(ofertaId, n)
+  async #dados(req, ofertaId, n, m, ctx) {
+    const { oferta, a } = this.#arquivo(ofertaId, n, ctx)
     if (a.estado === 'pronto' || a.estado === 'igual') throw new LanError(409, 'Este arquivo já chegou.')
     if (a.ocupado) throw new LanError(409, 'Este arquivo já está chegando por outra conexão.')
     if (typeof m.sessao !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(m.sessao)) throw new LanError(400, 'Sessão inválida.')
@@ -296,7 +362,7 @@ export class LanReceptor {
     const arq = path.join(oferta.parcial, `${n}.parcial`)
     if (a.offset === 0) a.hash = await criarHash('xxh64')
     const fh = await fsp.open(arq, a.offset === 0 ? 'w' : 'r+')
-    const dec = decifradorDeDados(this.chave(), { oferta: ofertaId, sessao: m.sessao, arquivo: n, offset: a.offset })
+    const dec = decifradorDeDados(ctx.chave, { oferta: ofertaId, sessao: m.sessao, arquivo: n, offset: a.offset })
     try {
       for await (const pedaco of req) {
         for (const bloco of dec.empurrar(pedaco)) {
@@ -321,8 +387,8 @@ export class LanReceptor {
     return { offset: a.offset }
   }
 
-  async #fimArquivo(ofertaId, n, corpo) {
-    const { oferta, a } = this.#arquivo(ofertaId, n)
+  async #fimArquivo(ofertaId, n, corpo, ctx) {
+    const { oferta, a } = this.#arquivo(ofertaId, n, ctx)
     if (a.estado === 'pronto' || a.estado === 'igual') return { ok: true, hash: a.hashFinal || null, caminho: a.destino || null }
     if (a.offset !== a.size) {
       const err = new LanError(409, `Chegou ${a.offset} de ${a.size} bytes.`)
@@ -360,14 +426,23 @@ export class LanReceptor {
     return { ok: true, hash, caminho: path.relative(oferta.dir, final).split(path.sep).join('/') }
   }
 
-  async #fimOferta(ofertaId, corpo) {
+  async #fimOferta(ofertaId, corpo, ctx) {
     const oferta = this.ofertas.get(ofertaId)
-    if (!oferta) throw new LanError(404, 'Oferta desconhecida.')
+    if (!oferta || oferta.eph !== ctx.eph) throw new LanError(404, 'Oferta desconhecida.')
+    if (oferta.estado === 'pendente' || oferta.estado === 'recusada') return { ok: true, faltam: oferta.arquivos.length }
     const faltam = oferta.arquivos.filter((a) => a.estado !== 'pronto' && a.estado !== 'igual').length
     oferta.estado = corpo?.cancelada ? 'cancelada' : faltam ? 'incompleta' : 'pronta'
     oferta.fimEm = Date.now()
     await fsp.rm(oferta.parcial, { recursive: true, force: true }).catch(() => {})
     await fsp.rmdir(path.dirname(oferta.parcial)).catch(() => {}) // a pasta escondida some quando fica vazia (no Windows ela aparece)
+    // Quem aceitou com "subir pro meu Drive": a pasta que chegou vai para a fila de envio (o motor de sempre).
+    if (oferta.drive && this.onSubirDrive && oferta.arquivos.some((a) => a.estado === 'pronto')) {
+      oferta.driveEstado = 'na-fila'
+      Promise.resolve(this.onSubirDrive({ caminhos: [oferta.dir], ...oferta.drive })).then(
+        () => ((oferta.driveEstado = 'na-fila'), this.#mudou(true)),
+        (err) => ((oferta.driveEstado = `erro: ${err.message}`), this.#mudou(true)),
+      )
+    }
     this.#mudou(true)
     try {
       this.onFim({ ...this.view().recebendo.find((x) => x.id === ofertaId) })

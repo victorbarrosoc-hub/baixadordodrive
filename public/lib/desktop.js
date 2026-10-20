@@ -260,6 +260,10 @@ function systemNotify(title, body) {
   } catch {}
 }
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('sd:lan-pedido', (ev) => systemNotify(`${ev.detail?.quem || 'Alguém'} quer te mandar arquivos`, 'Abra Dispositivos no SOBEDESCE para aceitar ou recusar.'))
+}
+
 const FIN = new Set(['completed', 'skipped'])
 let baseEpoch = -1
 let prevObjs = new Map() // id -> objeto da última vez

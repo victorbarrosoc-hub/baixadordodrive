@@ -13,6 +13,7 @@ let sessao: typeof import("../src/lib/auth/sessao");
 let presenca: typeof import("../src/lib/lan/presenca");
 let rPresenca: typeof import("../src/app/api/lan/presenca/route");
 let rComp: typeof import("../src/app/api/lan/computadores/route");
+let rPerto: typeof import("../src/app/api/lan/proximos/route");
 
 const corpo = async (res: Response) => (await res.json()) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const CHAVE = "a".repeat(43);
@@ -33,6 +34,7 @@ describe("entre computadores (presença na rede)", () => {
     presenca = await import("../src/lib/lan/presenca");
     rPresenca = await import("../src/app/api/lan/presenca/route");
     rComp = await import("../src/app/api/lan/computadores/route");
+    rPerto = await import("../src/app/api/lan/proximos/route");
   });
   after(() => amb.fechar());
 
@@ -94,5 +96,36 @@ describe("entre computadores (presença na rede)", () => {
     await rPresenca.POST(pedido("/api/lan/presenca", { bearer: ana.mac, corpo: { v: 1, enderecos: ["192.168.0.2"], porta: 4320, chave: CHAVE } }));
     await db.update(schema.sessoes).set({ revogadaEm: new Date() }).where(eq(schema.sessoes.id, ana.macId));
     assert.equal((await corpo(await rComp.GET(pedido("/api/lan/computadores", { bearer: ana.pc })))).computadores.length, 0);
+  });
+
+  test("por perto: outra conta na MESMA rede vê nome, dono e chave pública (não a chave de recepção); outra rede e quem não aceita, não", async () => {
+    const editor = await pessoa("Marcos Silva", "marcos@exemplo.com");
+    const victor = await pessoa("Victor", "victor2@exemplo.com");
+    const PUB = "b".repeat(43);
+    const avisar = (bearer: string, ip: string, extra: Record<string, unknown>) =>
+      rPresenca.POST(pedido("/api/lan/presenca", { bearer, ip, corpo: { v: 1, enderecos: ["192.168.1.20"], porta: 4320, chave: CHAVE, ...extra } }));
+    // O PC do editor aceita outras contas; o Mac dele não.
+    assert.equal((await avisar(editor.pc, "200.10.20.30", { chavePublica: PUB, outros: true })).status, 200);
+    assert.equal((await avisar(editor.mac, "200.10.20.30", { chavePublica: PUB })).status, 200);
+
+    const mesmaRede = await corpo(await rPerto.GET(pedido("/api/lan/proximos", { bearer: victor.mac, ip: "200.10.20.30" })));
+    assert.equal(mesmaRede.computadores.length, 1);
+    const c = mesmaRede.computadores[0];
+    assert.deepEqual([c.id, c.nome, c.dono, c.chavePublica, c.porta], [editor.pcId, "PC de Marcos Silva", "Marcos", PUB, 4320]);
+    assert.equal(c.chave, undefined, "a chave de recepção não vai para outra conta");
+    assert.equal((await corpo(await rPerto.GET(pedido("/api/lan/proximos", { bearer: victor.mac, ip: "177.1.2.3" })))).computadores.length, 0, "outra rede");
+    assert.equal((await corpo(await rPerto.GET(pedido("/api/lan/proximos", { bearer: editor.mac, ip: "200.10.20.30" })))).computadores.length, 0, "a própria conta fica na outra lista");
+    assert.equal((await rPerto.GET(pedido("/api/lan/proximos", { cookies: { sd_sessao: victor.cookie }, ip: "200.10.20.30" }))).status, 403);
+    // IPv6: o mesmo /64 é a mesma rede.
+    await avisar(editor.pc, "2804:14c:5b8a:1000:aaaa:bbbb:cccc:1", { chavePublica: PUB, outros: true });
+    assert.equal((await corpo(await rPerto.GET(pedido("/api/lan/proximos", { bearer: victor.mac, ip: "2804:14c:5b8a:1000::99" })))).computadores.length, 1);
+    assert.equal((await corpo(await rPerto.GET(pedido("/api/lan/proximos", { bearer: victor.mac, ip: "2804:14c:5b8a:2000::99" })))).computadores.length, 0);
+    // O IP não fica no banco.
+    const { schema, db } = await import("../src/lib/db");
+    const linhas = await db.select().from(schema.lanPresenca);
+    assert.ok(linhas.every((l) => !String(l.rede ?? "").includes("2804") && !String(l.rede ?? "").includes("200.10")));
+    // Desligou "outras contas": some.
+    await avisar(editor.pc, "200.10.20.30", { chavePublica: PUB, outros: false });
+    assert.equal((await corpo(await rPerto.GET(pedido("/api/lan/proximos", { bearer: victor.mac, ip: "200.10.20.30" })))).computadores.length, 0);
   });
 });

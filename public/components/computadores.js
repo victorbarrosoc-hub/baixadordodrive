@@ -1,6 +1,7 @@
-// Tela Computadores ("Entre computadores", docs/LAN.md): manda arquivos direto para outro computador da mesma conta
-// SOBEDESCE pela rede local (Mac ou Windows), cifrado e conferido, com a opção de subir para o Drive ao mesmo tempo.
-// Aqui também se liga "Este computador recebe" e se escolhe onde chega o que vem dos outros.
+// Tela Computadores ("Entre computadores", docs/LAN.md): manda arquivos direto para outro computador pela rede local
+// (Mac ou Windows), da mesma conta SOBEDESCE ou de outra conta por perto, cifrado e conferido, com a opção de subir
+// para o Drive ao mesmo tempo. Aqui também se liga "Este computador recebe", "Aceitar de outras contas por perto", se
+// respondem os pedidos de outras contas e se escolhe onde chega o que vem dos outros.
 import { html, useEffect, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore, setSettings } from '../lib/store.js'
 import { api, attempt } from '../lib/api.js'
@@ -27,7 +28,7 @@ function Receber({ lan, settings, home }) {
       <span class="pc-receber-icon"><${Icon} name=${ligado ? 'circle-down' : 'download'} size=${20} /></span>
       <div>
         <h2>Este computador recebe</h2>
-        <p class="sub">${ligado ? (lan?.rodando ? `Pronto para receber dos seus outros computadores (porta ${lan.porta}).` : 'Ligando…') : 'Desligado: os outros computadores da conta não veem este.'}</p>
+        <p class="sub">${ligado ? (lan?.rodando ? `Pronto para receber dos seus outros computadores${settings.lanOutros ? ' e de quem está por perto' : ''} (porta ${lan.porta}).` : 'Ligando…') : 'Desligado: os outros computadores não veem este.'}</p>
       </div>
       <${Switch} checked=${ligado} label="Este computador recebe" onChange=${(on) => salvar({ lanReceber: on })} />
     </div>
@@ -40,8 +41,58 @@ function Receber({ lan, settings, home }) {
             if (p) salvar({ lanPasta: p })
           }}>Trocar</${Button}>
           <button type="button" class="link-btn" onClick=${() => revealPath(settings.lanPasta)}>${revealLabel()}</button>
+        </div>
+        <div class="pc-outros">
+          <div>
+            <b>Aceitar de outras contas por perto</b>
+            <span class="sub">Quem está na mesma rede com outra conta SOBEDESCE pode pedir para mandar. Nada chega sem você aceitar.</span>
+          </div>
+          <${Switch} checked=${!!settings.lanOutros} label="Aceitar de outras contas por perto" onChange=${(on) => salvar({ lanOutros: on })} />
         </div>`
       : null}
+  </section>`
+}
+
+// Pedido de outra conta: aceita (e, se quiser, sobe pro Drive desta conta) ou recusa. Sem resposta em 5 min, cai.
+function Pedido({ p, accountId }) {
+  const [drive, setDrive] = usePersistentState('lan.pedido.drive', null) // { ligado, folder }
+  const [ocupado, setOcupado] = useState(false)
+  const responder = async (aceitar) => {
+    setOcupado(true)
+    await attempt(
+      api.post('/api/lan/responder', {
+        id: p.id,
+        aceitar,
+        drive: aceitar && drive?.ligado && drive.folder && accountId ? { accountId, folderId: drive.folder.id, folderName: drive.folder.name, driveId: drive.folder.driveId || null } : null,
+      }),
+    )
+    setOcupado(false)
+  }
+  return html`<section class="card pc-pedido" role="alertdialog" aria-label=${`Pedido de ${p.pessoa || p.de}`}>
+    <div class="pc-pedido-topo">
+      <span class="pc-pedido-icon"><${Icon} name="circle-down" size=${22} /></span>
+      <div>
+        <h2>${p.pessoa ? `${p.pessoa} quer te mandar arquivos` : `${p.de} quer te mandar arquivos`}</h2>
+        <p class="sub num">${p.pessoa ? `${p.de} · ` : ''}${plural(p.arquivos, 'arquivo', 'arquivos')} · ${bytes(p.bytes)} · pasta <b>${p.pasta}</b></p>
+      </div>
+    </div>
+    <label class="dk-opcao">
+      <${Checkbox} checked=${!!drive?.ligado} onChange=${async (on) => {
+        if (on && !drive?.folder) {
+          const f = await pickDriveFolder({ accountId, title: 'Em qual pasta do seu Drive?', initialFolderId: 'root' })
+          if (!f) return
+          setDrive({ ligado: true, folder: f })
+        } else setDrive({ ...(drive || {}), ligado: on })
+      }} label="Subir pro meu Drive quando chegar" />
+      <span><b>Subir pro meu Drive quando chegar</b>${drive?.ligado && drive.folder ? html`<span class="sub"> · ${drive.folder.path || drive.folder.name} </span><button type="button" class="link-btn" onClick=${async () => {
+        const f = await pickDriveFolder({ accountId, title: 'Em qual pasta do seu Drive?', initialFolderId: drive.folder.id })
+        if (f) setDrive({ ligado: true, folder: f })
+      }}>Trocar</button>` : html`<span class="sub"> · na sua conta, pela fila de Transferências</span>`}</span>
+    </label>
+    <div class="dk-go">
+      <${Button} variant="primary" icon="check" onClick=${() => responder(true)} loading=${ocupado}>Aceitar</${Button}>
+      <${Button} variant="ghost" onClick=${() => responder(false)} disabled=${ocupado}>Recusar</${Button}>
+    </div>
   </section>`
 }
 
@@ -55,7 +106,7 @@ function Recebendo({ lista }) {
         return html`<li class=${cx(`is-${o.estado}`)}>
           <div class="pc-chegando-linha">
             <b>${o.pasta}</b>
-            <span class="sub">de ${o.de} · ${plural(o.arquivos, 'arquivo', 'arquivos')} · ${bytes(o.bytes)}</span>
+            <span class="sub">de ${o.pessoa ? `${o.pessoa} (${o.de})` : o.de} · ${plural(o.arquivos, 'arquivo', 'arquivos')} · ${bytes(o.bytes)}${o.drive ? ` · ${o.drive.estado?.startsWith('erro') ? 'Drive: não deu' : o.drive.estado ? 'Drive: na fila' : 'depois sobe pro Drive'}` : ''}</span>
             <span class="pc-chegando-estado">
               ${o.estado === 'recebendo' ? `${Math.floor(frac * 100)}%` : o.estado === 'pronta' ? 'Chegou tudo' : o.estado === 'cancelada' ? 'Cancelado' : `${o.prontos} de ${o.arquivos}`}
             </span>
@@ -89,11 +140,21 @@ function Envio({ e, pontos, onCancelar, onNovo }) {
       <div class="dk-go"><${Button} variant="primary" icon="plus" onClick=${onNovo}>Mandar mais</${Button}></div>
     </section>`
   }
+  if (e.fase === 'aguardando') {
+    return html`<section class="card pc-esperando" aria-live="polite">
+      <span class="pc-pedido-icon"><${Icon} name="user" size=${22} /></span>
+      <div>
+        <h2>Esperando ${e.dono || e.para} aceitar…</h2>
+        <p class="sub num">Pedido enviado para ${e.para}: ${plural(e.arquivos, 'arquivo', 'arquivos')} · ${bytes(e.bytes)}. Quando aceitar, a cópia começa sozinha.</p>
+      </div>
+      <${Button} variant="ghost" size="sm" icon="x" onClick=${onCancelar}>Desistir</${Button}>
+    </section>`
+  }
   return html`<section class="card dk-andamento" aria-live="polite">
     <div class="dk-and-topo">
       <div class="dk-anel" style=${`--p:${(frac * 100).toFixed(1)}`}><span class="num">${Math.floor(frac * 100)}<small>%</small></span></div>
       <div class="dk-and-txt">
-        <h2>${e.fase === 'preparando' ? `Conectando com ${e.para}…` : `Mandando para ${e.para}…`}</h2>
+        <h2>${e.fase === 'preparando' ? `Conectando com ${e.para}…` : e.fase === 'aguardando' ? `Esperando ${e.dono || e.para} aceitar…` : `Mandando para ${e.para}…`}</h2>
         <p class="sub num">${bytes(e.enviados)} de ${bytes(e.bytes)} · ${count(e.prontos)} de ${plural(Math.max(0, e.arquivos - e.iguais), 'arquivo', 'arquivos')}${e.endereco ? ` · pela rede (${e.endereco})` : ''}</p>
         ${e.atual ? html`<p class="mono-path dk-atual" title=${e.atual}>${e.atual}</p>` : null}
       </div>
@@ -126,11 +187,15 @@ export function ComputadoresScreen() {
   const e = lan?.envio
   const conectado = !!cloud?.conectado
 
-  // Os computadores da conta: de novo a cada 15 s enquanto a tela está aberta.
+  // Os computadores da conta e os de outras contas por perto: de novo a cada 15 s enquanto a tela está aberta.
   useEffect(() => {
     if (!conectado) return undefined
     let vivo = true
-    const buscar = () => api.get('/api/lan/computadores').then((r) => vivo && setLista(r.computadores || []), () => vivo && setLista((l) => l || []))
+    const buscar = () =>
+      api.get('/api/lan/computadores').then(
+        (r) => vivo && setLista([...(r.computadores || []), ...(r.porPerto || [])]),
+        () => vivo && setLista((l) => l || []),
+      )
     buscar()
     const t = setInterval(buscar, 15_000)
     return () => {
@@ -168,14 +233,14 @@ export function ComputadoresScreen() {
     setMandando(false)
   }
   const destino = lista?.find((c) => c.id === para) || null
-  const ocupado = e && ['preparando', 'enviando'].includes(e.fase)
+  const ocupado = e && ['preparando', 'aguardando', 'enviando'].includes(e.fase)
   const nomePadrao = origens.length ? baseName(origens[0]) : ''
 
   return html`<div class="page page-computadores">
     <header class="page-head">
       <div>
         <h1>Computadores</h1>
-        <p class="page-lead">Mande arquivos direto para outro computador da sua conta, pela rede. Mac ou Windows, criptografado e conferido.</p>
+        <p class="page-lead">Mande arquivos direto para outro computador pela rede: o seu ou o de quem está do lado. Mac ou Windows, criptografado e conferido.</p>
       </div>
     </header>
 
@@ -185,6 +250,7 @@ export function ComputadoresScreen() {
           <div class="dk-go" style="justify-content:center;margin-top:12px"><${Button} variant="primary" onClick=${() => navigate('ajustes')}>Abrir Ajustes</${Button}></div>
         </${EmptyState}>`
       : html`
+          ${(lan?.pedidos || []).map((p) => html`<${Pedido} key=${p.id} p=${p} accountId=${accountId} />`)}
           <${Receber} lan=${lan} settings=${settings} home=${roots?.home} />
           <${Recebendo} lista=${lan?.recebendo} />
 
@@ -203,16 +269,27 @@ export function ComputadoresScreen() {
                 ${lista == null
                   ? html`<div class="pc-carregando"><${Spinner} size=${16} /> Procurando seus computadores…</div>`
                   : !lista.length
-                    ? html`<p class="sub pc-vazio">Nenhum outro computador com a recepção ligada. No outro computador, abra o SOBEDESCE, entre na mesma conta e ligue <b>Este computador recebe</b> nesta tela.</p>`
-                    : html`<div class="pc-lista" role="radiogroup" aria-label="Computador">
-                        ${lista.map(
-                          (c) => html`<button type="button" role="radio" aria-checked=${para === c.id ? 'true' : 'false'} class=${cx('pc-comp', para === c.id && 'is-on')} onClick=${() => setPara(c.id)}>
-                            <span class="pc-comp-icon"><${Icon} name=${iconeDe(c.plataforma)} size=${20} /></span>
-                            <span class="pc-comp-txt"><b>${c.nome}</b><span class="sub">${c.plataforma === 'windows' ? 'Windows' : c.plataforma === 'mac' ? 'Mac' : 'Computador'} · visto ${relTime(Date.parse(c.vistoEm))}</span></span>
-                            <span class="pc-online" aria-hidden="true"></span>
-                          </button>`,
-                        )}
-                      </div>`}
+                    ? html`<p class="sub pc-vazio"><span>Nenhum computador com a recepção ligada. No outro computador, abra o SOBEDESCE e ligue <b>Este computador recebe</b> nesta tela. Se for de outra conta, ligue também <b>Aceitar de outras contas por perto</b>.</span></p>`
+                    : html`${[
+                        ['conta', 'Seus computadores'],
+                        ['outro', 'Por perto, de outras contas'],
+                      ].map(([tipo, titulo]) => {
+                        const grupo = lista.filter((c) => (c.tipo || 'conta') === tipo)
+                        if (!grupo.length) return null
+                        return html`<div class="pc-grupo">
+                          ${lista.some((c) => c.tipo === 'outro') ? html`<h3 class="pc-grupo-titulo">${titulo}</h3>` : null}
+                          <div class="pc-lista" role="radiogroup" aria-label=${titulo}>
+                            ${grupo.map(
+                              (c) => html`<button type="button" role="radio" aria-checked=${para === c.id ? 'true' : 'false'} class=${cx('pc-comp', para === c.id && 'is-on', tipo === 'outro' && 'is-outro')} onClick=${() => setPara(c.id)}>
+                                <span class="pc-comp-icon"><${Icon} name=${tipo === 'outro' ? 'user' : iconeDe(c.plataforma)} size=${20} /></span>
+                                <span class="pc-comp-txt"><b>${c.nome}</b><span class="sub">${tipo === 'outro' && c.dono ? `de ${c.dono} · ` : ''}${c.plataforma === 'windows' ? 'Windows' : c.plataforma === 'mac' ? 'Mac' : 'Computador'} · visto ${relTime(Date.parse(c.vistoEm))}</span></span>
+                                <span class="pc-online" aria-hidden="true"></span>
+                              </button>`,
+                            )}
+                          </div>
+                        </div>`
+                      })}`}
+                ${destino?.tipo === 'outro' ? html`<p class="sub pc-aviso-outro"><${Icon} name="info" size=${13} /> <span>${destino.dono || 'A pessoa'} recebe um pedido na tela e escolhe aceitar. Os arquivos chegam no ${destino.nome}${drive?.ligado ? '; o seu "Subir pro Drive" vai para a sua conta' : ''}.</span></p>` : null}
 
                 <div
                   class=${cx('pc-drop', sobre && 'is-sobre', origens.length && 'tem')}
