@@ -228,7 +228,7 @@ StatusComputador = {
 - **Inscrição:** só endereços https de serviços de push conhecidos (`*.push.apple.com`, `fcm.googleapis.com`,
   `android.googleapis.com`, `*.push.services.mozilla.com`, `*.notify.windows.com`): o servidor faz POST para lá.
   O mesmo endereço em outra conta passa para a conta nova.
-- **Sua conta:** bloco "Transferências agora" (quando há computador conectado) com link para `/app/#computador`.
+- **Sua conta:** no Início, o bloco "Computadores" mostra a porcentagem do que está passando e leva para `/app/#computador`.
 
 ## 10. Uso da plataforma (admin)
 
