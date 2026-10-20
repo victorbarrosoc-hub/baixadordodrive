@@ -15,6 +15,41 @@ export const DESVIO_MS = 10 * 60_000
 
 export const novaChave = () => crypto.randomBytes(32).toString('base64url')
 
+// ───── outras contas: X25519 ─────
+// Quem recebe tem um par de chaves fixo; a pública vai para o site ("por perto"). Quem manda sorteia um par só para
+// aquele envio, combina (ECDH) com a pública de quem recebe e deriva a chave do envio (HKDF). Manda a pública dele no
+// cabeçalho x-sd-eph; quem recebe faz a mesma conta com a privada dele. Ninguém mais na rede consegue a chave.
+
+/** Par fixo de quem recebe: { publica: base64url (32 bytes), privada: PKCS#8 em base64 }. */
+export function novoPar() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('x25519')
+  return { publica: publicKey.export({ format: 'jwk' }).x, privada: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64') }
+}
+
+export const ehPublica = (x) => typeof x === 'string' && /^[A-Za-z0-9_-]{43}$/.test(x)
+const publicaDe = (x) => crypto.createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x }, format: 'jwk' })
+
+function derivarDoSegredo(segredo, efemera, destino) {
+  return Buffer.from(crypto.hkdfSync('sha256', segredo, Buffer.from(`${efemera}.${destino}`), Buffer.from(`sobedesce-lan-v${VERSAO}:x25519`), 32)).toString('base64url')
+}
+
+/** Lado de quem manda: { chave (a do envio, como a de recepção), efemera (vai no x-sd-eph) }. */
+export function chaveParaOutraConta(publicaDoDestino) {
+  if (!ehPublica(publicaDoDestino)) throw new Error('Chave pública inválida.')
+  const eph = crypto.generateKeyPairSync('x25519')
+  const efemera = eph.publicKey.export({ format: 'jwk' }).x
+  const segredo = crypto.diffieHellman({ privateKey: eph.privateKey, publicKey: publicaDe(publicaDoDestino) })
+  return { chave: derivarDoSegredo(segredo, efemera, publicaDoDestino), efemera }
+}
+
+/** Lado de quem recebe: a mesma chave do envio, a partir da efêmera de quem mandou. */
+export function chaveDeOutraConta(par, efemera) {
+  if (!ehPublica(efemera)) throw new Error('Chave efêmera inválida.')
+  const privada = crypto.createPrivateKey({ key: Buffer.from(par.privada, 'base64'), format: 'der', type: 'pkcs8' })
+  const segredo = crypto.diffieHellman({ privateKey: privada, publicKey: publicaDe(efemera) })
+  return derivarDoSegredo(segredo, efemera, par.publica)
+}
+
 function bytesDaChave(chave) {
   const b = Buffer.from(String(chave || ''), 'base64url')
   if (b.length !== 32) throw new Error('Chave de recepção inválida.')

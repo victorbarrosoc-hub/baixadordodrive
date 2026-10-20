@@ -6,23 +6,30 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { LanReceptor } from '../lan/receptor.js'
 import { LanEnviador } from '../lan/enviador.js'
-import { novaChave } from '../lan/cripto.js'
+import { novaChave, novoPar } from '../lan/cripto.js'
 import { lanAddresses } from '../mobile/net.js'
 import { computerName } from '../google/cloud-auth.js'
 import { planUploads } from '../engine/planner.js'
 
 const PRESENCA_MS = 60_000
 
-/** A chave de recepção: sorteada uma vez e guardada só para este usuário do sistema. */
-function chaveGuardada(arquivo) {
+/**
+ * As chaves deste computador, sorteadas uma vez e guardadas só para este usuário do sistema: a de recepção (mesma
+ * conta) e o par X25519 (outras contas cifram para a pública).
+ */
+function chavesGuardadas(arquivo) {
+  let j = {}
   try {
-    const j = JSON.parse(fs.readFileSync(arquivo, 'utf8'))
-    if (typeof j.chave === 'string' && /^[A-Za-z0-9_-]{43}$/.test(j.chave)) return j.chave
+    j = JSON.parse(fs.readFileSync(arquivo, 'utf8')) || {}
   } catch {}
-  const chave = novaChave()
-  fs.mkdirSync(path.dirname(arquivo), { recursive: true })
-  fs.writeFileSync(arquivo, JSON.stringify({ chave }), { mode: 0o600 })
-  return chave
+  let mudou = false
+  if (typeof j.chave !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(j.chave)) (j.chave = novaChave()), (mudou = true)
+  if (!j.par?.publica || !j.par?.privada) (j.par = novoPar()), (mudou = true)
+  if (mudou) {
+    fs.mkdirSync(path.dirname(arquivo), { recursive: true })
+    fs.writeFileSync(arquivo, JSON.stringify({ chave: j.chave, par: j.par }), { mode: 0o600 })
+  }
+  return j
 }
 
 /**
@@ -32,8 +39,17 @@ function chaveGuardada(arquivo) {
 export function registerLan({ route, ctx, account, HttpProblem, receptor, enviador }) {
   const dataRoot = ctx.paths?.root || path.dirname(ctx.paths?.settings || '.')
   const arquivoChave = path.join(dataRoot, 'lan.json')
-  let chave = null
-  const minhaChave = () => (chave ??= chaveGuardada(arquivoChave))
+  let chaves = null
+  const minhaChave = () => (chaves ??= chavesGuardadas(arquivoChave)).chave
+  const meuPar = () => (chaves ??= chavesGuardadas(arquivoChave)).par
+  // Sobe a pasta (recebida ou mandada) para o Drive pelo motor de sempre, na fila de Transferências.
+  const subirPasta = async ({ caminhos, accountId, folderId, folderName, driveId }) => {
+    const acc = account(accountId)
+    const plan = await planUploads({ drive: ctx.manager.driveFor(acc.id), accountId: acc.id, paths: caminhos, destFolderId: folderId || 'root', driveId: driveId || null })
+    if (plan.batch) plan.batch.destino = folderName || null
+    if (plan.records?.length) await ctx.manager.add({ batch: plan.batch, records: plan.records })
+    return { arquivos: plan.records?.length || 0 }
+  }
   let nome = null
   const meuNome = async () => (nome ??= await computerName())
   const cloud = () => ctx.auth?.cloud || null
@@ -44,9 +60,13 @@ export function registerLan({ route, ctx, account, HttpProblem, receptor, enviad
     new LanReceptor({
       settings: ctx.settings,
       chave: minhaChave,
+      par: meuPar,
+      aceitaOutros: () => !!ctx.settings.get().lanOutros,
       nome: meuNome,
       onChange: avisar,
-      onFim: (o) => ctx.hub?.send('toast', { kind: o.erros ? 'warning' : 'success', message: `${o.de}: ${o.prontos} de ${o.arquivos} arquivos chegaram em ${o.pasta}.` }),
+      onSubirDrive: subirPasta,
+      onPedido: (p) => ctx.hub?.send('lan-pedido', p),
+      onFim: (o) => ctx.hub?.send('toast', { kind: o.erros ? 'warning' : 'success', message: `${o.pessoa ? `${o.pessoa} (${o.de})` : o.de}: ${o.prontos} de ${o.arquivos} arquivos chegaram em ${o.pasta}.` }),
       log: ctx.log,
     })
   const env =
@@ -54,16 +74,11 @@ export function registerLan({ route, ctx, account, HttpProblem, receptor, enviad
     new LanEnviador({
       cloud: cloud(),
       nome: meuNome,
+      pessoa: () => (cloud()?.status?.()?.usuario?.nome || '').trim().split(/\s+/)[0] || null,
       onChange: avisar,
       log: ctx.log,
       // "Subir pro Drive ao mesmo tempo": o envio de sempre (retomável), na fila de transferências.
-      subirDrive: async ({ caminhos, accountId, folderId, folderName, driveId }) => {
-        const acc = account(accountId)
-        const plan = await planUploads({ drive: ctx.manager.driveFor(acc.id), accountId: acc.id, paths: caminhos, destFolderId: folderId || 'root', driveId: driveId || null })
-        if (plan.batch) plan.batch.destino = folderName || null
-        if (plan.records?.length) await ctx.manager.add({ batch: plan.batch, records: plan.records })
-        return { arquivos: plan.records?.length || 0 }
-      },
+      subirDrive: subirPasta,
     })
   if (!env.cloud) env.cloud = cloud()
 
@@ -78,7 +93,7 @@ export function registerLan({ route, ctx, account, HttpProblem, receptor, enviad
     const enderecos = lanAddresses().slice(0, 8)
     if (!enderecos.length) return
     try {
-      await c.request('POST', '/api/lan/presenca', { body: { v: 1, enderecos, porta: rec.porta, chave: minhaChave() } })
+      await c.request('POST', '/api/lan/presenca', { body: { v: 1, enderecos, porta: rec.porta, chave: minhaChave(), chavePublica: meuPar().publica, outros: !!ctx.settings.get().lanOutros } })
       publicado = true
     } catch (err) {
       ctx.log?.('lan: presença', err?.message || err)
@@ -114,6 +129,7 @@ export function registerLan({ route, ctx, account, HttpProblem, receptor, enviad
     }))
   const onSettings = (_next, changed = []) => {
     if (changed.includes('lanReceber')) sincronizar()
+    else if (changed.includes('lanOutros')) publicar().then(avisar)
     else if (changed.includes('lanPorta') && rec.rodando) {
       mudando = mudando.then(() => rec.parar())
       sincronizar()
@@ -126,7 +142,7 @@ export function registerLan({ route, ctx, account, HttpProblem, receptor, enviad
   sincronizar()
 
   function view() {
-    return { ...rec.view(), receber: !!ctx.settings.get().lanReceber, conectado: !!cloud()?.signedIn, ...env.view() }
+    return { ...rec.view(), receber: !!ctx.settings.get().lanReceber, outros: !!ctx.settings.get().lanOutros, conectado: !!cloud()?.signedIn, ...env.view() }
   }
 
   const tratar = (fn) => async (a) => {
@@ -167,6 +183,22 @@ export function registerLan({ route, ctx, account, HttpProblem, receptor, enviad
   }))
 
   route('POST', '/api/lan/cancelar', tratar(async () => env.cancelar()))
+
+  // Resposta a um pedido de outra conta: aceitar (com o Drive desta conta, se quiser) ou recusar.
+  route('POST', '/api/lan/responder', tratar(async ({ body }) => {
+    if (typeof body.id !== 'string' || !body.id) throw new HttpProblem(400, 'Pedido inválido.')
+    let drive = null
+    if (body.aceitar === true && body.drive && typeof body.drive === 'object') {
+      const acc = account(body.drive.accountId)
+      drive = { accountId: acc.id, folderId: typeof body.drive.folderId === 'string' && body.drive.folderId ? body.drive.folderId : 'root', folderName: typeof body.drive.folderName === 'string' ? body.drive.folderName.slice(0, 255) : null, driveId: typeof body.drive.driveId === 'string' ? body.drive.driveId : null }
+    }
+    try {
+      return rec.responder(body.id, body.aceitar === true, { drive })
+    } catch (err) {
+      if (err?.name === 'LanError') throw new HttpProblem(err.status, err.message)
+      throw err
+    }
+  }))
 
   route('POST', '/api/lan/limpar', tratar(async () => env.limpar()))
 

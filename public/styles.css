@@ -11397,6 +11397,105 @@ button.tree-twisty:hover {
   color: var(--ok-text);
   background: color-mix(in srgb, var(--ok) 15%, transparent);
 }
+.pc-outros {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+.pc-outros > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.pc-pedido {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-color: color-mix(in srgb, var(--up) 45%, transparent);
+  background: color-mix(in srgb, var(--up) 7%, var(--surface));
+  animation: pc-pedido-entra 0.45s var(--ease) both;
+}
+.pc-pedido h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.pc-pedido-topo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.pc-pedido-topo .sub {
+  margin: 2px 0 0;
+}
+.pc-pedido-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 18%, transparent);
+  animation: pc-pulso 2s var(--ease) infinite;
+}
+@keyframes pc-pedido-entra {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+.pc-esperando {
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  animation: pc-pedido-entra 0.45s var(--ease) both;
+}
+.pc-esperando > div {
+  flex: 1;
+  min-width: 0;
+}
+.pc-esperando h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.pc-esperando .sub {
+  margin: 2px 0 0;
+}
+.pc-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pc-grupo-titulo {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+.pc-comp.is-outro .pc-comp-icon {
+  color: var(--text-2);
+  background: var(--fill);
+}
+.pc-aviso-outro {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pc-pedido,
+  .pc-pedido-icon,
+  .pc-esperando {
+    animation: none;
+  }
+}
 .pc-pasta {
   display: flex;
   align-items: center;
