@@ -57,7 +57,8 @@ const STILL = 9.6;
 function tc(i: number) {
   const s = 4 + i * 6;
   const f = (i * 7) % 24;
-  return `00-00-${String(s).padStart(2, "0")}-${String(f).padStart(2, "0")}`;
+  const dd = (n: number) => String(n).padStart(2, "0");
+  return `00-${dd(Math.floor(s / 60))}-${dd(s % 60)}-${dd(f)}`;
 }
 
 function Still({ s, kind, i, className }: { s: 0 | 1 | 2; kind: Kind; i: number; className?: string }) {
