@@ -6995,3 +6995,19 @@ html.is-dswipe body {
     opacity: 0.35;
   }
 }
+.cr-erro-pc {
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+}
+.cr-res .cr-aviso {
+  margin: -4px 0 14px;
+}
+.cr-res {
+  padding-bottom: 96px; /* a barra Salvar · Subir · Post fica por cima do fim da lista */
+}
+.cr-erro .cr-erro-galeria {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
