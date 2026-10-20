@@ -1,4 +1,5 @@
-// Tela principal: destino no topo, o botão grande de escolher arquivos e a fila.
+// Tela principal (aba Início): a saudação, o destino, o botão grande de escolher arquivos, os atalhos, o espaço no
+// Drive, as pastas recentes e a fila. Com a fila andando, o topo encolhe e fica só o que importa para o envio.
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js'
 import * as auth from '../lib/auth.js'
 import { ACCOUNT, DEV, LAN, local } from '../lib/config.js'
@@ -13,6 +14,7 @@ import { BatchCards, FileName, QueueRow, SequenceBar } from './queue.js'
 import { InstallHint } from './install-hint.js'
 import { isIOS } from '../lib/platform.js'
 import { ComputerCard } from './computador.js'
+import { Atalhos, Espaco, Recentes, Saudacao } from './inicio.js'
 
 export function Avatar({ user, size = 32 }) {
   const [broken, setBroken] = useState(false)
@@ -312,21 +314,25 @@ export function MainScreen() {
   const hasFinished = sum.finished > 0
   // Fila andando (ou pausada no meio): o topo encolhe para a fila aparecer sem rolar, até no iPhone SE.
   const compact = sum.pending + sum.paused > 0
+  // Início completo (atalhos, espaço, recentes) só com a fila parada e fora do modo Wi-Fi.
+  const inicio = !LAN && !compact
 
   const waiting = issue === 'rede'
   const reconnect = issue === 'reconectar'
   return html`<div class=${cx('screen', 'main', waiting && 'has-tap-pill')}>
     <${Header} user=${user} sum=${sum} items=${items} waiting=${waiting} awake=${awake} />
-    <main class=${cx('main-body', compact && 'is-compact')}>
+    <main class=${cx('main-body', compact && 'is-compact', inicio && 'is-inicio')}>
+      ${inicio ? html`<${Saudacao} user=${user} />` : null}
       ${LAN ? null : html`<${ComputerCard} />`}
       ${compact
         ? html`<div class="sendbar">
             <${Destination} dest=${dest} compact />
             <${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} compact />
           </div>`
-        : html`<${Destination} dest=${dest} />`}
+        : html`<div class="ini-entra" style="--i:1"><${Destination} dest=${dest} /></div>`}
       ${reconnect ? html`<${ReconnectNotice} drive=${drive} message=${authError} />` : null}
-      ${compact ? null : html`<${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} />`}
+      ${compact ? null : html`<div class="ini-entra" style="--i:2"><${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} /></div>`}
+      ${inicio ? html`<${Atalhos} /><${Espaco} /><${Recentes} user=${user} dest=${dest} />` : null}
       ${LAN ? html`<${LanNotices} lan=${lan} sum=${sum} />` : null}
 
       ${engine.notice
@@ -355,7 +361,9 @@ export function MainScreen() {
               ${items.map((it) => html`<${QueueRow} key=${it.id} it=${it} waiting=${waiting} />`)}
             </ul>
           </section>`
-        : html`<${Empty} />`}
+        : LAN
+          ? html`<${Empty} />`
+          : null}
 
       <p class="foot">
         ${LAN
