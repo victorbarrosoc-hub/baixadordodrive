@@ -15,6 +15,7 @@ const NAV = [
   { id: 'drive', label: 'Drive', icon: 'cloud' },
   { id: 'referencias', label: 'Referências', icon: 'bookmark' },
   { id: 'comparar', label: 'Comparar', icon: 'compare' },
+  { id: 'cartoes', label: 'Cartões', icon: 'sdcard' },
   { id: 'ajustes', label: 'Ajustes', icon: 'sliders' },
 ]
 
