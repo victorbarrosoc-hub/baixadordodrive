@@ -35,7 +35,9 @@ export function abrirVideo(src, { signal, prazoMs = 30_000 } = {}) {
     v.setAttribute('playsinline', '')
     v.setAttribute('muted', '')
     v.setAttribute('aria-hidden', 'true')
-    v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:-1'
+    // Opacidade quase zero, não zero: um vídeo que não é desenhado nunca avisa que o quadro novo chegou (o
+    // requestVideoFrameCallback não dispara) e cada pulo esperaria o prazo inteiro.
+    v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1'
     document.body.appendChild(v)
     let feito = false
     const fim = (fn, x) => {
@@ -85,28 +87,59 @@ export function fechar(v) {
   v.remove()
 }
 
-/** Pula para `t` e espera o quadro estar pronto para desenhar. */
+/**
+ * Pula para `t` e espera o quadro estar pronto para desenhar. O aviso de quadro novo (requestVideoFrameCallback) é
+ * pedido antes do pulo: no Safari, desenhar logo no "seeked" pode pegar o quadro anterior. Se o aparelho não avisa
+ * (duas vezes seguidas sem aviso), passa a esperar só dois quadros da tela.
+ */
 export function pular(v, t, signal) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortado())
     const alvo = Math.max(0, Math.min(v.duration - 0.05, t))
+    const avisa = Boolean(v.requestVideoFrameCallback) && (v._semAviso || 0) < 2
     let timer = 0
-    const pronto = () => {
+    let espera = 0
+    let pedido = 0
+    let veio = false
+    let pulou = false
+    let feito = false
+    const limpar = () => {
+      feito = true
       clearTimeout(timer)
+      clearTimeout(espera)
+      if (pedido) v.cancelVideoFrameCallback?.(pedido)
       v.removeEventListener('seeked', depois)
       signal?.removeEventListener('abort', parar)
+    }
+    const pronto = () => {
+      if (feito) return
+      limpar()
       resolve()
     }
-    // Depois do "seeked", espera o quadro chegar à tela (no Safari, desenhar antes pode pegar o anterior).
-    const depois = () => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(() => pronto()) && setTimeout(pronto, 250) : requestAnimationFrame(() => pronto()))
+    const depois = () => {
+      pulou = true
+      if (!avisa) return requestAnimationFrame(() => requestAnimationFrame(pronto))
+      if (veio) return pronto()
+      espera = setTimeout(() => {
+        v._semAviso = (v._semAviso || 0) + 1
+        pronto()
+      }, 250)
+    }
     const parar = () => {
-      clearTimeout(timer)
-      v.removeEventListener('seeked', depois)
+      if (feito) return
+      limpar()
       reject(abortado())
     }
+    if (avisa)
+      pedido = v.requestVideoFrameCallback(() => {
+        pedido = 0
+        veio = true
+        v._semAviso = 0
+        if (pulou) pronto()
+      })
     timer = setTimeout(() => {
-      v.removeEventListener('seeked', depois)
-      signal?.removeEventListener('abort', parar)
+      if (feito) return
+      limpar()
       reject(new Error('O vídeo demorou demais para responder. A internet está lenta?'))
     }, PULO_MS)
     v.addEventListener('seeked', depois, { once: true })
@@ -117,39 +150,48 @@ export function pular(v, t, signal) {
 }
 
 /**
- * Lê o vídeo em amostras pequenas: entre 24 e 240 pulos, espalhados. Devolve o mesmo formato de src/frames/analise.js
- * ({ passo, amostras }) para a escolha ser igual à do computador.
+ * Lê o vídeo em amostras pequenas, espalhadas (`porSegundo`, entre 24 e `max` pulos). Devolve o mesmo formato de
+ * src/frames/analise.js ({ passo, amostras }) para a escolha ser igual à do computador.
+ *
+ * `videos`: um <video> ou vários abertos no mesmo endereço. Com vários, cada um lê um trecho seguido do filme ao mesmo
+ * tempo: pelo Drive, cada pulo espera a internet, e três esperas juntas custam quase o mesmo que uma.
  */
-export async function amostrar(v, { signal, onProgress } = {}) {
-  const dur = v.duration
-  const n = Math.round(Math.max(MIN_AMOSTRAS, Math.min(MAX_AMOSTRAS, dur * 2)))
+export async function amostrar(videos, { signal, onProgress, porSegundo = 2, max = MAX_AMOSTRAS } = {}) {
+  const vs = Array.isArray(videos) ? videos : [videos]
+  const v0 = vs[0]
+  const dur = v0.duration
+  const n = Math.round(Math.max(MIN_AMOSTRAS, Math.min(max, dur * porSegundo)))
   const passo = dur / n
   const w = LARGURA
-  const h = Math.max(8, Math.round((w * v.videoHeight) / v.videoWidth / 2) * 2)
-  const cv = document.createElement('canvas')
-  cv.width = w
-  cv.height = h
-  const ctx = cv.getContext('2d', { willReadFrequently: true })
-  const rgb = new Uint8Array(w * h * 3)
-  const amostras = []
-  let anterior = null
-  for (let k = 0; k < n; k++) {
-    // Mede no meio do trecho; a escolha soma passo/2 ao t, como no computador.
-    await pular(v, (k + 0.5) * passo, signal)
-    ctx.drawImage(v, 0, 0, w, h)
-    const px = ctx.getImageData(0, 0, w, h).data
-    for (let i = 0, j = 0; i < px.length; i += 4, j += 3) {
-      rgb[j] = px[i]
-      rgb[j + 1] = px[i + 1]
-      rgb[j + 2] = px[i + 2]
+  const h = Math.max(8, Math.round((w * v0.videoHeight) / v0.videoWidth / 2) * 2)
+  const medidas = new Array(n)
+  let feitas = 0
+  const trecho = async (v, ini, fim) => {
+    const cv = document.createElement('canvas')
+    cv.width = w
+    cv.height = h
+    const ctx = cv.getContext('2d', { willReadFrequently: true })
+    const rgb = new Uint8Array(w * h * 3)
+    for (let k = ini; k < fim; k++) {
+      // Mede no meio do trecho; a escolha soma passo/2 ao t, como no computador.
+      await pular(v, (k + 0.5) * passo, signal)
+      ctx.drawImage(v, 0, 0, w, h)
+      const px = ctx.getImageData(0, 0, w, h).data
+      for (let i = 0, j = 0; i < px.length; i += 4, j += 3) {
+        rgb[j] = px[i]
+        rgb[j + 1] = px[i + 1]
+        rgb[j + 2] = px[i + 2]
+      }
+      medidas[k] = medir(rgb, w, h)
+      onProgress?.(++feitas / n)
     }
-    const m = medir(rgb, w, h)
-    m.dif = anterior ? diferenca(m.y, anterior) : 0
-    anterior = m.y
-    const { y, ...resto } = m
-    amostras.push({ t: k * passo, ...resto })
-    onProgress?.((k + 1) / n)
   }
+  const partes = Math.min(vs.length, n)
+  await Promise.all(vs.slice(0, partes).map((v, i) => trecho(v, Math.floor((i * n) / partes), Math.floor(((i + 1) * n) / partes))))
+  const amostras = medidas.map((m, k) => {
+    const { y, ...resto } = m
+    return { t: k * passo, ...resto, dif: k ? diferenca(y, medidas[k - 1].y) : 0 }
+  })
   return { passo, amostras, w, h }
 }
 

@@ -6,7 +6,7 @@
 import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js'
 import { closeSheet, getState, openSheet, setState, setTab, toast, useApp } from '../lib/state.js'
 import { streamReady, streamUrl } from '../lib/stream.js'
-import { createFolder } from '../lib/drive.js'
+import { createFolder, driveCall } from '../lib/drive.js'
 import { engine } from '../lib/uploader.js'
 import { framesPedidos, pedirFrames, tentarDeNovo } from '../lib/proxies.js'
 import { bytes, count } from '../lib/format.js'
@@ -20,6 +20,9 @@ import { Button, SheetHead, cx } from './ui.js'
 
 const QUANTOS = [6, 12, 24, 36]
 const GRANDE = 1.5e9 // acima disso, pelo celular demora: sugere o computador
+// Até isso, o vídeo do Drive desce inteiro uma vez (seguido é rápido) e a análise pula no próprio celular. Acima, lê
+// pelo stream, que espera a internet a cada pulo: menos pontos e três leitores ao mesmo tempo.
+const BAIXAR_ATE = 150e6
 const nomeSemExt = (n) => String(n || '').replace(/\.[^.]{1,6}$/, '')
 const tc = (s) => String(s || '').replace(/-/g, ':')
 
@@ -45,6 +48,7 @@ function limpar() {
     URL.revokeObjectURL(f.miniUrl)
   }
   if (job?.video?.blobUrl) URL.revokeObjectURL(job.video.blobUrl)
+  if (job?.video?.baixado) URL.revokeObjectURL(job.video.baixado)
   job = null
   mudou()
 }
@@ -81,7 +85,7 @@ const erroDoCodec = (codec, nome, resto = '') => Object.assign(new Error(`${porq
 
 async function rodar(quantidade, formato) {
   const ac = new AbortController()
-  Object.assign(job, { fase: 'lendo', frac: 0, erro: null, ac, frames: [], cenas: [], formato })
+  Object.assign(job, { fase: 'lendo', frac: 0, erro: null, ac, frames: [], cenas: [], formato, baixou: false })
   mudou()
   const passo = (fase, frac) => {
     if (job?.ac !== ac) return
@@ -90,11 +94,29 @@ async function rodar(quantidade, formato) {
     mudou()
   }
   let v
+  let extras = []
   try {
     job.fonte = null
     if (job.video.origem === 'drive') {
-      if (!(await streamReady())) throw new Error('Abra o app pelo ícone da tela de início (ou recarregue) para ler vídeos do Drive.')
-      v = await abrirDoDrive(job.video.file, ac.signal, await job.video.codecLido)
+      const { file } = job.video
+      const codec = await job.video.codecLido
+      const size = Number(file.size) || 0
+      if (job.video.baixado || (size > 0 && size <= BAIXAR_ATE && mayPlay(file) && celularAbre(codec) !== false)) {
+        job.baixou = true
+        if (!job.video.baixado) {
+          passo('baixando', 0)
+          job.video.baixado = URL.createObjectURL(await baixarDoDrive(file, ac.signal, (f) => passo('baixando', f)))
+        }
+        passo('lendo', 0)
+        v = await abrirVideo(job.video.baixado, { signal: ac.signal }).catch((err) => {
+          if (err?.tipo !== 'formato') throw err
+          return null
+        })
+      }
+      if (!v) {
+        if (!(await streamReady())) throw new Error('Abra o app pelo ícone da tela de início (ou recarregue) para ler vídeos do Drive.')
+        v = await abrirDoDrive(file, ac.signal, codec, { original: !job.baixou })
+      }
     } else {
       const codec = await job.video.codecLido
       if (celularAbre(codec) === false) throw erroDoCodec(codec, job.video.nome)
@@ -102,7 +124,12 @@ async function rodar(quantidade, formato) {
         throw err?.tipo === 'formato' && codec && celularAbre(codec) !== true ? erroDoCodec(codec, job.video.nome) : err
       })
     }
-    const a = await amostrar(v, { signal: ac.signal, onProgress: (f) => passo('lendo', f) })
+    // Mais leitores no mesmo endereço leem outros trechos juntos: pelo stream, cada pulo espera a internet, e três
+    // esperas juntas custam quase o mesmo que uma; baixado, o celular decodifica em paralelo. Em 4K, só um a mais.
+    extras = await maisLeitores(v, v.videoWidth * v.videoHeight > 2.2e6 ? 1 : 2, ac.signal)
+    const pelaRede = !(v.currentSrc || v.src).startsWith('blob:')
+    const a = await amostrar([v, ...extras], { signal: ac.signal, max: pelaRede ? 120 : 240, onProgress: (f) => passo('lendo', f) })
+    for (const x of extras.splice(0)) fechar(x)
     const r = escolher(a, quantidade)
     job.cenas = r.cenas
     job.descartes = r.descartes
@@ -123,7 +150,29 @@ async function rodar(quantidade, formato) {
     mudou()
   } finally {
     if (v) fechar(v)
+    for (const x of extras) fechar(x)
   }
+}
+
+async function maisLeitores(v, n, signal) {
+  const r = await Promise.allSettled(Array.from({ length: n }, () => abrirVideo(v.currentSrc || v.src, { signal })))
+  return r.filter((x) => x.status === 'fulfilled').map((x) => x.value)
+}
+
+/** O vídeo inteiro do Drive, de uma vez (um download seguido é muito mais rápido que centenas de pulos pela rede). */
+async function baixarDoDrive(file, signal, onProgress) {
+  const res = await driveCall(`/files/${encodeURIComponent(file.id)}`, { query: { alt: 'media', supportsAllDrives: true }, raw: true, signal, retries: 2 })
+  const total = Number(file.size) || 0
+  let got = 0
+  const contando = new TransformStream({
+    transform(pedaco, ctl) {
+      got += pedaco.byteLength
+      if (total) onProgress(Math.min(1, got / total))
+      ctl.enqueue(pedaco)
+    },
+  })
+  // O navegador monta o arquivo (sem juntar pedaços na memória do JS).
+  return new Response(res.body.pipeThrough(contando), { headers: { 'Content-Type': file.mimeType || 'video/mp4' } }).blob()
 }
 
 /**
@@ -131,9 +180,9 @@ async function rodar(quantidade, formato) {
  * que já está no Drive (a cópia leve do app ou da câmera). Sem nenhum dos dois: erro com "Pedir ao computador".
  * Quando o codec já diz que não abre, nem tenta o original (era só espera).
  */
-async function abrirDoDrive(file, signal, codec = null) {
+async function abrirDoDrive(file, signal, codec = null, { original = true } = {}) {
   let erro = null
-  if (mayPlay(file) && celularAbre(codec) !== false) {
+  if (original && mayPlay(file) && celularAbre(codec) !== false) {
     try {
       return await abrirVideo(streamUrl(file), { signal })
     } catch (err) {
@@ -380,14 +429,25 @@ function NoComputador({ file, quantidade, formato, abertoInicial = false }) {
   </div>`
 }
 
+// Onde cada fase fica na barra: com o download antes, ele pega o começo.
+const FAIXAS = { baixando: [0, 40], lendo: [40, 80], frames: [80, 100] }
+const FAIXAS_STREAM = { lendo: [0, 50], frames: [50, 100] }
+
 function Andamento({ j }) {
-  const lendo = j.fase === 'lendo'
   const pct = Math.round((j.frac || 0) * 100)
+  const [ini, fim] = (j.baixou ? FAIXAS : FAIXAS_STREAM)[j.fase] || [0, 100]
+  const titulo = { baixando: 'Descendo o vídeo…', lendo: 'Assistindo o vídeo…' }[j.fase] || 'Tirando os frames em alta…'
+  const sub =
+    j.fase === 'baixando'
+      ? `${bytes((j.frac || 0) * j.video.size)} de ${bytes(j.video.size)}`
+      : j.fase === 'lendo'
+        ? 'Escuro, desfocado, tremido, perto de corte e repetido ficam de fora.'
+        : `${count(j.frames?.length || 0)} prontos`
   return html`<div class="cr-card cr-anda" aria-live="polite">
     <div class="cr-scan" aria-hidden="true"><span style=${`left:${pct}%`}></span></div>
-    <b>${lendo ? 'Assistindo o vídeo…' : 'Tirando os frames em alta…'}</b>
-    <small>${lendo ? 'Escuro, desfocado, tremido, perto de corte e repetido ficam de fora.' : `${count(j.frames?.length || 0)} prontos`}</small>
-    <div class="cr-barra"><span style=${`width:${lendo ? pct / 2 : 50 + pct / 2}%`}></span></div>
+    <b>${titulo}</b>
+    <small>${sub}</small>
+    <div class="cr-barra"><span style=${`width:${ini + ((fim - ini) * pct) / 100}%`}></span></div>
     <${Button} variant="secondary" onClick=${() => j.ac?.abort()}>Parar</${Button}>
   </div>`
 }
@@ -457,7 +517,7 @@ function FramesTela({ onVoltar }) {
       ? html`<p class="cr-lead">Escolha o vídeo final. O celular escolhe os melhores frames de cada cena, no tamanho do vídeo.</p><${Escolher} />`
       : j.fase === 'ajustes'
         ? html`<${Ajustes} j=${j} />`
-        : j.fase === 'lendo' || j.fase === 'frames'
+        : j.fase === 'baixando' || j.fase === 'lendo' || j.fase === 'frames'
           ? html`<${Andamento} j=${j} />`
           : j.fase === 'erro'
             ? html`<div class="cr-card cr-erro" role="alert">

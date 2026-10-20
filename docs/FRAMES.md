@@ -80,7 +80,11 @@ Progresso pelo SSE `frames`: `{ jobId, status, fase, frac, texto, video, manifes
 
 - **Frames no celular** (`web/public/app/lib/frames/celular.js`, `components/criar.js`):
   - O vídeo vem direto do Drive, pelo stream do app (não baixa inteiro), ou da galeria.
-  - Um `<video>` escondido pula entre 24 e 240 pontos do filme e mede cada um em 256 px.
+  - Um `<video>` escondido pula entre 24 e 240 pontos do filme (2 por segundo) e mede cada um em 256 px.
+  - Velocidade:
+    - Vídeo do Drive até 150 MB desce inteiro uma vez (um download seguido) e a análise pula no próprio celular. Acima disso, lê pelo stream, com no máximo 120 pontos.
+    - Três leitores (`<video>` no mesmo endereço; dois em 4K) leem trechos diferentes ao mesmo tempo.
+    - Cada pulo espera o aviso de quadro novo (`requestVideoFrameCallback`, pedido antes do pulo). O vídeo fica com opacidade 0,01: com 0, o aviso nunca chega e cada pulo esperava o prazo inteiro (250 ms).
   - A escolha usa as **mesmas regras** do computador: `medidas.js`, `escolha.js` e `posts.js` são cópias idênticas, conferidas em `test/frames.test.js`.
   - Os frames saem no tamanho do vídeo, em JPEG 0,95 ou PNG.
   - Salvar no celular: pela folha de compartilhar (Salvar imagem ou Arquivos); sem ela, um download por arquivo.
