@@ -7,7 +7,8 @@
 //   ──▶ matriz do gamut da câmera → primárias Rec.709 (calculada das coordenadas xy, ponto branco D65)
 //   ──▶ curva "de filme" (aproximação do ACES, cinza 18% ≈ 44%) → Rec.709 (gama 2,4)
 //
-// Este arquivo é o mesmo em src/cor/lut.js e public/lib/cor-lut.js (a prévia aplica na placa de vídeo) — test/cor.test.js confere.
+// Este arquivo é o mesmo em src/cor/lut.js, public/lib/cor-lut.js (prévia do computador) e web/public/app/lib/cor-lut.js
+// (prévia do celular); a prévia aplica na placa de vídeo. test/cor.test.js confere.
 
 // ─────────── primárias (xy) ───────────
 const D65 = [0.3127, 0.329]
@@ -67,6 +68,8 @@ export const PERFIS = {
   // LOG sem saber de qual câmera: a curva da Sony (a mais comum) sem mexer no gamut. Não é exato; deixa ver.
   log: { nome: 'LOG (genérico)', curva: 'slog3', gamut: 'rec709' },
 }
+
+export const ehPerfil = (p) => typeof p === 'string' && Object.hasOwn(PERFIS, p)
 
 // ─────────── matrizes ───────────
 function rgbParaXYZ(prim, branco = D65) {

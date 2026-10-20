@@ -15,6 +15,7 @@ import { KindGlyph } from './thumb.js'
 import { FileName, ShareLink } from './queue.js'
 import { PsdPaginas, PsdStage } from './psd.js'
 import { podePsd } from '../lib/psd.js'
+import { PERFIS_LOG, converte, lembrarPerfil, nomePerfil, pareceLog, perfilLembrado, perfilPelosMetadados } from '../lib/cor.js'
 
 const BIG = 1e9 // acima disso, avisa antes de baixar no celular
 const IMAGE_STREAM_MAX = 60e6 // foto sem miniatura: abre o arquivo em si até este tamanho
@@ -311,6 +312,60 @@ function LiteSwitch({ proxy, on, canOriginal, onPick }) {
   </div>`
 }
 
+/** "Rec.709" no canto do player: liga/desliga a conversão do LOG e escolhe a câmera (só a prévia muda). */
+function CorSwitch({ ligado, perfil, doArquivo, onLigar, onPerfil }) {
+  return html`<div class=${cx('mp-switch mp-cor-switch', ligado && 'is-on')} role="group" aria-label="Cor da prévia">
+    <button type="button" class=${cx(ligado && 'is-on')} aria-pressed=${ligado ? 'true' : 'false'} onClick=${(e) => (e.stopPropagation(), onLigar(!ligado))}>
+      <span class="mp-cor-dot" aria-hidden="true"></span>Rec.709
+    </button>
+    ${ligado
+      ? html`<label class="mp-cor-cam">
+          <select value=${perfil} aria-label="LOG da câmera" onClick=${(e) => e.stopPropagation()} onChange=${(e) => onPerfil(e.currentTarget.value)}>
+            ${PERFIS_LOG.map(([k, p]) => html`<option value=${k}>${p.nome}${doArquivo === k ? ' · do arquivo' : ''}</option>`)}
+          </select>
+          <span class="mp-cor-nome" aria-hidden="true">${nomePerfil(perfil).replace(/ · .*/, '')}</span>
+          <${Icon} name="chevron-down" size=${13} strokeWidth=${2.2} />
+        </label>`
+      : null}
+  </div>`
+}
+
+/**
+ * Cor da prévia de um vídeo: lê o perfil nos metadados da câmera e, sem eles, pelos quadros que o player manda.
+ * `lut` = perfil a aplicar (null = como está); `ui` = o botão; `onQuadros` só enquanto o metadado não decidiu.
+ */
+function useCor(file, ativo) {
+  const [meta, setMeta] = useState(undefined) // undefined = lendo; null = sem metadado; ou o perfil
+  const [img, setImg] = useState(null)
+  const [escolha, setEscolha] = useState(null) // null = automático; 'off'; ou um perfil
+  useEffect(() => {
+    setMeta(undefined)
+    setImg(null)
+    setEscolha(null)
+    if (!ativo) return undefined
+    const ac = new AbortController()
+    perfilPelosMetadados(file, ac.signal).then(
+      (p) => !ac.signal.aborted && setMeta(p ?? null),
+      () => !ac.signal.aborted && setMeta(null),
+    )
+    return () => ac.abort()
+  }, [file.id, ativo])
+  const auto = meta ? (converte(meta) ? meta : null) : meta === null ? img : null
+  const lut = escolha === 'off' ? null : escolha || auto
+  const ui = ativo
+    ? html`<${CorSwitch}
+        ligado=${Boolean(lut)}
+        perfil=${lut || auto || perfilLembrado()}
+        doArquivo=${converte(meta) ? meta : null}
+        onLigar=${(on) => setEscolha(on ? auto || perfilLembrado() : 'off')}
+        onPerfil=${(p) => (setEscolha(p), lembrarPerfil(p))}
+      />`
+    : null
+  // O metadado disse Rec.709 (ou outro perfil): a imagem não manda. Sem metadado, "parece LOG" vira LOG genérico.
+  const onQuadros = ativo && !meta ? (qs) => setImg(pareceLog(qs)) : undefined
+  return { lut, ui, onQuadros }
+}
+
 function MediaStage({ file, kind, siblings, album, onZoom }) {
   const px = screenPx()
   const poster = useThumb(file, kind === 'image' ? px : Math.min(1600, px))
@@ -339,6 +394,8 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
   const [refAcc, setRefAcc] = useState(undefined)
   const at = useRef(0)
   const [startAt, setStartAt] = useState(0)
+  const cor = useCor(file, kind === 'video')
+  const corProps = { lut: cor.lut, corUi: cor.ui, onQuadros: cor.onQuadros }
   const pick = (leve) => {
     setStartAt(at.current || 0)
     setOrig(!leve)
@@ -422,6 +479,7 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
           onFail=${() => setLiteFail(true)}
           autoPlay
           now=${now}
+          ...${corProps}
         />
         <p class="pv-proxy-note">${isPrevia(liteP) ? 'Proxy (cópia leve 720p), para tocar sem travar. O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
       </div>`
@@ -442,6 +500,7 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
         onFail=${() => (setStartAt(at.current || 0), setOrig(false))}
         autoPlay
         now=${now}
+        ...${corProps}
       />
       <p class="pv-proxy-note">Original: pode travar se a rede não der conta.</p>
     </div>`
@@ -462,6 +521,7 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
         onFail=${() => setProxyFail(true)}
         autoPlay
         now=${now}
+        ...${corProps}
       />
       <p class="pv-proxy-note">${isPrevia(proxy) ? 'Proxy (cópia leve 720p). O Baixar traz o original.' : 'Prévia em baixa resolução. O Baixar traz o original.'}</p>
     </div>`
@@ -501,6 +561,7 @@ function MediaStage({ file, kind, siblings, album, onZoom }) {
       onFail=${async (code) => setFail(code === 3 || code === 4 ? await whyFailed(file) : 'network')}
       autoPlay
       now=${now}
+      ...${kind === 'video' ? corProps : {}}
     />`
     return player
   }

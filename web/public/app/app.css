@@ -7135,3 +7135,67 @@ html.is-dswipe body {
     transform: translateY(-4px);
   }
 }
+
+/* LOG → Rec.709: o canvas convertido fica por cima do <video> (os toques passam para o player) */
+.mp-cor {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: none;
+  pointer-events: none;
+}
+.mp-cor.is-on {
+  display: block;
+}
+.mp-cor:not([data-pronto]) {
+  visibility: hidden;
+}
+.mp-corner-dir {
+  left: auto;
+  right: 10px;
+}
+.mp-cor-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px 0 10px;
+}
+.mp-cor-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+.mp-cor-switch.is-on .mp-cor-dot {
+  background: currentColor;
+}
+.mp-cor-cam {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 0 10px 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+}
+.mp-cor-cam select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  font-size: 16px; /* menor que 16 px, o iPhone dá zoom ao tocar */
+}
+/* Tela cheia com o Rec.709 ligado (iPhone): o player ocupa a tela sem sair da página */
+.mp-video.is-cheio {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  width: auto;
+  max-height: none;
+  aspect-ratio: auto;
+  padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+}

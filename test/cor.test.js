@@ -3,14 +3,21 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { CURVAS, PERFIS, converter, cube, curvaFilme, gerarLut, matrizPara709 } from '../src/cor/lut.js'
-import { ehPerfil, pareceLog, perfilDosBytes } from '../src/cor/detectar.js'
+import { CURVAS, PERFIS, converter, cube, curvaFilme, ehPerfil, gerarLut, matrizPara709 } from '../src/cor/lut.js'
+import { pareceLog, perfilDosBytes } from '../src/cor/detectar.js'
 
 const perto = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} ≠ ${b}`)
 
 describe('cor', () => {
-  test('a prévia usa a mesma LUT que o motor (cópia idêntica)', () => {
-    assert.equal(fs.readFileSync(new URL('../public/lib/cor-lut.js', import.meta.url), 'utf8'), fs.readFileSync(new URL('../src/cor/lut.js', import.meta.url), 'utf8'))
+  test('as prévias (computador e celular) usam a mesma LUT, detecção e filtro (cópias idênticas)', () => {
+    const ler = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
+    for (const [orig, copias] of [
+      ['src/cor/lut.js', ['public/lib/cor-lut.js', 'web/public/app/lib/cor-lut.js']],
+      ['src/cor/detectar.js', ['web/public/app/lib/cor-detectar.js']],
+      ['public/lib/cor-gl.js', ['web/public/app/lib/cor-gl.js']],
+    ])
+      for (const c of copias) assert.equal(ler(c), ler(orig), `${c} = ${orig}`)
+    assert.doesNotMatch(ler('src/cor/detectar.js'), /\bBuffer\b|^import /m, 'roda no navegador do celular')
   })
 
   test('curvas: o cinza 18% de cada câmera volta a 18% de luz', () => {
@@ -75,6 +82,7 @@ describe('cor', () => {
       ['Meu vlog de viagem · flog · dlog', null],
     ]
     for (const [txt, esperado] of casos) assert.equal(perfilDosBytes(Buffer.from(`\0\0${txt}\0`, 'latin1')), esperado, txt)
+    assert.equal(perfilDosBytes(new TextEncoder().encode('<CaptureGammaEquation value="s-log3-cine"/>')), 'slog3-cine', 'Uint8Array (celular)')
     assert.ok(ehPerfil('vlog') && !ehPerfil('toString') && !ehPerfil('auto'))
     for (const p of Object.values(PERFIS)) assert.ok(p.nome)
   })

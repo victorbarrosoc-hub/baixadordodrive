@@ -1,13 +1,15 @@
 // Que perfil de cor o vídeo tem? Primeiro pelos metadados que a câmera grava dentro do arquivo (a Sony põe um XML
 // com "CaptureGammaEquation" = s-log3-cine; Panasonic, Canon, DJI, ARRI e Fuji escrevem o nome do LOG), lendo só o
 // começo e o fim do arquivo. Sem metadado, pela imagem: LOG tem preto levantado, branco baixo e pouca saturação.
-import { PERFIS } from './lut.js'
+// Este arquivo é o mesmo em src/cor/detectar.js e web/public/app/lib/cor-detectar.js (o celular detecta no aparelho).
 
 export const PEDACO = 384 * 1024
 
-/** Procura o perfil no texto dos metadados (bytes lidos como latin1). Devolve o id em PERFIS ou null. */
+const latin1 = new TextDecoder('latin1')
+
+/** Procura o perfil no texto dos metadados (bytes lidos como latin1). Devolve o id em PERFIS (cor-lut) ou null. */
 export function perfilDosBytes(buf) {
-  const s = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
+  const s = buf instanceof Uint8Array ? latin1.decode(buf) : String(buf || '')
   // Sony: o XML diz a curva e o gamut.
   const gama = /CaptureGammaEquation"?\s*(?:value=)?"([^"]{1,40})"/i.exec(s)?.[1]?.toLowerCase()
   const prim = /CaptureColorPrimaries"?\s*(?:value=)?"([^"]{1,40})"/i.exec(s)?.[1]?.toLowerCase()
@@ -55,5 +57,3 @@ export function pareceLog(quadros) {
   }
   return votos / quadros.length >= 0.6 ? 'log' : null
 }
-
-export const ehPerfil = (p) => typeof p === 'string' && Object.hasOwn(PERFIS, p)

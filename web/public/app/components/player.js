@@ -6,6 +6,7 @@ import { clock } from '../lib/format.js'
 import { nowPlaying } from '../lib/now-playing.js'
 import { Icon } from './icons.js'
 import { cx } from './ui.js'
+import { filtroCor, quadroRgb } from '../lib/cor.js'
 
 const RATES = [1, 1.5, 2]
 const rateLabel = (r) => `${String(r).replace('.', ',')}x`
@@ -148,9 +149,14 @@ function BufferMark({ b }) {
  * kind 'video' | 'audio'. `poster` (miniatura) aparece até o primeiro quadro. onFail(code) quando o navegador não
  * consegue tocar (formato ou rede): quem chama decide o aviso.
  */
-export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, startAt = 0, timeRef, onFail, onStall, autoPlay = false, now }) {
+export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, startAt = 0, timeRef, onFail, onStall, autoPlay = false, now, lut = null, corUi = null, onQuadros }) {
   const wrap = useRef(null)
   const media = useRef(null)
+  const tela = useRef(null)
+  const filtro = useRef(null)
+  const [semGl, setSemGl] = useState(false)
+  // Tela cheia "de mentira" (iPhone): a tela cheia dele é só do <video>, sem a conversão Rec.709 por cima.
+  const [cheio, setCheio] = useState(false)
   const hideTimer = useRef(0)
   const [s, set] = useState({ playing: false, time: 0, dur: 0, buffered: 0, waiting: false, muted: false, rate: 1, started: false, ended: false })
   const [ui, setUi] = useState(true)
@@ -211,6 +217,7 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
     try {
       if (document.fullscreenElement) return document.exitFullscreen()
       if (w?.requestFullscreen && document.fullscreenEnabled) return w.requestFullscreen()
+      if (cheio || (lut && !semGl)) return setCheio(!cheio) // Rec.709 ligado: ocupa a tela sem perder a conversão
       if (m?.webkitEnterFullscreen) return m.webkitEnterFullscreen() // iPhone: só o <video> vai para tela cheia
     } catch {
       // sem tela cheia aqui
@@ -228,6 +235,48 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
       media.current.play()?.catch?.(() => {})
     })
   }, [src])
+
+  // LOG → Rec.709: o filtro nasce na primeira vez que liga e vive até o player sair.
+  useEffect(() => {
+    if (kind !== 'video' || (!lut && !filtro.current)) return
+    if (!filtro.current) {
+      filtro.current = filtroCor(tela.current, media.current)
+      if (!filtro.current) return setSemGl(true)
+    }
+    filtro.current.perfil(lut)
+  }, [lut])
+  useEffect(() => () => filtro.current?.fechar(), [])
+
+  // Sem metadado de cor: 3 quadros espaçados (≥ 1,5 s de vídeo) para ver se parece LOG; o que tiver em 8 s.
+  const quadrosCb = useRef(onQuadros)
+  quadrosCb.current = onQuadros
+  useEffect(() => {
+    const m = media.current
+    if (!onQuadros || kind !== 'video' || !m) return undefined
+    const qs = []
+    let ultimo = -9
+    let fim = false
+    const entregar = () => {
+      fim = true
+      if (qs.length) quadrosCb.current?.(qs)
+    }
+    const pegar = () => {
+      if (fim || m.readyState < 2 || (qs.length && Math.abs(m.currentTime - ultimo) < 1.5)) return
+      const q = quadroRgb(m)
+      if (!q) return
+      qs.push(q)
+      ultimo = m.currentTime
+      if (qs.length >= 3) entregar()
+    }
+    const evs = ['loadeddata', 'timeupdate', 'seeked']
+    for (const e of evs) m.addEventListener(e, pegar)
+    const t = setTimeout(() => !fim && entregar(), 8000)
+    return () => {
+      fim = true
+      clearTimeout(t)
+      for (const e of evs) m.removeEventListener(e, pegar)
+    }
+  }, [src, Boolean(onQuadros)])
 
   // Tela bloqueada: nome do take, pasta e miniatura (os botões de lá comandam este player).
   useEffect(() => (now && media.current ? nowPlaying(now, media.current) : undefined), [src, now?.title, now?.album, now?.art])
@@ -273,7 +322,7 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
   const canFull = kind === 'video'
   return html`<div
     ref=${wrap}
-    class=${cx('mp', `mp-${kind}`, ui || !playing ? 'is-ui' : 'is-bare', s.waiting && 'is-waiting', s.started && 'is-started', buf && 'is-buffering')}
+    class=${cx('mp', `mp-${kind}`, ui || !playing ? 'is-ui' : 'is-bare', s.waiting && 'is-waiting', s.started && 'is-started', buf && 'is-buffering', cheio && 'is-cheio')}
     style=${kind === 'video' && ratio ? `--ratio:${ratio}` : ''}
     onClick=${(e) => {
       if (e.target.closest('[data-control]')) return
@@ -329,9 +378,11 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
       onRateChange=${() => patch({ rate: media.current?.playbackRate || 1 })}
       onError=${onError}
     />
+    ${kind === 'video' ? html`<canvas ref=${tela} class=${cx('mp-cor', lut && !semGl && 'is-on')} aria-hidden="true"></canvas>` : null}
     ${kind === 'video' && poster && !s.started ? html`<img class="mp-poster" src=${poster} alt="" referrerpolicy="no-referrer" draggable="false" />` : null}
     ${badge ? html`<span class="mp-badge">${badge}</span>` : null}
     ${corner ? html`<div class="mp-corner" data-control>${corner}</div>` : null}
+    ${corUi && !semGl ? html`<div class="mp-corner mp-corner-dir" data-control>${corUi}</div>` : null}
     ${kind === 'audio' ? html`<div class="mp-art">${poster ? html`<img src=${poster} alt="" referrerpolicy="no-referrer" draggable="false" />` : html`<span class="mp-art-glyph"><${Icon} name="music" size=${46} strokeWidth=${1.3} /></span>`}</div>` : null}
 
     ${buf ? html`<${BufferMark} b=${buf} />` : null}
@@ -352,7 +403,7 @@ export function MediaPlayer({ kind, src, poster, title, ratio, badge, corner, st
         <button type="button" class="mp-btn mp-rate" onClick=${cycleRate} aria-label=${`Velocidade ${rateLabel(s.rate)}`}>${rateLabel(s.rate)}</button>
         ${canFull
           ? html`<button type="button" class="mp-btn" onClick=${full} aria-label="Tela cheia">
-              <${Icon} name="expand" size=${19} />
+              <${Icon} name=${cheio ? 'shrink' : 'expand'} size=${19} />
             </button>`
           : html`<span class="mp-btn" aria-hidden="true"></span>`}
       </div>

@@ -1,9 +1,10 @@
 // LOG → Rec.709 na prévia: cada quadro do <video> passa pela LUT 3D do perfil (a mesma do motor, cor-lut.js) na placa
 // de vídeo, num <canvas> por cima do vídeo. Não mexe no arquivo, só no que se vê. Sem WebGL2: devolve null e a prévia
-// fica como está.
+// fica como está. Este arquivo é o mesmo em public/lib/cor-gl.js e web/public/app/lib/cor-gl.js (test/cor.test.js).
 import { gerarLut } from './cor-lut.js'
 
 const N = 33
+const MAX_LADO = 1920
 
 const VERT = `#version 300 es
 in vec2 p;
@@ -79,9 +80,13 @@ export function filtroCor(canvas, video) {
 
   const desenhar = () => {
     if (!vivo || !atual || video.readyState < 2 || !video.videoWidth) return
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
+    // Até 1920 px no lado maior: um 4K inteiro pesa na placa do celular e não aparece na tela da prévia.
+    const esc = Math.min(1, MAX_LADO / Math.max(video.videoWidth, video.videoHeight))
+    const w = Math.round(video.videoWidth * esc)
+    const h = Math.round(video.videoHeight * esc)
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w
+      canvas.height = h
     }
     gl.viewport(0, 0, canvas.width, canvas.height)
     gl.activeTexture(gl.TEXTURE0)
