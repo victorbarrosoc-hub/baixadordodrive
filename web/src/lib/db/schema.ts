@@ -334,6 +334,13 @@ export const avisosAdmin = pgTable("avisos_admin", {
 
 /** Pedido de proxy (docs/CONTAS.md §11): o celular pede, o app do computador gera o proxy e a tira de quadros. */
 export type StatusPedidoProxy = "pendente" | "gerando" | "pronto" | "erro";
+/** "proxy": a cópia leve e a tira de quadros. "frames": frames, takes e posts do vídeo final (docs/FRAMES.md). */
+export type TipoPedido = "proxy" | "frames";
+/** Ajustes de um pedido de Frames (o computador confere de novo antes de usar). */
+export type AjustesFrames = {
+  frames: { quantidade: number; formato: "jpg" | "png" | "tiff" };
+  takes: { quantidade: number; duracao: number; formato: "original" | "9:16" | "4:5" | "1:1"; codec: "h264" | "prores"; audio: boolean } | null;
+};
 
 export const pedidosProxy = pgTable(
   "pedidos_proxy",
@@ -349,6 +356,9 @@ export const pedidosProxy = pgTable(
     fileId: text().notNull(),
     nome: text().notNull(),
     tamanho: bigint({ mode: "number" }),
+    /** O que o computador faz: a cópia leve (padrão, também o que os apps antigos pegam) ou os Frames. */
+    tipo: text().$type<TipoPedido>().notNull().default("proxy"),
+    ajustes: jsonb().$type<AjustesFrames>(),
     status: text().$type<StatusPedidoProxy>().notNull().default("pendente"),
     erro: text(),
     /** O que o computador fez ("Proxy gerado", "Já tinha proxy: tira de quadros feita", "Já é leve"). */

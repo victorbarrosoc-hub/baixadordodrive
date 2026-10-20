@@ -154,3 +154,46 @@ describe("computador", () => {
     assert.equal((await rPedido.DELETE(pedido(`/api/proxies/pedidos/${id}`, comCookie(victor, { method: "DELETE" })), ctx({ id }))).status, 404);
   });
 });
+
+describe("frames", () => {
+  const AJ = { frames: { quantidade: 24, formato: "jpg" }, takes: { quantidade: 6, duracao: 3, formato: "9:16", codec: "h264", audio: true } };
+
+  test("pede com ajustes válidos; sem ajustes ou fora do limite, recusa", async () => {
+    assert.equal((await pedir(victor, { contaGoogleId: "cg_victor", tipo: "frames", itens: [{ fileId: "filme1" }] })).status, 400, "frames sem ajustes");
+    assert.equal((await pedir(victor, { contaGoogleId: "cg_victor", tipo: "frames", ajustes: { frames: { quantidade: 999, formato: "jpg" } }, itens: [{ fileId: "filme1" }] })).status, 400);
+    assert.equal((await pedir(victor, { contaGoogleId: "cg_victor", tipo: "frames", ajustes: { ...AJ, takes: { ...AJ.takes, codec: "dnx" } }, itens: [{ fileId: "filme1" }] })).status, 400);
+    assert.equal((await pedir(victor, { contaGoogleId: "cg_victor", tipo: "gif", itens: [{ fileId: "filme1" }] })).status, 400);
+    const muitos = Array.from({ length: 21 }, (_, i) => ({ fileId: `fm${i}` }));
+    assert.equal((await pedir(victor, { contaGoogleId: "cg_victor", tipo: "frames", ajustes: AJ, itens: muitos })).status, 400);
+    const r = await pedir(victor, { contaGoogleId: "cg_victor", tipo: "frames", ajustes: { ...AJ, extra: "fora" }, itens: [{ fileId: "filme1", nome: "Filme Final.mov" }] });
+    assert.equal(r.status, 201);
+    const p = (await corpo(r)).pedidos[0];
+    assert.equal(p.tipo, "frames");
+    assert.deepEqual(p.ajustes, AJ, "só os ajustes conhecidos ficam");
+  });
+
+  test("proxy e frames do mesmo arquivo convivem; o app antigo (sem tipo) só vê proxy", async () => {
+    const pr = await corpo(await pedir(victor, { contaGoogleId: "cg_victor", itens: [{ fileId: "filme1" }] }));
+    assert.equal(pr.novos, 1, "o proxy do mesmo vídeo é outro pedido");
+    assert.equal(pr.pedidos[0].tipo, "proxy");
+    const repetido = await corpo(await pedir(victor, { contaGoogleId: "cg_victor", tipo: "frames", ajustes: AJ, itens: [{ fileId: "filme1" }] }));
+    assert.equal(repetido.novos, 0, "o mesmo pedido de frames esperando não repete");
+
+    const antigo = await corpo(await rLista.GET(pedido("/api/proxies/pedidos?status=pendente&fileIds=filme1", { bearer: victor.mac })));
+    assert.deepEqual(antigo.pedidos.map((x: { tipo: string }) => x.tipo), ["proxy"]);
+    const doFrames = await corpo(await rLista.GET(pedido("/api/proxies/pedidos?status=pendente&tipo=frames", { bearer: victor.mac })));
+    assert.deepEqual(doFrames.pedidos.map((x: { fileId: string }) => x.fileId), ["filme1"]);
+    const todos = await corpo(await rLista.GET(pedido("/api/proxies/pedidos?fileIds=filme1&tipo=todos", comCookie(victor))));
+    assert.equal(todos.pedidos.length, 2);
+    assert.equal((await rLista.GET(pedido("/api/proxies/pedidos?tipo=gif", comCookie(victor)))).status, 400);
+
+    // Pegar e terminar como no proxy; a mensagem do pronto fala de frames.
+    const id = doFrames.pedidos[0].id as string;
+    assert.equal((await pegar(victor.pc, id)).status, 200);
+    const pronto = await corpo(await mudar(id, { status: "pronto", proxyFileId: "pastaFrames", resultado: "24 frames e 6 takes" }, { bearer: victor.pc }));
+    assert.equal(pronto.pedido.resultado, "24 frames e 6 takes");
+    const de = await mudar(id, { status: "pendente" }, { cookie: victor });
+    assert.equal(de.status, 409);
+    assert.match((await corpo(de)).mensagem, /frames já foram feitos/);
+  });
+});

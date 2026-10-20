@@ -21,6 +21,7 @@ import { MacJunkSheet } from './components/browser.js'
 import { BaixarSheet, LixeiraSheet } from './components/selecao.js'
 import { ProxySheet } from './components/proxies.js'
 import { CopySheet } from './components/copiar.js'
+import { FramesPostSheet } from './components/criar.js'
 import { parseDriveLink } from './lib/copiar.js'
 
 const SHEETS = {
@@ -41,6 +42,7 @@ const SHEETS = {
   lixeiraSelecao: LixeiraSheet,
   proxySelecao: ProxySheet,
   copiar: CopySheet,
+  framesPost: FramesPostSheet,
 }
 
 // Android (share_target nos manifestos): /app/?compartilhar=1&title=&text=&url=. O navegador pode trocar a query

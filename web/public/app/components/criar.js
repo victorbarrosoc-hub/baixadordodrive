@@ -1,0 +1,525 @@
+// Aba Criar: as ferramentas do app do computador, no celular.
+//   Frames  o vídeo final (direto do Drive ou da galeria) vira frames escolhidos com o mesmo bom senso do computador,
+//           por cena, e posts (tríade, grade, polaroid, box, cinema, contato, carrossel). Desce do Drive, fica no
+//           celular (galeria/arquivos) e sobe de volta para o Drive, numa pasta organizada ao lado do vídeo.
+// O trabalho fica nesta aba (que não desmonta): trocar de aba e voltar não perde nada.
+import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js'
+import { closeSheet, getState, openSheet, setState, setTab, toast, useApp } from '../lib/state.js'
+import { streamReady, streamUrl } from '../lib/stream.js'
+import { createFolder } from '../lib/drive.js'
+import { engine } from '../lib/uploader.js'
+import { framesPedidos, pedirFrames, tentarDeNovo } from '../lib/proxies.js'
+import { bytes, count } from '../lib/format.js'
+import { abrirVideo, amostrar, baseDoNome, escolher, nomeDoFrame, pastaDaCena, timecode, tirar } from '../lib/frames/celular.js'
+import { FUNDOS, LAYOUTS, desenharPost, fatiar, layoutPorId } from '../lib/frames/posts.js'
+import { Icon } from './icons.js'
+import { Button, SheetHead, cx } from './ui.js'
+
+const QUANTOS = [6, 12, 24, 36]
+const GRANDE = 1.5e9 // acima disso, pelo celular demora: sugere o computador
+const nomeSemExt = (n) => String(n || '').replace(/\.[^.]{1,6}$/, '')
+const tc = (s) => String(s || '').replace(/-/g, ':')
+
+// ───── o trabalho (fica no módulo: a aba some e volta sem perder) ─────
+
+let job = null // { video, fase, frac, cenas, frames: [{ id, t, tc, cena, blob, url, mini, sel }], erro, ac }
+const ouvintes = new Set()
+const mudou = () => ouvintes.forEach((f) => f())
+function useJob() {
+  const [, set] = useState(0)
+  useEffect(() => {
+    const f = () => set((x) => x + 1)
+    ouvintes.add(f)
+    return () => ouvintes.delete(f)
+  }, [])
+  return job
+}
+
+function limpar() {
+  job?.ac?.abort()
+  for (const f of job?.frames || []) {
+    URL.revokeObjectURL(f.url)
+    URL.revokeObjectURL(f.miniUrl)
+  }
+  if (job?.video?.blobUrl) URL.revokeObjectURL(job.video.blobUrl)
+  job = null
+  mudou()
+}
+
+/** Chamado pela aba Drive (seleção → Frames): abre a aba Criar com o vídeo escolhido. */
+export function framesDoDrive(file) {
+  limpar()
+  job = { video: { origem: 'drive', file, nome: file.name, size: Number(file.size) || 0 }, fase: 'ajustes' }
+  setState({ criarTela: 'frames' })
+  setTab('criar')
+  mudou()
+}
+
+async function rodar(quantidade, formato) {
+  const ac = new AbortController()
+  Object.assign(job, { fase: 'lendo', frac: 0, erro: null, ac, frames: [], cenas: [], formato })
+  mudou()
+  const passo = (fase, frac) => {
+    if (job?.ac !== ac) return
+    job.fase = fase
+    job.frac = frac
+    mudou()
+  }
+  let v
+  try {
+    const src = job.video.origem === 'drive' ? ((await streamReady()) ? streamUrl(job.video.file) : null) : job.video.blobUrl
+    if (!src) throw new Error('Abra o app pelo ícone da tela de início (ou recarregue) para ler vídeos do Drive.')
+    v = await abrirVideo(src, { signal: ac.signal })
+    const a = await amostrar(v, { signal: ac.signal, onProgress: (f) => passo('lendo', f) })
+    const r = escolher(a, quantidade)
+    job.cenas = r.cenas
+    job.descartes = r.descartes
+    const base = baseDoNome(job.video.nome)
+    const tipo = formato === 'png' ? 'image/png' : 'image/jpeg'
+    for (const [i, f] of r.frames.entries()) {
+      passo('frames', i / r.frames.length)
+      const x = await tirar(v, f.t, { tipo, signal: ac.signal })
+      const fr = { id: `F${String(i + 1).padStart(3, '0')}`, t: f.t, cena: f.cena, nota: f.nota, tc: timecode(f.t), blob: x.blob, url: URL.createObjectURL(x.blob), miniUrl: URL.createObjectURL(x.mini), largura: x.largura, altura: x.altura, sel: 0 }
+      fr.nome = nomeDoFrame(base, fr, formato === 'png' ? 'png' : 'jpg')
+      job.frames.push(fr)
+    }
+    passo('pronto', 1)
+  } catch (err) {
+    if (job?.ac !== ac) return
+    if (err?.name === 'AbortError') job.fase = 'ajustes'
+    else Object.assign(job, { fase: 'erro', erro: err?.message || 'Não deu para terminar.' })
+    mudou()
+  } finally {
+    if (v) {
+      v.removeAttribute('src')
+      v.load()
+    }
+  }
+}
+
+// ───── salvar e subir ─────
+
+/** No celular: a folha de compartilhar (Salvar imagem / Salvar em Arquivos); sem ela, um download por arquivo. */
+async function salvarNoCelular(arquivos) {
+  const files = arquivos.map((a) => new File([a.blob], a.nome, { type: a.blob.type }))
+  try {
+    if (navigator.canShare?.({ files })) {
+      await navigator.share({ files })
+      return true
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') return false
+  }
+  for (const f of files) {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(f)
+    a.download = f.name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 30_000)
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  return true
+}
+
+/** Sobe para o Drive: "<Vídeo> — Frames/Cena 03 — …/…" e "Posts/". `pai`: { id, name, driveId, path }. */
+async function subirProDrive({ pai, frames = [], posts = [], cenas }) {
+  const nome = `${nomeSemExt(job.video.nome)} — Frames`
+  const raiz = job.pastaDrive?.paiId === pai.id ? job.pastaDrive : null
+  const pasta = raiz || { ...(await createFolder(nome, pai.id)), paiId: pai.id, subs: {} }
+  job.pastaDrive = pasta
+  const caminho = [...(pai.path || [{ id: pai.id, name: pai.name }]), { id: pasta.id, name: pasta.name }]
+  const sub = async (rotulo) => {
+    if (!pasta.subs[rotulo]) pasta.subs[rotulo] = await createFolder(rotulo, pasta.id)
+    const s = pasta.subs[rotulo]
+    return { id: s.id, name: s.name, driveId: s.driveId || pai.driveId || null, path: [...caminho, { id: s.id, name: s.name }] }
+  }
+  const porPasta = new Map()
+  for (const f of frames) {
+    const c = cenas.find((x) => x.n === f.cena)
+    const rot = pastaDaCena(f.cena, c?.nome || c?.tags.join(', '))
+    if (!porPasta.has(rot)) porPasta.set(rot, [])
+    porPasta.get(rot).push(new File([f.blob], f.nome, { type: f.blob.type }))
+  }
+  if (posts.length) porPasta.set('Posts', posts.map((p) => new File([p.blob], p.nome, { type: p.blob.type })))
+  let n = 0
+  for (const [rot, files] of porPasta) {
+    engine.addFiles(files, await sub(rot))
+    n += files.length
+  }
+  return { n, pasta: pasta.name }
+}
+
+async function escolherPai() {
+  const v = job.video
+  if (v.origem === 'drive' && v.file.parents?.[0]) return { id: v.file.parents[0], name: 'a pasta do vídeo', driveId: v.file.driveId || null }
+  return new Promise((resolve) => {
+    openSheet('folders', {
+      verb: 'Subir aqui',
+      onChoose: (f) => {
+        closeSheet()
+        resolve(f)
+      },
+      onCancel: () => {
+        closeSheet()
+        resolve(null)
+      },
+    })
+  })
+}
+
+async function subir(itens) {
+  const pai = await escolherPai()
+  if (!pai) return
+  try {
+    const r = await subirProDrive({ pai, cenas: job.cenas, ...itens })
+    toast(`Subindo ${count(r.n)} ${r.n === 1 ? 'arquivo' : 'arquivos'} para “${r.pasta}”`, { tone: 'success', ms: 4000 })
+  } catch (err) {
+    toast(err?.message || 'Não consegui criar a pasta no Drive.', { tone: 'error' })
+  }
+}
+
+// ───── telas ─────
+
+function Hub({ onFrames, onCalc, temCalc }) {
+  return html`<div class="cr-hub">
+    <button type="button" class="cr-ferr" onClick=${onFrames}>
+      <span class="cr-ferr-art is-frames" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="cr-ferr-txt"><b>Frames</b><span>Do vídeo final aos frames por cena e aos posts.</span></span>
+      <${Icon} name="chevron-right" size=${18} />
+    </button>
+    ${temCalc
+      ? html`<button type="button" class="cr-ferr" onClick=${onCalc}>
+          <span class="cr-ferr-art is-calc" aria-hidden="true"><i></i></span>
+          <span class="cr-ferr-txt"><b>Calculadora</b><span>Quanto cabe no cartão e quanto HD levar.</span></span>
+          <${Icon} name="chevron-right" size=${18} />
+        </button>`
+      : null}
+  </div>`
+}
+
+function Escolher() {
+  const input = useRef(null)
+  const daGaleria = (e) => {
+    const f = e.currentTarget.files?.[0]
+    e.currentTarget.value = ''
+    if (!f) return
+    limpar()
+    job = { video: { origem: 'galeria', nome: f.name, size: f.size, blobUrl: URL.createObjectURL(f) }, fase: 'ajustes' }
+    mudou()
+  }
+  return html`<div class="cr-origens">
+    <button
+      type="button"
+      class="cr-origem"
+      onClick=${() => {
+        setTab('drive')
+        toast('Segure um vídeo e toque em Frames', { ms: 4500 })
+      }}
+    >
+      <span class="cr-origem-ic"><${Icon} name="drive" size=${22} /></span>
+      <span><b>Do Drive</b><small>Usa direto da nuvem, sem baixar</small></span>
+      <span class="cr-tag">Desce</span>
+    </button>
+    <button type="button" class="cr-origem" onClick=${() => input.current?.click()}>
+      <span class="cr-origem-ic"><${Icon} name="film" size=${22} /></span>
+      <span><b>Da galeria</b><small>Um vídeo deste celular</small></span>
+    </button>
+    <input ref=${input} type="file" accept="video/*" hidden onChange=${daGaleria} />
+  </div>`
+}
+
+function Ajustes({ j }) {
+  const [q, setQ] = useState(12)
+  const [fmt, setFmt] = useState('jpg')
+  const grande = j.video.size > GRANDE
+  return html`<div class="cr-card">
+    <div class="cr-video">
+      <span class="cr-origem-ic"><${Icon} name=${j.video.origem === 'drive' ? 'drive' : 'film'} size=${20} /></span>
+      <span><b>${j.video.nome}</b><small>${j.video.origem === 'drive' ? 'Direto do Drive' : 'Da galeria'}${j.video.size ? ` · ${bytes(j.video.size)}` : ''}</small></span>
+      <button type="button" class="link-btn" onClick=${limpar}>Trocar</button>
+    </div>
+    ${grande ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Vídeo pesado: pelo celular demora e depende da internet. O app do computador faz mais rápido, com takes.</p>` : null}
+    <div class="cr-linha">
+      <span>Quantos frames<small>espalhados pelas cenas, só os que valem</small></span>
+      <div class="segmented" role="radiogroup" aria-label="Quantos frames">
+        ${QUANTOS.map((n) => html`<button type="button" role="radio" aria-checked=${q === n ? 'true' : 'false'} class=${cx('segmented-opt', q === n && 'is-on')} onClick=${() => setQ(n)}>${n}</button>`)}
+      </div>
+    </div>
+    <div class="cr-linha">
+      <span>Arquivo<small>no tamanho do vídeo</small></span>
+      <div class="segmented" role="radiogroup" aria-label="Formato">
+        ${['jpg', 'png'].map((f) => html`<button type="button" role="radio" aria-checked=${fmt === f ? 'true' : 'false'} class=${cx('segmented-opt', fmt === f && 'is-on')} onClick=${() => setFmt(f)}>${f.toUpperCase()}</button>`)}
+      </div>
+    </div>
+    <${Button} variant="primary" size="xl" icon="sparkle" class="cr-go" onClick=${() => rodar(q, fmt)}>Fazer os frames</${Button}>
+    ${j.video.origem === 'drive' ? html`<${NoComputador} file=${j.video.file} quantidade=${q} formato=${fmt} />` : null}
+  </div>`
+}
+
+const ESTADO = { pendente: 'Esperando o computador', gerando: 'O computador está fazendo', pronto: 'Pronto', erro: 'Não deu' }
+
+/**
+ * Pedir ao computador: o trabalho completo (takes em 9:16 ou ProRes, TIFF, vídeo pesado), feito pelo app SOBEDESCE
+ * do computador da mesma conta. A pasta pronta sobe ao lado do vídeo no Drive.
+ */
+function NoComputador({ file, quantidade, formato }) {
+  const [aberto, setAberto] = useState(false)
+  const [takes, setTakes] = useState({ quantidade: 6, duracao: 3, formato: '9:16', codec: 'h264' })
+  const [pedidos, setPedidos] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let vivo = true
+    const ac = new AbortController()
+    const ler = () => framesPedidos(file.id, ac.signal).then((p) => vivo && setPedidos(p), () => {})
+    ler()
+    const t = setInterval(() => document.visibilityState === 'visible' && ler(), 10_000)
+    return () => {
+      vivo = false
+      ac.abort()
+      clearInterval(t)
+    }
+  }, [file.id])
+  const ultimo = pedidos?.[0] || null
+  const pedir = async () => {
+    setBusy(true)
+    try {
+      const r = await pedirFrames(file, { frames: { quantidade, formato }, takes: { ...takes, audio: true } })
+      if (r.pedido) setPedidos((p) => [r.pedido, ...(p || []).filter((x) => x.id !== r.pedido.id)])
+      toast(r.novo ? 'Pedido enviado. O computador faz e sobe a pasta ao lado do vídeo.' : 'Esse vídeo já está esperando o computador.', { tone: 'success', ms: 4500 })
+      setAberto(false)
+    } catch (err) {
+      toast(err?.message || 'Não consegui pedir.', { tone: 'error' })
+    }
+    setBusy(false)
+  }
+  const seg = (rotulo, campo, opcoes, fmt = (v) => v) => html`<div class="cr-linha"><span>${rotulo}</span><div class="segmented" role="radiogroup" aria-label=${rotulo}>
+    ${opcoes.map((o) => html`<button type="button" role="radio" aria-checked=${takes[campo] === o ? 'true' : 'false'} class=${cx('segmented-opt', takes[campo] === o && 'is-on')} onClick=${() => setTakes((t) => ({ ...t, [campo]: o }))}>${fmt(o)}</button>`)}
+  </div></div>`
+  return html`<div class="cr-pc">
+    ${ultimo
+      ? html`<div class=${cx('cr-pc-estado', `is-${ultimo.status}`)}>
+          <${Icon} name=${ultimo.status === 'pronto' ? 'circle-check' : ultimo.status === 'erro' ? 'warning' : 'laptop'} size=${18} />
+          <span><b>${ESTADO[ultimo.status] || ultimo.status}</b><small>${ultimo.status === 'pronto' ? ultimo.resultado || 'A pasta subiu ao lado do vídeo.' : ultimo.status === 'erro' ? ultimo.erro : 'Frames e takes, numa pasta ao lado do vídeo no Drive.'}</small></span>
+          ${ultimo.status === 'erro' ? html`<button type="button" class="link-btn" onClick=${() => tentarDeNovo(ultimo.id).then((p) => p && setPedidos((x) => [p, ...(x || []).slice(1)]), (e) => toast(e.message, { tone: 'error' }))}>Tentar de novo</button>` : null}
+        </div>`
+      : null}
+    ${aberto
+      ? html`<div class="cr-pc-form">
+          <p class="cr-nota">O app do computador faz em alta, com takes, e sobe a pasta ao lado do vídeo. Precisa estar aberto, com a mesma conta.</p>
+          ${seg('Takes', 'quantidade', [3, 6, 10])}
+          ${seg('Duração', 'duracao', [2, 3, 5], (v) => `${v} s`)}
+          ${seg('Formato', 'formato', ['9:16', '4:5', 'original'], (v) => (v === 'original' ? 'Original' : v))}
+          ${seg('Arquivo', 'codec', ['h264', 'prores'], (v) => (v === 'h264' ? 'H.264' : 'ProRes'))}
+          <${Button} variant="secondary" size="xl" icon="laptop" loading=${busy} onClick=${pedir}>Pedir ao computador</${Button}>
+        </div>`
+      : html`<button type="button" class="cr-pc-abrir" onClick=${() => setAberto(true)}>
+          <${Icon} name="laptop" size=${18} /><span><b>Completo, no computador</b><small>Com takes em 9:16 ou ProRes. Sobe pro Drive sozinho.</small></span><${Icon} name="chevron-right" size=${16} />
+        </button>`}
+  </div>`
+}
+
+function Andamento({ j }) {
+  const lendo = j.fase === 'lendo'
+  const pct = Math.round((j.frac || 0) * 100)
+  return html`<div class="cr-card cr-anda" aria-live="polite">
+    <div class="cr-scan" aria-hidden="true"><span style=${`left:${pct}%`}></span></div>
+    <b>${lendo ? 'Assistindo o vídeo…' : 'Tirando os frames em alta…'}</b>
+    <small>${lendo ? 'Escuro, desfocado, tremido, perto de corte e repetido ficam de fora.' : `${count(j.frames?.length || 0)} prontos`}</small>
+    <div class="cr-barra"><span style=${`width:${lendo ? pct / 2 : 50 + pct / 2}%`}></span></div>
+    <${Button} variant="secondary" onClick=${() => j.ac?.abort()}>Parar</${Button}>
+  </div>`
+}
+
+function Resultado({ j }) {
+  const [, force] = useState(0)
+  const sel = j.frames.filter((f) => f.sel).sort((a, b) => a.sel - b.sel)
+  const alternar = (f) => {
+    if (f.sel) {
+      const n = f.sel
+      f.sel = 0
+      for (const x of j.frames) if (x.sel > n) x.sel--
+    } else f.sel = sel.length + 1
+    force((x) => x + 1)
+  }
+  const nomear = (c) => {
+    const nome = prompt(`Nome da cena ${String(c.n).padStart(2, '0')} (vira a pasta no Drive)`, c.nome || '')
+    if (nome == null) return
+    c.nome = nome.trim().slice(0, 60) || null
+    force((x) => x + 1)
+  }
+  const escolhidos = sel.length ? sel : j.frames
+  return html`<div class="cr-res">
+    <div class="cr-res-top">
+      <span><b>${count(j.frames.length)} frames</b> · ${count(j.cenas.length)} cenas</span>
+      <button type="button" class="link-btn" onClick=${limpar}>Novo</button>
+    </div>
+    ${j.cenas.map((c) => {
+      const fs = j.frames.filter((f) => f.cena === c.n)
+      if (!fs.length) return null
+      return html`<section key=${c.n} class="cr-cena">
+        <header>
+          <span class="cr-cena-n">${String(c.n).padStart(2, '0')}</span>
+          <button type="button" class="cr-cena-nome" onClick=${() => nomear(c)}>${c.nome || c.tags.join(' · ')} <${Icon} name="pencil" size=${12} /></button>
+        </header>
+        <div class="cr-grade">
+          ${fs.map(
+            (f) => html`<button type="button" key=${f.id} class=${cx('cr-frame', f.sel && 'is-sel')} onClick=${() => alternar(f)} aria-pressed=${f.sel ? 'true' : 'false'} aria-label=${`${f.id} ${tc(f.tc)}`}>
+              <img src=${f.miniUrl} alt="" style=${`aspect-ratio:${f.largura}/${f.altura}`} />
+              <span class="cr-frame-tc">${tc(f.tc)}</span>
+              ${f.sel ? html`<span class="cr-frame-n">${f.sel}</span>` : null}
+            </button>`,
+          )}
+        </div>
+      </section>`
+    })}
+    <div class="cr-acoes">
+      <span class="cr-acoes-txt">${sel.length ? `${sel.length} escolhido${sel.length > 1 ? 's' : ''}` : 'Toque para escolher'}</span>
+      <div class="cr-acoes-btns">
+        <button type="button" class="selact" onClick=${() => salvarNoCelular(escolhidos.map((f) => ({ blob: f.blob, nome: f.nome })))}><${Icon} name="download" size=${20} /><span>Salvar</span></button>
+        <button type="button" class="selact" onClick=${() => subir({ frames: escolhidos })}><${Icon} name="upload" size=${20} /><span>Subir</span></button>
+        <button type="button" class="selact is-strong" onClick=${() => openSheet('framesPost', { ids: sel.map((f) => f.id) })}><${Icon} name="grid" size=${20} /><span>Post</span></button>
+      </div>
+    </div>
+  </div>`
+}
+
+function FramesTela({ onVoltar }) {
+  const j = useJob()
+  return html`<div class="cr-frames">
+    <button type="button" class="cr-voltar" onClick=${onVoltar}><${Icon} name="chevron-left" size=${18} />Criar</button>
+    <h2 class="cr-titulo">Frames</h2>
+    ${!j
+      ? html`<p class="cr-lead">Escolha o vídeo final. O celular escolhe os melhores frames de cada cena, no tamanho do vídeo.</p><${Escolher} />`
+      : j.fase === 'ajustes'
+        ? html`<${Ajustes} j=${j} />`
+        : j.fase === 'lendo' || j.fase === 'frames'
+          ? html`<${Andamento} j=${j} />`
+          : j.fase === 'erro'
+            ? html`<div class="cr-card cr-erro" role="alert"><${Icon} name="warning" size=${24} /><b>Não terminei</b><p>${j.erro}</p><${Button} variant="secondary" onClick=${() => Object.assign(j, { fase: 'ajustes' }) && mudou()}>Tentar de novo</${Button}></div>`
+            : html`<${Resultado} j=${j} />`}
+  </div>`
+}
+
+// ───── folha do post ─────
+
+const imgs = new Map()
+const carregar = (url) => {
+  if (!imgs.has(url))
+    imgs.set(
+      url,
+      new Promise((ok, falha) => {
+        const i = new Image()
+        i.onload = () => ok(i)
+        i.onerror = falha
+        i.src = url
+      }),
+    )
+  return imgs.get(url)
+}
+
+export function FramesPostSheet({ ids = [] }) {
+  const j = job
+  const [p, setP] = useState({ layout: 'triade', n: 3, proporcao: '4:5', fundo: 'preto', titulo: nomeSemExt(j?.video.nome), slides: 2 })
+  const [busy, setBusy] = useState(null)
+  const cv = useRef(null)
+  const L = layoutPorId(p.layout)
+  const n = L.quantos.includes(p.n) ? p.n : L.padrao
+  const usados = useMemo(() => {
+    if (!j) return []
+    const porId = new Map(j.frames.map((f) => [f.id, f]))
+    const s = ids.map((id) => porId.get(id)).filter(Boolean)
+    const resto = j.frames.filter((f) => !s.includes(f)).sort((a, b) => b.nota - a.nota)
+    return s.concat(resto).slice(0, n).sort((a, b) => a.t - b.t)
+  }, [ids, n])
+  const desenhar = async (alvo, escala) => {
+    const imagens = await Promise.all(usados.map((f) => carregar(f.url)))
+    return desenharPost(alvo, { layout: p.layout, proporcao: p.proporcao, escala, imagens, fundo: p.fundo, textos: { titulo: p.titulo, legendas: p.layout === 'polaroid' ? [p.titulo] : undefined }, timecodes: usados.map((f) => f.tc), slides: p.slides })
+  }
+  useEffect(() => {
+    let vivo = true
+    const c = document.createElement('canvas')
+    desenhar(c, 0.4).then(() => {
+      if (!vivo || !cv.current) return
+      cv.current.width = c.width
+      cv.current.height = c.height
+      cv.current.getContext('2d').drawImage(c, 0, 0)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [p, usados])
+  if (!j) return null
+  const gerar = async () => {
+    const c = await desenhar(document.createElement('canvas'), 2)
+    const partes = p.layout === 'carrossel' ? fatiar(c, p.slides) : [c]
+    const base = baseDoNome(j.video.nome)
+    const out = []
+    for (const [i, x] of partes.entries()) {
+      const blob = await new Promise((ok) => x.toBlob(ok, 'image/jpeg', 0.95))
+      out.push({ blob, nome: `${base}_Post_${L.nome}${partes.length > 1 ? `_${i + 1}de${partes.length}` : L.quantos.length > 1 ? `_${n}` : ''}_${p.proporcao.replace(':', 'x')}.jpg` })
+    }
+    return out
+  }
+  const acao = async (qual) => {
+    setBusy(qual)
+    try {
+      const posts = await gerar()
+      if (qual === 'salvar') await salvarNoCelular(posts)
+      else {
+        closeSheet()
+        await subir({ posts })
+      }
+    } catch (err) {
+      toast(err?.message || 'Não consegui montar o post.', { tone: 'error' })
+    }
+    setBusy(null)
+  }
+  const muda = (o) => setP((x) => ({ ...x, ...o }))
+  return html`<${SheetHead} title="Post" left=${html`<button type="button" class="link-btn" onClick=${closeSheet}>Fechar</button>`} />
+    <div class="sheet-scroll"><div class="cr-post">
+      <div class=${cx('cr-post-tela', p.layout === 'carrossel' && 'is-carrossel')}><canvas ref=${cv} aria-label="Prévia do post"></canvas></div>
+      <div class="cr-layouts" role="radiogroup" aria-label="Formato">
+        ${LAYOUTS.map((l) => html`<button type="button" role="radio" aria-checked=${p.layout === l.id ? 'true' : 'false'} class=${cx('cr-chip', p.layout === l.id && 'is-on')} onClick=${() => muda({ layout: l.id, n: l.padrao })}>${l.nome}</button>`)}
+      </div>
+      ${L.quantos.length > 1
+        ? html`<div class="cr-linha"><span>Frames</span><div class="segmented">${L.quantos.map((q) => html`<button type="button" class=${cx('segmented-opt', n === q && 'is-on')} onClick=${() => muda({ n: q })}>${L.id === 'grade' ? (q === 4 ? '2×2' : '3×3') : q}</button>`)}</div></div>`
+        : null}
+      ${L.slides ? html`<div class="cr-linha"><span>Slides</span><div class="segmented">${L.slides.map((q) => html`<button type="button" class=${cx('segmented-opt', p.slides === q && 'is-on')} onClick=${() => muda({ slides: q })}>${q}</button>`)}</div></div>` : null}
+      <div class="cr-linha"><span>Tamanho</span><div class="segmented">${['4:5', '1:1', '9:16'].map((q) => html`<button type="button" class=${cx('segmented-opt', p.proporcao === q && 'is-on')} onClick=${() => muda({ proporcao: q })}>${q}</button>`)}</div></div>
+      <div class="cr-linha"><span>Fundo</span><div class="segmented">${Object.keys(FUNDOS).map((q) => html`<button type="button" class=${cx('segmented-opt', p.fundo === q && 'is-on')} onClick=${() => muda({ fundo: q })}>${q[0].toUpperCase() + q.slice(1)}</button>`)}</div></div>
+      ${['triade', 'box', 'cinema', 'contato', 'polaroid'].includes(p.layout) ? html`<label class="cr-campo"><span>${p.layout === 'polaroid' ? 'Legenda' : 'Título'}</span><input class="input" value=${p.titulo} maxlength="60" onInput=${(e) => muda({ titulo: e.currentTarget.value })} /></label>` : null}
+      <p class="cr-nota">${ids.length ? `Com os ${ids.length} frames que você escolheu.` : 'Escolha automática: os melhores de cada cena.'} JPEG em alta (2160 px).</p>
+      <div class="cr-post-btns">
+        <${Button} variant="secondary" size="xl" icon="download" loading=${busy === 'salvar'} onClick=${() => acao('salvar')}>Salvar no celular</${Button}>
+        <${Button} variant="primary" size="xl" icon="upload" loading=${busy === 'subir'} onClick=${() => acao('subir')}>Subir pro Drive</${Button}>
+      </div>
+    </div></div>`
+}
+FramesPostSheet.label = 'Post'
+FramesPostSheet.tall = true
+
+// ───── aba ─────
+
+export function CriarScreen({ active, Calculadora = null }) {
+  const tela = useApp((s) => s.criarTela || 'hub')
+  const ir = (t) => {
+    setState({ criarTela: t })
+    window.scrollTo(0, 0)
+  }
+  useJob()
+  return html`<div class="screen cr-screen">
+    <header class="topbar dtop">
+      <div class="dtop-row"><h1 class="dtop-title">Criar</h1></div>
+    </header>
+    <main class="cr-body">
+      ${tela === 'frames'
+        ? html`<${FramesTela} onVoltar=${() => ir('hub')} />`
+        : tela === 'calc' && Calculadora
+          ? html`<div class="cr-frames"><button type="button" class="cr-voltar" onClick=${() => ir('hub')}><${Icon} name="chevron-left" size=${18} />Criar</button><${Calculadora} /></div>`
+          : html`<${Hub} onFrames=${() => ir('frames')} onCalc=${() => ir('calc')} temCalc=${Boolean(Calculadora)} />
+            ${job && job.fase !== 'ajustes' ? html`<button type="button" class="cr-voltar-job" onClick=${() => ir('frames')}>${job.fase === 'pronto' ? `${count(job.frames.length)} frames de “${nomeSemExt(job.video.nome)}” prontos` : 'Fazendo os frames…'} <${Icon} name="chevron-right" size=${16} /></button>` : null}`}
+    </main>
+  </div>`
+}

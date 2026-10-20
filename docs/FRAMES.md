@@ -76,8 +76,26 @@ cor, uma impressão digital (dHash) e a diferença para a amostra anterior.
 
 Progresso pelo SSE `frames`: `{ jobId, status, fase, frac, texto, video, manifestoId, erro }`.
 
+## Celular (aba Criar)
+
+- **Frames no celular** (`web/public/app/lib/frames/celular.js`, `components/criar.js`):
+  - O vídeo vem direto do Drive, pelo stream do app (não baixa inteiro), ou da galeria.
+  - Um `<video>` escondido pula entre 24 e 240 pontos do filme e mede cada um em 256 px.
+  - A escolha usa as **mesmas regras** do computador: `medidas.js`, `escolha.js` e `posts.js` são cópias idênticas, conferidas em `test/frames.test.js`.
+  - Os frames saem no tamanho do vídeo, em JPEG 0,95 ou PNG.
+  - Salvar no celular: pela folha de compartilhar (Salvar imagem ou Arquivos); sem ela, um download por arquivo.
+  - Subir pro Drive: `<Vídeo> — Frames/Cena NN — …/` e `Posts/`, ao lado do vídeo (ou onde a pessoa escolher, se veio da galeria).
+  - Na aba Drive, a seleção de um vídeo ganha "Frames".
+- **Completo, no computador** (`src/engine/pedidos-frames.js`):
+  - O celular pede na mesma fila dos pedidos de proxy, com `tipo: "frames"` e os ajustes: frames, takes (9:16, 4:5, original; H.264 ou ProRes) e formato.
+  - Apps do computador antigos não veem esses pedidos, porque a lista sem `tipo` é só de proxy.
+  - O computador da mesma conta pega um por vez, faz pelo Frames e sobe a pasta ao lado do vídeo.
+  - Se a pessoa estiver usando o Frames na tela, ele espera a vez. Sem ffmpeg, não pega.
+  - O celular mostra o andamento: esperando, fazendo, pronto (com o resumo) ou erro (com Tentar de novo).
+- **Calculadora** também está na aba Criar, com a mesma conta do computador e do site.
+
 ## Ainda não
 
 - Vídeo HDR (HLG/PQ) sai sem conversão de tom: o JPEG fica lavado. Por enquanto, use a versão SDR do filme.
-- Frames pelo celular (o trabalho pesado precisa do ffmpeg do computador).
+- Takes feitos no próprio celular (o celular pede ao computador).
 - "Outro frame" e "frame num ponto" de um vídeo que veio do Drive baixam o vídeo de novo (ele não fica no computador).

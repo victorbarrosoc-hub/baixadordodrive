@@ -77,5 +77,8 @@ describe('calculadora de mídia', () => {
   test('o app do computador e o site usam a mesma conta e os mesmos modos', () => {
     assert.equal(ler('../public/lib/midia-conta.js'), ler('../web/src/lib/midia/conta.js'))
     assert.equal(ler('../public/lib/midia-modos.js'), ler('../web/src/lib/midia/modos.js'))
+    // e a do celular (aba Criar → Calculadora)
+    assert.equal(ler('../public/lib/midia-conta.js'), ler('../web/public/app/lib/midia-conta.js'))
+    assert.equal(ler('../public/lib/midia-modos.js'), ler('../web/public/app/lib/midia-modos.js'))
   })
 })

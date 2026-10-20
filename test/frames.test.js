@@ -212,3 +212,12 @@ test('Frames de ponta a ponta: pasta organizada, takes, índice, edições, post
   await fs.stat(m.pasta)
   assert.equal((await svc.historico()).length, 0)
 })
+
+test('celular: medidas, escolha e posts são cópias idênticas das do computador', async () => {
+  const par = [
+    ['../src/frames/medidas.js', '../web/public/app/lib/frames/medidas.js'],
+    ['../src/frames/escolha.js', '../web/public/app/lib/frames/escolha.js'],
+    ['../public/lib/frames-posts.js', '../web/public/app/lib/frames/posts.js'],
+  ]
+  for (const [a, b] of par) assert.equal(await fs.readFile(new URL(b, import.meta.url), 'utf8'), await fs.readFile(new URL(a, import.meta.url), 'utf8'), `${b} difere de ${a}`)
+})

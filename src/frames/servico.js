@@ -202,7 +202,7 @@ export class FramesService {
     const job = { id: newId('frm_'), status: 'running', fase: 'preparando', frac: 0, texto: 'Preparando…', videoNome: null, manifestoId: null, erro: null, ac: new AbortController() }
     this.job = job
     this.onChange(this.view(job))
-    this.#rodar(job, origem, ajustes).then(
+    job.fim = this.#rodar(job, origem, ajustes).then(
       () => {
         job.status = 'done'
         this.onChange(this.view(job))
@@ -220,6 +220,14 @@ export class FramesService {
       },
     )
     return job.id
+  }
+
+  /** Espera o trabalho terminar (pronto, parado ou com erro). Devolve a visão final dele. */
+  async esperar(jobId) {
+    const job = this.job?.id === jobId ? this.job : null
+    if (!job) return null
+    await job.fim
+    return this.view(job)
   }
 
   cancelar(jobId) {

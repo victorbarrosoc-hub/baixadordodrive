@@ -57,6 +57,13 @@
       "when": 1792384978529,
       "tag": "0007_pedidos_proxy",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792467492954,
+      "tag": "0008_pedidos_tipo",
+      "breakpoints": true
     }
   ]
 }

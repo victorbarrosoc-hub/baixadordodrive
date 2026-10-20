@@ -1,10 +1,32 @@
-import type { StatusPedidoProxy } from "@/lib/db/schema";
+import type { AjustesFrames, StatusPedidoProxy, TipoPedido } from "@/lib/db/schema";
 import { lerJson } from "@/lib/http";
 import { exigirProxies, falha, ID_DRIVE, MSG, ok } from "@/lib/proxies/api";
-import { contaDaPessoa, type ItemNovo, listarPedidos, MAX_POR_PEDIDO, pedirProxies, STATUS } from "@/lib/proxies/pedidos";
+import { contaDaPessoa, type ItemNovo, listarPedidos, MAX_POR_PEDIDO, pedirProxies, STATUS, TIPOS } from "@/lib/proxies/pedidos";
+
+/** Frames: no máximo isto de uma vez (cada um é um trabalho pesado no computador). */
+const MAX_FRAMES = 20;
+
+/** Ajustes de Frames vindos do celular: só o que o computador sabe fazer, dentro dos limites dele. */
+function lerAjustes(v: unknown): AjustesFrames | null {
+  const o = (v ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const f = o.frames ?? {};
+  const inteiro = (x: unknown, min: number, max: number) => (typeof x === "number" && Number.isInteger(x) && x >= min && x <= max ? x : null);
+  const q = inteiro(f.quantidade, 1, 300);
+  if (q == null || !["jpg", "png", "tiff"].includes(f.formato)) return null;
+  let takes: AjustesFrames["takes"] = null;
+  if (o.takes != null) {
+    const t = o.takes;
+    const tq = inteiro(t.quantidade, 1, 60);
+    const dur = typeof t.duracao === "number" && t.duracao >= 1 && t.duracao <= 15 ? t.duracao : null;
+    if (tq == null || dur == null || !["original", "9:16", "4:5", "1:1"].includes(t.formato) || !["h264", "prores"].includes(t.codec)) return null;
+    takes = { quantidade: tq, duracao: dur, formato: t.formato, codec: t.codec, audio: t.audio !== false };
+  }
+  return { frames: { quantidade: q, formato: f.formato }, takes };
+}
 
 /**
- * Pedidos de proxy: `?status=pendente` (ou vários, separados por vírgula; `todos`) e `?fileIds=a,b`.
+ * Pedidos ao computador: `?status=pendente` (ou vários, separados por vírgula; `todos`), `?fileIds=a,b` e
+ * `?tipo=proxy|frames|todos` (sem tipo: proxy, que é o que os apps antigos do computador sabem fazer).
  * Sem status: todos (o celular quer ver os prontos também).
  */
 export async function GET(req: Request) {
@@ -19,10 +41,15 @@ export async function GET(req: Request) {
   }
   const fileIds = (q.get("fileIds") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   if (fileIds.length > MAX_POR_PEDIDO || !fileIds.every((f) => ID_DRIVE.test(f))) return falha(400, "entrada", MSG.entrada);
-  return ok({ pedidos: await listarPedidos(atual.usuario.id, { status, fileIds }) });
+  const t = q.get("tipo") ?? "proxy";
+  if (t !== "todos" && !(TIPOS as string[]).includes(t)) return falha(400, "entrada", MSG.entrada);
+  return ok({ pedidos: await listarPedidos(atual.usuario.id, { status, fileIds, tipo: t === "todos" ? null : (t as TipoPedido) }) });
 }
 
-/** `{ contaGoogleId, itens: [{ fileId, nome, tamanho? }] }`. O mesmo arquivo já esperando não entra de novo. */
+/**
+ * `{ contaGoogleId, itens: [{ fileId, nome, tamanho? }], tipo?, ajustes? }`. O mesmo arquivo já esperando (do mesmo
+ * tipo) não entra de novo. Frames precisa de `ajustes`.
+ */
 export async function POST(req: Request) {
   const atual = await exigirProxies(req, { mutacao: true });
   if (atual instanceof Response) return atual;
@@ -30,7 +57,12 @@ export async function POST(req: Request) {
   if (!corpo || typeof corpo.contaGoogleId !== "string" || !Array.isArray(corpo.itens) || !corpo.itens.length) {
     return falha(400, "entrada", MSG.entrada);
   }
-  if (corpo.itens.length > MAX_POR_PEDIDO) return falha(400, "muitos", `Até ${MAX_POR_PEDIDO} vídeos por vez.`);
+  const tipo: TipoPedido = corpo.tipo == null ? "proxy" : (corpo.tipo as TipoPedido);
+  if (!TIPOS.includes(tipo)) return falha(400, "entrada", MSG.entrada);
+  const max = tipo === "frames" ? MAX_FRAMES : MAX_POR_PEDIDO;
+  if (corpo.itens.length > max) return falha(400, "muitos", `Até ${max} vídeos por vez.`);
+  const ajustes = tipo === "frames" ? lerAjustes(corpo.ajustes) : null;
+  if (tipo === "frames" && !ajustes) return falha(400, "entrada", MSG.entrada);
   const itens: ItemNovo[] = [];
   for (const i of corpo.itens as unknown[]) {
     const o = (i ?? {}) as Record<string, unknown>;
@@ -40,6 +72,6 @@ export async function POST(req: Request) {
     itens.push({ fileId: o.fileId, nome, tamanho });
   }
   if (!(await contaDaPessoa(atual.usuario.id, corpo.contaGoogleId))) return falha(404, "conta", MSG.conta);
-  const r = await pedirProxies(atual.usuario.id, corpo.contaGoogleId, itens);
+  const r = await pedirProxies(atual.usuario.id, corpo.contaGoogleId, itens, { tipo, ajustes });
   return ok(r, r.novos ? 201 : 200);
 }

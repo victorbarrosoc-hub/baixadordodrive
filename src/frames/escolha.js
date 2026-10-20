@@ -1,10 +1,10 @@
-// Frames: o bom senso na escolha. Regras (docs/FRAMES.md):
+// Frames: o bom senso na escolha (a mesma cópia roda no celular: web/public/app/lib/frames/escolha.js). Regras (docs/FRAMES.md):
 //   - nada de tela preta, branca, estourada ou fechada demais;
 //   - nada de quadro tremido ou desfocado (nitidez abaixo do normal da própria cena);
 //   - nada perto de corte, transição ou fusão (as primeiras e últimas amostras de cada cena e os saltos de imagem);
 //   - nada repetido (impressão digital parecida com um já escolhido);
 //   - espalhado pelo filme: cada cena ganha frames na medida do tempo dela, e dentro dela, espaçados.
-import { distanciaHash } from './analise.js'
+import { distanciaHash } from './medidas.js'
 
 const PERTO_DO_CORTE_S = 0.35
 const HASH_IGUAL = 10 // de 64 bits: abaixo disso, é praticamente a mesma imagem
