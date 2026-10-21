@@ -137,7 +137,7 @@ export class DiscosService {
     const lista = this.plano.itens.filter((it) => !estado || it.estados[destino] === estado)
     return {
       total: lista.length,
-      itens: lista.slice(de, de + limite).map((it) => ({ relPath: it.relPath, size: it.size, estados: it.estados, achado: it.achados?.[destino] || null })),
+      itens: lista.slice(de, de + limite).map((it) => ({ relPath: it.relPath, size: it.size, estados: it.estados, achado: it.achados?.[destino] || null, para: it.para?.[destino] || null })),
     }
   }
 
@@ -149,14 +149,15 @@ export class DiscosService {
    *   conferirIguais: os que já estavam no destino (mesmo tamanho) também têm o checksum comparado; se não bater, são
    *   copiados de novo;
    *   relatorio: grava "SOBEDESCE_copia_<data>.xxh64" (ou .md5) em cada destino, no formato do xxhsum/md5sum;
-   *   algoritmo: 'xxh64' (padrão, rápido) ou 'md5' (o mesmo checksum do Google Drive).
+   *   algoritmo: 'xxh64' (padrão, rápido) ou 'md5' (o mesmo checksum do Google Drive);
+   *   juntar: os novos com vizinhos já em outra pasta do destino vão para essa pasta (planejar.js, `para`).
    */
-  async iniciar({ substituir = false, conferir = true, conferirIguais = false, relatorio = true, algoritmo = 'xxh64' } = {}) {
+  async iniciar({ substituir = false, conferir = true, conferirIguais = false, relatorio = true, algoritmo = 'xxh64', juntar = true } = {}) {
     if (!ALGORITMOS.includes(algoritmo)) throw new DiscosError(400, 'Checksum inválido.')
     if (this.fase === 'copiando') throw new DiscosError(409, 'Já está copiando.')
     if (!this.plano || this.fase !== 'pronto') throw new DiscosError(409, 'Compare as pastas antes de copiar.')
     const p = this.plano
-    p.opcoes = { substituir, conferir, conferirIguais, relatorio, algoritmo }
+    p.opcoes = { substituir, conferir, conferirIguais, relatorio, algoritmo, juntar }
     const quer = (e) => e === 'novo' || (e === 'diferente' && substituir)
     const indices = (fn) => (it) => it.estados.map((e, i) => (fn(e) ? i : -1)).filter((i) => i >= 0)
     const trabalho = p.itens
@@ -200,11 +201,11 @@ export class DiscosService {
     this.cancelado = false
     this.keepAwake?.setActive(true)
     this.#mudou(true)
-    this.rodando = this.#rodar(trabalho, { conferir, relatorio, algoritmo }).catch((err) => this.log('discos', err))
+    this.rodando = this.#rodar(trabalho, { conferir, relatorio, algoritmo, juntar }).catch((err) => this.log('discos', err))
     return this.view()
   }
 
-  async #rodar(trabalho, { conferir, relatorio, algoritmo }) {
+  async #rodar(trabalho, { conferir, relatorio, algoritmo, juntar }) {
     const p = this.plano
     const g = this.prog
     const hashes = p.destinos.map(() => []) // por destino: [hash, relPath] dos que deram certo
@@ -251,7 +252,10 @@ export class DiscosService {
       while (filaVaga.length && filaVaga[0]()) filaVaga.shift()
     }
 
-    const destinoDe = (di, it) => path.join(p.destinos[di].pasta, ...it.relPath.split('/'))
+    // Os novos com vizinhos já em outra pasta do destino vão para lá (planejar.js, `para`), se `juntar`.
+    const destinoDe = (di, it) => (juntar && it.para?.[di]) || path.join(p.destinos[di].pasta, ...it.relPath.split('/'))
+    const foraDaPasta = (di, it) => !!(juntar && it.para?.[di])
+    const juntados = p.destinos.map(() => new Set()) // por destino: gravados ao lado dos vizinhos (fora da pasta da cópia)
     // O que já existe: no caminho esperado, ou na outra pasta onde foi achado (estado 'outro').
     const existenteDe = (di, it) => (it.estados[di] === 'outro' && it.achados?.[di]) || destinoDe(di, it)
     // Acerta a conta de um arquivo (mudou de tamanho no meio, falhou, conferência parou): anda o tamanho certo.
@@ -307,7 +311,9 @@ export class DiscosService {
         r.destinos.forEach((d, k) => {
           const di = alvos[k]
           if (d.ok) {
-            hashes[di].push([r.hash, it.relPath])
+            // O relatório fica na pasta da cópia: o que foi para junto dos vizinhos conta na cobertura, fora do relatório.
+            if (foraDaPasta(di, it)) juntados[di].add(it.relPath)
+            else hashes[di].push([r.hash, it.relPath])
             if (conferir) verificados[di].add(it.relPath)
           } else {
             // Cópia que não bate com a origem não pode ficar com cara de pronta (a próxima comparação acharia "igual").
@@ -360,7 +366,7 @@ export class DiscosService {
     // Cobertura: quantos arquivos da origem estão em cada destino agora (gravados agora, ou que já estavam lá) e quantos
     // tiveram o conteúdo conferido pelo checksum.
     const cobertura = p.destinos.map((d, di) => {
-      const gravados = new Set([...hashes[di].map(([, r]) => r), ...verificados[di]])
+      const gravados = new Set([...hashes[di].map(([, r]) => r), ...verificados[di], ...juntados[di]])
       const ruins = new Set(g.falhas.filter((f) => !f.destino || f.destino === d.caminho).map((f) => f.relPath))
       let presentes = 0
       let diferentes = 0 // ficaram com outro tamanho no destino (não marcou "Substituir os diferentes")
