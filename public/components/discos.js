@@ -21,6 +21,7 @@ const ALGS = [
 const ESTADOS = [
   { id: 'novo', label: 'Novos', tom: 'up', icon: 'plus' },
   { id: 'igual', label: 'Já estão lá', tom: 'ok', icon: 'check' },
+  { id: 'outro', label: 'Em outra pasta', tom: 'down', icon: 'folder' },
   { id: 'diferente', label: 'Diferentes', tom: 'warn', icon: 'warning' },
 ]
 
@@ -82,7 +83,15 @@ function Lista({ destino, estado }) {
   if (!dados.total) return html`<div class="cp-lista"><p class="k-nota">Nenhum arquivo aqui.</p></div>`
   return html`<div class="cp-lista">
     <ul>
-      ${dados.itens.map((it) => html`<li><span class="mono-path" title=${it.relPath}>${it.relPath}</span><span class="num sub">${bytes(it.size)}</span></li>`)}
+      ${dados.itens.map(
+        (it) => html`<li>
+          <span class="cp-item-nome">
+            <span class="mono-path" title=${it.relPath}>${it.relPath}</span>
+            ${it.achado ? html`<span class="cp-achado" title=${it.achado}><${Icon} name="folder" size=${12} /> já está em ${tildify(it.achado)}</span>` : null}
+          </span>
+          <span class="num sub">${bytes(it.size)}</span>
+        </li>`,
+      )}
     </ul>
     ${dados.total > dados.itens.length ? html`<p class="k-nota cp-lista-mais">e mais ${count(dados.total - dados.itens.length)}…</p>` : null}
   </div>`
@@ -92,7 +101,7 @@ function Lista({ destino, estado }) {
 function totalDoPlano(p, opcoes) {
   const arquivos = p.destinos.reduce((m, x) => Math.max(m, x.novos + (opcoes.substituir ? x.diferentes : 0)), 0)
   const bytesT = p.destinos.reduce((m, x) => Math.max(m, x.bytesNovos + (opcoes.substituir ? x.bytesDiferentes : 0)), 0)
-  const conferirSo = opcoes.conferirIguais && p.destinos.some((x) => x.iguais)
+  const conferirSo = opcoes.conferirIguais && p.destinos.some((x) => x.iguais || x.emOutro)
   const falta = p.destinos.some((x) => x.livre != null && x.bytesNovos + (opcoes.substituir ? x.bytesDiferentes : 0) > x.livre)
   return { arquivos, bytes: bytesT, conferirSo, falta }
 }
@@ -114,10 +123,10 @@ function Plano({ v, opcoes, setOpcoes }) {
     ${p.destinos.length > 1
       ? html`<${Pilulas} label="Destino" valor=${destino} onEscolher=${setDestino} itens=${p.destinos.map((x, i) => ({ value: i, label: baseName(x.caminho) || x.caminho }))} />`
       : null}
-    <div class="k-stats cp-stats" style="--n:3">
-      ${ESTADOS.map((e) => {
-        const n = e.id === 'novo' ? d.novos : e.id === 'igual' ? d.iguais : d.diferentes
-        const b = e.id === 'novo' ? d.bytesNovos : e.id === 'diferente' ? d.bytesDiferentes : null
+    <div class="k-stats cp-stats" style=${`--n:${p.destinos.some((x) => x.emOutro) ? 4 : 3}`}>
+      ${ESTADOS.filter((e) => e.id !== 'outro' || p.destinos.some((x) => x.emOutro)).map((e) => {
+        const n = e.id === 'novo' ? d.novos : e.id === 'igual' ? d.iguais : e.id === 'outro' ? d.emOutro || 0 : d.diferentes
+        const b = e.id === 'novo' ? d.bytesNovos : e.id === 'diferente' ? d.bytesDiferentes : e.id === 'outro' ? d.bytesEmOutro : null
         return html`<button type="button" class=${cx('k-stat cp-stat', `is-${e.tom}`, estado === e.id && 'is-on', !n && 'is-zero')} onClick=${() => setEstado(e.id)} aria-pressed=${estado === e.id ? 'true' : 'false'}>
           <span class="k-stat-ic"><${Icon} name=${e.icon} size=${15} strokeWidth=${2} /></span>
           <b class="num">${count(n)}</b>
@@ -125,11 +134,14 @@ function Plano({ v, opcoes, setOpcoes }) {
         </button>`
       })}
     </div>
+    ${d.emOutro
+      ? html`<p class="k-nota cp-outro"><${Icon} name="folder" size=${14} /> ${plural(d.emOutro, 'arquivo já está', 'arquivos já estão')} nesta mídia em outra pasta (mesmo nome e tamanho). Não ${d.emOutro === 1 ? 'é copiado' : 'são copiados'} de novo.</p>`
+      : null}
     <${Espaco} d=${d} precisa=${d.bytesNovos + (opcoes.substituir ? d.bytesDiferentes : 0)} />
     <${Lista} destino=${destino} estado=${estado} />
-    ${p.destinos.some((x) => x.iguais) || p.destinos.some((x) => x.diferentes)
+    ${p.destinos.some((x) => x.iguais || x.emOutro) || p.destinos.some((x) => x.diferentes)
       ? html`<${Linhas}>
-          ${p.destinos.some((x) => x.iguais)
+          ${p.destinos.some((x) => x.iguais || x.emOutro)
             ? html`<${Linha} titulo="Conferir também os que já estão no destino" sub="Compara o conteúdo, não só o tamanho. O que não bater é copiado de novo.">
                 <${Switch} checked=${opcoes.conferirIguais} label="Conferir os que já estão lá" onChange=${(on) => setOpcoes({ ...opcoes, conferirIguais: on })} />
               </${Linha}>`

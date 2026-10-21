@@ -25,11 +25,12 @@ export function registerDiscos({ route, ctx, HttpProblem, servico }) {
     const destinos = Array.isArray(body.destinos) ? body.destinos.map(texto) : []
     if (!origem) throw new HttpProblem(400, 'Escolha a origem.')
     if (!destinos.length || destinos.some((d) => !d)) throw new HttpProblem(400, 'Escolha pelo menos um destino.')
-    return svc.planejar({ origem, destinos, nome: texto(body.nome) })
+    // Procura em qualquer pasta do destino o que não estiver no caminho esperado (desliga com procurarTudo: false).
+    return svc.planejar({ origem, destinos, nome: texto(body.nome), procurarTudo: body.procurarTudo !== false })
   }))
 
   route('GET', '/api/discos/itens', tratar(async ({ query }) => {
-    const estado = ['novo', 'igual', 'diferente'].includes(query.get('estado')) ? query.get('estado') : null
+    const estado = ['novo', 'igual', 'diferente', 'outro'].includes(query.get('estado')) ? query.get('estado') : null
     return svc.itens({ estado, destino: Math.max(0, Math.min(3, Number(query.get('destino')) || 0)), de: Math.max(0, Number(query.get('de')) || 0), limite: 300 })
   }))
 
