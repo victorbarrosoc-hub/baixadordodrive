@@ -38,6 +38,7 @@ let state = {
   copia: null, // "Copiar de um link": a cópia atual ou a última (src/server/copiar.js)
   celular: null, // Celular pelo Wi-Fi: { receber, pasta, conectado, pronto, celulares, transferencias } (src/server/celular.js)
   lan: null, // Entre computadores: { receber, rodando, porta, pasta, recebendo, envio, conectado } (src/server/lan.js)
+  backup: null, // Backup Automático (Cartões → Projetos): { ligado, projeto, volumes, pedidos, fila, job, ultimo } (src/server/backup.js)
   discos: null, // Copiar entre discos: { fase, erro, plano, progresso, resultado } (src/server/discos.js)
   cenas: null, // Busca por cena: { disponivel, modelo: { pronto, baixando, recebido, total, erro }, fila, analisando } (src/server/cenas.js)
   frames: null, // Frames: o trabalho atual ou o último { jobId, status, fase, frac, texto, video, manifestoId, erro } (src/server/frames.js)
@@ -114,6 +115,7 @@ function applyFull(data) {
     frames: data.frames !== undefined ? data.frames : state.frames,
     cenas: data.cenas !== undefined ? data.cenas : state.cenas,
     discos: data.discos !== undefined ? data.discos : state.discos,
+    backup: data.backup !== undefined ? data.backup : state.backup,
     lan: data.lan !== undefined ? data.lan : state.lan,
     celular: data.celular !== undefined ? data.celular : state.celular,
     versao: data.versao !== undefined ? data.versao : state.versao,
@@ -254,6 +256,24 @@ function connect() {
   on('frames', (d) => d?.jobId && setFrames(d))
   on('cenas', (d) => d && typeof d === 'object' && setState({ cenas: d }))
   on('discos', (d) => d && typeof d === 'object' && setState({ discos: d }))
+  on('backup', (d) => d && typeof d === 'object' && setState({ backup: d }))
+  // Backup Automático (docs/BACKUP-AUTOMATICO.md): cartão novo espera o toque "de quem é?"; descarga terminou.
+  on('backup-pedido', (d) => {
+    toast('info', `Cartão novo${d?.nome ? ` (${d.nome})` : ''}: de quem é?`, { action: { label: 'Responder', href: '#/cartoes' }, duration: 30_000 })
+    try {
+      window.dispatchEvent(new CustomEvent('sd:backup', { detail: { titulo: 'Cartão novo: de quem é?', texto: 'Abra Cartões no SOBEDESCE e escolha o dono. Depois ele passa sozinho.' } }))
+    } catch {}
+  })
+  on('backup-feito', (d) => {
+    if (!d) return
+    const quem = d.dono ? `${d.dono} · ` : ''
+    const titulo = d.ok ? 'Cartão OK, pode formatar' : d.resultado === 'cancelado' ? 'Descarga parada' : 'Cartão com pendência'
+    const texto = d.ok ? `${quem}${d.cartao || 'cartão'} está em todos os destinos.` : d.erro || `${quem}${d.faltam || 0} arquivos ainda não estão em todos os destinos.`
+    if (d.resultado !== 'cancelado') toast(d.ok ? 'success' : 'error', `${titulo}. ${texto}`, { duration: 12_000 })
+    try {
+      window.dispatchEvent(new CustomEvent('sd:backup', { detail: { titulo, texto } }))
+    } catch {}
+  })
   on('lan', (d) => d && typeof d === 'object' && setState({ lan: d }))
   on('celular', (d) => d && typeof d === 'object' && setState({ celular: d }))
   // Outra conta por perto pediu para mandar arquivos: aviso aqui e no sistema (desktop.js), a resposta é na tela.
