@@ -37,6 +37,15 @@ A página do app no celular é HTTPS e não pode falar com `http://192.168.x.x` 
    cria a oferta é sempre quem manda. Lista → pode/não → arquivo a arquivo em pedaços de 64 KiB → guardado → acabou.
    Controle de fluxo por confirmações (no máximo 16 MiB adiantados). O canal é cifrado (DTLS) pelo próprio WebRTC.
 
+**Mac (macOS 15 em diante): permissão de Rede Local.** Sem ela, o app não fala com nenhum aparelho da rede: o celular
+acha o computador pelo site, o computador responde, mas a conexão direta nunca abre. O app declara
+`NSLocalNetworkUsageDescription` (electron-builder.yml), e o motor confere a permissão (`src/celular/rede-local.js`):
+uma conexão TCP ao roteador (portas 53 e 80); "No route to host" (EHOSTUNREACH) = bloqueada. A primeira tentativa, ao
+abrir o app, também faz o macOS mostrar o pedido. Bloqueada: a oferta do celular é recusada na hora com o caminho para
+ligar, "Mandar para o celular" avisa o mesmo, e Dispositivos mostra o aviso com **Abrir Ajustes** (Privacidade e
+Segurança → Rede Local) e **Conferir de novo**. No celular, quando não conecta, a folha mostra a dica do Mac (se o outro
+lado não respondeu nenhuma checagem) e uma linha técnica: os caminhos de cada lado e as checagens que foram e voltaram.
+
 No computador, o WebRTC roda numa **janela oculta** do Electron (`desktop/main.js` → `public/celular/p2p.html`), que
 existe enquanto o app está aberto (no Mac, mesmo com a janela principal fechada). Ela conversa com o motor pela API
 local; o motor faz a espera longa no site, grava os arquivos e mostra o andamento na interface.

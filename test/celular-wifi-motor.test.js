@@ -122,6 +122,25 @@ test('oferta da mesma conta vai direto para a janela oculta; sem a janela, recus
   assert.deepEqual(hub.eventos.filter(([ev]) => ev === 'celular-oferta').map(([, s]) => s.id), ['of3'])
 })
 
+test('Mac sem a permissão de Rede Local: recusa a oferta e o envio com o caminho para ligar, e a tela fica sabendo', async () => {
+  const site = siteFalso()
+  const hub = hubFalso()
+  let estado = 'bloqueada'
+  const redeLocal = { get estado() { return estado }, conferir: async () => estado }
+  const w = new CelularWifi({ settings: ajustes({ celularPasta: tmp() }), cloud: site, hub, redeLocal })
+  w.janela()
+  const oferta = { id: 'of9', tipo: 'oferta', sdp: 'v=0', de: { id: 's1', nome: 'iPhone', tipo: 'celular', conta: 'minha' } }
+  await w.tratarSinal(oferta)
+  assert.equal(site.enviados[0].tipo, 'recusa')
+  assert.match(site.enviados[0].motivo, /Rede Local/)
+  assert.equal(hub.eventos.filter(([ev]) => ev === 'celular-oferta').length, 0)
+  assert.equal(w.view().redeLocal, 'bloqueada')
+  await assert.rejects(w.enviar({ para: 's1', caminhos: [tmp()] }), /Rede Local/)
+  estado = 'ok'
+  await w.tratarSinal({ ...oferta, id: 'of10' })
+  assert.deepEqual(hub.eventos.filter(([ev]) => ev === 'celular-oferta').map(([, s]) => s.id), ['of10'])
+})
+
 test('de outra pessoa por perto: desligado recusa; ligado espera Aceitar ou Recusar na tela', async () => {
   const site = siteFalso()
   const hub = hubFalso()

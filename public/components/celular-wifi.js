@@ -6,6 +6,7 @@
 import { html, useEffect, useState } from '/vendor/preact-htm.js'
 import { api, attempt } from '../lib/api.js'
 import { bytes, plural, speed } from '../lib/format.js'
+import { abrirAjustesRede } from '../lib/desktop.js'
 import { Icon } from './icons.js'
 import { Button } from './common.js'
 
@@ -64,6 +65,31 @@ export function PedidoCelular({ p, i = 0 }) {
       <${Button} onClick=${() => responder(false)} disabled=${ocupado}>Recusar</${Button}>
       <button type="button" class="k-botao dv-aceitar" onClick=${() => responder(true)} disabled=${ocupado}>
         <${Icon} name="check" size=${18} strokeWidth=${2} />Aceitar
+      </button>
+    </div>
+  </section>`
+}
+
+// macOS 15+ sem a permissão de Rede Local (src/celular/rede-local.js): o celular acha o computador pelo site, mas a
+// conexão direta nunca abre. Mostra onde ligar e confere de novo.
+export function AvisoRedeLocal({ i = 0 }) {
+  const [ocupado, setOcupado] = useState(false)
+  const conferir = async () => {
+    setOcupado(true)
+    await attempt(api.post('/api/celular/aparelhos', {}))
+    setOcupado(false)
+  }
+  return html`<section class="dv-pedido is-aviso k-entra" style=${`--i:${i}`} role="alert" aria-label="Rede local bloqueada">
+    <span class="dv-pedido-ic" aria-hidden="true"><${Icon} name="warning" size=${22} strokeWidth=${1.8} /></span>
+    <div class="dv-pedido-txt">
+      <span class="k-rot">Wi-Fi com o celular</span>
+      <h2>O Mac está bloqueando a rede local para o SOBEDESCE</h2>
+      <p>Sem isso, o celular acha este computador mas não conecta. Em Ajustes do Sistema → Privacidade e Segurança → Rede Local, ligue o SOBEDESCE.</p>
+    </div>
+    <div class="dv-pedido-acoes">
+      <${Button} onClick=${conferir} disabled=${ocupado}>Conferir de novo</${Button}>
+      <button type="button" class="k-botao dv-aceitar" onClick=${() => abrirAjustesRede()}>
+        <${Icon} name="sliders" size=${18} strokeWidth=${2} />Abrir Ajustes
       </button>
     </div>
   </section>`

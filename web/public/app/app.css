@@ -8636,3 +8636,10 @@ a.k-botao {
 .ap-como .k-item-txt > span {
   white-space: normal;
 }
+.p2p-detalhe {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}

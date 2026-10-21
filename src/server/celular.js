@@ -45,7 +45,7 @@ export function registerCelular({ route, ctx, HttpProblem, baseHeaders, wifi }) 
   route('GET', '/api/celular', tratar(async () => w.view()))
 
   route('POST', '/api/celular/aparelhos', tratar(async () => {
-    await w.atualizarAparelhos()
+    await Promise.all([w.atualizarAparelhos(), w.conferirRede().catch(() => null)])
     return w.view()
   }))
 

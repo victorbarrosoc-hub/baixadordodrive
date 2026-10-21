@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('sobedesce', {
   notify: (title, body) => ipcRenderer.send('sobedesce:notify', { title, body }),
   openExternal: url => ipcRenderer.invoke('sobedesce:open-external', url),
   reveal: path => ipcRenderer.invoke('sobedesce:reveal', path),
+  // macOS 15+: abre Ajustes do Sistema → Privacidade e Segurança → Rede Local (o Wi-Fi com o celular precisa dela).
+  abrirAjustesRede: () => ipcRenderer.invoke('sobedesce:abrir-ajustes-rede'),
   // Referências: abre o navegador de referências (janela própria; desktop/navegador.js).
   abrirNavegador: url => ipcRenderer.invoke('sobedesce:abrir-navegador', url || null),
 })
