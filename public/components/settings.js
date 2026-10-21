@@ -1,4 +1,5 @@
-// Ajustes, agrupados como nos Ajustes do Sistema do macOS. Cada mudança é salva sozinha (PATCH com atraso curto).
+// Ajustes no padrão do kit (docs/UI-KIT.md): um passo com ícone por assunto, escolhas em cartões e pílulas, a versão
+// num cartão colorido. Cada mudança é salva sozinha (PATCH com atraso curto). Estilos só desta tela: /telas/ajustes.css.
 import { html, useEffect, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore, setSettings, setAccounts, applyTheme } from '../lib/store.js'
 import { api, attempt, enc } from '../lib/api.js'
@@ -10,12 +11,12 @@ import { pickFolderPath, revealLabel, revealPath } from '../lib/desktop.js'
 import { toast } from '../lib/toasts.js'
 import { copyText, rotateMobileCode, useMobileState } from '../lib/mobile.js'
 import { Icon } from './icons.js'
-import { Avatar, Button, LinkButton, Pill, Segmented, Select, Slider, Stepper, Switch } from './common.js'
+import { Avatar, Button, LinkButton, Pill, Select, Slider, Stepper, Switch } from './common.js'
 import { useLocalRoots } from './local-picker.js'
 import { CloudAccountRows } from './cloud.js'
 import { buildLabel, checkUpdate, downloadingAlone, downloadUpdate, installHint, installUpdate, retryUpdate, updateProgress, updateReady, updating } from '../lib/versao.js'
-import { UpdateBar } from './versao.js'
 import { PreviaRow } from './previa.js'
+import { Barra, BotaoGrande, Destaque, Item, Opcoes, Pagina, Passo, Pilulas } from './kit.js'
 
 const MiB = 1048576
 const CHUNKS = [
@@ -27,12 +28,22 @@ const CHUNKS = [
   { value: 0, label: 'Contínuo (recomendado)' },
 ]
 
-function Group({ title, icon, tone, children, foot, id }) {
-  return html`<section class="sgroup" id=${id}>
-    <h2 class="sgroup-title">${icon ? html`<span class=${cx('sgroup-icon', tone && `tone-${tone}`)}><${Icon} name=${icon} size=${14} strokeWidth=${1.8} /></span>` : null}${title}</h2>
-    <div class="sgroup-box">${children}</div>
-    ${foot ? html`<p class="sgroup-foot">${foot}</p>` : null}
-  </section>`
+// Cor de cada assunto (tokens do kit).
+const COR = { down: 'down', up: 'up', success: 'ok', warning: 'warn', neutral: 'text-3' }
+
+/** Um assunto dos ajustes: passo do kit com ícone, as linhas numa caixa e a nota embaixo. */
+function Group({ title, icon, tone, children, foot, id, frase, i = 1, rot, extra }) {
+  return html`<${Passo} id=${id} icone=${icon} cor=${COR[tone] || 'down'} titulo=${title} frase=${frase} i=${i} class="aj-bloco">
+    ${extra}
+    ${rot ? html`<p class="k-rot">${rot}</p>` : null}
+    ${children ? html`<div class="aj-linhas">${children}</div>` : null}
+    ${foot ? html`<p class="k-nota aj-nota"><${Icon} name="info" size=${13} />${foot}</p>` : null}
+  </${Passo}>`
+}
+
+/** Caixa de linhas com o rótulo em caixa alta (um subgrupo dentro de um passo). */
+function Caixa({ rot, children }) {
+  return html`${rot ? html`<p class="k-rot">${rot}</p>` : null}<div class="aj-linhas">${children}</div>`
 }
 
 function Row({ label, desc, children, stack }) {
@@ -76,8 +87,11 @@ function RawThumbRow({ d, set }) {
 
 // ───── Versão ─────
 
-/** Build deste app, "Atualizar" (o app se troca sozinho), "Baixar" (instalador no navegador) e "Procurar atualização". */
-function VersionRow() {
+/**
+ * Atualizações: o build deste app num cartão colorido (com a barra enquanto baixa), o que está acontecendo e as ações:
+ * "Atualizar" (o app se troca sozinho), "Baixar" (instalador no navegador) e "Procurar atualização".
+ */
+function Versao() {
   const v = useStore((s) => s.versao)
   const [checked, setChecked] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -94,31 +108,45 @@ function VersionRow() {
     if (st) setChecked(true)
   }
   let note = null
-  if (andando || baixando) note = html`<span class="srow-note srow-update"><${UpdateBar} fraction=${prog?.fraction} /><span>${prog?.label}</span></span>`
-  else if (pronto) note = html`<span class="srow-note is-new">O build ${v.atualizacao.build} já foi baixado e conferido. Atualizar agora fecha o app, troca e abre de novo.</span>`
-  else if (prog?.erro) note = html`<span class="srow-note is-warn">${prog.label}</span>`
-  else if (v?.disponivel) note = html`<span class="srow-note is-new">Saiu o build ${v.ultima.build}. ${installHint(v.plataforma, v.podeAtualizar)}</span>`
-  else if (checked && dev) note = html`<span class="srow-note">A versão de desenvolvimento não procura atualização.</span>`
-  else if (checked && v?.falhou) note = html`<span class="srow-note is-warn">Não consegui verificar agora. Confira a internet e tente de novo.</span>`
-  else if (checked) note = html`<span class="srow-note">Você está na versão mais nova.</span>`
-  return html`<${Row}
-    label="Versão"
-    desc=${html`<span title=${atual?.commit ? `commit ${atual.commit}` : undefined}>${buildLabel(atual)}</span>${note ? html`<br />${note}` : null}`}
-  >
-    ${v?.disponivel && !andando && v.podeAtualizar
-      ? html`${baixando
-            ? null
-            : pronto
-              ? html`<${Button} size="sm" variant="primary" icon="refresh" onClick=${installUpdate}>Atualizar agora</${Button}>`
-              : prog?.erro
-                ? html`<${Button} size="sm" variant="primary" icon="refresh" onClick=${retryUpdate}>Tentar de novo</${Button}>`
-                : html`<${Button} size="sm" variant="primary" icon="refresh" onClick=${installUpdate}>Atualizar</${Button}>`}
-          <${Button} size="sm" icon="download" onClick=${downloadUpdate}>Baixar</${Button}>`
-      : v?.disponivel && !andando
-        ? html`<${Button} size="sm" variant="primary" icon="download" onClick=${downloadUpdate}>Baixar</${Button}>`
+  if (andando || baixando) note = prog?.label
+  else if (pronto) note = `O build ${v.atualizacao.build} já foi baixado e conferido. Atualizar agora fecha o app, troca e abre de novo.`
+  else if (prog?.erro) note = prog.label
+  else if (v?.disponivel) note = `Saiu o build ${v.ultima.build}. ${installHint(v.plataforma, v.podeAtualizar)}`
+  else if (checked && dev) note = 'A versão de desenvolvimento não procura atualização.'
+  else if (checked && v?.falhou) note = 'Não consegui verificar agora. Confira a internet e tente de novo.'
+  else if (checked) note = 'Você está na versão mais nova.'
+
+  // "build 42 · 15 de out. de 2026" → número grande + a data
+  const quando = buildLabel(atual).split(' · ')[1] || ''
+  const tom = prog?.erro && !andando && !baixando ? 'erro' : checked && !v?.disponivel && !dev && !v?.falhou ? 'ok' : 'grad'
+  const mostrarBarra = andando || baixando
+  const titulo = andando ? 'Atualizando agora' : baixando ? 'Baixando a versão nova' : pronto ? 'Versão nova pronta' : 'Versão deste computador'
+
+  return html`<div class="aj-versao">
+    <${Destaque}
+      titulo=${titulo}
+      numero=${pronto || baixando || andando ? v?.atualizacao?.build || v?.ultima?.build || atual?.build || '—' : dev ? 'dev' : atual.build}
+      unidade=${dev && !(pronto || baixando || andando) ? 'versão de desenvolvimento' : pronto || baixando || andando ? `build novo · você está no ${atual?.build ?? 'dev'}` : `build${quando ? ` · ${quando}` : ''}`}
+      tom=${tom}
+      vivo=${mostrarBarra}
+    >
+      ${mostrarBarra ? html`<${Barra} p=${typeof prog?.fraction === 'number' ? prog.fraction : null} vivo label="Progresso da atualização" />` : null}
+      ${note ? html`<span class="k-destaque-linha" aria-live="polite">${note}</span>` : null}
+    </${Destaque}>
+    <div class="aj-versao-acoes">
+      ${pronto && v?.podeAtualizar && !andando
+        ? html`<${BotaoGrande} icone="refresh" cheio=${false} onClick=${installUpdate}>Atualizar agora</${BotaoGrande}>`
         : null}
-    ${andando ? null : html`<${Button} size="sm" loading=${busy} onClick=${check}>Procurar atualização</${Button}>`}
-  </${Row}>`
+      ${v?.disponivel && !andando && v.podeAtualizar && !baixando && !pronto
+        ? prog?.erro
+          ? html`<${Button} variant="primary" icon="refresh" onClick=${retryUpdate}>Tentar de novo</${Button}>`
+          : html`<${Button} variant="primary" icon="refresh" onClick=${installUpdate}>Atualizar</${Button}>`
+        : null}
+      ${v?.disponivel && !andando ? html`<${Button} variant=${v.podeAtualizar ? 'secondary' : 'primary'} icon="download" onClick=${downloadUpdate}>Baixar</${Button}>` : null}
+      ${andando ? null : html`<${Button} variant="ghost" icon="search" loading=${busy} onClick=${check}>Procurar atualização</${Button}>`}
+    </div>
+    ${atual?.commit ? html`<p class="k-nota aj-commit" title=${`commit ${atual.commit}`}>commit ${String(atual.commit).slice(0, 7)}</p>` : null}
+  </div>`
 }
 
 // ───── Celular ─────
@@ -229,7 +257,7 @@ function MobileGroups({ d, set, accounts, activeId, home, platform }) {
 
   const folderLabel = d.mobileFolderId ? d.mobileFolderName || 'Pasta escolhida' : 'Meu Drive'
   return html`
-    <${Group} id="celular" title="Celular" icon="drop" tone="up" foot=${on ? firewallNote(platform) : 'O iPhone manda os arquivos pela rede local; o SOBEDESCE daqui sobe pro Drive na velocidade do computador.'}>
+    <${Group} id="celular" i=${7} title="Celular" icon="drop" tone="up" frase="Pelo QR code, sem conta no celular: ele manda para cá e daqui sobe pro Drive." foot=${on ? firewallNote(platform) : 'O iPhone manda os arquivos pela rede local; o SOBEDESCE daqui sobe pro Drive na velocidade do computador.'}>
       <${Row} label="Receber do celular (mesmo Wi-Fi)" desc=${`O celular abre o SOBEDESCE pelo QR code e manda os arquivos para ${where}, que sobe pro Drive. Se o Wi-Fi cair, continua de onde parou.`}>
         <${Switch} label="Receber do celular" checked=${on} onChange=${(v) => set('mobileReceive', v, { now: true })} />
       </${Row}>
@@ -298,7 +326,7 @@ function MobileGroups({ d, set, accounts, activeId, home, platform }) {
     </${Group}>
 
     ${on
-      ? html`<${Group} title="Atalho no menu Compartilhar do iPhone" icon="link" tone="neutral" foot="O Atalho guarda o código de acesso. Se gerar um código novo, cole o endereço novo no Atalho.">
+      ? html`<${Group} i=${8} title="Atalho no menu Compartilhar do iPhone" icon="link" tone="neutral" frase="Mande de qualquer app do iPhone pelo botão Compartilhar." foot="O Atalho guarda o código de acesso. Se gerar um código novo, cole o endereço novo no Atalho.">
           <div class="srow is-stack">
             <div class="srow-text">
               <div class="srow-label">Endereço de envio direto</div>
@@ -317,9 +345,11 @@ function MobileGroups({ d, set, accounts, activeId, home, platform }) {
       : null}
 
     <${Group}
+      i=${9}
       title="Em qualquer lugar (internet)"
       icon="cloud"
       tone="down"
+      frase="Fora do Wi-Fi, o app do celular sobe direto pro Google."
       foot="Fora do Wi-Fi, o celular sobe direto pro Google pelo app do site, com os Drives da sua conta SOBEDESCE. Nada passa por este computador."
     >
       <${Row}
@@ -394,13 +424,13 @@ function protecaoTexto(app) {
 // Cada item marca o trecho da página que começa na seção dele e vai até a do próximo (ex.: "Velocidade" cobre
 // Velocidade, Limite de banda e Segurança e retomada; "Avançado" cobre o avançado e as chaves do Google).
 const INDICE = [
-  { id: 'contas', label: 'Conta', icon: 'cloud' },
-  { id: 'velocidade', label: 'Velocidade', icon: 'bolt' },
-  { id: 'arquivos', label: 'Arquivos', icon: 'folder' },
-  { id: 'celular', label: 'Celular', icon: 'drop' },
-  { id: 'aparencia', label: 'Aparência', icon: 'sun' },
-  { id: 'atualizacoes', label: 'Atualizações', icon: 'circle-down' },
-  { id: 'avancado', label: 'Avançado', icon: 'sliders' },
+  { id: 'contas', label: 'Conta', icon: 'cloud', cor: 'up' },
+  { id: 'velocidade', label: 'Velocidade', icon: 'bolt', cor: 'down' },
+  { id: 'arquivos', label: 'Arquivos', icon: 'folder', cor: 'warn' },
+  { id: 'celular', label: 'Celular', icon: 'drop', cor: 'up' },
+  { id: 'aparencia', label: 'Aparência', icon: 'sun', cor: 'warn' },
+  { id: 'atualizacoes', label: 'Atualizações', icon: 'circle-down', cor: 'down' },
+  { id: 'avancado', label: 'Avançado', icon: 'sliders', cor: 'text-3' },
 ]
 const LINHA_ATIVA = 120 // px do topo: a seção cujo título passou desta linha é a "visível"
 
@@ -470,7 +500,8 @@ function useSecaoVisivel(pronto) {
 }
 
 function IndiceAjustes({ ativo, onIr }) {
-  return html`<nav class="settings-index" aria-label="Seções dos ajustes">
+  return html`<nav class="settings-index aj-indice k-entra" style="--i:1" aria-label="Seções dos ajustes">
+    <p class="k-resumo-tit">Seções</p>
     <ul>
       ${INDICE.map(
         (s) => html`<li key=${s.id}>
@@ -483,13 +514,69 @@ function IndiceAjustes({ ativo, onIr }) {
               onIr(s.id)
             }}
           >
-            <${Icon} name=${s.icon} size=${15} strokeWidth=${1.8} /><span>${s.label}</span>
+            <span class="aj-indice-ic" style=${`--c:var(--${s.cor})`}><${Icon} name=${s.icon} size=${14} strokeWidth=${1.9} /></span><span>${s.label}</span>
           </a>
         </li>`,
       )}
     </ul>
   </nav>`
 }
+
+/** Quantos ao mesmo tempo: o número grande em gradiente, atalhos em pílulas e o ajuste fino (como no Frames). */
+function Quantos({ titulo, dica, valor, min, max, atalhos, onChange, unidade }) {
+  const temAtalho = atalhos.includes(valor)
+  return html`<div class="aj-quant k-faixa">
+    <div class="k-numero aj-quant-num"><b key=${valor}>${valor}</b><span>${unidade}</span></div>
+    <div class="aj-quant-ctl">
+      <b class="aj-quant-tit">${titulo}</b>
+      ${dica ? html`<span class="aj-quant-dica">${dica}</span>` : null}
+      <div class="aj-quant-linha">
+        <${Pilulas} label=${`${titulo}: atalhos`} valor=${temAtalho ? valor : null} itens=${atalhos.map((n) => ({ value: n, label: String(n) }))} onEscolher=${onChange} />
+        <${Stepper} label=${titulo} value=${valor} min=${min} max=${max} onChange=${onChange} />
+      </div>
+    </div>
+  </div>`
+}
+
+/** Tema em cartões, cada um com um desenho da janela no tema. */
+const TEMAS = [
+  { value: 'system', titulo: 'Sistema', sub: 'Segue o computador', icone: 'monitor' },
+  { value: 'light', titulo: 'Claro', sub: 'Fundo branco', icone: 'sun' },
+  { value: 'dark', titulo: 'Escuro', sub: 'Fundo preto', icone: 'moon' },
+]
+function Temas({ valor, onEscolher }) {
+  return html`<div class="k-opcoes aj-temas" role="radiogroup" aria-label="Tema" style="--n:3">
+    ${TEMAS.map(
+      (t) => html`<button
+        type="button"
+        role="radio"
+        aria-checked=${t.value === valor ? 'true' : 'false'}
+        class=${cx('k-opcao aj-tema', t.value === valor && 'is-on')}
+        onClick=${() => onEscolher(t.value)}
+      >
+        <span class=${cx('aj-tema-arte', `is-${t.value}`)} aria-hidden="true">
+          <i class="aj-tema-lado"></i><i class="aj-tema-linha"></i><i class="aj-tema-linha is-curta"></i><i class="aj-tema-bloco"></i>
+        </span>
+        <b><${Icon} name=${t.icone} size=${14} strokeWidth=${1.9} /> ${t.titulo}</b>
+        <span>${t.sub}</span>
+        <span class="k-opcao-ok" aria-hidden="true"><${Icon} name="check" size=${12} strokeWidth=${2.4} /></span>
+      </button>`,
+    )}
+  </div>`
+}
+
+const CONFLITO_PC = [
+  { value: 'skip', titulo: 'Pular se for igual', sub: 'Não baixa de novo', icone: 'check' },
+  { value: 'rename', titulo: 'Outro nome', sub: 'Baixa ao lado, com (2)', icone: 'copy' },
+  { value: 'overwrite', titulo: 'Substituir', sub: 'Troca o do computador', icone: 'refresh' },
+]
+const CONFLITO_DRIVE = [
+  { value: 'skip', titulo: 'Pular se for igual', sub: 'Não envia de novo', icone: 'check', up: true },
+  { value: 'rename', titulo: 'Enviar uma cópia', sub: 'Fica ao lado no Drive', icone: 'copy', up: true },
+  { value: 'replace', titulo: 'Substituir', sub: 'Vira nova versão no Drive', icone: 'stack', up: true },
+]
+
+const mbps = (v) => `${Math.round(v / 1e6)} MB/s`
 
 export function SettingsScreen({ route } = {}) {
   const settings = useStore((s) => s.settings)
@@ -592,181 +679,225 @@ export function SettingsScreen({ route } = {}) {
   const d = { ...settings, ...draft }
   const chunkOpts = CHUNKS.some((c) => c.value === d.uploadChunkSize) ? CHUNKS : [...CHUNKS, { value: d.uploadChunkSize, label: `${Math.round(d.uploadChunkSize / MiB)} MB` }]
 
-  return html`<div class="page page-settings">
-    <header class="page-head">
-      <h1>Ajustes</h1>
-      <div class="page-head-actions">
-        <span class=${cx('save-state', saved && 'is-on')} aria-live="polite">
-          ${saved === 'saving' ? 'Salvando…' : saved === 'saved' ? html`<${Icon} name="check" size=${14} /> Salvo` : ''}
-        </span>
-      </div>
-    </header>
+  const salvo = html`<span class=${cx('save-state aj-salvo', saved && 'is-on')} aria-live="polite">
+    ${saved === 'saving' ? 'Salvando…' : saved === 'saved' ? html`<${Icon} name="check" size=${14} /> Salvo` : ''}
+  </span>`
+  const banda = d.bandwidthLimitDown > 0 || d.bandwidthLimitUp > 0
+  const visao = [
+    { id: 'velocidade', icone: 'download', tom: 'down', valor: d.maxConcurrentDownloads, rotulo: 'downloads juntos' },
+    { id: 'velocidade', icone: 'upload', tom: 'up', valor: d.maxConcurrentUploads, rotulo: 'uploads juntos' },
+    {
+      id: 'velocidade',
+      icone: 'gauge',
+      tom: banda ? 'warn' : 'neutro',
+      valor: banda ? [d.bandwidthLimitDown > 0 && `↓ ${mbps(d.bandwidthLimitDown)}`, d.bandwidthLimitUp > 0 && `↑ ${mbps(d.bandwidthLimitUp)}`].filter(Boolean).join('  ') : 'Livre',
+      rotulo: banda ? 'limite de banda' : 'sem limite de banda',
+    },
+    { id: 'seguranca', icone: 'shield', tom: d.verifyChecksums ? 'ok' : 'erro', valor: d.verifyChecksums ? 'MD5' : 'Sem MD5', rotulo: d.verifyChecksums ? 'confere cada arquivo' : 'não confere os arquivos' },
+  ]
 
-    <div class="settings-layout">
-    <${IndiceAjustes} ativo=${secao} onIr=${irPara} />
-    <div class="settings">
-      <${Group} id="contas" title="Conta SOBEDESCE" icon="cloud" tone="up" foot="Os arquivos vão direto deste computador para o Google. O site só guarda o acesso aos seus Drives.">
-        <${CloudAccountRows} />
-      </${Group}>
-
-      <${Group} id="velocidade" title="Velocidade" icon="bolt" tone="down">
-        <${Row} label="Downloads ao mesmo tempo" desc="Quantos arquivos baixam juntos.">
-          <${Stepper} label="Downloads ao mesmo tempo" value=${d.maxConcurrentDownloads} min=${1} max=${16} onChange=${(v) => set('maxConcurrentDownloads', v)} />
-        </${Row}>
-        <${Row} label="Uploads ao mesmo tempo" desc="O Google recebe cada arquivo a uns 40–100 MB/s; mais arquivos juntos enchem a banda (4 para 1 Gbps, 12–16 para 10 Gbps).">
-          <${Stepper} label="Uploads ao mesmo tempo" value=${d.maxConcurrentUploads} min=${1} max=${16} onChange=${(v) => set('maxConcurrentUploads', v)} />
-        </${Row}>
-      </${Group}>
-
-
-      <${Group} title="Limite de banda" icon="gauge" tone="up" foot="Útil para não ocupar a internet do escritório inteiro. Desligado, vai na velocidade máxima.">
-        <${Row} label="Limitar download">
-          <${LimitControl} label="Limitar download" value=${d.bandwidthLimitDown} onChange=${(v) => set('bandwidthLimitDown', v, { now: true })} />
-        </${Row}>
-        <${Row} label="Limitar upload">
-          <${LimitControl} label="Limitar upload" value=${d.bandwidthLimitUp} onChange=${(v) => set('bandwidthLimitUp', v, { now: true })} />
-        </${Row}>
-      </${Group}>
-
-      <${Group} title="Segurança e retomada" icon="shield" tone="success">
-        <${Row}
-          label="Conferir integridade (MD5)"
-          desc=${html`Depois de cada arquivo, confere se chegou idêntico ao original. Leva um pouquinho mais.${!d.verifyChecksums
-            ? html`<span class="srow-note is-warn" role="status"><${Icon} name="warning" size=${13} />Sem conferir, um arquivo corrompido passa sem aviso.</span>`
-            : null}`}
-        >
-          <${Switch} label="Conferir integridade" checked=${d.verifyChecksums} onChange=${(v) => set('verifyChecksums', v, { now: true })} />
-        </${Row}>
-        <${Row} label="Retomar ao abrir" desc="Se o app fechar no meio, continua de onde parou quando abrir de novo.">
-          <${Switch} label="Retomar ao abrir" checked=${d.autoResume} onChange=${(v) => set('autoResume', v, { now: true })} />
-        </${Row}>
-        <${Row} label="Manter o computador acordado" desc="Enquanto houver transferência, o computador não dorme. A tela pode apagar.">
-          <${Switch} label="Manter o computador acordado" checked=${d.keepAwake} onChange=${(v) => set('keepAwake', v, { now: true })} />
-        </${Row}>
-      </${Group}>
-
-      <${Group} id="arquivos" title="Arquivos" icon="folder" tone="neutral">
-        <${Row} label="Pasta padrão dos downloads" desc=${html`<span class="mono-path" title=${d.downloadDir}>${tildify(d.downloadDir, roots?.home)}</span>`}>
-          <${Button} size="sm" onClick=${chooseDownloadDir}>Escolher…</${Button}>
-        </${Row}>
-        <${Row} label="Quando o arquivo já existe no computador">
-          <${Select}
-            label="Quando o arquivo já existe no computador"
-            value=${d.downloadConflict}
-            onChange=${(v) => set('downloadConflict', v, { now: true })}
-            options=${[
-              { value: 'skip', label: 'Pular se for igual' },
-              { value: 'rename', label: 'Baixar com outro nome' },
-              { value: 'overwrite', label: 'Substituir o do computador' },
-            ]}
-          />
-        </${Row}>
-        <${Row} label="Quando o arquivo já existe no Drive">
-          <${Select}
-            label="Quando o arquivo já existe no Drive"
-            value=${d.uploadConflict}
-            onChange=${(v) => set('uploadConflict', v, { now: true })}
-            options=${[
-              { value: 'skip', label: 'Pular se for igual' },
-              { value: 'rename', label: 'Enviar uma cópia' },
-              { value: 'replace', label: 'Substituir (vira nova versão)' },
-            ]}
-          />
-        </${Row}>
-        <${RawThumbRow} d=${d} set=${set} />
-        <${PreviaRow} d=${d} set=${set} />
-        <${Row} label="Mostrar arquivos ocultos" desc="No seletor de arquivos do computador.">
-          <${Switch} label="Mostrar arquivos ocultos" checked=${d.showHiddenFiles} onChange=${(v) => set('showHiddenFiles', v, { now: true })} />
-        </${Row}>
-      </${Group}>
-
-      <${MobileGroups} d=${d} set=${set} accounts=${accounts} activeId=${activeId} home=${roots?.home} platform=${app?.platform} />
-
-      <${Group} id="aparencia" title="Aparência" icon="sun" tone="warning">
-        <${Row} label="Tema">
-          <${Segmented}
-            label="Tema"
-            value=${d.theme}
-            onChange=${(v) => set('theme', v, { now: true })}
-            options=${[
-              { value: 'system', label: 'Sistema', icon: 'monitor' },
-              { value: 'light', label: 'Claro', icon: 'sun' },
-              { value: 'dark', label: 'Escuro', icon: 'moon' },
-            ]}
-          />
-        </${Row}>
-      </${Group}>
-
-      <${Group} id="atualizacoes" title="Atualizações" icon="circle-down" tone="down" foot="O SOBEDESCE avisa quando sai uma versão nova. Atualizar baixa, confere e troca o app sozinho; Baixar abre o instalador no navegador. Seus ajustes e a fila continuam.">
-        <${VersionRow} />
-      </${Group}>
-
-      <details class="sgroup sgroup-details" id="avancado">
-        <summary>
-          <h2 class="sgroup-title">
-            <span class="sgroup-icon tone-neutral"><${Icon} name="sliders" size=${14} strokeWidth=${1.8} /></span>Avançado
-            <span class="sgroup-summary-hint">pedaço de upload, conexões por arquivo</span>
-            <${Icon} name="chevron-right" size=${14} class="sgroup-chev" />
-          </h2>
-        </summary>
-        <div class="sgroup-box">
-          <${Row} label="Tamanho do pedaço de upload" desc="Contínuo manda o resto do arquivo numa requisição só, como o Google recomenda. Pedaços ajudam em redes que derrubam conexões longas; se cair, continua de onde o Google confirmou.">
-            <${Select} label="Tamanho do pedaço de upload" value=${d.uploadChunkSize} options=${chunkOpts} onChange=${(v) => set('uploadChunkSize', Number(v), { now: true })} />
-          </${Row}>
-          <${Row} label="Conexões por arquivo" desc="Cada arquivo baixado vem em pedaços paralelos. Entre 8 e 16 costuma encher a banda.">
-            <${Slider}
-              label="Conexões por arquivo"
-              value=${d.connectionsPerDownload}
-              min=${1}
-              max=${32}
-              onInput=${(v) => set('connectionsPerDownload', v)}
-              format=${(v) => `${v}`}
-            />
-          </${Row}>
-          <${Row} label="Refazer conexões lentas" desc="Às vezes o Google segura uma conexão; o SOBEDESCE reabre as que ficam bem para trás.">
-            <${Switch} label="Refazer conexões lentas" checked=${d.restartSlowConnections} onChange=${(v) => set('restartSlowConnections', v, { now: true })} />
-          </${Row}>
-          ${app?.desktop ? html`<${Row} label="Onde ficam os acessos" desc=${protecaoTexto(app)} />` : null}
+  return html`<${Pagina} titulo="Ajustes" frase="Tudo é salvo sozinho. Mude o que precisar e siga trabalhando." acoes=${salvo} class="page-settings page-ajustes">
+    <div class="aj-layout">
+      <${IndiceAjustes} ativo=${secao} onIr=${irPara} />
+      <div class="aj-main">
+        <div class="k-stats aj-visao k-entra" style="--n:4; --i:1" role="list" aria-label="Resumo dos ajustes">
+          ${visao.map(
+            (v) => html`<button type="button" role="listitem" class=${cx('k-stat aj-visao-item', v.tom !== 'down' && `is-${v.tom}`)} onClick=${() => irPara(v.id)}>
+              <span class="k-stat-ic"><${Icon} name=${v.icone} size=${15} strokeWidth=${1.9} /></span>
+              <b>${v.valor}</b>
+              <span>${v.rotulo}</span>
+            </button>`,
+          )}
         </div>
-        <p class="sgroup-foot">O padrão já serve para quase toda rede. Mexa aqui se o envio cair muito ou não encher a banda.</p>
-      </details>
 
-      <${Group} title="Drives só neste computador" icon="laptop" tone="neutral">
-        ${localAccounts.map(
-          (a) => html`<div class="srow account-row">
-            <div class="account-id">
-              <${Avatar} name=${a.name} email=${a.email} photoUrl=${a.photoUrl} size=${32} />
-              <div class="srow-text">
-                <div class="srow-label">${a.name || a.email} ${a.id === activeId ? html`<${Pill} tone="neutral">Em uso</${Pill}>` : null}</div>
-                <div class="srow-desc">${a.email}${a.addedAt ? ` · conectada ${relTime(a.addedAt)}` : ''}</div>
+        <${Group} id="contas" i=${2} title="Conta SOBEDESCE" icon="cloud" tone="up" frase="Os Drives da sua conta, sem chave do Google." foot="Os arquivos vão direto deste computador para o Google. O site só guarda o acesso aos seus Drives.">
+          <${CloudAccountRows} />
+        </${Group}>
+
+        <${Group}
+          id="velocidade"
+          i=${3}
+          title="Velocidade"
+          icon="bolt"
+          tone="down"
+          frase="Quantos arquivos andam juntos. Mais arquivos enchem a banda."
+          extra=${html`<div class="aj-quants">
+            <${Quantos}
+              titulo="Downloads ao mesmo tempo"
+              dica="Quantos arquivos baixam juntos."
+              unidade="baixando"
+              valor=${d.maxConcurrentDownloads}
+              min=${1}
+              max=${16}
+              atalhos=${[1, 3, 6, 10]}
+              onChange=${(v) => set('maxConcurrentDownloads', v)}
+            />
+            <${Quantos}
+              titulo="Uploads ao mesmo tempo"
+              dica="4 para 1 Gbps, 12 a 16 para 10 Gbps."
+              unidade="subindo"
+              valor=${d.maxConcurrentUploads}
+              min=${1}
+              max=${16}
+              atalhos=${[2, 4, 8, 16]}
+              onChange=${(v) => set('maxConcurrentUploads', v)}
+            />
+          </div>`}
+          rot="Limite de banda"
+          foot="Útil para não ocupar a internet do escritório inteiro. Desligado, vai na velocidade máxima. Cada arquivo chega ao Google a uns 40–100 MB/s."
+        >
+          <${Row} label="Limitar download" desc="Até quantos MB/s baixar do Drive.">
+            <${LimitControl} label="Limitar download" value=${d.bandwidthLimitDown} onChange=${(v) => set('bandwidthLimitDown', v, { now: true })} />
+          </${Row}>
+          <${Row} label="Limitar upload" desc="Até quantos MB/s subir pro Drive.">
+            <${LimitControl} label="Limitar upload" value=${d.bandwidthLimitUp} onChange=${(v) => set('bandwidthLimitUp', v, { now: true })} />
+          </${Row}>
+        </${Group}>
+
+        <${Group} id="seguranca" i=${4} title="Segurança e retomada" icon="shield" tone="success" frase="Cada arquivo conferido e nada perdido se o app fechar.">
+          <${Row}
+            label="Conferir integridade (MD5)"
+            desc=${html`Depois de cada arquivo, confere se chegou idêntico ao original. Leva um pouquinho mais.${!d.verifyChecksums
+              ? html`<span class="srow-note is-warn" role="status"><${Icon} name="warning" size=${13} />Sem conferir, um arquivo corrompido passa sem aviso.</span>`
+              : null}`}
+          >
+            <${Switch} label="Conferir integridade" checked=${d.verifyChecksums} onChange=${(v) => set('verifyChecksums', v, { now: true })} />
+          </${Row}>
+          <${Row} label="Retomar ao abrir" desc="Se o app fechar no meio, continua de onde parou quando abrir de novo.">
+            <${Switch} label="Retomar ao abrir" checked=${d.autoResume} onChange=${(v) => set('autoResume', v, { now: true })} />
+          </${Row}>
+          <${Row} label="Manter o computador acordado" desc="Enquanto houver transferência, o computador não dorme. A tela pode apagar.">
+            <${Switch} label="Manter o computador acordado" checked=${d.keepAwake} onChange=${(v) => set('keepAwake', v, { now: true })} />
+          </${Row}>
+        </${Group}>
+
+        <${Group}
+          id="arquivos"
+          i=${5}
+          title="Arquivos"
+          icon="folder"
+          tone="warning"
+          frase="Onde os downloads caem e o que fazer quando o arquivo já existe."
+          extra=${html`<${Item}
+              icone="folder"
+              tom="warn"
+              titulo="Pasta padrão dos downloads"
+              sub=${html`<span class="mono-path" title=${d.downloadDir}>${tildify(d.downloadDir, roots?.home)}</span>`}
+              fim=${html`<${Button} size="sm" onClick=${chooseDownloadDir}>Escolher…</${Button}>`}
+            />
+            <p class="k-rot">Quando o arquivo já existe no computador</p>
+            <${Opcoes} label="Quando o arquivo já existe no computador" valor=${d.downloadConflict} itens=${CONFLITO_PC} colunas=${3} onEscolher=${(v) => set('downloadConflict', v, { now: true })} />
+            <p class="k-rot">Quando o arquivo já existe no Drive</p>
+            <${Opcoes} label="Quando o arquivo já existe no Drive" valor=${d.uploadConflict} itens=${CONFLITO_DRIVE} colunas=${3} onEscolher=${(v) => set('uploadConflict', v, { now: true })} />`}
+          rot="Prévias e seletor"
+        >
+          <${RawThumbRow} d=${d} set=${set} />
+          <${PreviaRow} d=${d} set=${set} />
+          <${Row} label="Mostrar arquivos ocultos" desc="No seletor de arquivos do computador.">
+            <${Switch} label="Mostrar arquivos ocultos" checked=${d.showHiddenFiles} onChange=${(v) => set('showHiddenFiles', v, { now: true })} />
+          </${Row}>
+        </${Group}>
+
+        <${MobileGroups} d=${d} set=${set} accounts=${accounts} activeId=${activeId} home=${roots?.home} platform=${app?.platform} />
+
+        <${Group}
+          id="aparencia"
+          i=${10}
+          title="Aparência"
+          icon="sun"
+          tone="warning"
+          frase="Claro, escuro ou igual ao computador."
+          extra=${html`<${Temas} valor=${d.theme} onEscolher=${(v) => set('theme', v, { now: true })} />`}
+        />
+
+        <${Group}
+          id="atualizacoes"
+          i=${11}
+          title="Atualizações"
+          icon="circle-down"
+          tone="down"
+          frase="O app avisa quando sai uma versão nova e já baixa sozinho."
+          extra=${html`<${Versao} />`}
+          foot="Atualizar baixa, confere e troca o app sozinho; Baixar abre o instalador no navegador. Seus ajustes e a fila continuam."
+        />
+
+        <details class="k-passo aj-bloco aj-avancado k-entra" style="--i:12" id="avancado">
+          <summary class="k-passo-cabeca">
+            <span class="k-n is-icone" style="--c:var(--text-3)"><${Icon} name="sliders" size=${16} strokeWidth=${1.8} /></span>
+            <span class="k-passo-tit">
+              <h2>Avançado</h2>
+              <p>Pedaço de upload, conexões por arquivo, Drives só neste computador e a chave do Google.</p>
+            </span>
+            <${Icon} name="chevron-right" size=${16} class="aj-chev" />
+          </summary>
+          <p class="k-rot">Tamanho do pedaço de upload</p>
+          <div class="aj-pedaco">
+            <${Pilulas}
+              label="Tamanho do pedaço de upload"
+              valor=${d.uploadChunkSize}
+              itens=${chunkOpts.map((c) => ({ value: c.value, label: c.value === 0 ? 'Contínuo' : c.label }))}
+              onEscolher=${(v) => set('uploadChunkSize', Number(v), { now: true })}
+            />
+            <span class="aj-pedaco-dica">${d.uploadChunkSize === 0
+              ? 'Contínuo (recomendado): o resto do arquivo numa requisição só, como o Google indica.'
+              : 'Pedaços ajudam em redes que derrubam conexões longas; se cair, continua de onde o Google confirmou.'}</span>
+          </div>
+          <${Caixa} rot="Conexões">
+            <${Row} label="Conexões por arquivo" desc="Cada arquivo baixado vem em pedaços paralelos. Entre 8 e 16 costuma encher a banda.">
+              <${Slider}
+                label="Conexões por arquivo"
+                value=${d.connectionsPerDownload}
+                min=${1}
+                max=${32}
+                onInput=${(v) => set('connectionsPerDownload', v)}
+                format=${(v) => `${v}`}
+              />
+            </${Row}>
+            <${Row} label="Refazer conexões lentas" desc="Às vezes o Google segura uma conexão; o SOBEDESCE reabre as que ficam bem para trás.">
+              <${Switch} label="Refazer conexões lentas" checked=${d.restartSlowConnections} onChange=${(v) => set('restartSlowConnections', v, { now: true })} />
+            </${Row}>
+            ${app?.desktop ? html`<${Row} label="Onde ficam os acessos" desc=${protecaoTexto(app)} />` : null}
+          </${Caixa}>
+
+          <${Caixa} rot="Drives só neste computador">
+            ${localAccounts.map(
+              (a) => html`<div class="srow account-row">
+                <div class="account-id">
+                  <${Avatar} name=${a.name} email=${a.email} photoUrl=${a.photoUrl} size=${32} />
+                  <div class="srow-text">
+                    <div class="srow-label">${a.name || a.email} ${a.id === activeId ? html`<${Pill} tone="neutral">Em uso</${Pill}>` : null}</div>
+                    <div class="srow-desc">${a.email}${a.addedAt ? ` · conectada ${relTime(a.addedAt)}` : ''}</div>
+                  </div>
+                </div>
+                <div class="srow-control">
+                  ${a.status === 'reauth' ? html`<${LinkButton} size="sm" variant="primary" href="/api/auth/start">Conectar de novo</${LinkButton}>` : null}
+                  <${Button} size="sm" variant="ghost-danger" onClick=${() => removeAccount(a)}>Remover</${Button}>
+                </div>
+              </div>`,
+            )}
+            <div class="srow">
+              <div class="srow-text"><div class="srow-desc">${localAccounts.length ? `${plural(localAccounts.length, 'Drive conectado', 'Drives conectados')} com a sua chave do Google, guardados só aqui.` : 'Com a sua própria chave do Google, sem passar pela conta. Para quem prefere assim.'}</div></div>
+              <div class="srow-control">
+                ${setup?.configured
+                  ? html`<${LinkButton} size="sm" icon="plus" href="/api/auth/start">Conectar um Drive só neste computador</${LinkButton}>`
+                  : html`<${Button} size="sm" icon="plus" onClick=${() => navigate('inicio/local')}>Conectar um Drive só neste computador</${Button}>`}
               </div>
             </div>
-            <div class="srow-control">
-              ${a.status === 'reauth' ? html`<${LinkButton} size="sm" variant="primary" href="/api/auth/start">Conectar de novo</${LinkButton}>` : null}
-              <${Button} size="sm" variant="ghost-danger" onClick=${() => removeAccount(a)}>Remover</${Button}>
-            </div>
-          </div>`,
-        )}
-        <div class="srow">
-          <div class="srow-text"><div class="srow-desc">${localAccounts.length ? `${plural(localAccounts.length, 'Drive conectado', 'Drives conectados')} com a sua chave do Google, guardados só aqui.` : 'Com a sua própria chave do Google, sem passar pela conta. Para quem prefere assim.'}</div></div>
-          <div class="srow-control">
-            ${setup?.configured
-              ? html`<${LinkButton} size="sm" icon="plus" href="/api/auth/start">Conectar um Drive só neste computador</${LinkButton}>`
-              : html`<${Button} size="sm" icon="plus" onClick=${() => navigate('inicio/local')}>Conectar um Drive só neste computador</${Button}>`}
-          </div>
-        </div>
-      </${Group}>
+          </${Caixa}>
 
-      ${setup?.configured || localAccounts.length
-        ? html`<${Group} title="Chave do Google" icon="key" tone="neutral" foot="A chave identifica o seu app no Google. Ela fica só neste computador e só vale para os Drives conectados aqui.">
-            <${Row} label="Cliente OAuth" desc=${setup?.clientIdHint ? html`<span class="mono-path">${setup.clientIdHint}</span>` : 'Nenhuma chave configurada'}>
-              <${Button} size="sm" onClick=${() => navigate('inicio/chave')}>Trocar chave</${Button}>
-            </${Row}>
-          </${Group}>`
-        : null}
+          ${setup?.configured || localAccounts.length
+            ? html`<${Caixa} rot="Chave do Google">
+                  <${Row} label="Cliente OAuth" desc=${setup?.clientIdHint ? html`<span class="mono-path">${setup.clientIdHint}</span>` : 'Nenhuma chave configurada'}>
+                    <${Button} size="sm" onClick=${() => navigate('inicio/chave')}>Trocar chave</${Button}>
+                  </${Row}>
+                </${Caixa}>
+                <p class="k-nota aj-nota"><${Icon} name="info" size=${13} />A chave identifica o seu app no Google. Ela fica só neste computador e só vale para os Drives conectados aqui.</p>`
+            : null}
+          <p class="k-nota aj-nota"><${Icon} name="info" size=${13} />O padrão já serve para quase toda rede. Mexa aqui se o envio cair muito ou não encher a banda.</p>
+        </details>
 
-      <p class="about">${app?.name || 'SOBEDESCE'} ${app?.version ? `· versão ${app.version}` : ''} · tudo roda neste computador, direto com o Google.</p>
+        <p class="about">${app?.name || 'SOBEDESCE'} ${app?.version ? `· versão ${app.version}` : ''} · tudo roda neste computador, direto com o Google.</p>
+      </div>
     </div>
-    </div>
-  </div>`
+  </${Pagina}>`
 }
