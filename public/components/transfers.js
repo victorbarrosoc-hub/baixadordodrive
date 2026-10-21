@@ -3,7 +3,7 @@
 import { html, useMemo, useState, useCallback } from '/vendor/preact-htm.js'
 import { useStore } from '../lib/store.js'
 import { api, attempt } from '../lib/api.js'
-import { bytes, clock, count, dirOf, percent, plural, relTime, speed, timecode, fullDate } from '../lib/format.js'
+import { aprox, bytes, clock, count, dirOf, percent, plural, relTime, speed, timecode, fullDate } from '../lib/format.js'
 import { cx, memo, usePersistentState, storage } from '../lib/ui.js'
 import { batchAction, cancelBatch, cancelTransfer, driveFileUrl, driveFolderUrl, reveal, transferAction, uploadFlow, uploadPaths } from '../lib/actions.js'
 import { bridge, openExternal, revealLabel } from '../lib/desktop.js'
@@ -11,13 +11,13 @@ import { copyDriveLink } from './link-share.js'
 import { FileDrop } from './drop.js'
 import { confirmDialog } from '../lib/modals.js'
 import { Icon } from './icons.js'
-import { Button, EmptyState, FileIcon, IconButton, LinkButton, Pill, Segmented } from './common.js'
-import { MeterHero } from './meter.js'
+import { Button, FileIcon, IconButton, Pill } from './common.js'
+import { BotaoGrande, Destaque, GraficoVelocidade, Pagina, Passo, Pilulas, Resumo, Stats, Vazio } from './kit.js'
 import { SequenceBar, Timeline } from './timeline.js'
 import { contaUrl, isCloudAccount } from '../lib/cloud.js'
 import { navigate } from '../lib/router.js'
 import { PreviaLine } from './previa.js'
-import { FILTER_TESTS, batchFolder, batchLocal, integrity, integrityLabel, sortRows } from '../lib/transferencias.js'
+import { FILTER_TESTS, batchFolder, batchLocal, integrity, integrityLabel, meterTotals, sortRows } from '../lib/transferencias.js'
 
 /** "Conectar de novo" certo para a conta: OAuth deste computador, o site (Drive da conta) ou entrar na conta. */
 function ReauthLink({ t }) {
@@ -206,13 +206,13 @@ function BatchGroup({ group, rows, expanded, onToggle, limit, onMore, platform }
   // Download: a pasta do computador onde os arquivos estão caindo (antes, durante e depois).
   const local = type === 'download' ? batchLocal(items) : null
 
-  return html`<section class=${cx('batch card', !expanded && 'is-collapsed', finished && 'is-finished')} aria-labelledby=${id}>
+  return html`<section class=${cx('batch tl-lote', `is-${type === 'upload' ? 'up' : 'down'}`, !expanded && 'is-collapsed', finished && 'is-finished')} aria-labelledby=${id}>
     <header class="batch-head">
       <button type="button" class="batch-toggle" aria-expanded=${expanded ? 'true' : 'false'} aria-controls=${id + '-rows'} onClick=${onToggle} title=${expanded ? 'Recolher' : 'Mostrar arquivos'}>
         <${Icon} name="chevron-right" size=${14} strokeWidth=${2} />
       </button>
-      <span class=${cx('dir-badge', type === 'upload' ? 'is-up' : 'is-down')} title=${type === 'upload' ? 'Envio para o Drive' : 'Download do Drive'}>
-        <${Icon} name=${type === 'upload' ? 'arrow-up' : 'arrow-down'} size=${14} strokeWidth=${2} />
+      <span class="tl-dir" title=${type === 'upload' ? 'Envio para o Drive' : 'Download do Drive'}>
+        <${Icon} name=${type === 'upload' ? 'arrow-up' : 'arrow-down'} size=${17} strokeWidth=${2} />
       </span>
       <div class="batch-info">
         <div class="batch-title">
@@ -267,6 +267,95 @@ function BatchGroup({ group, rows, expanded, onToggle, limit, onMore, platform }
 
 // ───── tela ─────
 
+/** "termina ~14:32" ou "termina amanhã ~09:10". */
+function terminaAs(eta) {
+  const c = clock(Date.now() + eta * 1000)
+  return c.includes(' às ') ? `termina ${c.replace(' às ', ' ~')}` : `termina ~${c}`
+}
+
+const DAILY_UPLOAD = 750e9 // limite do Google por conta, a cada 24 h
+
+/**
+ * A coluna da direita: o que está andando agora (número grande), o gráfico de velocidade, os números e a ação
+ * principal. Assina `stats` sozinha (2×/s) para a lista não ser redesenhada a cada atualização de velocidade.
+ */
+const PainelAgora = memo(function PainelAgora({ geral, canPause, canResume, falta, problemas }) {
+  const stats = useStore((s) => s.stats)
+  const lost = useStore((s) => s.conn === 'lost')
+  const accountId = useStore((s) => s.activeAccountId)
+  const tot = meterTotals(stats.totals)
+  const down = stats.down?.speed || 0
+  const up = stats.up?.speed || 0
+  const moving = down + up > 0
+  const eta = moving && tot.moving > 0 ? stats.eta : null
+  const pronto = geral.total > 0 && geral.feitos === geral.total
+  const frac = geral.size ? geral.done / geral.size : pronto ? 1 : 0
+  const titulo = moving ? (down && up ? 'Subindo e descendo' : up ? 'Enviando agora' : 'Baixando agora') : pronto ? 'Tudo pronto' : canResume && !canPause ? 'Parado' : 'Na fila'
+  const linha =
+    eta != null
+      ? html`faltam <b>${aprox(eta)}</b>${eta >= 600 ? ` · ${terminaAs(eta)}` : ''}`
+      : html`${count(geral.feitos)} de ${plural(geral.total, 'arquivo', 'arquivos')}${tot.parked ? ` · ${bytes(tot.parked)} ${tot.parkedCount === 1 ? 'parado' : 'parados'}` : ''}`
+  const historico = (stats.history || []).slice(-120)
+  const up24 = stats.usage?.[accountId]?.up24h || 0
+
+  return html`<${Resumo} titulo="Agora">
+    <div class=${cx('tl-destaque', lost && 'is-velho')} title=${lost ? 'Sem contato com o motor: os números podem estar desatualizados' : undefined}>
+      <${Destaque}
+        titulo=${titulo}
+        numero=${Math.floor(frac * 100)}
+        unidade=${`% de ${bytes(geral.size)}`}
+        progresso=${frac}
+        linha=${linha}
+        tom=${pronto ? 'ok' : 'grad'}
+        vivo=${moving}
+      />
+    </div>
+    <div class="k-caixa">
+      <div class="tl-graf-topo">
+        <span class="k-rot">Velocidade</span>
+        <span class="tl-legenda">
+          <span class="is-down" title=${stats.down?.active ? `Baixando ${plural(stats.down.active, 'arquivo', 'arquivos')}` : 'Baixando'}><i></i>${down ? speed(down) : '—'}</span>
+          <span class="is-up" title=${stats.up?.active ? `Enviando ${plural(stats.up.active, 'arquivo', 'arquivos')}` : 'Enviando'}><i></i>${up ? speed(up) : '—'}</span>
+        </span>
+      </div>
+      <${GraficoVelocidade} pontos=${historico} altura=${96} label="Velocidade nos últimos 2 minutos" />
+      <div class="tl-graf-regua" aria-hidden="true"><span>−2 min</span><span>agora</span></div>
+    </div>
+    <${Stats}
+      colunas=${2}
+      itens=${[
+        { icone: 'clock', valor: count(falta), rotulo: falta === 1 ? 'arquivo falta' : 'arquivos faltam', tom: 'neutro' },
+        { icone: problemas ? 'warning' : 'check', valor: count(problemas), rotulo: 'com problema', tom: problemas ? 'erro' : 'ok' },
+      ]}
+    />
+    ${canPause
+      ? html`<${BotaoGrande} icone="pause" onClick=${() => transferAction('pause', 'all')}>Pausar tudo</${BotaoGrande}>`
+      : canResume
+        ? html`<${BotaoGrande} icone="play" onClick=${() => transferAction('resume', 'all')}>Retomar tudo</${BotaoGrande}>`
+        : html`<${BotaoGrande} icone="upload" onClick=${(e) => uploadFlow({ anchor: e.currentTarget })}>Enviar arquivos</${BotaoGrande}>`}
+    ${canPause && canResume ? html`<${Button} icon="play" onClick=${() => transferAction('resume', 'all')}>Retomar os pausados</${Button}>` : null}
+    ${stats.keepAwake || up24 >= 1e9
+      ? html`<div class="tl-notas">
+          ${stats.keepAwake ? html`<p class="k-nota"><${Icon} name="coffee" size=${14} />Mantendo o computador acordado</p>` : null}
+          ${up24 >= 1e9
+            ? html`<p class=${cx('k-nota', up24 >= DAILY_UPLOAD * 0.9 && 'is-warn')} title="O Google aceita até 750 GB de upload por conta a cada 24 horas. Passou disso, o SOBEDESCE espera e retoma sozinho.">
+                <${Icon} name="arrow-up" size=${14} />${bytes(Math.min(up24, DAILY_UPLOAD))} de 750 GB enviados em 24 h
+              </p>`
+            : null}
+        </div>`
+      : null}
+  </${Resumo}>`
+})
+
+/** Seções da lista: o que anda, o que está parado e o que terminou. */
+const SECOES = [
+  { id: 'agora', ranks: [0, 1], icone: 'transfers', cor: 'down', titulo: 'Agora', frase: 'Subindo e descendo, na ordem da fila.' },
+  { id: 'parados', ranks: [2], icone: 'pause', cor: 'warn', titulo: 'Parados', frase: 'Pausados ou esperando você.' },
+  { id: 'terminados', ranks: [3], icone: 'check', cor: 'ok', titulo: 'Terminados', frase: 'O que já chegou. Os arquivos continuam onde estão.' },
+]
+
+const FRASE = 'O que sobe para o Drive e o que desce para o computador, arquivo por arquivo.'
+
 export function TransfersScreen() {
   const transfers = useStore((s) => s.transfers)
   const batches = useStore((s) => s.batches)
@@ -285,10 +374,16 @@ export function TransfersScreen() {
     let canPause = false
     let canResume = false
     let finished = 0
+    let size = 0
+    let done = 0
     const byBatch = new Map()
     for (const t of all) {
       for (const f of FILTERS) if (f.test(t)) counts[f.value]++
-      if (t.status !== 'canceled') totalCount++
+      if (t.status !== 'canceled') {
+        totalCount++
+        size += t.size || 0
+        done += t.status === 'completed' || t.status === 'skipped' ? t.size || 0 : t.bytesDone || 0
+      }
       if (t.status === 'completed' || t.status === 'skipped') doneCount++
       if (FINISHED.has(t.status)) finished++
       if (t.status === 'running' || t.status === 'queued' || t.status === 'waiting') canPause = true
@@ -309,7 +404,8 @@ export function TransfersScreen() {
       groups.push({ batch, items, sum, isActive, rank })
     }
     groups.sort((a, b) => a.rank - b.rank || (a.rank === 3 ? -1 : 1) * ((a.batch.createdAt || 0) - (b.batch.createdAt || 0)))
-    return { all, counts, doneCount, totalCount, canPause, canResume, finished, groups }
+    const geral = { size, done, total: totalCount, feitos: doneCount }
+    return { all, counts, doneCount, totalCount, canPause, canResume, finished, groups, geral }
   }, [transfers, batches])
 
   const f = FILTERS.find((x) => x.value === filter) || FILTERS[0]
@@ -351,61 +447,84 @@ export function TransfersScreen() {
   />`
 
   if (!data.all.length) {
-    return html`<div class="page">
+    return html`<${Pagina} titulo="Transferências" frase=${FRASE} class="tl">
       ${drop}
-      <header class="page-head"><h1>Transferências</h1></header>
-      <${EmptyState}
-        art=${html`<${QuietArt} />`}
-        title="Tudo em dia por aqui"
-        actions=${html`
-          <${LinkButton} variant="primary" icon="cloud" href="#/drive">Abrir o Drive</${LinkButton}>
-          <${Button} icon="upload" onClick=${(e) => uploadFlow({ anchor: e.currentTarget })}>Enviar uma pasta</${Button}>
-        `}
-      >
-        Nada transferindo agora. Escolha arquivos no Drive ou envie uma pasta${bridge ? ' — ou arraste para cá' : ''}.
-      </${EmptyState}>
-    </div>`
+      <section class="k-passo tl-vazio k-entra" style="--i:1">
+        <${Vazio} icone="transfers" titulo="Tudo em dia por aqui">
+          Nada transferindo agora. Comece por um dos caminhos abaixo.
+        </${Vazio}>
+        <div class="tl-caminhos">
+          <button type="button" class="k-opcao tl-caminho k-entra" style="--i:2" onClick=${() => navigate('drive')}>
+            <span class="k-opcao-ic"><${Icon} name="arrow-down" size=${17} strokeWidth=${1.9} /></span>
+            <b>Baixar do Drive</b>
+            <span>Abra o Drive e escolha pastas ou arquivos</span>
+          </button>
+          <button type="button" class="k-opcao is-up tl-caminho k-entra" style="--i:3" onClick=${(e) => uploadFlow({ anchor: e.currentTarget })}>
+            <span class="k-opcao-ic"><${Icon} name="arrow-up" size=${17} strokeWidth=${1.9} /></span>
+            <b>Enviar para o Drive</b>
+            <span>Uma pasta ou arquivos do computador</span>
+          </button>
+          ${bridge
+            ? html`<div class="k-opcao tl-caminho is-soltar k-entra" style="--i:4">
+                <span class="k-opcao-ic"><${Icon} name="drop" size=${17} strokeWidth=${1.9} /></span>
+                <b>Arrastar para cá</b>
+                <span>Solte aqui: vai para ${dropDest.name}</span>
+              </div>`
+            : null}
+        </div>
+        <${QuietArt} />
+      </section>
+    </${Pagina}>`
   }
 
-  return html`<div class="page">
+  const problemas = data.counts.failed || 0
+  const falta = Math.max(0, data.totalCount - data.doneCount)
+  const lado = html`<${PainelAgora} geral=${data.geral} canPause=${data.canPause} canResume=${data.canResume} falta=${falta} problemas=${problemas} />`
+  const acoes = html`<${Button} icon="upload" onClick=${(e) => uploadFlow({ anchor: e.currentTarget })}>Enviar</${Button}>`
+  const secoes = SECOES.map((sec) => ({ ...sec, itens: visible.filter((v) => sec.ranks.includes(v.g.rank)) })).filter((sec) => sec.itens.length)
+
+  return html`<${Pagina} titulo="Transferências" frase=${FRASE} acoes=${acoes} lado=${lado} class="tl">
     ${drop}
-    <header class="page-head">
-      <h1>Transferências</h1>
-      <div class="page-head-actions">
-        <${Button} icon="upload" onClick=${(e) => uploadFlow({ anchor: e.currentTarget })}>Enviar</${Button}>
-      </div>
-    </header>
-    <${MeterHero} doneCount=${data.doneCount} totalCount=${data.totalCount} canPause=${data.canPause} canResume=${data.canResume} />
-    <div class="toolbar">
-      <${Segmented}
+    <div class="tl-filtros k-entra" style="--i:1">
+      <${Pilulas}
         label="Filtrar transferências"
-        value=${f.value}
-        onChange=${setFilter}
-        options=${FILTERS.map((x) => ({ value: x.value, label: x.label, count: x.value === 'all' ? null : data.counts[x.value] ? count(data.counts[x.value]) : null }))}
+        valor=${f.value}
+        onEscolher=${setFilter}
+        itens=${FILTERS.map((x) => ({ value: x.value, label: x.label, conta: x.value === 'all' || !data.counts[x.value] ? null : count(data.counts[x.value]) }))}
       />
-      <div class="toolbar-right">
-        ${data.finished ? html`<${Button} variant="ghost" size="sm" icon="check" onClick=${clearFinished}>Limpar concluídas</${Button}>` : null}
-      </div>
     </div>
-    ${visible.length
-      ? html`<div class="batches">
-          ${visible.map(
-            ({ g, rows, expanded, limit }) => html`<${BatchGroup}
-              key=${g.batch.id}
-              group=${g}
-              rows=${rows}
-              expanded=${expanded}
-              limit=${limit}
-              platform=${platform}
-              onToggle=${() => toggle(g.batch.id, expanded)}
-              onMore=${() => more(g.batch.id, limit)}
-            />`,
-          )}
-        </div>`
-      : html`<${EmptyState} compact title=${EMPTY_FILTER[f.value] || 'Nada aqui por enquanto'}>
-          <button type="button" class="link" onClick=${() => setFilter('all')}>Ver tudo</button>
-        </${EmptyState}>`}
-  </div>`
+    ${secoes.length
+      ? secoes.map(
+          (sec, i) => html`<${Passo}
+            key=${sec.id}
+            icone=${sec.icone}
+            cor=${sec.cor}
+            titulo=${sec.titulo}
+            sub=${plural(sec.itens.length, 'lote', 'lotes')}
+            frase=${sec.frase}
+            i=${2 + i}
+            acao=${sec.id === 'terminados' && data.finished ? html`<${Button} variant="ghost" size="sm" icon="check" onClick=${clearFinished}>Limpar concluídas</${Button}>` : null}
+          >
+            <div class="batches tl-lotes">
+              ${sec.itens.map(
+                ({ g, rows, expanded, limit }) => html`<${BatchGroup}
+                  key=${g.batch.id}
+                  group=${g}
+                  rows=${rows}
+                  expanded=${expanded}
+                  limit=${limit}
+                  platform=${platform}
+                  onToggle=${() => toggle(g.batch.id, expanded)}
+                  onMore=${() => more(g.batch.id, limit)}
+                />`,
+              )}
+            </div>
+          </${Passo}>`,
+        )
+      : html`<section class="k-passo k-entra" style="--i:2">
+          <${Vazio} icone=${f.value === 'failed' ? 'check' : 'transfers'} titulo=${EMPTY_FILTER[f.value] || 'Nada aqui por enquanto'} acoes=${html`<${Button} onClick=${() => setFilter('all')}>Ver tudo</${Button}>`} />
+        </section>`}
+  </${Pagina}>`
 }
 
 const EMPTY_FILTER = {
@@ -417,7 +536,7 @@ const EMPTY_FILTER = {
 
 /** Ilustração do vazio: uma linha de onda quase parada. */
 function QuietArt() {
-  return html`<svg class="quiet-art" viewBox="0 0 240 72" width="240" height="72" aria-hidden="true">
+  return html`<svg class="quiet-art tl-onda" viewBox="0 0 240 72" width="240" height="72" aria-hidden="true">
     <path class="qa-line qa-down" d="M0 36 C 20 36, 30 36, 44 36 S 64 26, 74 26 S 92 46, 104 46 S 122 18, 134 18 S 152 40, 164 40 S 182 33, 196 33 S 220 36, 240 36" />
     <path class="qa-line qa-up" d="M0 36 C 22 36, 40 36, 56 36 S 76 42, 88 42 S 106 30, 118 30 S 138 50, 150 50 S 170 34, 182 34 S 214 36, 240 36" />
     <line class="qa-axis" x1="0" x2="240" y1="36" y2="36" />

@@ -1,0 +1,260 @@
+/* Tela drive no padrão do kit (docs/UI-KIT.md). Só o que é desta tela; o resto vem de /kit.css. */
+
+.page-drive.k-pagina {
+  gap: 14px;
+}
+.page-drive .k-cabeca {
+  margin-bottom: 4px;
+}
+
+/* ação principal no cabeçalho: o botão do kit, mais baixo (fica na linha do título) */
+.dv-enviar,
+.dv-baixar {
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 14px;
+  font-size: 14.5px;
+}
+.dv-enviar {
+  white-space: nowrap;
+}
+
+/* fontes (Meu Drive e drives compartilhados) */
+.dv-fontes .k-pilula {
+  max-width: 260px;
+}
+.dv-fontes .k-pilula .icon {
+  flex: none;
+}
+.dv-fonte-nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ───── faixa: onde você está + resumo da pasta + espaço no Drive ───── */
+.dv-faixa {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--down) 13%, transparent), transparent 60%),
+    radial-gradient(120% 140% at 100% 100%, color-mix(in srgb, var(--up) 13%, transparent), transparent 60%),
+    var(--surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--down) 16%, var(--hairline)), var(--shadow-sm);
+}
+.dv-onde-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--up) 80%, transparent);
+}
+.dv-faixa.is-busca .dv-onde-ic {
+  background: color-mix(in srgb, var(--down) 18%, transparent);
+  color: var(--down-text);
+  box-shadow: none;
+}
+.dv-onde {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.dv-faixa .crumbs {
+  flex: none;
+  min-width: 0;
+  margin-left: -6px;
+}
+.dv-faixa .crumb {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  max-width: 280px;
+}
+.dv-faixa .crumb.is-current {
+  color: var(--text);
+}
+/* o resumo da pasta (itens · tamanho · arquivos do Mac) vira a linha de baixo, em tom de legenda */
+.dv-faixa .drive-sum {
+  margin: 0;
+  padding: 0;
+  min-height: 22px;
+  font-size: 13px;
+}
+.dv-faixa .dsum-end {
+  margin-left: 12px;
+}
+
+/* espaço no Drive: número, barra e o que sobra */
+.dv-espaco {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  min-width: 190px;
+  padding-left: 18px;
+  border-left: 1px solid var(--hairline);
+  text-align: right;
+}
+.dv-rot {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.dv-espaco b {
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  background: var(--k-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.dv-espaco-barra {
+  position: relative;
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--fill-2);
+}
+.dv-espaco-barra i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--p, 0%);
+  border-radius: inherit;
+  background: var(--k-grad);
+  animation: dv-enche 0.9s var(--ease) both 0.25s;
+}
+.dv-espaco.is-cheio .dv-espaco-barra i {
+  background: var(--err);
+}
+.dv-sub {
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+@keyframes dv-enche {
+  from {
+    width: 0;
+  }
+}
+
+/* ───── barra: busca, filtros em pílulas e as ferramentas ───── */
+.dv-barra {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.dv-barra .search {
+  width: 240px;
+}
+.dv-barra .search:focus-within {
+  width: 280px;
+}
+.dv-filtros {
+  flex: 0 1 auto;
+}
+.dv-filtros .k-pilula {
+  height: 32px;
+}
+.dv-ferramentas {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* "Procurar cenas": pílula da barra, com o brilho só no ícone (o gradiente fica para a ação principal) */
+.page-drive .dv-cenas {
+  height: 34px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--hairline-2), var(--shadow-sm);
+}
+.page-drive .dv-cenas .icon {
+  color: var(--up-text, var(--up));
+}
+.page-drive .dv-cenas:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--up) 45%, transparent), var(--shadow-sm);
+}
+.page-drive .dv-cenas.is-on {
+  color: #fff;
+  background: var(--up);
+  box-shadow: 0 8px 18px -10px color-mix(in srgb, var(--up) 90%, transparent);
+}
+.page-drive .dv-cenas.is-on .icon {
+  color: #fff;
+}
+
+/* ───── lista ───── */
+.dv-lista {
+  border-radius: 18px;
+}
+.page-drive .table-msg:has(.k-vazio) {
+  padding: 0;
+}
+.page-drive .table-msg .k-vazio {
+  padding: 40px 24px 48px;
+  color: var(--text);
+}
+
+/* ───── barra de seleção: o Baixar no gradiente ───── */
+.page-drive .selbar {
+  padding: 7px 7px 7px 22px;
+  box-shadow: var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--down) 18%, transparent);
+}
+.page-drive .selbar .dv-baixar {
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+/* janelas mais estreitas: a faixa empilha o espaço embaixo; a busca encolhe */
+@media (max-width: 1240px) {
+  .dv-barra .search {
+    width: 200px;
+  }
+  .dv-barra .search:focus-within {
+    width: 230px;
+  }
+}
+@media (max-width: 1100px) {
+  .dv-faixa {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .dv-espaco {
+    grid-column: 1 / -1;
+    grid-template-columns: auto auto minmax(80px, 1fr) auto;
+    align-items: center;
+    justify-items: start;
+    gap: 10px;
+    padding: 10px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--hairline);
+    text-align: left;
+  }
+  .dv-espaco b {
+    font-size: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dv-espaco-barra i {
+    animation: none;
+  }
+}

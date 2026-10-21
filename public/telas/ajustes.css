@@ -1,0 +1,400 @@
+/* Tela Ajustes no padrão do kit (docs/UI-KIT.md). Só o que é desta tela; o resto vem de /kit.css.
+   As linhas (.srow) continuam as mesmas de antes (cloud.js e previa.js também as usam); aqui elas ganham o visual das
+   linhas do kit quando estão dentro de .aj-linhas. */
+
+.page-settings.page-ajustes {
+  max-width: 1240px;
+  /* sem isso a coluna da grade cresce até caber o caminho mais longo e a página passa da janela */
+  grid-template-columns: minmax(0, 1fr);
+}
+.page-ajustes .k-principal,
+.aj-layout > * {
+  min-width: 0;
+}
+/* o mesmo dentro de cada passo (o caminho da pasta não pode alargar o cartão) */
+.page-ajustes .k-passo,
+.page-ajustes .k-item-txt {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* ───── índice + conteúdo ───── */
+.aj-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.aj-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+}
+@media (min-width: 1280px) {
+  .page-settings.page-ajustes {
+    max-width: 1320px;
+  }
+  .aj-layout {
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+  }
+}
+
+/* índice lateral: um cartão como o resumo do Frames, com o ícone colorido de cada assunto */
+.settings-index.aj-indice {
+  padding: 16px 12px 12px;
+  border-radius: 20px;
+  background:
+    radial-gradient(120% 60% at 0% 0%, color-mix(in srgb, var(--down) 12%, transparent), transparent 60%),
+    radial-gradient(120% 60% at 100% 100%, color-mix(in srgb, var(--up) 12%, transparent), transparent 60%),
+    var(--surface);
+  box-shadow: 0 0 0 1px var(--hairline), var(--shadow-sm);
+}
+.aj-indice .k-resumo-tit {
+  margin: 0 6px 10px;
+}
+.aj-indice .settings-index-item {
+  position: relative;
+  height: 38px;
+  padding: 0 8px;
+  gap: 10px;
+  border-radius: 12px;
+  font-size: 13.5px;
+}
+.aj-indice-ic {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+  transition: background 0.18s, color 0.18s, transform 0.2s var(--ease);
+}
+.aj-indice .settings-index-item .icon {
+  color: inherit;
+}
+.aj-indice .settings-index-item.is-on {
+  background: color-mix(in srgb, var(--down) 10%, var(--fill));
+  color: var(--text);
+  font-weight: 600;
+}
+.aj-indice .settings-index-item.is-on .aj-indice-ic {
+  color: #fff;
+  background: var(--c);
+  transform: scale(1.06);
+}
+.aj-indice .settings-index-item.is-on::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--k-grad);
+}
+
+/* ───── visão geral (números clicáveis no topo) ───── */
+.aj-visao-item {
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.18s var(--ease), box-shadow 0.18s;
+}
+.aj-visao-item:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 35%, var(--hairline)), var(--shadow-md);
+}
+.aj-visao-item:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.aj-visao-item b {
+  font-size: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ───── blocos ───── */
+.aj-bloco {
+  scroll-margin-top: 24px;
+}
+.aj-bloco.is-flash {
+  animation: aj-flash 1.6s var(--ease);
+}
+@keyframes aj-flash {
+  0%,
+  35% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 45%, transparent), var(--shadow-sm);
+  }
+}
+.aj-nota {
+  align-items: flex-start;
+  line-height: 1.45;
+}
+.aj-nota .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* as linhas de sempre, no visual do kit */
+.aj-linhas {
+  display: grid;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.aj-linhas > .srow,
+.aj-linhas > * > .srow {
+  min-height: 58px;
+  padding: 12px 16px;
+  background: var(--surface-2);
+}
+.aj-linhas .srow + .srow {
+  border-top: 1px solid var(--hairline);
+}
+.aj-linhas .srow-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.aj-linhas .srow-desc {
+  max-width: 560px;
+}
+.aj-linhas .srow-desc .mono-path {
+  max-width: 520px;
+}
+.aj-linhas .srow-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ───── velocidade: o número grande ───── */
+.aj-quants {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.aj-quant {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 20px;
+  padding: 18px 20px;
+}
+.aj-quant-num {
+  justify-items: center;
+  min-width: 70px;
+}
+.aj-quant-num b {
+  font-size: 52px;
+  animation: aj-pop 0.35s var(--ease);
+}
+@keyframes aj-pop {
+  from {
+    opacity: 0.2;
+    transform: translateY(6px) scale(0.92);
+  }
+}
+.aj-quant-ctl {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.aj-quant-tit {
+  font-size: 14.5px;
+  font-weight: 650;
+}
+.aj-quant-dica {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.aj-quant-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+/* ───── arquivos ───── */
+.aj-bloco .k-item .mono-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+/* ───── aparência: cartões com a janela desenhada ───── */
+.aj-tema {
+  gap: 6px;
+  padding: 12px 12px 14px;
+}
+.aj-tema b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.aj-tema-arte {
+  --fundo: #fbfbfd;
+  --lado: #eceef3;
+  --traco: #d6d9e0;
+  position: relative;
+  width: 100%;
+  height: 84px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--fundo);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition: transform 0.25s var(--ease);
+}
+.aj-tema-arte.is-dark {
+  --fundo: #121214;
+  --lado: #1c1c1f;
+  --traco: #2e2e33;
+}
+.aj-tema-arte.is-system {
+  background: linear-gradient(110deg, #fbfbfd 0 50%, #121214 50% 100%);
+}
+.aj-tema-arte.is-system .aj-tema-lado {
+  background: #eceef3;
+}
+.aj-tema-arte i {
+  position: absolute;
+  display: block;
+  border-radius: 4px;
+}
+.aj-tema-lado {
+  inset: 0 auto 0 0;
+  width: 28%;
+  border-radius: 0 !important;
+  background: var(--lado);
+}
+.aj-tema-linha {
+  left: 36%;
+  top: 18px;
+  width: 44%;
+  height: 7px;
+  background: var(--traco);
+}
+.aj-tema-linha.is-curta {
+  top: 32px;
+  width: 28%;
+}
+.aj-tema-bloco {
+  left: 36%;
+  right: 10%;
+  bottom: 12px;
+  height: 22px;
+  border-radius: 6px !important;
+  background: var(--k-grad);
+  opacity: 0.85;
+}
+.aj-tema-arte.is-system .aj-tema-linha {
+  background: #8e8e93;
+  opacity: 0.45;
+}
+.aj-tema:hover .aj-tema-arte {
+  transform: scale(1.02);
+}
+
+/* ───── atualizações ───── */
+.aj-versao {
+  display: grid;
+  gap: 12px;
+}
+.aj-versao .k-destaque-num b {
+  font-size: 52px;
+}
+.aj-versao-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.aj-versao-acoes .k-botao {
+  height: 46px;
+}
+.aj-commit {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+}
+
+/* ───── avançado (recolhido) ───── */
+details.aj-avancado {
+  display: block;
+}
+details.aj-avancado > summary {
+  list-style: none;
+  cursor: pointer;
+  align-items: center;
+}
+details.aj-avancado > summary::-webkit-details-marker {
+  display: none;
+}
+details.aj-avancado > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+details.aj-avancado > * + * {
+  margin-top: 14px;
+}
+details.aj-avancado > summary + * {
+  margin-top: 22px;
+}
+.aj-chev {
+  flex: none;
+  color: var(--text-3);
+  transition: transform 0.2s var(--ease), color 0.15s;
+}
+details.aj-avancado[open] .aj-chev {
+  transform: rotate(90deg);
+}
+details.aj-avancado > summary:hover .aj-chev {
+  color: var(--text);
+}
+.aj-pedaco {
+  display: grid;
+  gap: 8px;
+}
+.aj-pedaco-dica {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+/* ───── celular: o QR num cartão branco ───── */
+.page-ajustes .mqr-row {
+  gap: 20px;
+}
+.page-ajustes .mqr {
+  border-radius: 14px;
+  box-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.45);
+}
+
+@media (max-width: 1100px) {
+  .aj-quants {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 1000px) {
+  .aj-visao.k-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aj-quant-num b,
+  .aj-bloco.is-flash {
+    animation: none;
+  }
+  .aj-tema-arte,
+  .aj-indice-ic,
+  .aj-visao-item {
+    transition: none;
+  }
+}

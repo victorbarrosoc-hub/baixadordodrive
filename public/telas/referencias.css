@@ -1,0 +1,345 @@
+/* Tela referencias no padrão do kit (docs/UI-KIT.md). Só o que é desta tela; o resto vem de /kit.css. */
+
+/* ───── campo grande de colar o link ───── */
+.rf-colar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 60px;
+  padding: 0 8px 0 10px;
+  border-radius: 18px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline-2);
+  transition: box-shadow 0.18s, background 0.18s;
+}
+.rf-colar:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--up), 0 10px 26px -16px var(--up);
+  background: color-mix(in srgb, var(--up) 5%, var(--surface-2));
+}
+.rf-colar.is-reconhecido {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ok) 70%, transparent), 0 10px 26px -16px var(--ok);
+}
+.rf-colar-ic {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--k-grad);
+  transition: background 0.25s;
+}
+.rf-colar.is-reconhecido .rf-colar-ic {
+  background: var(--ok);
+  animation: rf-pop 0.32s var(--ease);
+}
+.rf-colar input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15.5px;
+}
+.rf-colar input::placeholder {
+  color: var(--text-3);
+}
+.rf-colar-selo {
+  flex: none;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  animation: rf-pop 0.3s var(--ease);
+}
+.rf-colar-ir {
+  flex: none;
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 13px;
+  font-size: 14.5px;
+  font-weight: 650;
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--up) 80%, transparent);
+  transition: transform 0.18s var(--ease), opacity 0.18s, box-shadow 0.18s;
+}
+.rf-colar-ir:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.rf-colar-ir:disabled {
+  opacity: 0.35;
+  box-shadow: none;
+  cursor: default;
+}
+.rf-colar.is-compacto {
+  height: 44px;
+  width: min(360px, 40vw);
+  border-radius: 999px;
+  padding: 0 4px 0 6px;
+  gap: 8px;
+}
+.rf-colar.is-compacto .rf-colar-ic {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+.rf-colar.is-compacto input {
+  font-size: 13.5px;
+}
+.rf-colar.is-compacto .rf-colar-ir {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+.rf-plats {
+  align-items: center;
+}
+.rf-plats-mais {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-left: 4px;
+}
+
+/* ───── aviso de direitos ───── */
+.rf-aviso {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--warn) 7%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 22%, var(--hairline));
+}
+.rf-aviso p {
+  flex: 1;
+  margin: 0;
+}
+.rf-aviso-ic {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+
+/* ───── salvando agora ───── */
+.rf-job .k-item-txt {
+  gap: 4px;
+}
+.rf-job-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rf-job-top b {
+  min-width: 0;
+}
+.rf-job-status {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.rf-job-status b {
+  color: var(--text);
+  font-weight: 600;
+}
+.rf-job.is-erro .rf-job-status {
+  color: var(--err-text);
+}
+.rf-job .k-barra {
+  max-width: 460px;
+  margin-top: 2px;
+}
+
+/* ───── coleções ───── */
+.rf-acoes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rf-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(180px, 12vw, 240px), 1fr));
+  gap: 20px 16px;
+}
+.rf-col {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 18px;
+}
+.rf-col-capa {
+  position: relative;
+  display: block;
+  border-radius: 18px;
+  transition: transform 0.22s var(--ease);
+}
+.rf-col-capa .ref-cover {
+  transition: box-shadow 0.22s;
+}
+.rf-col:hover .rf-col-capa,
+.rf-col:focus-visible .rf-col-capa {
+  transform: translateY(-3px);
+}
+.rf-col:hover .ref-cover,
+.rf-col:focus-visible .ref-cover {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--down) 60%, transparent), 0 18px 34px -18px color-mix(in srgb, var(--up) 70%, transparent);
+}
+.rf-col .ref-cover-tile .thumb {
+  transition: transform 0.4s var(--ease);
+}
+.rf-col:hover .ref-cover-tile .thumb {
+  transform: scale(1.05);
+}
+.rf-cover-vazio {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 12%, transparent);
+}
+.rf-col-n {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.rf-col-ia {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 6px 14px -8px var(--up);
+}
+.rf-col-meta {
+  display: grid;
+  gap: 2px;
+  padding: 0 4px;
+  min-width: 0;
+}
+.rf-col-meta b {
+  font-size: 14.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-col-meta > span {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+/* ───── coluna lateral ───── */
+.rf-dicas {
+  gap: 12px;
+}
+.rf-dica,
+.rf-ia-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.rf-dica b,
+.rf-ia-top b {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+.rf-dica-ic {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.rf-ia {
+  justify-items: start;
+}
+
+/* ───── dentro da coleção ───── */
+.rf-voltar {
+  color: var(--text-2);
+  text-decoration: none;
+  font-weight: 550;
+}
+.rf-voltar:hover {
+  color: var(--text);
+}
+.rf-sep {
+  margin: 0 8px;
+  color: var(--text-3);
+}
+.rf-ia-on {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--up-text);
+}
+.rf-grid {
+  grid-template-columns: repeat(auto-fill, minmax(clamp(160px, 10vw, 220px), 1fr));
+}
+
+@keyframes rf-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rf-colar.is-reconhecido .rf-colar-ic,
+  .rf-colar-selo {
+    animation: none;
+  }
+  .rf-col-capa,
+  .rf-col .ref-cover-tile .thumb {
+    transition: none;
+  }
+}
+@media (max-width: 1240px) {
+  .rf-colar-selo {
+    display: none;
+  }
+}

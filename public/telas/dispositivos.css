@@ -1,0 +1,509 @@
+/* Tela Dispositivos no padrão do kit (docs/UI-KIT.md). Só o que é desta tela; o resto vem de /kit.css. */
+
+/* ───── para quem: cartões de aparelho ───── */
+.dv-grupo {
+  display: grid;
+  gap: 10px;
+}
+.dv-grupo + .dv-grupo {
+  margin-top: 6px;
+}
+.dv-aps {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+.dv-ap {
+  min-height: 118px;
+  padding: 16px;
+}
+.dv-ap > span:not(.k-opcao-ok):not(.k-opcao-ic):not(.dv-rede) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dv-ap-ic {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+.dv-vivo {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 2.5px var(--surface-2), 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
+  animation: dv-vivo 2s var(--ease) infinite;
+}
+.dv-ap.is-on .dv-vivo {
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--c) 10%, var(--surface)), 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
+}
+.dv-ap:disabled .dv-vivo {
+  background: var(--text-3);
+  animation: none;
+}
+.dv-rede {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--ok-text);
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+}
+@keyframes dv-vivo {
+  70% {
+    box-shadow: 0 0 0 2.5px var(--surface-2), 0 0 0 7px color-mix(in srgb, var(--ok) 0%, transparent);
+  }
+}
+
+/* procurando: radar */
+.dv-procurando {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 16px;
+  font-size: 14px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.dv-radar {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+}
+.dv-radar i {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--down);
+  animation: k-onda 2s var(--ease) infinite;
+}
+.dv-radar i + i {
+  animation-delay: 1s;
+  border-color: var(--up);
+}
+
+/* ───── o quê ───── */
+.dv-soltar {
+  flex-wrap: wrap;
+}
+.dv-soltar.tem {
+  display: grid;
+  justify-content: stretch;
+  justify-items: start;
+  align-content: start;
+}
+.dv-soltar-txt {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.dv-soltar-txt span {
+  font-weight: 450;
+  color: var(--text-3);
+}
+.dv-origens {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dv-origens li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-weight: 450;
+  color: var(--text);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.dv-origens .mono-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dv-origem-ic {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+
+/* ───── como ───── */
+.dv-nome {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+}
+.dv-cel-nota {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--down) 7%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--down) 18%, var(--hairline));
+}
+.dv-cel-nota-ic {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--down);
+}
+
+/* ───── pedidos ───── */
+.dv-pedido {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 20px 22px;
+  border-radius: 20px;
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--up) 16%, transparent), transparent 60%),
+    var(--surface);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--up) 45%, transparent), 0 18px 40px -22px color-mix(in srgb, var(--up) 80%, transparent);
+}
+.dv-pedido-ic {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--up) 80%, transparent);
+  animation: dv-chama 2.4s var(--ease) infinite;
+}
+.dv-pedido-txt {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.dv-pedido-txt h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.dv-pedido-txt p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dv-pedido-drive {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.dv-pedido-drive b {
+  color: var(--text);
+  font-weight: 600;
+}
+.dv-pedido-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dv-aceitar {
+  height: 44px;
+  padding: 0 20px;
+  font-size: 15px;
+}
+@keyframes dv-chama {
+  50% {
+    transform: translateY(-2px) scale(1.04);
+  }
+}
+
+/* ───── envio para outro computador ───── */
+.dv-atual {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dv-esperando {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0 2px;
+}
+.dv-esperando span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: dv-ponto 1.2s var(--ease) infinite;
+}
+.dv-esperando span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.dv-esperando span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes dv-ponto {
+  40% {
+    transform: translateY(-5px);
+    opacity: 0.5;
+  }
+}
+.dv-falhas {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  list-style: none;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--err) 6%, var(--surface-2));
+}
+.dv-falhas li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+}
+.dv-falhas li span:last-child {
+  color: var(--err-text);
+}
+.dv-fim-acoes {
+  display: flex;
+}
+
+/* ───── recentes ───── */
+.dv .k-item .k-item-txt .k-barra {
+  margin-top: 6px;
+}
+.dv-estado {
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* ───── lado ───── */
+.dv-rota {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+}
+.dv-rota-ponto {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition: color 0.2s, background 0.2s;
+}
+.dv-rota-ponto:first-child,
+.dv-rota-ponto.is-on {
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 8px 20px -10px color-mix(in srgb, var(--up) 80%, transparent);
+}
+.dv-rota-fio {
+  position: relative;
+  height: 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: repeating-linear-gradient(90deg, var(--hairline-2) 0 6px, transparent 6px 12px);
+}
+.dv-rota-fio i {
+  position: absolute;
+  inset: 0 auto 0 -30%;
+  width: 30%;
+  background: var(--k-grad);
+  opacity: 0;
+}
+.dv-rota-fio.is-pronto i {
+  opacity: 1;
+  animation: dv-fio 1.6s var(--ease) infinite;
+}
+@keyframes dv-fio {
+  to {
+    left: 100%;
+  }
+}
+.dv-graf-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.dv-legenda {
+  display: flex;
+  gap: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.dv-legenda span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.dv-legenda i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.dv-legenda .is-down i {
+  background: var(--down);
+}
+.dv-legenda .is-up i {
+  background: var(--up);
+}
+
+/* este computador recebe */
+.dv-canal {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.dv-canal-topo {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.dv-canal-ic {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  background: var(--fill-2);
+  transition: color 0.2s, background 0.2s;
+}
+.dv-canal-ic.is-on {
+  color: #fff;
+  background: var(--ok);
+}
+.dv-canal-txt {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.dv-canal-txt b {
+  font-size: 14px;
+  font-weight: 600;
+}
+.dv-canal-txt span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.dv-canal .k-linha {
+  min-height: 0;
+  padding: 10px 12px;
+}
+.dv-canal .k-linha-txt span {
+  font-size: 12px;
+}
+.dv-pasta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.dv-pasta-ic {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+}
+.dv-pasta-txt {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.dv-pasta-txt .k-rot {
+  font-size: 10.5px;
+}
+.dv-pasta-txt .mono-path {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dv-pasta-acoes {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 860px) {
+  .dv-pedido {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .dv-pedido-acoes {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dv-vivo,
+  .dv-radar i,
+  .dv-pedido-ic,
+  .dv-esperando span,
+  .dv-rota-fio.is-pronto i {
+    animation: none;
+  }
+}

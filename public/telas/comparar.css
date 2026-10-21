@@ -1,0 +1,520 @@
+/* Tela comparar no padrão do kit (docs/UI-KIT.md). Só o que é desta tela; o resto vem de /kit.css. */
+
+/* ───── cartão da pasta (components/comparar-partes.js) ───── */
+.cp-fonte {
+  --c: var(--text);
+  --c-bg: var(--primary-bg);
+  --c-fg: var(--primary-fg);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 14px;
+  text-align: left;
+  color: inherit;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition: transform 0.18s var(--ease), box-shadow 0.18s, background 0.18s;
+  animation: k-entra 0.3s var(--ease) both;
+}
+.cp-fonte.is-drive {
+  --c: var(--down);
+  --c-bg: var(--down);
+  --c-fg: #fff;
+}
+.cp-fonte.is-up {
+  --c: var(--up);
+  --c-bg: var(--up);
+  --c-fg: #fff;
+}
+.cp-fonte-ic {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--c-fg);
+  background: var(--c-bg);
+}
+.cp-fonte-txt {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.cp-fonte-txt b {
+  font-size: 14.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-fonte-txt > span {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.cp-fonte-rot {
+  font-size: 11px !important;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3) !important;
+}
+.cp-fonte-caminho {
+  font-family: var(--mono);
+  font-size: 12px !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* vazia: o cartão grande para escolher (como "Do computador" no Frames) */
+.cp-fonte.is-vazio {
+  width: 100%;
+  min-height: 80px;
+  padding: 18px;
+  border: 1.5px dashed var(--hairline-2);
+  box-shadow: none;
+  background: transparent;
+}
+.cp-fonte.is-vazio .cp-fonte-ic {
+  width: 44px;
+  height: 44px;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 12%, transparent);
+  transition: background 0.18s, color 0.18s, transform 0.25s var(--ease);
+}
+.cp-fonte.is-vazio:hover,
+.cp-fonte.is-sobre {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--c) 60%, transparent);
+  background: color-mix(in srgb, var(--c) 5%, transparent);
+}
+.cp-fonte.is-vazio:hover .cp-fonte-ic,
+.cp-fonte.is-sobre .cp-fonte-ic {
+  color: var(--c-fg);
+  background: var(--c-bg);
+  transform: scale(1.05);
+}
+.cp-fonte.is-sobre:not(.is-vazio) {
+  box-shadow: inset 0 0 0 1.5px var(--c);
+}
+.cp-fonte-mais {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  background: var(--fill-2);
+}
+.cp-destinos {
+  display: grid;
+  gap: 10px;
+}
+.cp-mais {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 48px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  border: 1.5px dashed var(--hairline-2);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.cp-mais span {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--up);
+}
+.cp-mais:hover {
+  color: var(--text);
+  border-color: var(--up);
+  background: color-mix(in srgb, var(--up) 6%, transparent);
+}
+.cp-nome {
+  display: grid;
+  grid-template-columns: auto minmax(0, 260px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.cp-nome .mono-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ───── resumo: origem → destino ───── */
+.cp-rota {
+  gap: 6px;
+}
+.cp-rota-ponta {
+  --c: var(--text);
+  --c-bg: var(--primary-bg);
+  --c-fg: var(--primary-fg);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.cp-rota-ponta.is-drive {
+  --c-bg: var(--down);
+  --c-fg: #fff;
+}
+.cp-rota-ponta.is-up {
+  --c-bg: var(--up);
+  --c-fg: #fff;
+}
+.cp-rota-ic {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--c-fg);
+  background: var(--c-bg);
+}
+.cp-rota-nome {
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-rota-nome.is-falta {
+  font-weight: 450;
+  color: var(--text-3);
+}
+/* a linha que liga as pontas, com um ponto andando */
+.cp-rota-linha {
+  position: relative;
+  width: 2px;
+  height: 18px;
+  margin-left: 14px;
+  border-radius: 1px;
+  background: var(--hairline-2);
+  overflow: hidden;
+}
+.cp-rota-linha i {
+  position: absolute;
+  left: 0;
+  width: 2px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--k-grad);
+  animation: cp-desce 1.6s var(--ease) infinite;
+}
+@keyframes cp-desce {
+  from {
+    top: -8px;
+  }
+  to {
+    top: 18px;
+  }
+}
+.cp-resumo-txt {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.cp-lado-btn {
+  width: 100%;
+  justify-content: center;
+}
+.k-lado .cp-de-novo {
+  width: 100%;
+  justify-content: center;
+}
+
+/* ───── andamento da comparação ───── */
+.cp-fases {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cp-fase {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 4px;
+}
+.cp-fase-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: var(--fill-2);
+  transition: background 0.2s, color 0.2s;
+}
+.cp-fase.is-done .cp-fase-dot {
+  color: #fff;
+  background: var(--ok);
+}
+.cp-fase.is-now .cp-fase-dot {
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--down) 18%, transparent);
+}
+.cp-fase.is-next {
+  opacity: 0.55;
+}
+.cp-fase-corpo {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 3px;
+}
+.cp-fase-tit {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 550;
+}
+.cp-fase-atual {
+  font-size: 12px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ───── números que filtram (resultado e plano) ───── */
+.cp-stats .cp-stat {
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.18s var(--ease), box-shadow 0.18s, background 0.18s;
+  animation: k-entra 0.4s var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+.cp-stats .cp-stat:hover {
+  transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 40%, var(--hairline)), var(--shadow-md);
+}
+.cp-stats .cp-stat.is-on {
+  background: color-mix(in srgb, var(--c) 14%, var(--surface));
+  box-shadow: inset 0 0 0 1.5px var(--c), 0 8px 22px -12px var(--c);
+}
+.cp-stats .cp-stat.is-zero b {
+  color: var(--text-3);
+}
+.cp-stats .cp-stat.is-zero .k-stat-ic {
+  background: var(--fill-2);
+  color: var(--text-3);
+}
+.k-stat b small {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text-2);
+}
+
+/* ───── resultado (computador × drive) ───── */
+/* caminhos longos não alargam a coluna (o passo é uma grade de uma coluna) */
+.page-compare .k-passo {
+  grid-template-columns: minmax(0, 1fr);
+}
+.page-compare .k-passo-tit p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cp-par {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+.cp-par .mono-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-acoes-topo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.cp-extras {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.cp-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.cp-tree {
+  margin: 0 -10px;
+  padding: 0;
+}
+.cp-tree .tree-row {
+  grid-template-columns: minmax(0, 1fr) 90px minmax(0, 1.1fr) 104px;
+}
+.cp-flist {
+  margin: 0 -10px;
+  padding: 0;
+}
+.cp-ancora {
+  scroll-margin-top: 24px;
+}
+.cp-vazio-lista {
+  justify-content: center;
+  padding: 24px 0;
+}
+
+/* ───── entre discos ───── */
+.cp-espaco {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.cp-espaco-tit {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.cp-espaco.is-falta .cp-espaco-tit .num {
+  color: var(--err-text, var(--err));
+  font-weight: 600;
+}
+.cp-lista {
+  max-height: 240px;
+  overflow: auto;
+  padding: 6px 4px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.cp-lista.is-carregando {
+  display: grid;
+  place-items: center;
+  min-height: 80px;
+}
+.cp-lista ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cp-lista li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.cp-lista li:hover {
+  background: var(--fill);
+}
+.cp-lista li .mono-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-lista-mais {
+  padding: 4px 10px;
+}
+.cp-lista > .k-nota {
+  justify-content: center;
+  padding: 18px 0;
+}
+.cp-atual {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-grafico {
+  padding: 10px 0 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--up) 5%, transparent));
+}
+/* a cópia é uma velocidade só: a série "down" fica vazia e não aparece */
+.cp-grafico .is-down {
+  display: none;
+}
+.cp-aviso {
+  color: var(--warn-text, var(--warn));
+}
+.cp-falhas {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 6px 4px;
+  list-style: none;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--err) 30%, var(--hairline));
+}
+.cp-falhas li {
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+.cp-rel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.k-item-fim .k-barra {
+  width: 80px;
+}
+
+@media (max-width: 1180px) {
+  .cp-nome {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* uma coluna só, com algo andando ou um resultado: o resumo e o botão grande vêm antes dos passos (não ficam no
+     fim da lista de arquivos) */
+  .page-compare.cp-lado-antes .k-lado {
+    order: -1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cp-fonte,
+  .cp-stats .cp-stat,
+  .cp-rota-linha i {
+    animation: none;
+  }
+}
+#cp-resultado {
+  scroll-margin-top: 24px;
+}

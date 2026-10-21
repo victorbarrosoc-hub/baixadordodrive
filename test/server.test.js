@@ -411,6 +411,44 @@ test('comparar de ponta a ponta: progresso pelo SSE, resultado, subir o que falt
   }
 })
 
+test('comparar: cancelar no meio para de verdade; limpar apaga o resultado da memória e do disco', async () => {
+  const acc = env.accountId
+  const remote = env.mock.addFolder('Comparar Limpar')
+  env.mock.addFile('a.mov', remote.id, { size: 200_000, seed: 61 })
+  const local = path.join(files, 'Comparar Limpar')
+  for (let i = 0; i < 40; i++) await randomFile(path.join(local, `p${i % 4}`, `f${i}.mov`), 300_000, 70 + i)
+
+  const ev = sse()
+  try {
+    await ev.ready
+    // Cancelar logo depois de começar (modo completo, que lê cada arquivo).
+    let r = await post('/api/compare', { accountId: acc, localPath: local, driveFolderId: remote.id, mode: 'deep' })
+    const parar = r.json.jobId
+    r = await call('DELETE', `/api/compare/${parar}`)
+    assert.equal(r.status, 200, r.text)
+    await waitFor(() => ev.of('compare').some(c => c.jobId === parar && c.status !== 'running'), { timeoutMs: 20_000 })
+    const fim = ev.of('compare').filter(c => c.jobId === parar).at(-1)
+    assert.equal(fim.status, 'canceled')
+    assert.match(fim.error, /cancelada/)
+    await assert.rejects(fs.stat(path.join(env.paths.compares, `${parar}.json`)), 'cancelada não grava resultado')
+
+    // Comparar até o fim e limpar: some da memória e do disco.
+    r = await post('/api/compare', { accountId: acc, localPath: local, driveFolderId: remote.id, mode: 'quick' })
+    const jobId = r.json.jobId
+    await waitFor(() => ev.of('compare').some(c => c.jobId === jobId && c.status === 'done'), { timeoutMs: 20_000 })
+    await fs.stat(path.join(env.paths.compares, `${jobId}.json`))
+    r = await post(`/api/compare/${jobId}/limpar`, {})
+    assert.equal(r.status, 200, r.text)
+    assert.equal((await get(`/api/compare/${jobId}`)).status, 404)
+    await assert.rejects(fs.stat(path.join(env.paths.compares, `${jobId}.json`)))
+    // Limpar de novo (ou algo que não existe) não dá erro; id estranho é recusado.
+    assert.equal((await post(`/api/compare/${jobId}/limpar`, {})).status, 200)
+    assert.equal((await post('/api/compare/..%2F..%2Fsettings/limpar', {})).status, 400)
+  } finally {
+    ev.close()
+  }
+})
+
 // ─────────── interface ───────────
 
 test('arquivos da interface: index sem cache e com CSP, tipos certos, vendor, 304, nada fora de public/', async () => {
