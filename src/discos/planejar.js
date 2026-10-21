@@ -124,7 +124,7 @@ export async function planejar({ origem, destinos, nome, signal, onProgress, pro
   for (let di = 0; di < dests.length; di++) {
     const d = dests[di]
     let feitos = 0
-    const r = { caminho: d.caminho, pasta: d.pasta, novos: 0, iguais: 0, diferentes: 0, emOutro: 0, bytesNovos: 0, bytesDiferentes: 0, bytesEmOutro: 0, livre: await livreEm(d.caminho) }
+    const r = { caminho: d.caminho, pasta: d.pasta, novos: 0, iguais: 0, diferentes: 0, emOutro: 0, bytesNovos: 0, bytesIguais: 0, bytesDiferentes: 0, bytesEmOutro: 0, livre: await livreEm(d.caminho) }
     await mapLimit(itens, 16, async (it) => {
       if (signal?.aborted) return
       let estado = 'novo'
@@ -136,7 +136,7 @@ export async function planejar({ origem, destinos, nome, signal, onProgress, pro
       }
       it.estados[di] = estado
       if (estado === 'novo') (r.novos++, (r.bytesNovos += it.size))
-      else if (estado === 'igual') r.iguais++
+      else if (estado === 'igual') (r.iguais++, (r.bytesIguais += it.size))
       else (r.diferentes++, (r.bytesDiferentes += it.size))
       if (++feitos % 200 === 0) onProgress?.({ fase: 'destino', destino: di, feitos, total: itens.length })
     })

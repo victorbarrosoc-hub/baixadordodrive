@@ -142,7 +142,10 @@ function Plano({ v, opcoes, setOpcoes }) {
     ${p.destinos.some((x) => x.iguais || x.emOutro) || p.destinos.some((x) => x.diferentes)
       ? html`<${Linhas}>
           ${p.destinos.some((x) => x.iguais || x.emOutro)
-            ? html`<${Linha} titulo="Conferir também os que já estão no destino" sub="Compara o conteúdo, não só o tamanho. O que não bater é copiado de novo.">
+            ? html`<${Linha}
+                titulo="Conferir também os que já estão no destino"
+                sub=${`Compara o conteúdo, não só o tamanho: lê de novo ${bytes(Math.max(...p.destinos.map((x) => (x.bytesIguais || 0) + (x.bytesEmOutro || 0))))} nos dois discos, depois de copiar os novos. Mais seguro, bem mais demorado.`}
+              >
                 <${Switch} checked=${opcoes.conferirIguais} label="Conferir os que já estão lá" onChange=${(on) => setOpcoes({ ...opcoes, conferirIguais: on })} />
               </${Linha}>`
             : null}
@@ -158,14 +161,14 @@ function Plano({ v, opcoes, setOpcoes }) {
 
 function Andamento({ v, pontos, onCancelar }) {
   const g = v.progresso
-  const conferindo = g.etapa === 'conferindo' || (g.totalConferir && g.copiados >= g.totalBytes && g.conferidos < g.totalConferir)
+  const conferindo = g.etapa === 'conferindo' || g.soConferindo || (g.totalConferir && g.copiados >= g.totalBytes && g.conferidos < g.totalConferir)
   const agora = speedParts(g.velocidade)
   const media = speedParts(g.velocidadeMedia)
   return html`<${Passo}
     id="cp-resultado"
     icone="copy"
     cor="up"
-    titulo=${conferindo ? 'Conferindo' : 'Copiando'}
+    titulo=${g.soConferindo && g.copiados >= g.totalBytes ? 'Conferindo o que já estava lá' : conferindo ? 'Conferindo' : 'Copiando'}
     sub=${`${count(g.arquivos)} de ${plural(g.totalArquivos, 'arquivo', 'arquivos')}`}
     frase=${g.atual ? html`<span class="mono-path cp-atual" title=${g.atual}>${g.atual}</span>` : 'Começando…'}
     i=${5}
@@ -301,7 +304,16 @@ export function DiscosPanel({ topo }) {
   else if (v.fase === 'copiando' && v.progresso) {
     const g = v.progresso
     const frac = g.totalBytes ? (g.copiados + g.conferidos) / (g.totalBytes + g.totalConferir || 1) : 0
-    destaque = html`<${Destaque} titulo=${g.etapa === 'conferindo' ? 'Conferindo' : 'Copiando'} numero=${Math.floor(frac * 100)} unidade="%" progresso=${frac} linha=${`${bytes(g.copiados)} de ${bytes(g.totalBytes)}`} vivo />`
+    // Copiou tudo o que faltava e agora só confere o que já estava lá: a linha diz isso, não "0 B de …".
+    const conferindoIguais = g.soConferindo && g.copiados >= g.totalBytes
+    destaque = html`<${Destaque}
+      titulo=${conferindoIguais ? 'Conferindo o que já estava lá' : g.etapa === 'conferindo' ? 'Conferindo' : 'Copiando'}
+      numero=${Math.floor(frac * 100)}
+      unidade="%"
+      progresso=${frac}
+      linha=${conferindoIguais ? `Novos: ${bytes(g.copiados)} copiados · conferidos ${bytes(g.conferidos)} de ${bytes(g.totalConferir)}` : `${bytes(g.copiados)} de ${bytes(g.totalBytes)} copiados`}
+      vivo
+    />`
   } else if (total) {
     destaque = total.arquivos
       ? html`<${Destaque} titulo="Vai copiar" numero=${count(total.arquivos)} unidade=${total.arquivos === 1 ? 'arquivo' : 'arquivos'} linha=${total.falta ? 'Não cabe em um dos destinos' : bytes(total.bytes)} tom=${total.falta ? 'erro' : 'grad'} />`
