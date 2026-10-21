@@ -75,6 +75,8 @@ src/
   local/scan.js          varredura recursiva local
   referencias/           Referências (vídeos/fotos salvos nas coleções do Drive): plataformas, metadados, cookies,
                          yt-dlp (rodar, atualizar, achar), cliente da API do site e o serviço (ver "Referências")
+  celular/wifi.js        CelularWifi: celular ↔ computador pelo Wi-Fi (espera longa no site, pedidos, gravação; docs/CELULAR-WIFI.md)
+  server/celular.js      rotas /api/celular* (a interface e a janela oculta do WebRTC, public/celular/)
   server/app.js          servidor HTTP, segurança, estáticos, SSE
   server/routes.js       rotas da API
   version.js             VersionChecker (aviso de versão nova: pergunta ao site /baixar/versao)

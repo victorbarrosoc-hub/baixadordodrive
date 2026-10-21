@@ -18,10 +18,14 @@ const isWin = process.platform === 'win32'
 
 app.setName('SOBEDESCE')
 if (isWin) app.setAppUserModelId('app.sobedesce.desktop')
+// Celular pelo Wi-Fi (docs/CELULAR-WIFI.md): o WebRTC da janela oculta anuncia o IP local de verdade, não um nome
+// .local (mDNS). O Safari do celular manda as checagens para esse IP e a conexão sai mesmo em rede sem multicast.
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns')
 
 let engine = null // utilityProcess do motor
 let engineUrl = null
 let win = null
+let celularWin = null // janela oculta do WebRTC com o celular (public/celular/p2p.html)
 let zoom = null // zoom automático pela largura da janela + o escolhido no menu (desktop/zoom.js)
 let quitting = false
 let quitConfirmed = false // a pessoa já disse "Sair" com transferências andando (não pergunta duas vezes)
@@ -161,6 +165,7 @@ async function onEngineCrash(code) {
   try {
     engineUrl = await startEngine()
     win?.loadURL(engineUrl)
+    abrirJanelaCelular()
   } catch (err) {
     dialog.showErrorBox('Não deu para reiniciar o motor', err.message)
     app.quit()
@@ -195,7 +200,50 @@ async function boot() {
     }
   }
   createWindow()
+  abrirJanelaCelular()
   app.on('activate', () => showWindow())
+}
+
+/**
+ * Celular pelo Wi-Fi: uma janela que ninguém vê, de pé enquanto o app está aberto (no Mac, também com a janela
+ * principal fechada). Ela faz o WebRTC com o celular e conversa com o motor pela API local. Se cair, volta sozinha.
+ */
+function abrirJanelaCelular() {
+  if (SMOKE || !engineUrl || quitting) return
+  const url = new URL('/celular/p2p.html', engineUrl).href
+  if (celularWin && !celularWin.isDestroyed()) {
+    if (celularWin.webContents.getURL() !== url) celularWin.loadURL(url)
+    return
+  }
+  const w = new BrowserWindow({
+    show: false,
+    width: 320,
+    height: 240,
+    skipTaskbar: true,
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false, backgroundThrottling: false },
+  })
+  celularWin = w
+  w.webContents.on('will-navigate', event => event.preventDefault())
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  w.webContents.on('render-process-gone', () => {
+    if (celularWin === w) celularWin = null
+    try {
+      w.destroy()
+    } catch {}
+    if (!quitting) setTimeout(abrirJanelaCelular, 2000)
+  })
+  w.on('closed', () => {
+    if (celularWin === w) celularWin = null
+  })
+  w.loadURL(url)
+}
+
+function fecharJanelaCelular() {
+  const w = celularWin
+  celularWin = null
+  try {
+    w?.destroy()
+  } catch {}
 }
 
 function createWindow() {
@@ -253,6 +301,8 @@ function createWindow() {
   })
   win.on('closed', () => {
     win = null
+    // A janela oculta do celular conta como janela aberta: sem isto, fechar a janela no Windows não fecharia o app.
+    if (!isMac) app.quit()
   })
   win.loadURL(engineUrl)
 }
@@ -297,6 +347,7 @@ app.on('before-quit', event => {
   quitConfirmed = true
   quitting = true
   fecharNavegador()
+  fecharJanelaCelular()
   if (!engine) return
   event.preventDefault()
   const child = engine

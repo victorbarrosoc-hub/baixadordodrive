@@ -14,6 +14,7 @@ import { Icon } from './icons.js'
 import { Button, Checkbox, EmptyState, Spinner, Switch } from './common.js'
 import { useLocalRoots } from './local-picker.js'
 import { Grafico, Velocidade, duracao } from './discos.js'
+import { CelularSecao } from './celular-wifi.js'
 
 const iconeDe = (plataforma) => (plataforma === 'windows' ? 'desktop' : 'laptop')
 
@@ -239,8 +240,8 @@ export function ComputadoresScreen() {
   return html`<div class="page page-computadores">
     <header class="page-head">
       <div>
-        <h1>Computadores</h1>
-        <p class="page-lead">Mande arquivos direto para outro computador pela rede: o seu ou o de quem está do lado. Mac ou Windows, criptografado e conferido.</p>
+        <h1>Dispositivos</h1>
+        <p class="page-lead">Mande arquivos direto pela rede para outro computador (o seu ou o de quem está do lado) e para o seu celular. Criptografado e conferido.</p>
       </div>
     </header>
 
@@ -253,6 +254,7 @@ export function ComputadoresScreen() {
           ${(lan?.pedidos || []).map((p) => html`<${Pedido} key=${p.id} p=${p} accountId=${accountId} />`)}
           <${Receber} lan=${lan} settings=${settings} home=${roots?.home} />
           <${Recebendo} lista=${lan?.recebendo} />
+          <${CelularSecao} home=${roots?.home} />
 
           ${e
             ? html`<${Envio} e=${e} pontos=${pontos} onCancelar=${() => attempt(api.post('/api/lan/cancelar', {}))} onNovo=${() => {
