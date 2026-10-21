@@ -8643,3 +8643,19 @@ a.k-botao {
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
+.p2p-enviar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 14.5px;
+  font-weight: 650;
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--up) 90%, transparent);
+}
+.k-item:active .p2p-enviar {
+  transform: scale(0.96);
+}

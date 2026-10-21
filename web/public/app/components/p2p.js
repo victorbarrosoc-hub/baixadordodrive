@@ -75,8 +75,8 @@ export function LinhaAparelho({ a, onEscolher }) {
     tom=${outra ? 'warn' : a.tipo === 'celular' ? 'up' : 'down'}
     titulo=${titulo(a)}
     sub=${outra ? a.nome : a.mesmaRede ? html`<span class="p2p-rede">● na mesma rede</span>` : 'Ligado agora'}
-    fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
-    label=${`Mandar para ${outra ? `${titulo(a)}, ${a.nome}` : a.nome}`}
+    fim=${html`<span class="p2p-enviar" aria-hidden="true"><${Icon} name="upload" size=${15} strokeWidth=${2.2} />Enviar</span>`}
+    label=${`Enviar arquivos para ${outra ? `${titulo(a)}, ${a.nome}` : a.nome}`}
     onClick=${() => onEscolher(a.id)}
   />`
 }
