@@ -166,12 +166,11 @@ export function GraficoVelocidade({ pontos, piso = 5e6, altura = 120, label = 'V
   const y = (v) => altura - 4 - (Math.max(0, v) / max) * (altura - 12)
   const linha = (k) => pontos.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(2)},${y(p[k] || 0).toFixed(2)}`).join(' ')
   const area = (k) => (pontos.length ? `${linha(k)} L${x(pontos.length - 1).toFixed(2)},${altura} L0,${altura} Z` : '')
+  // Série toda em zero (só sobe ou só desce) não vira linha reta no fundo: só aparece se andou alguma vez.
+  const tem = (k) => pontos.some((p) => (p[k] || 0) > 0)
+  const series = pontos.length ? ['down', 'up'].filter((k) => tem(k) || !tem(k === 'down' ? 'up' : 'down')) : []
   return html`<svg class="k-grafico" viewBox=${`0 0 100 ${altura}`} preserveAspectRatio="none" role="img" aria-label=${label} style=${`height:${altura}px`}>
-    ${pontos.length
-      ? html`<path class="k-area is-down" d=${area('down')} />
-          <path class="k-area is-up" d=${area('up')} />
-          <path class="k-linha-g is-down" d=${linha('down')} vector-effect="non-scaling-stroke" />
-          <path class="k-linha-g is-up" d=${linha('up')} vector-effect="non-scaling-stroke" />`
-      : null}
+    ${series.map((k) => html`<path class=${`k-area is-${k}`} d=${area(k)} />`)}
+    ${series.map((k) => html`<path class=${`k-linha-g is-${k}`} d=${linha(k)} vector-effect="non-scaling-stroke" />`)}
   </svg>`
 }
