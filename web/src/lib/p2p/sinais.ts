@@ -256,8 +256,14 @@ export async function esperar(a: Autenticado, o: { nome: string; ip: string | nu
   await marcarVisto(a, o.nome, o.ip, !!o.outros);
   const ate = Date.now() + Math.max(0, o.ms ?? ESPERA_MS);
   for (;;) {
+    if (o.sinal?.aborted) return [];
     const sinais = await pegarSinais(a);
-    if (sinais.length || Date.now() >= ate || o.sinal?.aborted) return sinais;
+    if (sinais.length && o.sinal?.aborted) {
+      // O pedido caiu enquanto pegava: devolve os sinais para a próxima espera (senão se perdem numa conexão morta).
+      await db.update(p2pSinais).set({ entregueEm: null }).where(inArray(p2pSinais.id, sinais.map((x) => x.id)));
+      return [];
+    }
+    if (sinais.length || Date.now() >= ate) return sinais;
     await new Promise((ok) => setTimeout(ok, Math.min(OLHAR_MS, Math.max(0, ate - Date.now()))));
   }
 }

@@ -120,6 +120,18 @@ describe("p2p", () => {
     assert.ok(Date.now() - inicio < 5000, "não esperou os 25 s");
   });
 
+  test("espera cortada no meio: o sinal não se perde, vai na próxima", async () => {
+    const parar = new AbortController();
+    const req = doMac(victor, "/api/p2p/espera");
+    const cortada = rEspera.GET(new Request(req, { signal: parar.signal }));
+    await new Promise((ok) => setTimeout(ok, 200));
+    parar.abort();
+    const of = await corpo(await rSinal.POST(doCelular(victor, "/api/p2p/sinal", { corpo: { tipo: "oferta", para: victor.macId, sdp: SDP, resumo: { arquivos: 1, bytes: 1, nomes: [] } } })));
+    assert.deepEqual((await corpo(await cortada)).sinais, []);
+    const proxima = await corpo(await curta(doMac(victor, "/api/p2p/espera?curto=1")));
+    assert.equal(proxima.sinais[0]?.id, of.id);
+  });
+
   test("regras: outra conta, aparelho offline, resposta de quem não recebeu, oferta vencida e SDP inválido", async () => {
     const sinal = (req: Request) => rSinal.POST(req).then(corpo);
     // Para o computador de outra conta: como se não existisse.
