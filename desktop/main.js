@@ -418,10 +418,14 @@ ipcMain.handle('sobedesce:open-external', (event, url) => {
   if (trustedSender(event, engineUrl)) openExternal(url)
 })
 
-// Só este endereço fixo (openExternal só abre http/https): Ajustes do Sistema → Privacidade e Segurança → Rede Local.
-ipcMain.handle('sobedesce:abrir-ajustes-rede', event => {
+// Só estes endereços fixos (openExternal só abre http/https): Rede Local e Firewall nos Ajustes do Sistema.
+const PAINEIS_MAC = {
+  'rede-local': 'x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork',
+  firewall: 'x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall',
+}
+ipcMain.handle('sobedesce:abrir-ajustes-rede', (event, qual) => {
   if (!trustedSender(event, engineUrl) || process.platform !== 'darwin') return false
-  shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork')
+  shell.openExternal(PAINEIS_MAC[qual] || PAINEIS_MAC['rede-local'])
   return true
 })
 

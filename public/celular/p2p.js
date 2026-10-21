@@ -123,6 +123,8 @@ async function receberOferta(s) {
     })
   } catch (err) {
     if (aceito) await api(`/api/celular/estado/${tid}`, { estado: 'erro', erro: err?.message || 'A transferência parou.' }).catch(() => {})
+    // Sem transferência na tela (nem chegou a abrir o canal): conta ao motor para Dispositivos mostrar.
+    else if (!reg.cancelado) await api('/api/celular/falha', { erro: err?.message || 'Não deu para conectar.' }).catch(() => {})
   } finally {
     ativos.delete(tid)
     fechar(pc)

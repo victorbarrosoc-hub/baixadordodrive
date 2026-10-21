@@ -16,6 +16,7 @@ import { pipeline } from 'node:stream/promises'
 import { Transform } from 'node:stream'
 import { isJunkFile, safeLocalName } from '../util/paths.js'
 import { MSG_REDE_BLOQUEADA, criarRedeLocal } from './rede-local.js'
+import { criarFirewall } from './firewall.js'
 
 export const RECEBENDO = '.sobedesce-recebendo'
 const ESPERA_TIMEOUT_MS = 40_000 // o site segura até 25 s; folga para a rede
@@ -117,7 +118,7 @@ export async function listarArquivos(caminhos, max = MAX_ARQUIVOS) {
  *           log?: Function, aparelhosMs?: number, redeLocal?: { estado, conferir() } }} o
  */
 export class CelularWifi {
-  constructor({ settings, cloud, nome = () => 'Computador', hub = null, log = () => {}, aparelhosMs = APARELHOS_MS, redeLocal = criarRedeLocal() } = {}) {
+  constructor({ settings, cloud, nome = () => 'Computador', hub = null, log = () => {}, aparelhosMs = APARELHOS_MS, redeLocal = criarRedeLocal(), firewall = criarFirewall() } = {}) {
     this.settings = settings
     this.cloud = typeof cloud === 'function' ? cloud : () => cloud
     this.nome = nome
@@ -125,6 +126,8 @@ export class CelularWifi {
     this.log = log
     this.aparelhosMs = aparelhosMs
     this.redeLocal = redeLocal
+    this.firewall = firewall
+    this.ultimaFalha = null // a última vez que o celular tentou e a ligação direta não abriu: { quando, erro }
     this.celulares = []
     this.transfers = new Map()
     this.rodando = false
@@ -151,7 +154,12 @@ export class CelularWifi {
   /** Confere a permissão de Rede Local do macOS (rede-local.js) e avisa a tela se mudou. */
   async conferirRede({ forcar = false } = {}) {
     const antes = this.redeLocal.estado
-    const r = await this.redeLocal.conferir({ forcar })
+    const fwAntes = JSON.stringify(this.firewall.estado)
+    const [r] = await Promise.all([this.redeLocal.conferir({ forcar }), this.firewall.conferir({ forcar }).catch(() => null)])
+    if (JSON.stringify(this.firewall.estado) !== fwAntes) {
+      if (this.firewall.estado?.atrapalha) this.log('celular: o Firewall do macOS não deixa o SOBEDESCE receber conexões (Ajustes → Rede → Firewall)')
+      if (r === antes) this.#avisar()
+    }
     if (r !== antes) {
       if (r === 'bloqueada') this.log('celular: o macOS está bloqueando a rede local (Ajustes → Privacidade e Segurança → Rede Local)')
       this.#avisar()
@@ -504,6 +512,15 @@ export class CelularWifi {
     return this.#publico(t)
   }
 
+  /** A janela oculta conta que um celular tentou e a ligação direta não abriu (com o que cada lado anunciou). */
+  falha(erro) {
+    this.ultimaFalha = { quando: Date.now(), erro: String(erro || 'Não deu para conectar.').slice(0, 400) }
+    this.log('celular: não conectou', this.ultimaFalha.erro)
+    this.conferirRede({ forcar: true }).catch(() => {})
+    this.#avisar()
+    return { ok: true }
+  }
+
   /** Tira da lista o que já terminou. */
   limpar() {
     for (const [id, t] of this.transfers) if (!ATIVO.has(t.estado)) this.transfers.delete(id)
@@ -525,6 +542,9 @@ export class CelularWifi {
       outros: !!st.celularOutros,
       // macOS 15+: 'bloqueada' = sem a permissão de Rede Local (a tela mostra como ligar); null fora do Mac ou sem saber.
       redeLocal: this.redeLocal.estado,
+      // macOS: Firewall ligado sem "Permitir" para o SOBEDESCE (firewall.js); null fora do Mac.
+      firewall: this.firewall.estado,
+      ultimaFalha: this.ultimaFalha && Date.now() - this.ultimaFalha.quando < 30 * 60_000 ? this.ultimaFalha : null,
       celulares: this.celulares,
       pedidos: [...this.pedidos.values()].map((p) => this.#pedidoPublico(p.sinal)),
       transferencias: lista.map((t) => this.#publico(t)),

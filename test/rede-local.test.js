@@ -63,3 +63,25 @@ test('confere com cache; fora do Mac é sempre null e nem tenta', async () => {
   assert.equal(await fora.conferir(), null)
   assert.equal(g.chamadas.length, 0)
 })
+
+test('Firewall do macOS: lê o socketfilterfw (ligado, bloquear tudo, este app) e acha a pasta .app', async () => {
+  const { appDe, criarFirewall, lerFirewall } = await import('../src/celular/firewall.js')
+  assert.equal(appDe('/Applications/SOBEDESCE.app/Contents/Frameworks/SOBEDESCE Helper.app/Contents/MacOS/SOBEDESCE Helper'), '/Applications/SOBEDESCE.app')
+  assert.equal(appDe('/usr/bin/node'), null)
+  assert.deepEqual(lerFirewall({ global: 'Firewall is disabled. (State = 0)', tudo: 'Firewall has block all state set to disabled.', app: '' }), { ligado: false, bloquearTudo: false, app: null })
+  assert.deepEqual(lerFirewall({ global: 'Firewall is enabled. (State = 1)', tudo: 'Block all DISABLED!', app: 'The application /Applications/SOBEDESCE.app is permitted' }), { ligado: true, bloquearTudo: false, app: 'permitido' })
+  assert.deepEqual(lerFirewall({ global: 'Firewall is enabled. (State = 1)', tudo: 'Firewall has block all state set to enabled.', app: '/Applications/SOBEDESCE.app is blocked' }), { ligado: true, bloquearTudo: true, app: 'bloqueado' })
+  assert.equal(lerFirewall({ global: 'Firewall is enabled. (State = 1)', tudo: '', app: 'The application is not part of the firewall' }).app, 'fora')
+
+  const pedidos = []
+  const respostas = { '--getglobalstate': 'Firewall is enabled. (State = 1)', '--getblockall': 'Block all DISABLED!', '--getappblocked': 'The application is not part of the firewall' }
+  const fw = criarFirewall({ platform: 'darwin', execPath: '/Applications/SOBEDESCE.app/Contents/MacOS/SOBEDESCE', ler: async (args) => (pedidos.push(args), respostas[args[0]]) })
+  const r = await fw.conferir()
+  assert.equal(r.atrapalha, true, 'ligado e o app sem "Permitir"')
+  assert.deepEqual(pedidos.at(-1), ['--getappblocked', '/Applications/SOBEDESCE.app'])
+  await fw.conferir()
+  assert.equal(pedidos.length, 3, 'dentro de 1 min usa o que já sabe')
+  respostas['--getappblocked'] = 'The application /Applications/SOBEDESCE.app is permitted'
+  assert.equal((await fw.conferir({ forcar: true })).atrapalha, false)
+  assert.equal(await criarFirewall({ platform: 'win32' }).conferir(), null)
+})

@@ -15,7 +15,7 @@ import { Icon } from './icons.js'
 import { Button, Spinner, Switch } from './common.js'
 import { useLocalRoots } from './local-picker.js'
 import { duracao } from './discos.js'
-import { AvisoRedeLocal, CEL_ATIVO, PedidoCelular, estadoCelular, mandarParaCelular, quemCelular, useCelularesAbertos } from './celular-wifi.js'
+import { AvisoFirewall, AvisoRedeLocal, CEL_ATIVO, FalhaCelular, PedidoCelular, estadoCelular, mandarParaCelular, quemCelular, useCelularesAbertos } from './celular-wifi.js'
 import { Barra, BotaoGrande, Destaque, GraficoVelocidade, Item, Linha, Linhas, Opcoes, Pagina, Passo, Resumo, Stats, Vazio } from './kit.js'
 
 const FRASE = 'Mande direto pela rede para os seus computadores e celulares, ou para quem está do lado. Cifrado e conferido, sem passar pela internet.'
@@ -467,6 +467,8 @@ export function ComputadoresScreen() {
 
   return html`<${Pagina} titulo="Dispositivos" frase=${FRASE} class="dv" larga lado=${lado}>
     ${cel?.redeLocal === 'bloqueada' ? html`<${AvisoRedeLocal} i=${1} />` : null}
+    ${cel?.firewall?.atrapalha ? html`<${AvisoFirewall} fw=${cel.firewall} i=${1} />` : null}
+    ${cel?.ultimaFalha && cel?.redeLocal !== 'bloqueada' && !cel?.firewall?.atrapalha ? html`<${FalhaCelular} f=${cel.ultimaFalha} i=${1} />` : null}
     ${pedidos.map(({ tipo, p }, i) => (tipo === 'lan' ? html`<${PedidoLan} key=${`l${p.id}`} p=${p} accountId=${accountId} i=${i + 1} />` : html`<${PedidoCelular} key=${`c${p.id}`} p=${p} i=${i + 1} />`))}
 
     ${envioLanVisivel

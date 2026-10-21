@@ -46,6 +46,12 @@ ligar, "Mandar para o celular" avisa o mesmo, e Dispositivos mostra o aviso com 
 Segurança → Rede Local) e **Conferir de novo**. No celular, quando não conecta, a folha mostra a dica do Mac (se o outro
 lado não respondeu nenhuma checagem) e uma linha técnica: os caminhos de cada lado e as checagens que foram e voltaram.
 
+**Mac: Firewall.** Com o Firewall do macOS ligado, o app precisa estar em "Permitir conexões de entrada" (Ajustes do
+Sistema → Rede → Firewall → Opções), senão as checagens que o celular manda para o IP do Mac são recusadas. O motor lê o
+estado pelo `socketfilterfw` (`src/celular/firewall.js`, sem senha) e Dispositivos mostra o aviso com **Abrir Ajustes**.
+Quando a ligação direta com um celular não abre, a janela oculta conta ao motor (`POST /api/celular/falha`, com o que
+cada lado anunciou) e Dispositivos mostra "O celular tentou e não conectou" por 30 min.
+
 No computador, o WebRTC roda numa **janela oculta** do Electron (`desktop/main.js` → `public/celular/p2p.html`), que
 existe enquanto o app está aberto (no Mac, mesmo com a janela principal fechada). Ela conversa com o motor pela API
 local; o motor faz a espera longa no site, grava os arquivos e mostra o andamento na interface.

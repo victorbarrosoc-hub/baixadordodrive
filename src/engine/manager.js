@@ -1083,6 +1083,17 @@ export class TransferManager extends EventEmitter {
       this.waitTimers.delete(rec.id)
       if (this.closing || this.records.get(rec.id) !== rec || rec.status !== 'waiting') return
       if (Number(rec.retryAt) > Date.now()) return this.#armWait(rec) // espera maior que o teto do setTimeout
+      // Volta junto todo mundo que já passou da hora (o limite diário põe a conta inteira com a mesma hora): cada um
+      // tem o seu timer e eles disparam em qualquer ordem; liberando todos antes de escolher, a fila segue a ordem.
+      const agora = Date.now()
+      for (const r of this.records.values()) {
+        if (r !== rec && r.status === 'waiting' && r.retryAt != null && Number(r.retryAt) <= agora) {
+          this.#clearWait(r.id)
+          r.status = 'queued'
+          r.retryAt = null
+          this.#touch(r)
+        }
+      }
       rec.status = 'queued'
       rec.retryAt = null
       this.#touch(rec)
