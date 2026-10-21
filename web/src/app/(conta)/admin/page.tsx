@@ -25,6 +25,7 @@ import {
 } from "@/lib/admin";
 import { betaAberto, ehPlano, NOME_PLANO, PLANOS } from "@/lib/recursos";
 import { acaoTrocarPlano } from "../acoes";
+import { contasComMacTravado } from "@/lib/atualizar-mac";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { cn } from "@/lib/cn";
 import type { Plano as TipoPlano } from "@/lib/db/schema";
@@ -161,7 +162,8 @@ export default async function Admin({ searchParams }: Props) {
   const plano: TipoPlano | null = ehPlano(um("plano")) ? (um("plano") as TipoPlano) : null;
   const agora = new Date();
   const buildAtual = await buildPublicado();
-  const { pessoas, resumo } = await painelAdmin(agora, buildAtual);
+  const [{ pessoas, resumo }, macsTravados] = await Promise.all([painelAdmin(agora, buildAtual), contasComMacTravado()]);
+  const macsSemAviso = macsTravados.filter((c) => !c.avisada).length;
   const lista = aplicarFiltro(filtrarPessoas(pessoas, busca), { filtro, plano, ordem, buildAtual }, agora);
   const estado: Record<string, string> = { q: busca, f: filtro === "todos" ? "" : filtro, o: ordem === "novas" ? "" : ordem, plano: plano ?? "" };
   const csv = `/admin/csv?${new URLSearchParams(Object.entries(estado).filter(([, v]) => v)).toString()}`;
@@ -199,6 +201,21 @@ export default async function Admin({ searchParams }: Props) {
         />
         <Numero valor={resumo.avisosCelular} rotulo="com avisos no celular" />
       </Card>
+
+      {macsTravados.length ? (
+        <Link
+          href="/admin/aviso-mac"
+          className="toque mb-4 flex items-center justify-between gap-4 rounded-2xl bg-warn/12 px-5 py-4 text-[15px] ring-1 ring-warn/30 hover:bg-warn/18"
+        >
+          <span className="grid gap-0.5">
+            <span className="font-medium">
+              {macsTravados.length === 1 ? "1 conta tem Mac" : `${macsTravados.length} contas têm Mac`} com o Atualizar travado (antes do build 300)
+            </span>
+            <span className="text-[13px] text-ink-2">{macsSemAviso ? `${macsSemAviso} ainda sem o e-mail. Ver o e-mail e mandar.` : "Todas já receberam o e-mail."}</span>
+          </span>
+          <Bell className="size-5 shrink-0 text-warn-text" aria-hidden />
+        </Link>
+      ) : null}
 
       {/* Desktop largo: gráfico e uso na esquerda, funil na direita. No celular, um embaixo do outro. */}
       <div className="mb-10 xl:grid xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:items-start xl:gap-x-4">

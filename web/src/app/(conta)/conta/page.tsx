@@ -14,6 +14,8 @@ import { linksLigados } from "@/lib/auth/encerrar";
 import { ehAdmin } from "@/lib/admin";
 import { podeUsar } from "@/lib/recursos";
 import { listarComputadores } from "@/lib/acompanhar/status";
+import { macsParaAtualizar } from "@/lib/atualizar-mac";
+import { DOWNLOAD_MAC } from "@/lib/site";
 import { googleDeEntrar, listarContas } from "@/lib/google/contas";
 import { NOME_PLATAFORMA, tempoRelativo } from "@/lib/tempo";
 import { Computadores } from "./computadores";
@@ -29,7 +31,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 export default async function Conta({ searchParams }: Props) {
   const { usuario } = await exigirUsuario("/conta");
   const q = await searchParams;
-  const [contas, dispositivos, temSenha, admin, referencias, computadores, links, entrar] = await Promise.all([
+  const [contas, dispositivos, temSenha, admin, referencias, computadores, links, entrar, macs] = await Promise.all([
     listarContas(usuario.id),
     listarDispositivos(usuario.id),
     contaComSenha(usuario.id),
@@ -38,6 +40,7 @@ export default async function Conta({ searchParams }: Props) {
     listarComputadores(usuario.id),
     linksLigados(usuario.id),
     googleDeEntrar(usuario.id),
+    macsParaAtualizar(usuario.id),
   ]);
   const erro = typeof q.erro === "string" ? q.erro : undefined;
   const conectou = q.google === "ok";
@@ -96,6 +99,22 @@ export default async function Conta({ searchParams }: Props) {
       ) : mensagemDeErro(erro) ? (
         <Aviso tom={erro === "google_recusado" ? "info" : "erro"} className="mb-10">
           <p>{mensagemDeErro(erro)}</p>
+        </Aviso>
+      ) : null}
+
+      {macs.length ? (
+        // Até o build 299 o Atualizar do Mac podia travar (lib/atualizar-mac.ts): só o instalador resolve, uma vez.
+        <Aviso tom="info" className="mb-6">
+          <p>
+            <strong className="font-semibold">{macs.length === 1 ? `Atualize o app no ${macs[0]} à mão, uma vez só.` : "Atualize o app nos seus Macs à mão, uma vez só."}</strong> O botão
+            Atualizar pode dar erro nessa versão. Baixe, abra o arquivo e arraste o SOBEDESCE para Aplicativos, escolhendo Substituir. Depois, as próximas
+            versões chegam sozinhas.
+          </p>
+          <p>
+            <a href={DOWNLOAD_MAC} className="font-medium underline underline-offset-2">
+              Baixar para Mac
+            </a>
+          </p>
         </Aviso>
       ) : null}
 
