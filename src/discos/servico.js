@@ -105,10 +105,19 @@ export class DiscosService {
     this.prog = null
     this.plano = null
     this.#mudou(true)
+    const ac = this.ac
     try {
-      this.plano = await planejar({ origem, destinos, nome, signal: this.ac.signal })
+      this.plano = await planejar({ origem, destinos, nome, signal: ac.signal })
       this.fase = 'pronto'
     } catch (err) {
+      // Cancelado na tela: não é erro, e o pedido de comparar termina normal (a tela mostra "cancelada").
+      if (ac.signal.aborted) {
+        this.fase = 'cancelado'
+        this.plano = null
+        this.erro = null
+        this.#mudou(true)
+        return this.view()
+      }
       this.fase = 'erro'
       this.erro = err.message
       this.#mudou(true)

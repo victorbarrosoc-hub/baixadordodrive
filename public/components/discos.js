@@ -1,5 +1,6 @@
 // Comparar → "Entre discos": passa um cartão ou SSD para um ou mais discos, comparando antes (o que é novo, o que já
-// está lá, o que difere), com MD5 conferido, velocidade e tempo restante. Motor em src/discos/ (docs/DISCOS.md).
+// está lá, o que difere), com o checksum conferido, velocidade e tempo restante. Motor em src/discos/ (docs/DISCOS.md).
+// Visual no padrão do kit (docs/UI-KIT.md): passos numerados, resumo colorido ao lado e o botão grande.
 import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore } from '../lib/store.js'
 import { api, attempt, withQuery } from '../lib/api.js'
@@ -7,12 +8,14 @@ import { aprox, bytes, count, plural, speedParts, tildify, baseName } from '../l
 import { cx, usePersistentState } from '../lib/ui.js'
 import { bridge, pickFolderPath, revealLabel, revealPath } from '../lib/desktop.js'
 import { Icon } from './icons.js'
-import { Button, Checkbox, EmptyState, Segmented, Spinner } from './common.js'
+import { Button, Spinner, Switch } from './common.js'
+import { Barra, BotaoGrande, Destaque, GraficoVelocidade, Linha, Linhas, Opcoes, Pagina, Passo, Pilulas, Resumo } from './kit.js'
 import { useLocalRoots } from './local-picker.js'
+import { Fonte, Rota } from './comparar-partes.js'
 
 const ALGS = [
-  { value: 'xxh64', label: 'xxHash64 · rápido' },
-  { value: 'md5', label: 'MD5 · igual ao Drive' },
+  { value: 'xxh64', titulo: 'xxHash64', sub: 'Rápido: o padrão do offload de cinema (~4 GB/s)', icone: 'bolt' },
+  { value: 'md5', titulo: 'MD5', sub: 'O mesmo do Google Drive; mais lento em SSD rápido', icone: 'shield' },
 ]
 
 const ESTADOS = [
@@ -32,6 +35,7 @@ export const duracao = (s) => {
   return m < 60 ? `${m} min ${String(r).padStart(2, '0')} s` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`
 }
 
+// Usados também na tela Computadores (components/computadores.js).
 export function Velocidade({ bps, rotulo }) {
   const v = speedParts(bps)
   return html`<div class="dk-num">
@@ -54,29 +58,16 @@ export function Grafico({ pontos }) {
   </svg>`
 }
 
-function Lado({ titulo, icon, caminho, home, onTrocar, onTirar, vazio, tom }) {
-  return html`<div class=${cx('dk-lado card', !caminho && 'is-vazio', tom && `is-${tom}`)}>
-    <span class="dk-lado-icon"><${Icon} name=${icon} size=${18} /></span>
-    <div class="dk-lado-txt">
-      <span class="eyebrow">${titulo}</span>
-      ${caminho
-        ? html`<b title=${caminho}>${baseName(caminho) || caminho}</b><span class="mono-path" title=${caminho}>${tildify(caminho, home)}</span>`
-        : html`<span class="sub">${vazio}</span>`}
-    </div>
-    <div class="dk-lado-acoes">
-      <${Button} size="sm" icon="folder" onClick=${onTrocar}>${caminho ? 'Trocar' : 'Escolher'}</${Button}>
-      ${onTirar ? html`<button type="button" class="icon-btn" onClick=${onTirar} aria-label="Tirar este destino"><${Icon} name="x" size=${14} /></button>` : null}
-    </div>
-  </div>`
-}
-
 function Espaco({ d, precisa }) {
   if (d.livre == null) return null
   const falta = precisa > d.livre
   const frac = d.livre > 0 ? Math.min(1, precisa / d.livre) : 1
-  return html`<div class=${cx('dk-espaco', falta && 'is-falta')}>
-    <div class="dk-espaco-bar"><i style=${`width:${(frac * 100).toFixed(1)}%`}></i></div>
-    <span>${falta ? `Não cabe: precisa de ${bytes(precisa)}, tem ${bytes(d.livre)} livres` : `${bytes(precisa)} de ${bytes(d.livre)} livres`}</span>
+  return html`<div class=${cx('cp-espaco', falta && 'is-falta')}>
+    <div class="cp-espaco-tit">
+      <span class="k-rot">Espaço em ${baseName(d.caminho) || d.caminho}</span>
+      <span class="num">${falta ? `Não cabe: precisa de ${bytes(precisa)}, tem ${bytes(d.livre)} livres` : `${bytes(precisa)} de ${bytes(d.livre)} livres`}</span>
+    </div>
+    <${Barra} p=${frac} tom=${falta ? 'erro' : null} label="Espaço livre usado pela cópia" />
   </div>`
 }
 
@@ -87,152 +78,142 @@ function Lista({ destino, estado }) {
     api.get(withQuery('/api/discos/itens', { destino, estado })).then((r) => vivo && setDados(r), () => vivo && setDados({ itens: [], total: 0 }))
     return () => (vivo = false)
   }, [destino, estado])
-  if (!dados) return html`<div class="dk-lista is-carregando"><${Spinner} size=${16} /></div>`
-  if (!dados.total) return html`<div class="dk-lista"><p class="sub dk-lista-vazia">Nenhum arquivo aqui.</p></div>`
-  return html`<div class="dk-lista">
+  if (!dados) return html`<div class="cp-lista is-carregando"><${Spinner} size=${16} /></div>`
+  if (!dados.total) return html`<div class="cp-lista"><p class="k-nota">Nenhum arquivo aqui.</p></div>`
+  return html`<div class="cp-lista">
     <ul>
       ${dados.itens.map((it) => html`<li><span class="mono-path" title=${it.relPath}>${it.relPath}</span><span class="num sub">${bytes(it.size)}</span></li>`)}
     </ul>
-    ${dados.total > dados.itens.length ? html`<p class="sub dk-lista-mais">e mais ${count(dados.total - dados.itens.length)}…</p>` : null}
+    ${dados.total > dados.itens.length ? html`<p class="k-nota cp-lista-mais">e mais ${count(dados.total - dados.itens.length)}…</p>` : null}
   </div>`
 }
 
-function Plano({ v, opcoes, setOpcoes, onCopiar, copiando }) {
+/** O que a cópia vai fazer com as opções atuais (o botão mostra o destino que mais recebe). */
+function totalDoPlano(p, opcoes) {
+  const arquivos = p.destinos.reduce((m, x) => Math.max(m, x.novos + (opcoes.substituir ? x.diferentes : 0)), 0)
+  const bytesT = p.destinos.reduce((m, x) => Math.max(m, x.bytesNovos + (opcoes.substituir ? x.bytesDiferentes : 0)), 0)
+  const conferirSo = opcoes.conferirIguais && p.destinos.some((x) => x.iguais)
+  const falta = p.destinos.some((x) => x.livre != null && x.bytesNovos + (opcoes.substituir ? x.bytesDiferentes : 0) > x.livre)
+  return { arquivos, bytes: bytesT, conferirSo, falta }
+}
+
+function Plano({ v, opcoes, setOpcoes }) {
   const p = v.plano
   const [destino, setDestino] = useState(0)
   const [estado, setEstado] = useState('novo')
   const d = p.destinos[Math.min(destino, p.destinos.length - 1)]
-  // Um arquivo é lido uma vez, mesmo indo para vários destinos: o botão mostra o destino que mais recebe.
-  const total = useMemo(
-    () => ({
-      arquivos: p.destinos.reduce((m, x) => Math.max(m, x.novos + (opcoes.substituir ? x.diferentes : 0)), 0),
-      bytes: p.destinos.reduce((m, x) => Math.max(m, x.bytesNovos + (opcoes.substituir ? x.bytesDiferentes : 0)), 0),
-    }),
-    [p, opcoes.substituir],
-  )
-  const conferirSo = opcoes.conferirIguais && p.destinos.some((x) => x.iguais)
-  const falta = p.destinos.some((x) => x.livre != null && x.bytesNovos + (opcoes.substituir ? x.bytesDiferentes : 0) > x.livre)
-  return html`<section class="card dk-plano">
-    <header class="dk-plano-head">
-      <div>
-        <h2>${plural(p.origem.arquivos, 'arquivo', 'arquivos')} · ${bytes(p.origem.bytes)}</h2>
-        <p class="sub">Vão para <b>${p.nome}</b> dentro de ${p.destinos.length === 1 ? 'cada destino' : `${p.destinos.length} destinos`}${v.plano.ignorados ? ` · ${v.plano.ignorados} sem permissão de leitura` : ''}</p>
-      </div>
-      ${p.destinos.length > 1
-        ? html`<${Segmented} size="sm" label="Destino" value=${destino} onChange=${setDestino} options=${p.destinos.map((x, i) => ({ value: i, label: baseName(x.caminho) || x.caminho }))} />`
-        : null}
-    </header>
-    <div class="dk-tiles">
+  return html`<${Passo}
+    id="cp-resultado"
+    icone="compare"
+    cor="up"
+    titulo="O que vai ser copiado"
+    sub=${`${plural(p.origem.arquivos, 'arquivo', 'arquivos')} · ${bytes(p.origem.bytes)}`}
+    frase=${html`Vão para <b>${p.nome}</b> dentro de ${p.destinos.length === 1 ? 'cada destino' : `${p.destinos.length} destinos`}${p.ignorados ? ` · ${p.ignorados} sem permissão de leitura` : ''}`}
+    i=${5}
+  >
+    ${p.destinos.length > 1
+      ? html`<${Pilulas} label="Destino" valor=${destino} onEscolher=${setDestino} itens=${p.destinos.map((x, i) => ({ value: i, label: baseName(x.caminho) || x.caminho }))} />`
+      : null}
+    <div class="k-stats cp-stats" style="--n:3">
       ${ESTADOS.map((e) => {
         const n = e.id === 'novo' ? d.novos : e.id === 'igual' ? d.iguais : d.diferentes
         const b = e.id === 'novo' ? d.bytesNovos : e.id === 'diferente' ? d.bytesDiferentes : null
-        return html`<button type="button" class=${cx('dk-tile', `is-${e.tom}`, estado === e.id && 'is-on')} onClick=${() => setEstado(e.id)} aria-pressed=${estado === e.id ? 'true' : 'false'}>
-          <span class="dk-tile-icon"><${Icon} name=${e.icon} size=${15} strokeWidth=${2} /></span>
-          <span class="dk-tile-n num">${count(n)}</span>
-          <span class="dk-tile-l">${e.label}${b ? html` · <span class="num">${bytes(b)}</span>` : null}</span>
+        return html`<button type="button" class=${cx('k-stat cp-stat', `is-${e.tom}`, estado === e.id && 'is-on', !n && 'is-zero')} onClick=${() => setEstado(e.id)} aria-pressed=${estado === e.id ? 'true' : 'false'}>
+          <span class="k-stat-ic"><${Icon} name=${e.icon} size=${15} strokeWidth=${2} /></span>
+          <b class="num">${count(n)}</b>
+          <span>${e.label}${b ? html` · <span class="num">${bytes(b)}</span>` : null}</span>
         </button>`
       })}
     </div>
     <${Espaco} d=${d} precisa=${d.bytesNovos + (opcoes.substituir ? d.bytesDiferentes : 0)} />
     <${Lista} destino=${destino} estado=${estado} />
-    <div class="dk-opcoes">
-      <label class="dk-opcao"><${Checkbox} checked=${opcoes.conferir} onChange=${(on) => setOpcoes({ ...opcoes, conferir: on })} label="Conferir" /><span><b>Conferir cada arquivo copiado</b><span class="sub"> · lê o destino de novo e compara o checksum com a origem</span></span></label>
-      ${p.destinos.some((x) => x.iguais)
-        ? html`<label class="dk-opcao"><${Checkbox} checked=${opcoes.conferirIguais} onChange=${(on) => setOpcoes({ ...opcoes, conferirIguais: on })} label="Conferir os que já estão lá" /><span><b>Conferir também os que já estão no destino</b><span class="sub"> · compara o conteúdo, não só o tamanho; o que não bater é copiado de novo</span></span></label>`
-        : null}
-      <label class="dk-opcao"><${Checkbox} checked=${opcoes.relatorio} onChange=${(on) => setOpcoes({ ...opcoes, relatorio: on })} label="Relatório" /><span><b>Salvar o relatório de checksums no destino</b><span class="sub"> · para conferir de novo depois</span></span></label>
-      <div class="dk-opcao dk-alg">
-        <span class="sub">Checksum</span>
-        <${Segmented} size="sm" label="Checksum" value=${opcoes.algoritmo || 'xxh64'} onChange=${(a) => setOpcoes({ ...opcoes, algoritmo: a })} options=${ALGS} />
-        <span class="sub">${(opcoes.algoritmo || 'xxh64') === 'md5' ? 'o mesmo do Google Drive; mais lento em SSD rápido' : 'o padrão das ferramentas de offload de cinema; ~4 GB/s'}</span>
-      </div>
-      ${p.destinos.some((x) => x.diferentes)
-        ? html`<label class="dk-opcao is-warn"><${Checkbox} checked=${opcoes.substituir} onChange=${(on) => setOpcoes({ ...opcoes, substituir: on })} label="Substituir" /><span><b>Substituir os diferentes</b><span class="sub"> · grava por cima dos que têm outro tamanho no destino</span></span></label>`
-        : null}
-    </div>
-    <div class="dk-go">
-      <${Button} variant="primary" size="lg" icon="copy" onClick=${onCopiar} loading=${copiando} disabled=${(!total.arquivos && !conferirSo) || falta}>
-        ${total.arquivos ? `Copiar ${plural(total.arquivos, 'arquivo', 'arquivos')} · ${bytes(total.bytes)}` : conferirSo ? 'Conferir o que já está lá' : 'Nada para copiar'}
-      </${Button}>
-      ${!total.arquivos && !conferirSo ? html`<span class="sub">Tudo já está no destino. Marque “Conferir também os que já estão no destino” para checar o conteúdo.</span>` : null}
-    </div>
-  </section>`
+    ${p.destinos.some((x) => x.iguais) || p.destinos.some((x) => x.diferentes)
+      ? html`<${Linhas}>
+          ${p.destinos.some((x) => x.iguais)
+            ? html`<${Linha} titulo="Conferir também os que já estão no destino" sub="Compara o conteúdo, não só o tamanho. O que não bater é copiado de novo.">
+                <${Switch} checked=${opcoes.conferirIguais} label="Conferir os que já estão lá" onChange=${(on) => setOpcoes({ ...opcoes, conferirIguais: on })} />
+              </${Linha}>`
+            : null}
+          ${p.destinos.some((x) => x.diferentes)
+            ? html`<${Linha} titulo="Substituir os diferentes" sub="Grava por cima dos que têm outro tamanho no destino.">
+                <${Switch} checked=${opcoes.substituir} label="Substituir os diferentes" onChange=${(on) => setOpcoes({ ...opcoes, substituir: on })} />
+              </${Linha}>`
+            : null}
+        </${Linhas}>`
+      : null}
+  </${Passo}>`
 }
 
 function Andamento({ v, pontos, onCancelar }) {
   const g = v.progresso
-  const frac = g.totalBytes ? (g.copiados + g.conferidos) / (g.totalBytes + g.totalConferir || 1) : 0
   const conferindo = g.etapa === 'conferindo' || (g.totalConferir && g.copiados >= g.totalBytes && g.conferidos < g.totalConferir)
-  return html`<section class="card dk-andamento" aria-live="polite">
-    <div class="dk-and-topo">
-      <div class="dk-anel" style=${`--p:${(frac * 100).toFixed(1)}`}>
-        <span class="num">${Math.floor(frac * 100)}<small>%</small></span>
-      </div>
-      <div class="dk-and-txt">
-        <h2>${conferindo ? 'Conferindo…' : 'Copiando…'}</h2>
-        <p class="sub num">${bytes(g.copiados)} de ${bytes(g.totalBytes)} · ${count(g.arquivos)} de ${plural(g.totalArquivos, 'arquivo', 'arquivos')}</p>
-        ${g.atual ? html`<p class="mono-path dk-atual" title=${g.atual}>${g.atual}</p>` : null}
-      </div>
-      <${Button} variant="ghost" size="sm" icon="x" onClick=${onCancelar}>Parar</${Button}>
+  const agora = speedParts(g.velocidade)
+  const media = speedParts(g.velocidadeMedia)
+  return html`<${Passo}
+    id="cp-resultado"
+    icone="copy"
+    cor="up"
+    titulo=${conferindo ? 'Conferindo' : 'Copiando'}
+    sub=${`${count(g.arquivos)} de ${plural(g.totalArquivos, 'arquivo', 'arquivos')}`}
+    frase=${g.atual ? html`<span class="mono-path cp-atual" title=${g.atual}>${g.atual}</span>` : 'Começando…'}
+    i=${5}
+    acao=${html`<${Button} size="sm" icon="x" onClick=${onCancelar}>Parar</${Button}>`}
+  >
+    <div class="k-stats" style="--n:4" aria-live="polite">
+      <div class="k-stat is-up"><span class="k-stat-ic"><${Icon} name="gauge" size=${15} strokeWidth=${1.9} /></span><b class="num">${agora.value}<small> ${agora.unit}</small></b><span>agora</span></div>
+      <div class="k-stat"><span class="k-stat-ic"><${Icon} name="bolt" size=${15} strokeWidth=${1.9} /></span><b class="num">${media.value}<small> ${media.unit}</small></b><span>média</span></div>
+      <div class="k-stat is-neutro"><span class="k-stat-ic"><${Icon} name="clock" size=${15} strokeWidth=${1.9} /></span><b class="num">${g.restante == null ? '—' : aprox(g.restante) || '—'}</b><span>faltam</span></div>
+      <div class="k-stat is-neutro"><span class="k-stat-ic"><${Icon} name="refresh" size=${15} strokeWidth=${1.9} /></span><b class="num">${duracao(g.decorrido)}</b><span>passou</span></div>
     </div>
-    <div class="dk-nums">
-      <${Velocidade} bps=${g.velocidade} rotulo="agora" />
-      <${Velocidade} bps=${g.velocidadeMedia} rotulo="média" />
-      <div class="dk-num"><span class="dk-num-v">${g.restante == null ? '—' : aprox(g.restante) || '—'}</span><span class="dk-num-l">faltam</span></div>
-      <div class="dk-num"><span class="dk-num-v">${duracao(g.decorrido)}</span><span class="dk-num-l">passou</span></div>
-    </div>
-    <${Grafico} pontos=${pontos} />
-    ${g.falhas ? html`<p class="dk-aviso"><${Icon} name="warning" size=${14} /> ${plural(g.falhas, 'arquivo com problema', 'arquivos com problema')} até agora (a lista sai no fim).</p>` : null}
-  </section>`
+    ${pontos.length > 1 ? html`<div class="cp-grafico"><${GraficoVelocidade} pontos=${pontos.map((x) => ({ up: x }))} altura=${110} label="Velocidade da cópia" /></div>` : null}
+    ${g.falhas ? html`<p class="k-nota cp-aviso"><${Icon} name="warning" size=${14} /> ${plural(g.falhas, 'arquivo com problema', 'arquivos com problema')} até agora (a lista sai no fim).</p>` : null}
+  </${Passo}>`
 }
 
-function Resultado({ v, onDeNovo, onNova }) {
+function Resultado({ v }) {
   const r = v.resultado
   const ok = !r.falhas.length && v.fase === 'feito'
   const media = r.segundos > 0 ? r.bytes / r.segundos : 0
-  return html`<section class=${cx('card dk-fim', ok ? 'is-ok' : 'is-problema')}>
-    <div class="dk-fim-topo">
-      <span class="dk-fim-icon"><${Icon} name=${ok ? 'circle-check' : v.fase === 'cancelado' ? 'circle-x' : 'warning'} size=${26} /></span>
-      <div>
-        <h2>${v.fase === 'cancelado' ? 'Cópia parada' : ok ? (r.conferido ? 'Cópia conferida' : 'Cópia feita') : 'Cópia com problemas'}</h2>
-        <p class="sub num">
-          ${plural(r.copiados, 'arquivo', 'arquivos')} · ${bytes(r.bytes, { precise: true })} em ${duracao(r.segundos)}${media ? ` · média ${speedParts(media).value} ${speedParts(media).unit}` : ''}
-        </p>
-        ${r.erro ? html`<p class="dk-aviso">${r.erro}</p>` : null}
-      </div>
-    </div>
+  return html`<${Passo}
+    id="cp-resultado"
+    icone=${ok ? 'circle-check' : v.fase === 'cancelado' ? 'circle-x' : 'warning'}
+    cor=${ok ? 'ok' : v.fase === 'cancelado' ? 'warn' : 'err'}
+    titulo=${v.fase === 'cancelado' ? 'Cópia parada' : ok ? (r.conferido ? 'Cópia conferida' : 'Cópia feita') : 'Cópia com problemas'}
+    frase=${`${plural(r.copiados, 'arquivo', 'arquivos')} · ${bytes(r.bytes, { precise: true })} em ${duracao(r.segundos)}${media ? ` · média ${speedParts(media).value} ${speedParts(media).unit}` : ''}`}
+    i=${5}
+  >
+    ${r.erro ? html`<p class="k-nota cp-aviso">${r.erro}</p>` : null}
     ${r.cobertura?.length
-      ? html`<ul class="dk-cobertura">
+      ? html`<div class="k-itens">
           ${r.cobertura.map((c) => {
             const completo = c.presentes === c.total
-            return html`<li class=${cx(completo ? 'is-ok' : 'is-falta')}>
-              <${Icon} name=${completo ? 'circle-check' : 'warning'} size=${16} />
-              <b>${baseName(c.caminho) || c.caminho}</b>
-              <span class="num">${completo ? `todos os ${count(c.total)} arquivos da origem estão aqui` : `${count(c.presentes)} de ${count(c.total)} arquivos · faltam ${count(c.total - c.presentes)}${c.diferentes ? ` (${plural(c.diferentes, 'está', 'estão')} com outro tamanho no destino: marque “Substituir os diferentes”)` : ''}`}</span>
-              <span class="sub num">${count(c.conferidos)} conferidos pelo conteúdo (${(r.algoritmo || 'xxh64') === 'md5' ? 'MD5' : 'xxHash64'})</span>
-            </li>`
+            return html`<div class="k-item" style=${`--c:var(--${completo ? 'ok' : 'warn'})`}>
+              <span class="k-item-ic"><${Icon} name=${completo ? 'circle-check' : 'warning'} size=${19} strokeWidth=${1.8} /></span>
+              <span class="k-item-txt">
+                <b>${baseName(c.caminho) || c.caminho}</b>
+                <span>${completo ? `Todos os ${count(c.total)} arquivos da origem estão aqui` : `${count(c.presentes)} de ${count(c.total)} arquivos · faltam ${count(c.total - c.presentes)}${c.diferentes ? ` (${plural(c.diferentes, 'está', 'estão')} com outro tamanho no destino: ligue “Substituir os diferentes”)` : ''}`}</span>
+                <span>${count(c.conferidos)} conferidos pelo conteúdo (${(r.algoritmo || 'xxh64') === 'md5' ? 'MD5' : 'xxHash64'})</span>
+              </span>
+              <span class="k-item-fim"><${Barra} p=${c.total ? c.presentes / c.total : 1} tom=${completo ? 'ok' : null} label="Arquivos da origem no destino" /></span>
+            </div>`
           })}
-        </ul>`
+        </div>`
       : null}
-    ${r.corrigidos ? html`<p class="dk-aviso"><${Icon} name="info" size=${14} /> ${plural(r.corrigidos, 'arquivo que já estava no destino estava diferente e foi copiado de novo', 'arquivos que já estavam no destino estavam diferentes e foram copiados de novo')}.</p>` : null}
+    ${r.corrigidos ? html`<p class="k-nota"><${Icon} name="info" size=${14} /> ${plural(r.corrigidos, 'arquivo que já estava no destino estava diferente e foi copiado de novo', 'arquivos que já estavam no destino estavam diferentes e foram copiados de novo')}.</p>` : null}
     ${r.falhas.length
-      ? html`<ul class="dk-falhas">
+      ? html`<ul class="cp-falhas">
           ${r.falhas.slice(0, 100).map((f) => html`<li><span class="mono-path">${f.relPath}</span><span class="sub">${f.destino ? `${baseName(f.destino)}: ` : ''}${f.erro}</span></li>`)}
         </ul>`
       : null}
     ${r.relatorios.length
-      ? html`<div class="dk-rel">
+      ? html`<div class="cp-rel">
           ${r.relatorios.map((arq) => html`<button type="button" class="link-btn" onClick=${() => revealPath(arq)} title=${arq}><${Icon} name="doc" size=${14} /> Relatório de checksums em ${discoDe(arq)} · ${revealLabel()}</button>`)}
         </div>`
       : null}
-    <div class="dk-go">
-      <${Button} variant="primary" icon="compare" onClick=${onDeNovo}>Comparar de novo</${Button}>
-      <${Button} onClick=${onNova}>Nova cópia</${Button}>
-    </div>
-  </section>`
+  </${Passo}>`
 }
 
-export function DiscosPanel() {
+export function DiscosPanel({ topo }) {
   const v = useStore((s) => s.discos) || { fase: 'parado' }
   const roots = useLocalRoots()
   const [origem, setOrigem] = usePersistentState('discos.origem', null)
@@ -260,6 +241,15 @@ export function DiscosPanel() {
     }
   }, [v.fase])
 
+  // Plano, cópia e resultado aparecem embaixo dos passos: quando mudam, a tela rola até eles.
+  const fasePrincipal = ['pronto', 'copiando', 'feito', 'erro', 'cancelado'].includes(v.fase) ? v.fase : null
+  const fasePassada = useRef(v.fase)
+  useEffect(() => {
+    const antes = fasePassada.current
+    fasePassada.current = v.fase
+    if (fasePrincipal && antes !== v.fase && antes !== 'parado') requestAnimationFrame(() => document.getElementById('cp-resultado')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }, [v.fase])
+
   const escolher = async (titulo, atual) => pickFolderPath({ title: titulo, defaultPath: atual || undefined })
   const comparar = async () => {
     const ds = destinos.filter(Boolean)
@@ -274,64 +264,149 @@ export function DiscosPanel() {
     await attempt(api.post('/api/discos/iniciar', opcoes))
     setOcupado(false)
   }
-  const limpar = () => attempt(api.post('/api/discos/limpar', {}))
+  // Cancelar: para a comparação ou a cópia de verdade no motor (a cópia apaga o arquivo pela metade).
+  const cancelar = () => attempt(api.post('/api/discos/cancelar', {}))
+  // Limpar: tira o plano/resultado do motor e as pastas escolhidas; volta ao passo 1 vazio.
+  const limpar = async () => {
+    setOrigem(null)
+    setDestinos([null])
+    setNome('')
+    setPontos([])
+    requestAnimationFrame(() => document.querySelector('.page-compare')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    await attempt(api.post('/api/discos/limpar', {}))
+  }
   const pronto = origem && destinos.some(Boolean)
   const nomeFinal = nome.trim() || (origem ? baseName(origem) : '')
   const travado = v.fase === 'copiando' || v.fase === 'planejando'
+  const comResultado = v.resultado && ['feito', 'erro', 'cancelado'].includes(v.fase)
+  const canceladoAntes = v.fase === 'cancelado' && !v.resultado
+  const total = v.fase === 'pronto' && v.plano ? totalDoPlano(v.plano, opcoes) : null
+  const nomesDestinos = destinos.map((d) => (d ? baseName(d) || d : null))
 
-  return html`<div class="dk">
-    <section class="dk-setup">
-      <div class="dk-fluxo">
-        <${Lado} titulo="Origem" icon="sdcard" caminho=${origem} home=${roots?.home} vazio="O cartão, o SSD ou a pasta" onTrocar=${async () => {
+  // ── coluna da direita ──
+  let destaque = null
+  if (v.fase === 'planejando') destaque = html`<${Destaque} titulo="Comparando" linha="Lendo a origem e os destinos" progresso=${null} vivo />`
+  else if (v.fase === 'copiando' && v.progresso) {
+    const g = v.progresso
+    const frac = g.totalBytes ? (g.copiados + g.conferidos) / (g.totalBytes + g.totalConferir || 1) : 0
+    destaque = html`<${Destaque} titulo=${g.etapa === 'conferindo' ? 'Conferindo' : 'Copiando'} numero=${Math.floor(frac * 100)} unidade="%" progresso=${frac} linha=${`${bytes(g.copiados)} de ${bytes(g.totalBytes)}`} vivo />`
+  } else if (total) {
+    destaque = total.arquivos
+      ? html`<${Destaque} titulo="Vai copiar" numero=${count(total.arquivos)} unidade=${total.arquivos === 1 ? 'arquivo' : 'arquivos'} linha=${total.falta ? 'Não cabe em um dos destinos' : bytes(total.bytes)} tom=${total.falta ? 'erro' : 'grad'} />`
+      : html`<${Destaque} tom="ok" titulo="Tudo já está lá" numero=${count(v.plano.origem.arquivos)} unidade=${v.plano.origem.arquivos === 1 ? 'arquivo' : 'arquivos'} linha="Nada para copiar" />`
+  } else if (comResultado) {
+    const r = v.resultado
+    const ok = !r.falhas.length && v.fase === 'feito'
+    destaque = html`<${Destaque} tom=${ok ? 'ok' : 'erro'} titulo=${v.fase === 'cancelado' ? 'Cópia parada' : ok ? 'Conferida' : 'Com problemas'} numero=${count(r.copiados)} unidade=${r.copiados === 1 ? 'arquivo copiado' : 'arquivos copiados'} linha=${`${bytes(r.bytes)} em ${duracao(r.segundos)}`} />`
+  } else if (canceladoAntes) destaque = html`<${Destaque} tom="erro" titulo="Cancelada" linha="A comparação parou no meio. Compare de novo quando quiser." />`
+
+  const dicaComparar = !origem ? 'Falta escolher a origem' : !destinos.some(Boolean) ? 'Falta escolher o destino' : 'Primeiro compara: o que já está no destino não é copiado de novo'
+  let botao
+  if (v.fase === 'copiando') botao = html`<${Button} icon="x" onClick=${cancelar} class="cp-lado-btn">Parar a cópia</${Button}>`
+  else if (v.fase === 'planejando') {
+    botao = html`<${BotaoGrande} icone="compare" disabled dica="Comparando…">Comparando…</${BotaoGrande}>
+      <${Button} icon="x" onClick=${cancelar} class="cp-lado-btn">Cancelar a comparação</${Button}>`
+  } else if (total) {
+    const rotulo = total.arquivos ? `Copiar ${plural(total.arquivos, 'arquivo', 'arquivos')}` : total.conferirSo ? 'Conferir o que já está lá' : 'Nada para copiar'
+    const dica = total.falta
+      ? 'Libere espaço ou tire o destino que não cabe'
+      : total.arquivos
+        ? html`<b>${bytes(total.bytes)}</b>${opcoes.conferir ? ' · cada arquivo conferido depois' : ''}`
+        : total.conferirSo
+          ? 'Lê o destino e compara o conteúdo'
+          : 'Ligue “Conferir também os que já estão no destino” para checar o conteúdo'
+    botao = html`<${BotaoGrande} icone="copy" onClick=${copiar} disabled=${ocupado || (!total.arquivos && !total.conferirSo) || total.falta} dica=${dica}>${rotulo}</${BotaoGrande}>
+      <${Button} icon="compare" onClick=${comparar} disabled=${ocupado} class="cp-lado-btn">Comparar de novo</${Button}>`
+  } else {
+    botao = html`<${BotaoGrande} icone="compare" onClick=${comparar} disabled=${!pronto || travado || ocupado} dica=${dicaComparar}>${comResultado || canceladoAntes ? 'Comparar de novo' : 'Comparar'}</${BotaoGrande}>`
+  }
+  const podeLimpar = !travado && (origem || destinos.some(Boolean) || nome || v.plano || v.resultado || v.fase !== 'parado')
+
+  const lado = html`<${Resumo} titulo=${v.fase === 'copiando' || v.fase === 'planejando' ? 'Agora' : comResultado ? 'Resultado' : 'O que vai acontecer'}>
+      ${destaque}
+      <${Rota} de=${origem ? baseName(origem) || origem : null} para=${nomesDestinos} deIcone="sdcard" paraIcone="disk" paraTom="up" />
+      ${!destaque ? html`<p class="cp-resumo-txt">Compara antes, copia só o que falta e confere cada arquivo pelo conteúdo.</p>` : null}
+    </${Resumo}>
+    ${botao}
+    ${podeLimpar ? html`<${Button} icon="trash" onClick=${limpar} class="cp-lado-btn">Limpar comparação</${Button}>` : null}`
+
+  return html`<${Pagina}
+    titulo="Comparar"
+    frase="Passe um cartão ou SSD para outro disco: compara, copia o que falta e confere."
+    class=${cx('page-compare', v.fase !== 'parado' && 'cp-lado-antes')}
+    lado=${lado}
+  >
+    ${topo}
+    <${Passo} n="1" titulo="De onde" sub="origem" frase="O cartão, o SSD ou a pasta." i=${2}>
+      <${Fonte}
+        icone="sdcard"
+        tom="down"
+        valor=${origem ? baseName(origem) || origem : null}
+        caminho=${origem ? tildify(origem, roots?.home) : ''}
+        vazio="Escolher a origem"
+        dica="O cartão, o SSD ou a pasta"
+        onTrocar=${async () => {
           const p = await escolher('De onde copiar?', origem)
           if (p) setOrigem(p)
-        }} />
-        <span class="dk-seta" aria-hidden="true"><${Icon} name="arrow-right" size=${18} /></span>
-        <div class="dk-destinos">
-          ${destinos.map(
-            (d, i) => html`<${Lado}
-              key=${i}
-              titulo=${destinos.length > 1 ? `Destino ${i + 1}` : 'Destino'}
-              icon="disk"
-              tom="dest"
-              caminho=${d}
-              home=${roots?.home}
-              vazio="O SSD ou a pasta do projeto"
-              onTrocar=${async () => {
-                const p = await escolher('Para onde copiar?', d)
-                if (p) setDestinos(destinos.map((x, k) => (k === i ? p : x)))
-              }}
-              onTirar=${destinos.length > 1 ? () => setDestinos(destinos.filter((_, k) => k !== i)) : null}
-            />`,
-          )}
-          ${destinos.length < 4 ? html`<button type="button" class="dk-mais" onClick=${() => setDestinos([...destinos, null])}><${Icon} name="plus" size=${14} /> Outro destino (backup)</button>` : null}
-        </div>
+        }}
+        onSoltarPasta=${travado ? null : setOrigem}
+        onTirar=${origem && !travado ? () => setOrigem(null) : null}
+        tirarLabel="Tirar a origem"
+      />
+    </${Passo}>
+
+    <${Passo} n="2" titulo="Para onde" sub=${destinos.length > 1 ? `${destinos.length} destinos` : 'destino'} frase="Um ou mais discos. Com dois, você já sai com o backup." i=${3}>
+      <div class="cp-destinos">
+        ${destinos.map(
+          (d, i) => html`<${Fonte}
+            key=${i}
+            icone="disk"
+            tom="up"
+            rotulo=${destinos.length > 1 ? `Destino ${i + 1}` : null}
+            valor=${d ? baseName(d) || d : null}
+            caminho=${d ? tildify(d, roots?.home) : ''}
+            vazio=${destinos.length > 1 ? `Escolher o destino ${i + 1}` : 'Escolher o destino'}
+            dica="O SSD ou a pasta do projeto"
+            onTrocar=${async () => {
+              const p = await escolher('Para onde copiar?', d)
+              if (p) setDestinos(destinos.map((x, k) => (k === i ? p : x)))
+            }}
+            onSoltarPasta=${travado ? null : (p) => setDestinos(destinos.map((x, k) => (k === i ? p : x)))}
+            onTirar=${travado ? null : destinos.length > 1 ? () => setDestinos(destinos.filter((_, k) => k !== i)) : d ? () => setDestinos([null]) : null}
+            tirarLabel=${destinos.length > 1 ? 'Tirar este destino' : 'Tirar o destino'}
+          />`,
+        )}
+        ${destinos.length < 4 && !travado
+          ? html`<button type="button" class="cp-mais" onClick=${() => setDestinos([...destinos, null])}><span><${Icon} name="plus" size=${14} strokeWidth=${2.2} /></span> Outro destino (backup)</button>`
+          : null}
       </div>
-      <div class="dk-nome">
-        <label for="dk-nome">Pasta no destino</label>
+      <div class="cp-nome">
+        <label class="k-rot" for="dk-nome">Pasta no destino</label>
         <input id="dk-nome" class="input" type="text" maxlength="120" placeholder=${origem ? baseName(origem) : 'Nome da pasta'} value=${nome} onInput=${(e) => setNome(e.currentTarget.value)} />
         <span class="sub mono-path">${destinos.filter(Boolean).length ? `${baseName(destinos.find(Boolean))}/${nomeFinal || '…'}/` : 'Escolha o destino'}</span>
       </div>
-      <div class="dk-go">
-        <${Button} variant="primary" size="lg" icon="compare" onClick=${comparar} loading=${v.fase === 'planejando'} disabled=${!pronto || travado}>
-          ${v.plano ? 'Comparar de novo' : 'Comparar'}
-        </${Button}>
-        <span class="sub">Primeiro compara: o que já está no destino não é copiado de novo.</span>
-      </div>
-    </section>
+    </${Passo}>
 
-    ${v.fase === 'erro' && !v.resultado ? html`<section class="card cmp-error" role="alert"><${Icon} name="warning" size=${20} /><div><b>Não deu para comparar.</b><span class="sub">${v.erro}</span></div></section>` : null}
-    ${v.fase === 'pronto' && v.plano ? html`<${Plano} v=${v} opcoes=${opcoes} setOpcoes=${setOpcoes} onCopiar=${copiar} copiando=${ocupado} />` : null}
-    ${v.fase === 'copiando' && v.progresso ? html`<${Andamento} v=${v} pontos=${pontos} onCancelar=${() => attempt(api.post('/api/discos/cancelar', {}))} />` : null}
-    ${v.resultado && ['feito', 'erro', 'cancelado'].includes(v.fase) ? html`<${Resultado} v=${v} onDeNovo=${comparar} onNova=${limpar} />` : null}
-    ${v.fase === 'parado' || (!v.plano && v.fase !== 'erro' && v.fase !== 'planejando')
-      ? html`<${EmptyState}
-          compact
-          art=${html`<div class="cmp-art" aria-hidden="true"><span class="src-icon dk-ic-org"><${Icon} name="sdcard" size=${20} /></span><span class="cmp-art-line"></span><span class="src-icon dk-ic-dest"><${Icon} name="disk" size=${20} /></span></div>`}
-          title="De um disco para outro, conferido"
-        >
-          Escolha a origem e um ou mais destinos. O SOBEDESCE compara, copia só o que falta, confere cada arquivo e mostra a velocidade e quanto falta.
-        </${EmptyState}>`
+    <${Passo} n="3" titulo="Como conferir" frase="Cada arquivo copiado é lido de novo no destino e comparado com a origem." i=${4}>
+      <${Opcoes} label="Checksum" valor=${opcoes.algoritmo || 'xxh64'} onEscolher=${(a) => setOpcoes({ ...opcoes, algoritmo: a })} itens=${ALGS} colunas=${2} />
+      <${Linhas}>
+        <${Linha} titulo="Conferir cada arquivo copiado" sub="Lê o destino de novo e compara o checksum com a origem.">
+          <${Switch} checked=${opcoes.conferir} label="Conferir cada arquivo copiado" onChange=${(on) => setOpcoes({ ...opcoes, conferir: on })} />
+        </${Linha}>
+        <${Linha} titulo="Salvar o relatório de checksums no destino" sub="Para conferir de novo depois, em qualquer ferramenta.">
+          <${Switch} checked=${opcoes.relatorio} label="Salvar o relatório" onChange=${(on) => setOpcoes({ ...opcoes, relatorio: on })} />
+        </${Linha}>
+      </${Linhas}>
+    </${Passo}>
+
+    ${v.fase === 'erro' && !v.resultado
+      ? html`<${Passo} id="cp-resultado" icone="warning" cor="err" titulo="Não deu para comparar" frase=${v.erro} i=${5} />`
       : null}
-  </div>`
+    ${canceladoAntes
+      ? html`<${Passo} id="cp-resultado" icone="x" cor="warn" titulo="Comparação cancelada" frase="Parou no meio. Nada foi copiado." i=${5} acao=${html`<div class="cp-acoes-topo"><${Button} icon="trash" onClick=${limpar}>Limpar</${Button}><${Button} icon="retry" onClick=${comparar} disabled=${!pronto}>Comparar de novo</${Button}></div>`} />`
+      : null}
+    ${v.fase === 'pronto' && v.plano ? html`<${Plano} v=${v} opcoes=${opcoes} setOpcoes=${setOpcoes} />` : null}
+    ${v.fase === 'copiando' && v.progresso ? html`<${Andamento} v=${v} pontos=${pontos} onCancelar=${cancelar} />` : null}
+    ${comResultado ? html`<${Resultado} v=${v} />` : null}
+  </${Pagina}>`
 }
