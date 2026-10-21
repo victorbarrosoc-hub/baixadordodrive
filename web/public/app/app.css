@@ -3724,6 +3724,13 @@ html.has-preview .toasts {
   gap: 14px;
   padding-top: 12px;
 }
+.rsave-k {
+  display: grid;
+  gap: 10px;
+}
+.rsave-k .k-botao-dica {
+  margin: 0;
+}
 .rtop .dtop-actions .icon-btn,
 .rtop .dtop-back {
   color: var(--text);
@@ -7453,7 +7460,10 @@ html.is-dswipe body {
 .p2p-bloco .p2p-perto {
   margin-top: 6px;
 }
-.p2p-bloco .p2p-outros {
+.p2p-bloco .p2p-vazio .k-item-txt > span {
+  white-space: normal;
+}
+.p2p-outros {
   margin-top: 2px;
 }
 .p2p-bloco .p2p-outros .pc-push-text {
@@ -8275,9 +8285,6 @@ button.k-item:active:not(:disabled) {
 }
 
 /* ───── Telas no kit: Criar (Frames, Calculadora) ───── */
-.cr-screen .k-cabeca {
-  padding-top: calc(var(--safe-t) + 14px);
-}
 .cr-body > .k-cabeca {
   margin-bottom: 4px;
 }

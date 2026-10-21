@@ -27,6 +27,19 @@ export function Avatar({ user, size = 32 }) {
   </span>`
 }
 
+/** A barra do topo (marca e conta) nas abas sem barra própria (Referências, Criar), igual à do Início. */
+export function TopoMarca() {
+  const user = useApp((s) => s.user)
+  return html`<header class="topbar">
+    <div class="topbar-row">
+      <${Wordmark} size=${24} />
+      <button type="button" class="avatar-btn" onClick=${() => openSheet('settings')} aria-label="Conta e ajustes">
+        <${Avatar} user=${user} size=${32} />
+      </button>
+    </div>
+  </header>`
+}
+
 /** Modo Wi-Fi: a conta e a pasta padrão vêm do computador (GET /m/api/info). Sem resposta, tenta de novo sozinho. */
 function useLanAccount() {
   const user = useApp((s) => s.user)

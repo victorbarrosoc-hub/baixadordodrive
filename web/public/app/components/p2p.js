@@ -118,7 +118,7 @@ export function MandarComputador({ i = 6, compacto = false }) {
       fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
       onClick=${() => openSheet('p2pEnvio')}
     />`
-  if (!aparelhos.length && !envio && !recebimento) return null
+  if (compacto && !envio && !recebimento) return null
   if (compacto) return html`<section class="p2p-bloco k-itens" aria-label="No Wi-Fi">${recebimento ? linhaRec : null}${envio ? linhaEnvio : null}</section>`
   return html`<section class="p2p-bloco ini-entra" style=${`--i:${i}`} aria-label="Mandar para outro aparelho">
     <${Rotulo}>Mandar pelo Wi-Fi</${Rotulo}>
@@ -126,6 +126,15 @@ export function MandarComputador({ i = 6, compacto = false }) {
       ${recebimento ? linhaRec : null}
       ${envio ? linhaEnvio : null}
       ${meus.map((a) => html`<${LinhaAparelho} key=${a.id} a=${a} onEscolher=${escolher} />`)}
+      ${!aparelhos.length && !envio && !recebimento
+        ? html`<${Item}
+            class="p2p-vazio"
+            icone="wifi"
+            tom="down"
+            titulo="Nenhum aparelho aberto agora"
+            sub="Abra a SOBEDESCE no computador ou em outro celular, no mesmo Wi-Fi. Ele aparece aqui."
+          />`
+        : null}
     </div>
     ${outros.length
       ? html`<${Rotulo}>Por perto</${Rotulo}>
