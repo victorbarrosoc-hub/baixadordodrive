@@ -2,7 +2,7 @@
 // que chega (OPFS ou memória, com o limite), nomes e tipos dos arquivos, velocidade e mensagens de erro.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DICA_MAC, LIMITE_MEMORIA, Medidor, mensagemDe, nomeAparelho, nomeSeguro, ondeGuardar, resumoConexao, textoConexao, tipoDe } from '../web/public/app/lib/p2p-util.js'
+import { DICA_MAC, candidatosDaSdp, LIMITE_MEMORIA, Medidor, mensagemDe, nomeAparelho, nomeSeguro, ondeGuardar, resumoConexao, textoConexao, tipoDe } from '../web/public/app/lib/p2p-util.js'
 
 test('nome do aparelho pelo user-agent', () => {
   assert.equal(nomeAparelho('Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) Mobile/15E148 Safari/604.1'), 'iPhone')
@@ -65,4 +65,18 @@ test('não conectou: resumo das estatísticas do WebRTC para a linha de detalhe'
   assert.equal(textoConexao(d), 'Este: local, internet · Outro: local · 24 idas, 0 voltas · failed')
   assert.equal(textoConexao(resumoConexao(new Map(), '')), 'Este: nenhum · Outro: nenhum · 0 idas, 0 voltas')
   assert.match(DICA_MAC, /Rede Local/)
+})
+
+test('não conectou: o que o outro lado anunciou na SDP (IP local só até a rede)', () => {
+  const sdp = [
+    'v=0',
+    'a=candidate:1 1 udp 2113937151 192.168.15.23 50506 typ host generation 0',
+    'a=candidate:2 1 udp 2113937151 0b7e4c1a-1111-2222-3333-444455556666.local 50507 typ host generation 0',
+    'a=candidate:3 1 udp 1677729535 177.10.20.30 61000 typ srflx raddr 0.0.0.0 rport 0 generation 0',
+    'a=candidate:4 1 tcp 1518280447 192.168.15.23 9 typ host tcptype active generation 0',
+    'a=candidate:5 1 udp 2113939711 fe80::1 50508 typ host generation 0',
+  ].join('\r\n')
+  assert.deepEqual(candidatosDaSdp(sdp), ['1 local 192.168.15.x', '1 local .local', '1 internet', '1 local 192.168.15.x tcp', '1 local IPv6'])
+  assert.deepEqual(candidatosDaSdp(''), [])
+  assert.match(textoConexao({ local: ['local'], remoto: [], idas: 0, voltas: 0, estado: 'failed', sdpOutro: [] }), /SDP do outro: nenhum/)
 })

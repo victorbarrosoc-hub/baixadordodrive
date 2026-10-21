@@ -36,6 +36,31 @@ function ritmado(fn, ms) {
   }
 }
 
+/**
+ * Os caminhos de uma SDP (linhas a=candidate), para a mensagem de erro dizer o que cada lado anunciou:
+ * "1 local 192.168.15.x, 1 internet". IP local só até o terceiro número. (Igual a web/public/app/lib/p2p-util.js.)
+ */
+function candidatos(sdp) {
+  const nomes = { host: 'local', srflx: 'internet', prflx: 'descoberto', relay: 'retransmitido' }
+  const conta = new Map()
+  for (const linha of String(sdp || '').split(/\r?\n/)) {
+    const m = /^a=candidate:\S+ \d+ (\S+) \d+ (\S+) \d+ typ (\S+)/i.exec(linha)
+    if (!m) continue
+    const [, transporte, endereco, tipo] = m
+    let onde = ''
+    if (tipo === 'host') onde = /\.local$/i.test(endereco) ? '.local' : endereco.includes(':') ? 'IPv6' : endereco.split('.').slice(0, 3).join('.') + '.x'
+    const k = `${nomes[tipo] || tipo}${onde ? ` ${onde}` : ''}${transporte.toLowerCase() === 'tcp' ? ' tcp' : ''}`
+    conta.set(k, (conta.get(k) || 0) + 1)
+  }
+  const l = [...conta].map(([k, n]) => `${n} ${k}`)
+  return l.length ? l.join(', ') : 'nenhum'
+}
+
+/** Não conectou: a mensagem leva o que cada lado anunciou (aparece na lista de Dispositivos e no log). */
+function semConexao(pc) {
+  return `Não deu para conectar no Wi-Fi (este computador: ${candidatos(pc.localDescription?.sdp)} · celular: ${candidatos(pc.remoteDescription?.sdp)} · ${pc.iceConnectionState}).`
+}
+
 function fechar(pc) {
   try {
     pc?.close()
@@ -57,8 +82,10 @@ async function receberOferta(s) {
     await pc.setLocalDescription(await pc.createAnswer())
     await esperarCandidatos(pc)
     await api('/api/celular/sinal', { para: s.de.id, tipo: 'resposta', oferta: s.id, sdp: pc.localDescription.sdp })
-    const dc = await Promise.race([canal, new Promise((_, erro) => setTimeout(() => erro(new Error('Não deu para conectar. Confira se os dois estão no mesmo Wi-Fi.')), CANAL_MS))])
-    await esperarAberto(dc, CANAL_MS)
+    const dc = await Promise.race([canal, new Promise((_, erro) => setTimeout(() => erro(new Error(semConexao(pc))), CANAL_MS))])
+    await esperarAberto(dc, CANAL_MS).catch(() => {
+      throw new Error(semConexao(pc))
+    })
     await receberArquivos(dc, {
       cancelado: () => reg.cancelado,
       aceitar: async (lista) => {
@@ -137,7 +164,9 @@ async function enviar({ tid, para, arquivos }) {
     if (r.tipo !== 'resposta' || !r.sdp) throw new Error(r.motivo || 'O celular recusou.')
     await api(`/api/celular/estado/${tid}`, { estado: 'conectando' }).catch(() => {})
     await pc.setRemoteDescription({ type: 'answer', sdp: r.sdp })
-    await esperarAberto(dc, CANAL_MS)
+    await esperarAberto(dc, CANAL_MS).catch(() => {
+      throw new Error(semConexao(pc))
+    })
     let bloco = null
     const ler = async (i, ini, fim) => {
       if (!bloco || bloco.i !== i || ini < bloco.ini || fim > bloco.fim) {

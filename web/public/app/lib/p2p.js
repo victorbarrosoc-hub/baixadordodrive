@@ -9,7 +9,7 @@ import { LAN, local } from './config.js'
 import { closeSheet, getState, openSheet, setState, toast } from './state.js'
 import { keepAwake } from './wakelock.js'
 import { CANAL, CanalError, enviarArquivos, esperarAberto, esperarCandidatos, receberArquivos } from './p2p-canal.js'
-import { DICA_MAC, LIMITE_MEMORIA, Medidor, mensagemDe, nomeAparelho, nomeSeguro, ondeGuardar, resumoConexao, textoConexao, tipoDe } from './p2p-util.js'
+import { DICA_MAC, LIMITE_MEMORIA, Medidor, candidatosDaSdp, mensagemDe, nomeAparelho, nomeSeguro, ondeGuardar, resumoConexao, textoConexao, tipoDe } from './p2p-util.js'
 
 export const API = { espera: '/api/p2p/espera', aparelhos: '/api/p2p/aparelhos', sinal: '/api/p2p/sinal' }
 
@@ -280,6 +280,7 @@ async function porqueNaoConectou(pc, computador) {
   if (!pc) return null
   try {
     const d = resumoConexao(await pc.getStats(), pc.iceConnectionState)
+    d.sdpOutro = candidatosDaSdp(pc.remoteDescription?.sdp)
     return { detalhe: textoConexao(d), dica: computador && d.voltas === 0 ? DICA_MAC : null }
   } catch {
     return { detalhe: null, dica: computador ? DICA_MAC : null }
