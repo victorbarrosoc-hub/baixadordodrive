@@ -26,6 +26,8 @@ let state = {
   refsOpen: null, // id da coleção aberta na aba Referências
   // "No computador" (lib/computador.js): o andamento das transferências dos computadores da conta
   pc: { status: 'idle', computadores: [], agora: 0, at: 0, push: null, error: null },
+  // Celular ↔ computador pelo Wi-Fi (lib/p2p.js): aparelhos ligados agora, o envio, o recebimento e "aceitar de outras pessoas"
+  p2p: { aparelhos: [], envio: null, recebimento: null, outros: Boolean(local.get('sobedesce.p2p.outros', false)) },
   toasts: [],
 }
 

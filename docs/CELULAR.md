@@ -259,6 +259,17 @@ nada com a página escondida (volta ao aparecer). A idade da notícia usa o rel�
 **Falta testar num iPhone/Android de verdade:** a permissão e o aviso chegando com o app fechado (iPhone com o app na
 Tela de Início), o toque abrindo a folha, e se o iOS mantém a inscrição depois de dias sem abrir o app.
 
+## Mandar para… (celular ↔ computador e celular ↔ celular, direto no Wi-Fi)
+
+Contrato e protocolo em [CELULAR-WIFI.md](CELULAR-WIFI.md). No app: `lib/p2p.js` (espera longa em `/api/p2p/espera`,
+lista em `/api/p2p/aparelhos`, sinais em `/api/p2p/sinal`, WebRTC), `lib/p2p-canal.js` (protocolo, igual ao do
+computador), `lib/p2p-util.js` (contas puras, `test/celular-wifi-app.test.js`), `lib/p2p-gravar.js` (worker que grava
+no OPFS com `createSyncAccessHandle`) e `components/p2p.js` (bloco "Mandar para…" no Início, folhas `p2pEnvio` e
+`p2pReceber`, chave "Aceitar de outras pessoas por perto", também em Ajustes; guardada em `sobedesce.p2p.outros`).
+Receber sempre pede Aceitar. O que chega fica no OPFS (sem OPFS: na memória, até 1 GB) até Salvar (`navigator.share`
+com o arquivo, ou download) e some ao Fechar; sobras de uma recepção interrompida saem ao abrir o app. A espera longa
+nunca é cortada no meio (um sinal entregue a um pedido cortado se perderia): a chave nova vale na próxima, em até 25 s.
+
 ## Modo Wi-Fi (via computador)
 
 O SOBEDESCE do computador serve esta mesma casca (lida de `web/public/app/`) em `http://<ip>:4319/m/?t=<código>`

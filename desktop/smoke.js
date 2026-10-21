@@ -59,7 +59,8 @@ export async function verificar({ app, guarda = null, exigirBinarios = false, ex
 
   await passo('interface', async () => {
     const ruins = []
-    for (const p of ['/', '/app.js', '/styles.css', '/components/settings.js']) {
+    // /celular/*: a janela oculta do celular pelo Wi-Fi (WebRTC) carrega daqui.
+    for (const p of ['/', '/app.js', '/styles.css', '/components/settings.js', '/celular/p2p.html', '/celular/p2p.js', '/celular/p2p-canal.js']) {
       const r = await obter(`${app.url}${p}`)
       if (r.status !== 200 || !r.corpo.length) ruins.push(`${p} → ${r.status}`)
     }

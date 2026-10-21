@@ -21,7 +21,7 @@ import { ModalHost } from './components/modal.js'
 import { Toasts } from './components/toasts.js'
 import { OAuthWaitDialog } from './components/oauth-wait.js'
 
-const TITLES = { painel: 'Início', transferencias: 'Transferências', drive: 'Drive', referencias: 'Referências', frames: 'Frames', comparar: 'Comparar', computadores: 'Computadores', cartoes: 'Cartões', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
+const TITLES = { painel: 'Início', transferencias: 'Transferências', drive: 'Drive', referencias: 'Referências', frames: 'Frames', comparar: 'Comparar', computadores: 'Dispositivos', cartoes: 'Cartões', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
 
 function Splash({ error }) {
   return html`<div class="splash">

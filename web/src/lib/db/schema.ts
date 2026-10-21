@@ -267,6 +267,63 @@ export const lanPresenca = pgTable(
   (t) => [index("lan_presenca_usuario_idx").on(t.usuarioId), index("lan_presenca_rede_idx").on(t.rede)],
 );
 
+/**
+ * Celular ↔ computador pelo Wi-Fi (docs/CELULAR-WIFI.md): quem está com o app aberto agora (a espera longa marca),
+ * de que tipo e em qual rede (HMAC do IP público, como em lan_presenca). Online = visto há menos de 70 s.
+ */
+export type TipoAparelhoP2p = "celular" | "computador";
+export const p2pAparelhos = pgTable(
+  "p2p_aparelhos",
+  {
+    sessaoId: text()
+      .primaryKey()
+      .references(() => sessoes.id, { onDelete: "cascade" }),
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    tipo: text().$type<TipoAparelhoP2p>().notNull(),
+    nome: text().notNull(),
+    rede: text(),
+    /** Aceita pedidos de outras contas na mesma rede (sempre perguntando antes). */
+    aceitaOutros: boolean().notNull().default(false),
+    vistoEm: agora(),
+  },
+  (t) => [index("p2p_aparelhos_usuario_idx").on(t.usuarioId, t.vistoEm), index("p2p_aparelhos_rede_idx").on(t.rede, t.vistoEm)],
+);
+
+/** Sinais WebRTC entre dois aparelhos (oferta e resposta inteiras, sem trickle). Valem 2 minutos. */
+export type TipoSinalP2p = "oferta" | "resposta" | "recusa" | "cancela";
+export type ResumoP2p = { arquivos: number; bytes: number; nomes: string[] };
+export const p2pSinais = pgTable(
+  "p2p_sinais",
+  {
+    id: text().primaryKey(),
+    /** Conta de quem mandou. */
+    usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    /** Conta de quem recebe (outra, quando é alguém por perto). */
+    paraUsuario: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    deSessao: text()
+      .notNull()
+      .references(() => sessoes.id, { onDelete: "cascade" }),
+    paraSessao: text()
+      .notNull()
+      .references(() => sessoes.id, { onDelete: "cascade" }),
+    tipo: text().$type<TipoSinalP2p>().notNull(),
+    /** Nos tipos que respondem a uma oferta: o id dela. */
+    oferta: text(),
+    sdp: text(),
+    resumo: jsonb().$type<ResumoP2p>(),
+    motivo: text(),
+    criadoEm: agora(),
+    entregueEm: quando(),
+  },
+  (t) => [index("p2p_sinais_para_idx").on(t.paraSessao, t.entregueEm), index("p2p_sinais_criado_idx").on(t.criadoEm)],
+);
+
 export const dispositivoStatus = pgTable(
   "dispositivo_status",
   {
