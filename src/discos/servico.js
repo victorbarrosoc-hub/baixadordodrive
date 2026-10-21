@@ -95,7 +95,8 @@ export class DiscosService {
 
   // ───── planejar ─────
 
-  async planejar({ origem, destinos, nome }) {
+  /** `procurarTudo`: o que não está no caminho esperado é procurado em qualquer pasta do destino (planejar.js). */
+  async planejar({ origem, destinos, nome, procurarTudo = false }) {
     if (this.fase === 'copiando' || this.fase === 'planejando') throw new DiscosError(409, 'Já tem uma cópia em andamento.')
     this.ac?.abort()
     this.ac = new AbortController()
@@ -107,7 +108,7 @@ export class DiscosService {
     this.#mudou(true)
     const ac = this.ac
     try {
-      this.plano = await planejar({ origem, destinos, nome, signal: ac.signal })
+      this.plano = await planejar({ origem, destinos, nome, procurarTudo, signal: ac.signal })
       this.fase = 'pronto'
     } catch (err) {
       // Cancelado na tela: não é erro, e o pedido de comparar termina normal (a tela mostra "cancelada").
@@ -131,7 +132,10 @@ export class DiscosService {
   itens({ estado = null, destino = 0, limite = 300, de = 0 } = {}) {
     if (!this.plano) return { itens: [], total: 0 }
     const lista = this.plano.itens.filter((it) => !estado || it.estados[destino] === estado)
-    return { total: lista.length, itens: lista.slice(de, de + limite).map((it) => ({ relPath: it.relPath, size: it.size, estados: it.estados })) }
+    return {
+      total: lista.length,
+      itens: lista.slice(de, de + limite).map((it) => ({ relPath: it.relPath, size: it.size, estados: it.estados, achado: it.achados?.[destino] || null })),
+    }
   }
 
   // ───── copiar ─────
@@ -153,7 +157,7 @@ export class DiscosService {
     const quer = (e) => e === 'novo' || (e === 'diferente' && substituir)
     const indices = (fn) => (it) => it.estados.map((e, i) => (fn(e) ? i : -1)).filter((i) => i >= 0)
     const trabalho = p.itens
-      .map((it) => ({ it, alvos: indices(quer)(it), checar: conferirIguais ? indices((e) => e === 'igual')(it) : [] }))
+      .map((it) => ({ it, alvos: indices(quer)(it), checar: conferirIguais ? indices((e) => e === 'igual' || e === 'outro')(it) : [] }))
       .filter((x) => x.alvos.length || x.checar.length)
     // Espaço: o que vai para cada destino (substituir conta o tamanho inteiro, por segurança).
     for (let di = 0; di < p.destinos.length; di++) {
@@ -241,6 +245,8 @@ export class DiscosService {
     }
 
     const destinoDe = (di, it) => path.join(p.destinos[di].pasta, ...it.relPath.split('/'))
+    // O que já existe: no caminho esperado, ou na outra pasta onde foi achado (estado 'outro').
+    const existenteDe = (di, it) => (it.estados[di] === 'outro' && it.achados?.[di]) || destinoDe(di, it)
     // Acerta a conta de um arquivo (mudou de tamanho no meio, falhou, conferência parou): anda o tamanho certo.
     const acertar = (it, r, campo, fase) => {
       const delta = it.size - (r.contados?.[fase] || 0)
@@ -253,7 +259,7 @@ export class DiscosService {
       const alvos = [...copiar]
       if (checar.length) {
         // Já estava no destino com o mesmo tamanho: compara o conteúdo. O que não bate entra na cópia (por cima).
-        const c = await pedir({ tipo: 'comparar', id: ++id, origem: it.caminho, destinos: checar.map((di) => destinoDe(di, it)), tamanho: it.size, algoritmo })
+        const c = await pedir({ tipo: 'comparar', id: ++id, origem: it.caminho, destinos: checar.map((di) => existenteDe(di, it)), tamanho: it.size, algoritmo })
         if (c.tipo === 'erro' && c.cancelado) return
         acertar(it, c, 'conferidos', 'conferindo')
         if (c.tipo === 'erro') {
@@ -263,7 +269,8 @@ export class DiscosService {
         }
         c.destinos.forEach((d, k) => {
           if (d.ok) {
-            hashes[checar[k]].push([c.hash, it.relPath])
+            // O relatório fica na pasta da cópia: só entra o que está nela (o achado em outra pasta conta como conferido).
+            if (it.estados[checar[k]] !== 'outro') hashes[checar[k]].push([c.hash, it.relPath])
             verificados[checar[k]].add(it.relPath)
             g.jaConferidos++
           } else {
@@ -345,12 +352,12 @@ export class DiscosService {
     // Cobertura: quantos arquivos da origem estão em cada destino agora (gravados agora, ou que já estavam lá) e quantos
     // tiveram o conteúdo conferido pelo checksum.
     const cobertura = p.destinos.map((d, di) => {
-      const gravados = new Set(hashes[di].map(([, r]) => r))
+      const gravados = new Set([...hashes[di].map(([, r]) => r), ...verificados[di]])
       const ruins = new Set(g.falhas.filter((f) => !f.destino || f.destino === d.caminho).map((f) => f.relPath))
       let presentes = 0
       let diferentes = 0 // ficaram com outro tamanho no destino (não marcou "Substituir os diferentes")
       for (const it of p.itens) {
-        if (gravados.has(it.relPath) || (it.estados[di] === 'igual' && !ruins.has(it.relPath))) presentes++
+        if (gravados.has(it.relPath) || ((it.estados[di] === 'igual' || it.estados[di] === 'outro') && !ruins.has(it.relPath))) presentes++
         else if (it.estados[di] === 'diferente' && !p.opcoes.substituir) diferentes++
       }
       return { caminho: d.caminho, total: p.itens.length, presentes, conferidos: verificados[di].size, diferentes }

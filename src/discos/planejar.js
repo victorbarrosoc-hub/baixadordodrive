@@ -1,6 +1,8 @@
 // Antes de copiar: lê a origem, olha cada destino e diz, arquivo por arquivo, o que é novo, o que já está lá (mesmo
 // nome e tamanho) e o que existe com outro tamanho. Também confere o espaço livre de cada destino.
 // A origem vai para dentro de "<destino>/<nome>" (o nome da pasta, ou o que a pessoa escrever).
+// Com `procurarTudo`, o que não está no caminho esperado é procurado no destino inteiro, em qualquer pasta, pelo nome
+// e pelo tamanho (estado 'outro', com o caminho em `achados[di]`): já está nessa mídia, não precisa copiar de novo.
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { scanLocal } from '../local/scan.js'
@@ -36,6 +38,40 @@ export function nomePadrao(origem) {
   return letra ? `Disco ${letra.toUpperCase()}` : 'Copia'
 }
 
+// Arquivo pequeno com o mesmo nome e tamanho e outra data pode ser outro arquivo (índices de câmera como STATUS.BIN
+// têm tamanho fixo): só conta como "já está lá" com a mesma data. Daqui para cima, nome e tamanho bastam.
+const PEQUENO = 1024 * 1024
+const FOLGA_DATA_MS = 2000 // FAT/exFAT guardam a hora de 2 em 2 s
+const PARCIAL_OU_GUARDADO = /(\.sobedesce-parcial$|(^|\/)\.sobedesce-anteriores(\/|$))/
+
+const chave = (nome, size) => `${String(nome).normalize('NFC').toLowerCase()}|${size}`
+
+/**
+ * Tudo o que existe no destino (a pasta escolhida inteira), por nome + tamanho. Pula a própria origem (quando ela
+ * fica dentro do destino), as pastas do sistema e o que a cópia deixa pela metade ou guardado.
+ */
+async function indiceDoDestino(raiz, { origem, signal }) {
+  const lido = await scanLocal(raiz, { signal })
+  const mapa = new Map()
+  for (const f of lido.files) {
+    if (SISTEMA.test(f.relPath) || PARCIAL_OU_GUARDADO.test(f.relPath) || dentro(origem, f.path)) continue
+    const k = chave(path.basename(f.relPath), f.size)
+    const l = mapa.get(k)
+    if (l) l.push(f)
+    else mapa.set(k, [f])
+  }
+  return mapa
+}
+
+/** O arquivo da origem já existe em outra pasta do destino? Devolve o caminho (o de mesma data primeiro) ou null. */
+function acharEmOutraPasta(indice, it) {
+  const l = indice.get(chave(path.basename(it.relPath), it.size))
+  if (!l) return null
+  const mesmaData = l.find((f) => Math.abs((f.mtimeMs || 0) - (it.mtimeMs || 0)) <= FOLGA_DATA_MS)
+  if (mesmaData) return mesmaData.path
+  return it.size >= PEQUENO ? l[0].path : null
+}
+
 const dentro = (pai, filho) => {
   const r = path.relative(pai, filho)
   return r === '' || (!r.startsWith('..') && !path.isAbsolute(r))
@@ -54,7 +90,7 @@ async function livreEm(dir) {
  * @param {{ origem: string, destinos: string[], nome?: string, signal?: AbortSignal, onProgress?: Function }} o
  * @returns {Promise<{ origem: object, nome: string, destinos: object[], itens: object[], ignorados: object[] }>}
  */
-export async function planejar({ origem, destinos, nome, signal, onProgress }) {
+export async function planejar({ origem, destinos, nome, signal, onProgress, procurarTudo = false }) {
   if (typeof origem !== 'string' || !origem) throw new DiscosError(400, 'Escolha a pasta ou o disco de origem.')
   if (!Array.isArray(destinos) || !destinos.length) throw new DiscosError(400, 'Escolha pelo menos um destino.')
   if (destinos.length > 4) throw new DiscosError(400, 'No máximo 4 destinos por vez.')
@@ -88,7 +124,7 @@ export async function planejar({ origem, destinos, nome, signal, onProgress }) {
   for (let di = 0; di < dests.length; di++) {
     const d = dests[di]
     let feitos = 0
-    const r = { caminho: d.caminho, pasta: d.pasta, novos: 0, iguais: 0, diferentes: 0, bytesNovos: 0, bytesDiferentes: 0, livre: await livreEm(d.caminho) }
+    const r = { caminho: d.caminho, pasta: d.pasta, novos: 0, iguais: 0, diferentes: 0, emOutro: 0, bytesNovos: 0, bytesDiferentes: 0, bytesEmOutro: 0, livre: await livreEm(d.caminho) }
     await mapLimit(itens, 16, async (it) => {
       if (signal?.aborted) return
       let estado = 'novo'
@@ -105,6 +141,31 @@ export async function planejar({ origem, destinos, nome, signal, onProgress }) {
       if (++feitos % 200 === 0) onProgress?.({ fase: 'destino', destino: di, feitos, total: itens.length })
     })
     if (signal?.aborted) throw new DiscosError(499, 'Cancelado.')
+    // O que é "novo" no caminho esperado ainda pode estar em outra pasta dessa mídia (copiado antes à mão, com outra
+    // organização): procura no destino inteiro.
+    if (procurarTudo && r.novos) {
+      onProgress?.({ fase: 'procurando', destino: di })
+      let indice
+      try {
+        indice = await indiceDoDestino(d.caminho, { origem: org, signal })
+      } catch (err) {
+        if (signal?.aborted) throw new DiscosError(499, 'Cancelado.')
+        indice = null // destino ilegível em parte: fica a comparação pelo caminho
+      }
+      if (indice) {
+        for (const it of itens) {
+          if (it.estados[di] !== 'novo') continue
+          const achado = acharEmOutraPasta(indice, it)
+          if (!achado) continue
+          it.estados[di] = 'outro'
+          ;(it.achados ||= [])[di] = achado
+          r.novos--
+          r.bytesNovos -= it.size
+          r.emOutro++
+          r.bytesEmOutro += it.size
+        }
+      }
+    }
     resumo.push(r)
   }
   return {

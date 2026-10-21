@@ -288,14 +288,71 @@ describe('copiar entre discos', () => {
     assert.equal((await svc.planejar({ origem: org, destinos: [path.join(dir, 'SSD')] })).fase, 'pronto')
   })
 
+  test('procurar em qualquer pasta: o que já está noutra pasta do SSD (nome + tamanho) não é copiado de novo', async (t) => {
+    const dir = await tmp(t)
+    const org = path.join(dir, 'SSD1', 'Projeto X')
+    const ssd2 = path.join(dir, 'SSD2')
+    const data = new Date('2026-10-01T10:00:00Z')
+    const grande = crypto.randomBytes(1024 * 1024 + 7)
+    await escrever(path.join(org, 'CAM A', 'C0001.MP4'), grande, data)
+    await escrever(path.join(org, 'CAM A', 'C0002.MP4'), Buffer.alloc(3000, 2), data)
+    await escrever(path.join(org, 'CAM A', 'STATUS.BIN'), Buffer.alloc(64, 1), data)
+    await escrever(path.join(org, 'Novo.mov'), Buffer.alloc(500, 9), data)
+    // No SSD2, organizado de outro jeito: o grande (outra data, mas grande: nome + tamanho bastam), o pequeno com a
+    // mesma data, e um STATUS.BIN do mesmo tamanho mas de outra data (pequeno: pode ser outro arquivo, não conta).
+    await escrever(path.join(ssd2, 'Backup antigo', 'Clipes', 'C0001.MP4'), grande, new Date('2026-10-05T10:00:00Z'))
+    await escrever(path.join(ssd2, 'Outra', 'c0002.mp4'), Buffer.alloc(3000, 2), new Date(data.getTime() + 1000))
+    await escrever(path.join(ssd2, 'Outra', 'STATUS.BIN'), Buffer.alloc(64, 1), new Date('2026-09-01T10:00:00Z'))
+
+    const svc = new DiscosService({ keepAwake: semDormir })
+    t.after(() => svc.close())
+    let v = await svc.planejar({ origem: org, destinos: [ssd2], procurarTudo: true })
+    const d = v.plano.destinos[0]
+    assert.deepEqual([d.novos, d.emOutro, d.iguais], [2, 2, 0])
+    const outros = svc.itens({ estado: 'outro' }).itens
+    assert.deepEqual(outros.map((x) => x.relPath).sort(), ['CAM A/C0001.MP4', 'CAM A/C0002.MP4'])
+    assert.equal(outros.find((x) => x.relPath === 'CAM A/C0001.MP4').achado, path.join(ssd2, 'Backup antigo', 'Clipes', 'C0001.MP4'))
+    assert.deepEqual(svc.itens({ estado: 'novo' }).itens.map((x) => x.relPath).sort(), ['CAM A/STATUS.BIN', 'Novo.mov'])
+
+    // Copia só os 2 novos; a cobertura conta os 4 como presentes. Conferir os que já estão lá lê o achado noutra pasta.
+    await svc.iniciar({ conferir: true, conferirIguais: true })
+    v = await esperar(svc)
+    assert.equal(v.fase, 'feito', v.erro)
+    assert.equal(v.resultado.copiados, 4)
+    assert.equal(v.resultado.jaConferidos, 2)
+    assert.equal(v.resultado.cobertura[0].presentes, 4)
+    assert.equal(fs.existsSync(path.join(ssd2, 'Projeto X', 'CAM A', 'C0001.MP4')), false, 'não duplicou o que já estava lá')
+    assert.ok(fs.existsSync(path.join(ssd2, 'Projeto X', 'Novo.mov')))
+
+    // Sem procurar (o Backup Automático usa assim), só o caminho esperado conta.
+    v = await svc.planejar({ origem: org, destinos: [ssd2] })
+    assert.deepEqual([v.plano.destinos[0].novos, v.plano.destinos[0].emOutro, v.plano.destinos[0].iguais], [2, 0, 2])
+  })
+
+  test('procurar em qualquer pasta: a origem dentro do destino não se acha a si mesma', async (t) => {
+    const dir = await tmp(t)
+    const ssd = path.join(dir, 'SSD')
+    const org = path.join(ssd, 'Cartao')
+    await escrever(path.join(org, 'A.MOV'), crypto.randomBytes(2 * 1024 * 1024))
+    const svc = new DiscosService({ keepAwake: semDormir })
+    t.after(() => svc.close())
+    const v = await svc.planejar({ origem: org, destinos: [ssd], nome: 'Copia', procurarTudo: true })
+    assert.deepEqual([v.plano.destinos[0].novos, v.plano.destinos[0].emOutro], [1, 0])
+  })
+
   test('rota: repassa todas as opções da tela para o serviço', async () => {
     const rotas = {}
     let recebido = null
-    const servico = { iniciar: async (o) => ((recebido = o), {}), view: () => ({}), close: async () => {} }
+    let planejado = null
+    const servico = { iniciar: async (o) => ((recebido = o), {}), planejar: async (o) => ((planejado = o), {}), view: () => ({}), close: async () => {} }
     registerDiscos({ route: (m, p, fn) => (rotas[`${m} ${p}`] = fn), ctx: {}, HttpProblem: Error, servico })
     await rotas['POST /api/discos/iniciar']({ body: { substituir: true, conferir: false, conferirIguais: true, relatorio: false, algoritmo: 'md5' } })
     assert.deepEqual(recebido, { substituir: true, conferir: false, conferirIguais: true, relatorio: false, algoritmo: 'md5' })
     await rotas['POST /api/discos/iniciar']({ body: {} })
     assert.deepEqual(recebido, { substituir: false, conferir: true, conferirIguais: false, relatorio: true, algoritmo: 'xxh64' })
+    await rotas['POST /api/discos/planejar']({ body: { origem: '/a', destinos: ['/b'] } })
+    assert.equal(planejado.procurarTudo, true, 'a tela compara procurando em qualquer pasta')
+    await rotas['POST /api/discos/planejar']({ body: { origem: '/a', destinos: ['/b'], procurarTudo: false } })
+    assert.equal(planejado.procurarTudo, false)
   })
 })

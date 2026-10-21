@@ -15,6 +15,10 @@ discos. Ele compara antes, copia só o que falta, confere cada arquivo e mostra 
    - **Já estão lá:** mesmo caminho e mesmo tamanho. Não são copiados de novo.
    - **Diferentes:** existem no destino com outro tamanho. Só são substituídos se você marcar
      **Substituir os diferentes**.
+   - **Em outra pasta:** não estão no caminho esperado, mas já existem nessa mídia em outra pasta (o app procura no
+     destino inteiro pelo nome e pelo tamanho). Não são copiados de novo, e a lista mostra onde cada um está. Arquivo
+     pequeno (até 1 MB) só conta com a mesma data, porque índices de câmera como STATUS.BIN têm tamanho fixo. Com
+     **Conferir também os que já estão no destino**, o conteúdo de cada um é comparado e o que não bater é copiado.
    - O espaço livre de cada destino. Se não couber, o botão de copiar não libera.
 5. **Copiar**: anel de progresso, velocidade agora e média, tempo restante, tempo que passou e um gráfico da velocidade.
 6. No fim, você vê a cobertura de cada destino ("todos os N arquivos da origem estão aqui"), o total, a média e a lista
