@@ -49,13 +49,22 @@ async function eDiretorio(p) {
   }
 }
 
-async function livreEm(dir) {
+/** Espaço do disco de um destino: livre e o tamanho total (para a barra de quanto já ocupou). */
+async function espacoEm(dir) {
   try {
     const s = await fsp.statfs(dir)
-    return Number(s.bavail) * Number(s.bsize)
+    return { livre: Number(s.bavail) * Number(s.bsize), total: Number(s.blocks) * Number(s.bsize) }
   } catch {
-    return null
+    return { livre: null, total: null }
   }
+}
+
+/** O que o projeto já passou (todas as diárias). Projetos antigos sem a conta: soma do histórico. */
+function totalDe(p) {
+  const t = p.total
+  if (t && Number.isFinite(t.bytes)) return { bytes: t.bytes, arquivos: Number(t.arquivos) || 0, descargas: Number(t.descargas) || 0 }
+  const hs = Array.isArray(p.historico) ? p.historico : []
+  return { bytes: hs.reduce((s, h) => s + (h.bytes || 0), 0), arquivos: hs.reduce((s, h) => s + (h.copiados || 0), 0), descargas: hs.length }
 }
 
 /** Grava o JSON inteiro de uma vez (arquivo temporário + rename): uma queda no meio não deixa o arquivo pela metade. */
@@ -68,6 +77,12 @@ export async function gravarAtomico(arquivo, dados) {
 
 function vazio() {
   return { versao: 1, atual: null, ligado: false, projetos: [] }
+}
+
+/** Tamanho médio do que veio nos cartões (só descargas que trouxeram algo; as das últimas 20). */
+function mediaDe(hs) {
+  const com = hs.filter((h) => (h.bytes || 0) > 0).slice(0, 20)
+  return com.length ? Math.round(com.reduce((s, h) => s + h.bytes, 0) / com.length) : null
 }
 
 function normalizarProjeto(p) {
@@ -85,6 +100,7 @@ function normalizarProjeto(p) {
     ignorados: Array.isArray(p.ignorados) ? p.ignorados : [],
     rolos: p.rolos && typeof p.rolos === 'object' ? p.rolos : {},
     historico: Array.isArray(p.historico) ? p.historico.slice(0, HISTORICO_MAX) : [],
+    total: totalDe(p),
   }
 }
 
@@ -188,7 +204,7 @@ export class BackupService {
         ejetar: p.ejetar,
         destinos: p.destinos.map((c) => {
           const agora = this.destinosAgora.find((x) => x.caminho === c)
-          return { caminho: c, nome: path.basename(c) || c, conectado: agora ? agora.conectado : null, livre: agora?.livre ?? null }
+          return { caminho: c, nome: path.basename(c) || c, conectado: agora ? agora.conectado : null, livre: agora?.livre ?? null, total: agora?.total ?? null }
         }),
         diaria: { n: d.n, nome: d.nome },
         diarias: p.diarias.map((x) => ({ n: x.n, nome: x.nome })),
@@ -196,6 +212,15 @@ export class BackupService {
         sugerirNovaDiaria: !!ultimoDia && ultimoDia !== hoje,
         donos,
         historico: p.historico.slice(0, LISTA_MAX),
+        // Quanto já passou: o projeto inteiro e a diária atual; e o tamanho médio dos cartões da diária (para dizer
+        // quantos ainda cabem em cada destino).
+        total: p.total,
+        totalDiaria: {
+          bytes: daDiaria.reduce((s, h) => s + (h.bytes || 0), 0),
+          arquivos: daDiaria.reduce((s, h) => s + (h.copiados || 0), 0),
+          descargas: daDiaria.length,
+        },
+        mediaCartao: mediaDe(daDiaria.length ? daDiaria : p.historico),
         ignorados: p.ignorados.length,
         pasta: path.join(nomeDePasta(p.nome) || 'Projeto', d.nome, 'Cenas'),
       }
@@ -387,7 +412,7 @@ export class BackupService {
     try {
       this.destinosAgora = await Promise.all(p.destinos.map(async (c) => {
         const conectado = await eDiretorio(c)
-        return { caminho: c, conectado, livre: conectado ? await livreEm(c) : null }
+        return { caminho: c, conectado, ...(conectado ? await espacoEm(c) : { livre: null, total: null }) }
       }))
       const lista = (await this.listar()) || []
       const agora = new Set(lista.map((v) => v.caminho))
@@ -681,6 +706,7 @@ export class BackupService {
     }
     p.historico.unshift(entrada)
     if (p.historico.length > HISTORICO_MAX) p.historico.length = HISTORICO_MAX
+    p.total = { bytes: p.total.bytes + bytes, arquivos: p.total.arquivos + copiados, descargas: p.total.descargas + 1 }
     await this.#salvar()
     this.ultimo = { ...entrada, listaFaltam: faltam.slice(0, LISTA_MAX), listaAlertas: alertas.slice(0, LISTA_MAX), destinos: p.destinos.map((d) => path.basename(d) || d) }
     const ainda = this.vistos.get(reg.caminho)

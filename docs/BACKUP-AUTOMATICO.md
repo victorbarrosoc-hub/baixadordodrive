@@ -90,3 +90,11 @@ serial, o destino que espera, ignorar disco, o "mesmo nome, outro tamanho" que v
 
 Falta testar com cartões e leitores de verdade (Mac e Windows): o VolumeUUID/serial de cartões formatados em câmera,
 o `vol` no Windows em português e o ejetar.
+
+## Espaço e quanto já passou
+
+- **Cada destino** mostra o espaço livre, o tamanho do disco e uma barra do que já está ocupado. Com a média dos
+  cartões da diária (ou do projeto, se a diária ainda não tem descarga), diz quantos cartões ainda cabem. Menos de 10%
+  livre ou menos de 2 cartões: fica em laranja. O espaço é lido a cada varredura (3 s).
+- **Já passou:** o total do projeto (GB, cartões e arquivos, somando todas as diárias) e o da diária atual. O total do
+  projeto fica guardado no `backup-automatico.json` (projetos antigos somam pelo histórico).

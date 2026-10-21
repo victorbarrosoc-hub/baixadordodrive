@@ -229,6 +229,32 @@ function Volume({ v }) {
 
 // ───── o painel do projeto ─────
 
+/**
+ * Um destino: quanto ainda cabe na mídia física (barra do que já ocupou) e, com a média dos cartões da diária,
+ * quantos cartões ainda cabem. Pouco espaço (menos de 10% ou de 2 cartões) fica em laranja.
+ */
+function EspacoDestino({ d, i, media }) {
+  const papel = i === 0 ? 'Principal' : `Backup ${i}`
+  if (d.conectado === false) {
+    return html`<div class="bk-destino is-fora">
+      <span class="bk-destino-ic"><${Icon} name="disk" size=${15} /></span>
+      <span class="bk-destino-txt"><b>${d.nome}</b><span>${papel} · desconectado</span></span>
+    </div>`
+  }
+  const temTotal = d.total != null && d.livre != null && d.total > 0
+  const usado = temTotal ? 1 - d.livre / d.total : null
+  const cabem = media && d.livre != null ? Math.floor(d.livre / media) : null
+  const pouco = d.livre != null && ((temTotal && d.livre / d.total < 0.1) || (cabem != null && cabem < 2))
+  return html`<div class=${cx('bk-destino', 'is-espaco', pouco && 'is-pouco')}>
+    <span class="bk-destino-ic"><${Icon} name="disk" size=${15} /></span>
+    <span class="bk-destino-txt">
+      <span class="bk-destino-linha"><b>${d.nome}</b><span class="bk-destino-livre">${d.livre != null ? `${bytes(d.livre)} livres` : '…'}</span></span>
+      ${temTotal ? html`<${Barra} p=${usado} tom=${pouco ? 'erro' : undefined} label=${`Espaço usado em ${d.nome}`} />` : null}
+      <span>${papel}${temTotal ? ` · de ${bytes(d.total)}` : ''}${cabem != null ? ` · cabem ~${count(cabem)} ${cabem === 1 ? 'cartão' : 'cartões'} como os de hoje` : ''}</span>
+    </span>
+  </div>`
+}
+
 function Painel({ v, topo, onNovo, onEditar }) {
   const p = v.projeto
   const [pontos, setPontos] = useState([])
@@ -255,12 +281,21 @@ function Painel({ v, topo, onNovo, onEditar }) {
   const lado = html`<${Resumo} titulo=${desligado ? 'Backup automático' : 'Agora'}>
       ${destaque}
       <div class="k-caixa bk-destinos">
-        ${p.destinos.map(
-          (d, i) => html`<div class=${cx('bk-destino', d.conectado === false && 'is-fora')}>
-            <span class="bk-destino-ic"><${Icon} name="disk" size=${15} /></span>
-            <span class="bk-destino-txt"><b>${d.nome}</b><span>${i === 0 ? 'Principal' : `Backup ${i}`}${d.conectado === false ? ' · desconectado' : d.livre != null ? ` · ${bytes(d.livre)} livres` : ''}</span></span>
-          </div>`,
-        )}
+        ${p.destinos.map((d, i) => html`<${EspacoDestino} d=${d} i=${i} media=${p.mediaCartao} />`)}
+      </div>
+    </${Resumo}>
+    <${Resumo} titulo="Já passou">
+      <div class="k-caixa bk-passou">
+        <div class="bk-passou-linha">
+          <span class="bk-passou-ic is-down"><${Icon} name="sdcard" size=${15} /></span>
+          <b>${bytes(p.total.bytes)}</b>
+          <span>no projeto · ${plural(p.total.descargas, 'cartão', 'cartões')} · ${plural(p.total.arquivos, 'arquivo', 'arquivos')}</span>
+        </div>
+        <div class="bk-passou-linha">
+          <span class="bk-passou-ic is-up"><${Icon} name="clock" size=${15} /></span>
+          <b>${bytes(p.totalDiaria.bytes)}</b>
+          <span>na ${p.diaria.nome} · ${plural(p.totalDiaria.descargas, 'cartão', 'cartões')}</span>
+        </div>
       </div>
     </${Resumo}>
     ${desligado

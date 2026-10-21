@@ -195,6 +195,15 @@ test('segunda leva do mesmo cartão: reconhece sozinho e copia só o novo; o ín
   assert.equal(guardados.length, 1)
   assert.equal(fs.readFileSync(path.join(base, ANTERIORES, guardados[0], 'PRIVATE/M4ROOT/MEDIAPRO.XML'), 'utf8'), '<clips n="2"/>')
   assert.equal(v.projeto.historico.length, 2)
+  // Quanto já passou: o projeto e a diária somam as duas levas; o destino diz o espaço livre e o tamanho do disco.
+  const soma = v.projeto.historico.reduce((t, h) => t + h.bytes, 0)
+  assert.ok(soma > 0)
+  assert.deepEqual(v.projeto.total, { bytes: soma, arquivos: v.projeto.historico.reduce((t, h) => t + h.copiados, 0), descargas: 2 })
+  assert.deepEqual(v.projeto.totalDiaria, v.projeto.total)
+  assert.ok(v.projeto.mediaCartao > 0)
+  await svc.varrer()
+  const d = svc.view().projeto.destinos[0]
+  assert.ok(d.livre > 0 && d.total >= d.livre, 'livre e total do disco do destino')
   await svc.close()
 })
 
