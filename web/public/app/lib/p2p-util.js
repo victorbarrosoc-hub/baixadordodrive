@@ -105,11 +105,34 @@ export function resumoConexao(stats, estado) {
   return { local: [...local], remoto: [...remoto], idas, voltas, estado: estado || '' }
 }
 
-/** Uma linha curta para o print: "Este: local, internet · Outro: local · 24 idas, 0 voltas · failed". */
+/**
+ * O que o outro lado anunciou na SDP (as linhas a=candidate), para saber se veio algum caminho que dá para usar:
+ * "2 local 192.168.15.x, 1 local .local, 1 internet". IP local só até o terceiro número (a rede, não o aparelho).
+ */
+export function candidatosDaSdp(sdp) {
+  const conta = new Map()
+  for (const linha of String(sdp || '').split(/\r?\n/)) {
+    const m = /^a=candidate:\S+ \d+ (\S+) \d+ (\S+) \d+ typ (\S+)/i.exec(linha)
+    if (!m) continue
+    const [, transporte, endereco, tipo] = m
+    let onde = ''
+    if (tipo === 'host') {
+      if (/\.local$/i.test(endereco)) onde = '.local'
+      else if (endereco.includes(':')) onde = 'IPv6'
+      else onde = endereco.split('.').slice(0, 3).join('.') + '.x'
+    }
+    const k = `${CAMINHO[tipo] || tipo}${onde ? ` ${onde}` : ''}${transporte.toLowerCase() === 'tcp' ? ' tcp' : ''}`
+    conta.set(k, (conta.get(k) || 0) + 1)
+  }
+  return [...conta].map(([k, n]) => `${n} ${k}`)
+}
+
+/** Uma linha curta para o print: "Este: local, internet · Outro: local · 24 idas, 0 voltas · failed · SDP do outro: …". */
 export function textoConexao(d) {
   if (!d) return ''
   const lista = (a) => (a.length ? a.join(', ') : 'nenhum')
-  return `Este: ${lista(d.local)} · Outro: ${lista(d.remoto)} · ${d.idas} idas, ${d.voltas} voltas${d.estado ? ` · ${d.estado}` : ''}`
+  const sdp = d.sdpOutro ? ` · SDP do outro: ${lista(d.sdpOutro)}` : ''
+  return `Este: ${lista(d.local)} · Outro: ${lista(d.remoto)} · ${d.idas} idas, ${d.voltas} voltas${d.estado ? ` · ${d.estado}` : ''}${sdp}`
 }
 
 export const DICA_MAC = 'Se o outro for um Mac: Ajustes do Sistema → Privacidade e Segurança → Rede Local → ligue o SOBEDESCE.'
