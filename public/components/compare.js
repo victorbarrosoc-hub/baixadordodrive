@@ -1,6 +1,7 @@
 // Tela Comparar: pasta do computador × pasta do Drive. Mostra o que já subiu, o que falta e o que
 // só existe no Drive, pasta por pasta, com atalhos para subir/baixar a diferença.
-// "Entre discos" (discos.js): cartão/SSD → outros discos, comparando antes e conferindo o MD5.
+// "Entre discos" (discos.js): cartão/SSD → outros discos, comparando antes e conferindo o checksum.
+// Visual no padrão do kit (docs/UI-KIT.md): passos numerados, resumo colorido ao lado e o botão grande.
 import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore, setCompareJob } from '../lib/store.js'
 import { api, attempt, enc } from '../lib/api.js'
@@ -8,19 +9,20 @@ import { bytes, count, plural, relTime, tildify, baseName, dirOf } from '../lib/
 import { cx, usePersistentState, useNow } from '../lib/ui.js'
 import { announceBatch } from '../lib/actions.js'
 import { pickDriveFolder, confirmDialog } from '../lib/modals.js'
-import { bridge, droppedIsFolder, pathsFromDrop, pickFolderPath } from '../lib/desktop.js'
-import { toast } from '../lib/toasts.js'
+import { bridge, pickFolderPath } from '../lib/desktop.js'
 import { Icon } from './icons.js'
-import { Button, Checkbox, EmptyState, FileIcon, Pill, Segmented, Spinner } from './common.js'
+import { Button, Checkbox, FileIcon, Pill } from './common.js'
+import { Barra, BotaoGrande, Destaque, Opcoes, Pagina, Passo, Pilulas, Resumo } from './kit.js'
 import { useLocalRoots } from './local-picker.js'
 import { DiscosPanel } from './discos.js'
+import { Fonte, Rota } from './comparar-partes.js'
 
 // lembra a última comparação enquanto o app está aberto (trocar de tela não perde o resultado)
 const mem = { jobId: null, result: null, startedAt: null }
 
 const MODES = [
-  { value: 'quick', label: 'Rápido', sub: 'nome e tamanho' },
-  { value: 'deep', label: 'Completo', sub: 'confere o conteúdo (MD5)' },
+  { value: 'quick', titulo: 'Rápido', sub: 'Nome e tamanho, em segundos', icone: 'bolt' },
+  { value: 'deep', titulo: 'Completo', sub: 'Confere o conteúdo de cada arquivo (MD5)', icone: 'shield' },
 ]
 
 const PHASES = [
@@ -47,113 +49,75 @@ const STATE_BADGE = {
 
 const inDir = (relDir, dir) => dir === '' || relDir === dir || relDir.startsWith(dir + '/')
 
-// ───── fontes ─────
+// ───── a escolha do modo (em cima, nos dois modos) ─────
 
-function SourceCard({ side, title, icon, value, sub, onPick, emptyText, onDropFolder }) {
-  const [over, setOver] = useState(false)
-  const depth = useRef(0)
-  const accepts = (e) => onDropFolder && bridge && Array.from(e.dataTransfer?.types || []).includes('Files')
-  // desktop: soltar uma pasta do Finder/Explorer no cartão escolhe a pasta
-  const dropProps = onDropFolder && bridge
-    ? {
-        onDragEnter: (e) => {
-          if (!accepts(e)) return
-          depth.current++
-          setOver(true)
-        },
-        onDragOver: (e) => {
-          if (!accepts(e)) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'copy'
-        },
-        onDragLeave: (e) => {
-          if (!accepts(e)) return
-          depth.current = Math.max(0, depth.current - 1)
-          if (!depth.current) setOver(false)
-        },
-        onDrop: (e) => {
-          if (!accepts(e)) return
-          e.preventDefault()
-          depth.current = 0
-          setOver(false)
-          if (droppedIsFolder(e.dataTransfer) === false) {
-            toast('info', 'Solte uma pasta (não um arquivo) para comparar.')
-            return
-          }
-          const [p] = pathsFromDrop(e.dataTransfer)
-          if (p) onDropFolder(p)
-        },
-      }
-    : {}
-  return html`<div class=${cx('src-card card', !value && 'is-empty', over && 'is-drop')} ...${dropProps}>
-    ${over ? html`<div class="src-drop" aria-hidden="true"><${Icon} name="folder" size=${18} /> Solte a pasta aqui</div>` : null}
-    <div class="src-head">
-      <span class=${cx('src-icon', `src-${side}`)}><${Icon} name=${icon} size=${18} /></span>
-      <span class="eyebrow">${title}</span>
-    </div>
-    ${value
-      ? html`<div class="src-body">
-          <div class="src-name" title=${value}>${value}</div>
-          <div class="src-path mono-path" title=${sub}>${sub}</div>
-        </div>`
-      : html`<div class="src-body"><div class="src-empty">${emptyText}</div></div>`}
-    <${Button} size="sm" icon="folder" onClick=${onPick}>${value ? 'Trocar pasta…' : 'Escolher pasta…'}</${Button}>
-  </div>`
+const TIPOS = [
+  { value: 'drive', titulo: 'Computador × Drive', sub: 'O que já subiu e o que ainda falta', icone: 'cloud' },
+  { value: 'discos', titulo: 'Entre discos', sub: 'Cartão ou SSD para outro disco, conferido', icone: 'disk', up: true },
+]
+
+function Modo({ tipo, setTipo }) {
+  return html`<div class="k-entra" style="--i:1"><${Opcoes} label="O que comparar" valor=${tipo} onEscolher=${setTipo} itens=${TIPOS} colunas=${2} /></div>`
 }
 
 // ───── progresso ─────
 
-function Progress({ job, mode, onCancel }) {
+function Progresso({ job, mode, onEsconder, onCancelar }) {
   const p = job?.progress || {}
   const phases = PHASES.filter((x) => !x.deepOnly || mode === 'deep')
   const idx = Math.max(0, phases.findIndex((x) => x.id === p.phase))
-  return html`<section class="card cmp-progress" aria-live="polite">
-    <div class="cmp-progress-head">
-      <${Spinner} size=${18} />
-      <div>
-        <h2>Comparando…</h2>
-        <p class="sub">Pode usar o resto do app enquanto isso — a comparação continua.</p>
-      </div>
-      ${onCancel ? html`<${Button} variant="ghost" size="sm" onClick=${onCancel}>Esconder</${Button}>` : null}
-    </div>
-    <ol class="phases">
+  return html`<${Passo} icone="refresh" cor="down" titulo="Comparando" frase="Pode usar o resto do app enquanto isso: a comparação continua." i=${4} acao=${html`<div class="cp-acoes-topo"><${Button} variant="ghost" size="sm" onClick=${onEsconder}>Esconder</${Button}><${Button} size="sm" icon="x" onClick=${onCancelar}>Cancelar</${Button}></div>`}>
+    <ol class="cp-fases" aria-live="polite">
       ${phases.map((ph, i) => {
         const state = i < idx ? 'done' : i === idx ? 'now' : 'next'
         const frac = state === 'now' && p.total ? Math.min(1, (p.done || 0) / p.total) : state === 'done' ? 1 : 0
-        return html`<li class=${cx('phase', `is-${state}`)}>
-          <span class="phase-dot">${state === 'done' ? html`<${Icon} name="check" size=${12} strokeWidth=${2.2} />` : null}</span>
-          <div class="phase-body">
-            <div class="phase-label">
+        return html`<li class=${cx('cp-fase', `is-${state}`)}>
+          <span class="cp-fase-dot">${state === 'done' ? html`<${Icon} name="check" size=${12} strokeWidth=${2.4} />` : i + 1}</span>
+          <div class="cp-fase-corpo">
+            <div class="cp-fase-tit">
               <span>${ph.label}</span>
               ${state === 'now' && p.total ? html`<span class="sub num">${count(p.done || 0)} de ${count(p.total)}</span>` : null}
             </div>
-            ${state === 'now'
-              ? html`<div class="phase-bar"><i style=${`width:${(frac * 100).toFixed(1)}%`}></i></div>
-                  ${p.current ? html`<div class="phase-current mono-path" title=${p.current}>${p.current}</div>` : null}`
-              : null}
+            ${state === 'now' ? html`<${Barra} p=${p.total ? frac : null} label=${ph.label} />` : null}
+            ${state === 'now' && p.current ? html`<div class="cp-fase-atual mono-path" title=${p.current}>${p.current}</div>` : null}
           </div>
         </li>`
       })}
     </ol>
-  </section>`
+  </${Passo}>`
+}
+
+/** 0–1: quanto da comparação já andou (fases feitas + a fração da atual). */
+function andou(job, mode) {
+  const p = job?.progress || {}
+  const phases = PHASES.filter((x) => !x.deepOnly || mode === 'deep')
+  const idx = Math.max(0, phases.findIndex((x) => x.id === p.phase))
+  const frac = p.total ? Math.min(1, (p.done || 0) / p.total) : 0
+  return Math.min(1, (idx + frac) / phases.length)
 }
 
 // ───── resultado ─────
 
-function Tiles({ summary, files, onPick, active }) {
+function Numeros({ summary, files, onPick, active }) {
   const syncedBytes = useMemo(() => files.reduce((a, f) => a + (f.status === 'synced' || f.status === 'elsewhere' ? f.local?.size || 0 : 0), 0), [files])
   const tiles = [
-    { id: 'synced', label: 'Já no Drive', n: summary.synced + (summary.elsewhere || 0), b: syncedBytes, tone: 'success', icon: 'check' },
-    { id: 'missing', label: 'Falta subir', n: summary.missing, b: summary.missingBytes, tone: 'up', icon: 'arrow-up' },
-    { id: 'different', label: 'Diferentes', n: summary.different, b: summary.differentBytes, tone: 'warning', icon: 'warning' },
-    { id: 'only-drive', label: 'Só no Drive', n: summary.onlyDrive, b: summary.onlyDriveBytes, tone: 'neutral', icon: 'cloud' },
+    { id: 'synced', label: 'Já no Drive', n: summary.synced + (summary.elsewhere || 0), b: syncedBytes, tom: 'ok', icon: 'check' },
+    { id: 'missing', label: 'Falta subir', n: summary.missing, b: summary.missingBytes, tom: 'up', icon: 'arrow-up' },
+    { id: 'different', label: 'Diferentes', n: summary.different, b: summary.differentBytes, tom: 'warn', icon: 'warning' },
+    { id: 'only-drive', label: 'Só no Drive', n: summary.onlyDrive, b: summary.onlyDriveBytes, tom: 'down', icon: 'cloud' },
   ]
-  return html`<div class="tiles">
+  return html`<div class="k-stats cp-stats" style="--n:4">
     ${tiles.map(
-      (t) => html`<button type="button" class=${cx('tile card', `tile-${t.tone}`, active === t.id && 'is-on', !t.n && 'is-zero')} onClick=${() => onPick(active === t.id ? 'all' : t.id)} aria-pressed=${active === t.id ? 'true' : 'false'}>
-        <span class="tile-label"><span class="tile-icon"><${Icon} name=${t.icon} size=${13} strokeWidth=${2} /></span>${t.label}</span>
-        <span class="tile-n num">${count(t.n || 0)}</span>
-        <span class="tile-b">${t.n ? bytes(t.b || 0) : '—'}</span>
+      (t, i) => html`<button
+        type="button"
+        class=${cx('k-stat cp-stat', t.tom !== 'down' && `is-${t.tom}`, active === t.id && 'is-on', !t.n && 'is-zero')}
+        style=${`--i:${i}`}
+        onClick=${() => onPick(active === t.id ? 'all' : t.id)}
+        aria-pressed=${active === t.id ? 'true' : 'false'}
+      >
+        <span class="k-stat-ic"><${Icon} name=${t.icon} size=${15} strokeWidth=${2} /></span>
+        <b class="num">${count(t.n || 0)}</b>
+        <span>${t.label}${t.n ? html` · <span class="num">${bytes(t.b || 0)}</span>` : null}</span>
       </button>`,
     )}
   </div>`
@@ -209,7 +173,7 @@ function FolderTree({ folders, selected, onSelect, onUpload, busy }) {
       return n
     })
   const rows = folders.filter((f) => !hiddenBy(f.relDir))
-  return html`<div class="tree" role="tree" aria-label="Pastas">
+  return html`<div class="tree cp-tree" role="tree" aria-label="Pastas">
     ${rows.map((f) => {
       const open = !collapsed.has(f.relDir)
       const kids = hasKids.has(f.relDir)
@@ -278,14 +242,12 @@ const FileRow = ({ f }) => {
   </div>`
 }
 
-function Results({ jobId, result, onReset }) {
+function Resultado({ result, onLimpar, busy, includeDiff, setIncludeDiff, onUpload, onDownload }) {
   const now = useNow(30_000)
   const roots = useLocalRoots()
   const [folder, setFolder] = useState(null)
   const [status, setStatus] = useState('all')
-  const [includeDiff, setIncludeDiff] = useState(false)
   const [limit, setLimit] = useState(60)
-  const [busy, setBusy] = useState(false)
   const listRef = useRef(null)
   const s = result.summary
 
@@ -305,38 +267,11 @@ function Results({ jobId, result, onReset }) {
     return c
   }, [result, folder])
 
-  const upCount = s.missing + (includeDiff ? s.different : 0)
-  const upBytes = s.missingBytes + (includeDiff ? s.differentBytes : 0)
-
-  const upload = async ({ relDirs, statuses } = {}) => {
-    const st = statuses || (includeDiff ? ['missing', 'different'] : ['missing'])
-    if (st.includes('different')) {
-      const ok = await confirmDialog({
-        title: 'Substituir os diferentes no Drive?',
-        message: `${plural(s.different, 'arquivo diferente vai', 'arquivos diferentes vão')} ganhar uma nova versão no Drive com o conteúdo deste computador. O Google guarda a versão anterior no histórico.`,
-        confirmLabel: 'Subir e substituir',
-      })
-      if (!ok) return
-    }
-    setBusy(true)
-    const res = await attempt(api.post(`/api/compare/${enc(jobId)}/upload`, { statuses: st, ...(relDirs ? { relDirs } : {}) }))
-    setBusy(false)
-    announceBatch(res, 'para enviar')
-  }
-
-  const download = async () => {
-    setBusy(true)
-    const res = await attempt(api.post(`/api/compare/${enc(jobId)}/download`, folder != null && folder !== '' ? { relDirs: [folder] } : {}))
-    setBusy(false)
-    announceBatch(res, 'para baixar')
-  }
-
   const pickTile = (id) => {
     setStatus(id)
     requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
-  const allGood = s.missing === 0 && s.different === 0
   const folderName = folder == null ? null : folder === '' ? result.folders.find((f) => f.relDir === '')?.name || baseName(result.localPath) : folder
   const chips = [
     { value: 'all', label: 'Todos' },
@@ -344,118 +279,96 @@ function Results({ jobId, result, onReset }) {
     { value: 'different', label: 'Diferentes' },
     { value: 'only-drive', label: 'Só no Drive' },
     { value: 'synced', label: 'Já no Drive' },
-  ].map((c) => ({ ...c, count: c.value === 'synced' ? counts.synced + counts.elsewhere : counts[c.value] }))
+  ].map((c) => {
+    const n = c.value === 'synced' ? counts.synced + counts.elsewhere : counts[c.value]
+    return { value: c.value, label: c.label, conta: n ? count(n) : null }
+  })
 
-  return html`<div class="cmp-results">
-    <div class="cmp-meta">
-      <div>
-        <h2>${baseName(result.localPath)}</h2>
-        <p class="sub">
-          <span class="mono-path">${tildify(result.localPath, roots?.home)}</span>
-          <${Icon} name="compare" size=${13} />
-          <span class="mono-path">${result.drive?.path || result.drive?.name}</span>
-        </p>
-      </div>
-      <div class="cmp-meta-right">
-        <${Pill} tone="neutral">${result.mode === 'deep' ? 'Completo · MD5' : 'Rápido · nome e tamanho'}</${Pill}>
-        <span class="sub">comparado ${relTime(result.createdAt, now)}</span>
-        <${Button} size="sm" variant="ghost" icon="x" onClick=${onReset}>Fechar</${Button}>
-      </div>
-    </div>
-
-    <${Tiles} summary=${s} files=${result.files} onPick=${pickTile} active=${status} />
-    ${s.elsewhere
-      ? html`<p class="cmp-note"><${Icon} name="info" size=${14} /> ${plural(s.elsewhere, 'arquivo já está', 'arquivos já estão')} no Drive, mas em outra pasta — contam como “Já no Drive”.
-          <button type="button" class="link" onClick=${() => pickTile('synced')}>Ver quais</button></p>`
-      : null}
-    ${s.proxies
-      ? html`<p class="cmp-note"><${Icon} name="film" size=${14} /> ${plural(s.proxies, 'proxy gerado', 'proxies gerados')} pelo SOBEDESCE (pasta Proxy) ${s.proxies === 1 ? 'ficou' : 'ficaram'} de fora do “Só no Drive”.</p>`
-      : null}
-
-    <section class=${cx('card cmp-actions', allGood && 'is-good')}>
-      ${allGood
-        ? html`<div class="cmp-good">
-            <span class="cmp-good-icon"><${Icon} name="circle-check" size=${22} /></span>
-            <div><b>Tudo daqui já está no Drive.</b><span class="sub">${s.onlyDrive ? `O Drive ainda tem ${plural(s.onlyDrive, 'arquivo', 'arquivos')} que não estão neste computador.` : 'As duas pastas batem.'}</span></div>
-          </div>`
-        : html`<div class="cmp-primary">
-            <${Button} variant="primary" size="lg" icon="upload" onClick=${() => upload()} loading=${busy} disabled=${!upCount}>
-              Subir o que falta · ${plural(upCount, 'arquivo', 'arquivos')} · ${bytes(upBytes)}
-            </${Button}>
+  return html`
+    <${Passo}
+      id="cp-resultado"
+      icone="compare"
+      cor="up"
+      titulo=${baseName(result.localPath)}
+      sub=${`comparado ${relTime(result.createdAt, now)}`}
+      frase=${html`<span class="cp-par"><span class="mono-path">${tildify(result.localPath, roots?.home)}</span><${Icon} name="arrow-right" size=${12} /><span class="mono-path">${result.drive?.path || result.drive?.name}</span></span>`}
+      i=${5}
+      acao=${html`<div class="cp-acoes-topo"><${Pill} tone="neutral">${result.mode === 'deep' ? 'Completo · MD5' : 'Rápido'}</${Pill}><${Button} size="sm" icon="trash" onClick=${onLimpar}>Limpar comparação</${Button}></div>`}
+    >
+      <${Numeros} summary=${s} files=${result.files} onPick=${pickTile} active=${status} />
+      ${s.elsewhere
+        ? html`<p class="k-nota"><${Icon} name="info" size=${14} /> ${plural(s.elsewhere, 'arquivo já está', 'arquivos já estão')} no Drive, mas em outra pasta: contam como “Já no Drive”.
+            <button type="button" class="link" onClick=${() => pickTile('synced')}>Ver quais</button></p>`
+        : null}
+      ${s.proxies
+        ? html`<p class="k-nota"><${Icon} name="film" size=${14} /> ${plural(s.proxies, 'proxy gerado', 'proxies gerados')} pelo SOBEDESCE (pasta Proxy) ${s.proxies === 1 ? 'ficou' : 'ficaram'} de fora do “Só no Drive”.</p>`
+        : null}
+      ${s.different || s.onlyDrive
+        ? html`<div class="cp-extras">
             ${s.different
-              ? html`<label class="check-label">
+              ? html`<label class="cp-check">
                   <${Checkbox} checked=${includeDiff} onChange=${setIncludeDiff} label="Incluir os diferentes" />
-                  <span>Incluir os diferentes <span class="sub">(substitui no Drive)</span></span>
+                  <span><b>Incluir os diferentes</b><span class="sub"> · ganham uma versão nova no Drive</span></span>
                 </label>`
               : null}
-          </div>`}
-      ${s.onlyDrive
-        ? html`<${Button} icon="download" onClick=${download} disabled=${busy}>
-            Baixar o que só está no Drive · ${plural(folder ? counts['only-drive'] : s.onlyDrive, 'arquivo', 'arquivos')}
-          </${Button}>`
+            ${s.onlyDrive
+              ? html`<${Button} icon="download" onClick=${() => onDownload(folder)} disabled=${busy}>
+                  Baixar o que só está no Drive · ${plural(folder ? counts['only-drive'] : s.onlyDrive, 'arquivo', 'arquivos')}
+                </${Button}>`
+              : null}
+          </div>`
         : null}
-    </section>
+    </${Passo}>
 
-    <section class="card cmp-tree">
-      <header class="card-head">
-        <h3>Pastas</h3>
-        <span class="legend" aria-hidden="true">
-          <span><i class="s-synced"></i>no Drive</span><span><i class="s-missing"></i>falta</span><span><i class="s-different"></i>diferente</span><span><i class="s-only"></i>só no Drive</span>
-        </span>
-      </header>
-      <${FolderTree} folders=${result.folders} selected=${folder} onSelect=${setFolder} busy=${busy} onUpload=${(f) => upload({ relDirs: [f.relDir], statuses: ['missing'] })} />
-    </section>
+    <${Passo}
+      icone="folder"
+      cor="down"
+      titulo="Pastas"
+      frase="Toque numa pasta para ver só os arquivos dela."
+      i=${6}
+      acao=${html`<span class="legend" aria-hidden="true">
+        <span><i class="s-synced"></i>no Drive</span><span><i class="s-missing"></i>falta</span><span><i class="s-different"></i>diferente</span><span><i class="s-only"></i>só no Drive</span>
+      </span>`}
+    >
+      <${FolderTree} folders=${result.folders} selected=${folder} onSelect=${setFolder} busy=${busy} onUpload=${(f) => onUpload({ relDirs: [f.relDir], statuses: ['missing'] })} />
+    </${Passo}>
 
-    <section class="card cmp-files" ref=${listRef}>
-      <header class="card-head">
-        <h3>Arquivos</h3>
-        ${folderName != null
+    <div ref=${listRef} class="cp-ancora">
+      <${Passo}
+        icone="doc"
+        cor="down"
+        titulo="Arquivos"
+        sub=${folderName != null ? null : `${count(filtered.length)} de ${count(counts.all)}`}
+        i=${7}
+        acao=${folderName != null
           ? html`<button type="button" class="filter-chip" onClick=${() => setFolder(null)} title="Mostrar todas as pastas">
               <${Icon} name="folder" size=${13} /> ${folderName} <${Icon} name="x" size=${12} />
             </button>`
           : null}
-        <div class="card-head-right">
-          <${Segmented} size="sm" label="Filtrar arquivos" value=${status} onChange=${setStatus} options=${chips.map((c) => ({ value: c.value, label: c.label, count: c.count ? count(c.count) : null }))} />
-        </div>
-      </header>
-      ${filtered.length
-        ? html`<div class="flist">
-            ${filtered.slice(0, limit).map((f) => html`<${FileRow} key=${f.relPath + f.status} f=${f} />`)}
-            ${filtered.length > limit
-              ? html`<button type="button" class="more-row" onClick=${() => setLimit((l) => l + 200)}>Mostrar mais ${count(Math.min(200, filtered.length - limit))} <span class="sub">· de ${count(filtered.length)}</span></button>`
-              : null}
-          </div>`
-        : html`<div class="table-msg">Nenhum arquivo com esse filtro${folderName != null ? ' nesta pasta' : ''}.</div>`}
-    </section>
-  </div>`
+      >
+        <${Pilulas} label="Filtrar arquivos" valor=${status} onEscolher=${setStatus} itens=${chips} />
+        ${filtered.length
+          ? html`<div class="flist cp-flist">
+              ${filtered.slice(0, limit).map((f) => html`<${FileRow} key=${f.relPath + f.status} f=${f} />`)}
+              ${filtered.length > limit
+                ? html`<button type="button" class="more-row" onClick=${() => setLimit((l) => l + 200)}>Mostrar mais ${count(Math.min(200, filtered.length - limit))} <span class="sub">· de ${count(filtered.length)}</span></button>`
+                : null}
+            </div>`
+          : html`<p class="k-nota cp-vazio-lista">Nenhum arquivo com esse filtro${folderName != null ? ' nesta pasta' : ''}.</p>`}
+      </${Passo}>
+    </div>`
 }
 
 // ───── tela ─────
 
-const TIPOS = [
-  { value: 'drive', label: 'Computador × Drive', icon: 'cloud' },
-  { value: 'discos', label: 'Entre discos', icon: 'disk' },
-]
-
 export function CompareScreen() {
   const [tipo, setTipo] = usePersistentState('compare.tipo', 'drive')
-  const cabeca = html`<header class="page-head">
-    <div>
-      <h1>Comparar</h1>
-      <p class="page-lead">${tipo === 'discos' ? 'Passe um cartão ou SSD para outro disco: compara, copia o que falta e confere.' : 'Veja o que já subiu e o que ainda falta — pasta por pasta.'}</p>
-    </div>
-    <${Segmented} label="O que comparar" value=${tipo} onChange=${setTipo} options=${TIPOS} />
-  </header>`
-  if (tipo === 'discos') {
-    return html`<div class="page page-compare">
-      ${cabeca}
-      <${DiscosPanel} />
-    </div>`
-  }
-  return html`<${CompareDrive} cabeca=${cabeca} />`
+  const topo = html`<${Modo} tipo=${tipo} setTipo=${setTipo} />`
+  if (tipo === 'discos') return html`<${DiscosPanel} topo=${topo} />`
+  return html`<${CompareDrive} topo=${topo} />`
 }
 
-function CompareDrive({ cabeca }) {
+function CompareDrive({ topo }) {
   const accountId = useStore((s) => s.activeAccountId)
   const roots = useLocalRoots()
   const [local, setLocal] = usePersistentState('compare.local', null)
@@ -465,9 +378,12 @@ function CompareDrive({ cabeca }) {
   const [result, setResult] = useState(mem.result)
   const [starting, setStarting] = useState(false)
   const [hidden, setHidden] = useState(false)
+  const [includeDiff, setIncludeDiff] = useState(false)
+  const [busy, setBusy] = useState(false)
   const job = useStore((s) => (jobId ? s.compare[jobId] : null))
   const status = result ? 'done' : job?.status || (jobId ? 'running' : null)
   const failed = status === 'error' || status === 'failed' || status === 'canceled'
+  const canceled = status === 'canceled'
   const running = jobId && !result && !failed
 
   // ao terminar, busca o resultado completo; enquanto roda, consulta de vez em quando caso o SSE falhe
@@ -495,6 +411,15 @@ function CompareDrive({ cabeca }) {
     }
   }, [jobId, result, job?.status])
 
+  // O resultado aparece embaixo dos passos: quando chega, a tela rola até ele.
+  const temResultado = !!result
+  useEffect(() => {
+    if (temResultado && mem.rolar) {
+      mem.rolar = false
+      requestAnimationFrame(() => document.getElementById('cp-resultado')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    }
+  }, [temResultado])
+
   const start = async () => {
     if (!local || !remote || !accountId) return
     setStarting(true)
@@ -503,21 +428,34 @@ function CompareDrive({ cabeca }) {
     if (!res?.jobId) return
     mem.jobId = res.jobId
     mem.result = null
+    mem.rolar = true
     setCompareJob(res.jobId, { status: 'running', progress: { phase: 'local', done: 0, total: 0 } })
     setJobId(res.jobId)
     setResult(null)
     setHidden(false)
+    setIncludeDiff(false)
   }
 
-  const reset = () => {
+  // Cancelar: o motor para de ler (e de calcular o MD5) na hora; a tela mostra "cancelada".
+  const cancelar = () => jobId && attempt(api.del(`/api/compare/${enc(jobId)}`))
+
+  // Limpar: apaga o resultado (memória e disco do motor) e as duas pastas escolhidas; volta ao passo 1 vazio.
+  const limpar = async () => {
+    const id = jobId
     mem.jobId = null
     mem.result = null
     setJobId(null)
     setResult(null)
+    setHidden(false)
+    setIncludeDiff(false)
+    setLocal(null)
+    setRemote(null)
+    requestAnimationFrame(() => document.querySelector('.page-compare')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    if (id) await attempt(api.post(`/api/compare/${enc(id)}/limpar`, {}))
   }
 
   const chooseLocal = async () => {
-    const p = await pickFolderPath({ title: 'Qual pasta do computador?', defaultPath: local || undefined, subtitle: 'Escolha a pasta “mãe” do projeto — subpastas entram junto.' })
+    const p = await pickFolderPath({ title: 'Qual pasta do computador?', defaultPath: local || undefined, subtitle: 'Escolha a pasta “mãe” do projeto: as subpastas entram junto.' })
     if (p) setLocal(p)
   }
   const chooseRemote = async () => {
@@ -525,65 +463,117 @@ function CompareDrive({ cabeca }) {
     if (f) setRemote(f)
   }
 
-  return html`<div class="page page-compare">
-    ${cabeca}
+  const s = result?.summary
+  const upCount = s ? s.missing + (includeDiff ? s.different : 0) : 0
+  const upBytes = s ? s.missingBytes + (includeDiff ? s.differentBytes : 0) : 0
+  const allGood = s && s.missing === 0 && s.different === 0
 
-    <section class="cmp-setup">
-      <div class="src-row">
-        <${SourceCard}
-          side="local"
-          title="No computador"
-          icon="laptop"
-          value=${local ? baseName(local) : null}
-          sub=${local ? tildify(local, roots?.home) : ''}
-          onPick=${chooseLocal}
-          onDropFolder=${setLocal}
-          emptyText=${bridge ? 'Escolha ou arraste para cá a pasta do projeto' : 'Escolha a pasta do projeto no seu disco'}
-        />
-        <span class="src-vs" aria-hidden="true"><${Icon} name="compare" size=${18} /></span>
-        <${SourceCard}
-          side="drive"
-          title="No Drive"
-          icon="cloud"
-          value=${remote ? remote.name : null}
-          sub=${remote ? remote.path : ''}
-          onPick=${chooseRemote}
-          emptyText="Escolha a pasta correspondente no Drive"
-        />
-      </div>
-      <div class="cmp-go">
-        <div class="mode-pick" role="radiogroup" aria-label="Como comparar">
-          ${MODES.map(
-            (m) => html`<button type="button" role="radio" aria-checked=${mode === m.value ? 'true' : 'false'} class=${cx('mode-opt', mode === m.value && 'is-on')} onClick=${() => setMode(m.value)}>
-              <span class="mode-radio"></span>
-              <span><b>${m.label}</b> <span class="sub">· ${m.sub}</span></span>
-            </button>`,
-          )}
-        </div>
-        <${Button} variant="primary" size="lg" icon="compare" onClick=${start} loading=${starting} disabled=${!local || !remote || running}>
-          ${running ? 'Comparando…' : result ? 'Comparar de novo' : 'Comparar'}
-        </${Button}>
-      </div>
-      ${mode === 'deep' ? html`<p class="cmp-hint"><${Icon} name="info" size=${14} /> O modo completo lê cada arquivo do disco para calcular o MD5. Em pastas de vários terabytes isso leva um tempo — mas só na primeira vez.</p>` : null}
-    </section>
+  const upload = async ({ relDirs, statuses } = {}) => {
+    const st = statuses || (includeDiff ? ['missing', 'different'] : ['missing'])
+    if (st.includes('different')) {
+      const ok = await confirmDialog({
+        title: 'Substituir os diferentes no Drive?',
+        message: `${plural(s.different, 'arquivo diferente vai', 'arquivos diferentes vão')} ganhar uma nova versão no Drive com o conteúdo deste computador. O Google guarda a versão anterior no histórico.`,
+        confirmLabel: 'Subir e substituir',
+      })
+      if (!ok) return
+    }
+    setBusy(true)
+    const res = await attempt(api.post(`/api/compare/${enc(jobId)}/upload`, { statuses: st, ...(relDirs ? { relDirs } : {}) }))
+    setBusy(false)
+    announceBatch(res, 'para enviar')
+  }
 
-    ${running && !hidden ? html`<${Progress} job=${job} mode=${mode} onCancel=${() => setHidden(true)} />` : null}
-    ${failed
-      ? html`<section class="card cmp-error" role="alert">
-          <${Icon} name="warning" size=${20} />
-          <div><b>A comparação não terminou.</b><span class="sub">${job?.error || 'Algo deu errado no caminho.'}</span></div>
-          <${Button} onClick=${start} icon="retry">Tentar de novo</${Button}>
-        </section>`
+  const download = async (folder) => {
+    setBusy(true)
+    const res = await attempt(api.post(`/api/compare/${enc(jobId)}/download`, folder != null && folder !== '' ? { relDirs: [folder] } : {}))
+    setBusy(false)
+    announceBatch(res, 'para baixar')
+  }
+
+  // ── coluna da direita: o que vai acontecer / agora / resultado, e o botão grande ──
+  let destaque = null
+  if (running) {
+    const p = andou(job, mode)
+    const fase = PHASES.find((x) => x.id === job?.progress?.phase)
+    destaque = html`<${Destaque} titulo="Comparando" numero=${Math.floor(p * 100)} unidade="%" progresso=${p} linha=${fase?.label || 'Começando'} vivo />`
+  } else if (canceled) {
+    destaque = html`<${Destaque} tom="erro" titulo="Cancelada" linha="Nada foi gravado. Compare de novo quando quiser." />`
+  } else if (failed) {
+    destaque = html`<${Destaque} tom="erro" titulo="Não terminou" linha=${job?.error || 'Algo deu errado no caminho.'} />`
+  } else if (s && allGood) {
+    destaque = html`<${Destaque} tom="ok" titulo="Tudo no Drive" numero=${count(s.synced + (s.elsewhere || 0))} unidade=${s.synced + (s.elsewhere || 0) === 1 ? 'arquivo já está lá' : 'arquivos já estão lá'} linha=${s.onlyDrive ? `O Drive ainda tem ${plural(s.onlyDrive, 'arquivo', 'arquivos')} que não estão aqui.` : 'As duas pastas batem.'} />`
+  } else if (s) {
+    destaque = html`<${Destaque} titulo="Falta subir" numero=${count(upCount)} unidade=${upCount === 1 ? 'arquivo' : 'arquivos'} linha=${`${bytes(upBytes)}${s.different && !includeDiff ? ` · ${plural(s.different, 'diferente', 'diferentes')} de fora` : ''}`} />`
+  }
+
+  const dica = !local ? 'Falta escolher a pasta do computador' : !remote ? 'Falta escolher a pasta do Drive' : mode === 'deep' ? 'Confere o conteúdo de cada arquivo (MD5)' : 'Cruza nomes e tamanhos, pasta por pasta'
+  const botao =
+    s && !allGood
+      ? html`<${BotaoGrande} icone="upload" onClick=${() => upload()} disabled=${busy || !upCount} dica=${html`<b>${plural(upCount, 'arquivo', 'arquivos')}</b> · ${bytes(upBytes)} vão para a fila de Transferências`}>Subir o que falta</${BotaoGrande}>
+          <${Button} icon="compare" onClick=${start} loading=${starting} disabled=${!local || !remote || running} class="cp-de-novo">Comparar de novo</${Button}>`
+      : html`<${BotaoGrande} icone="compare" onClick=${start} disabled=${!local || !remote || running || starting} dica=${running ? 'Comparando…' : dica}>${running || starting ? 'Comparando…' : result || failed ? 'Comparar de novo' : 'Comparar'}</${BotaoGrande}>`
+  const extra = running
+    ? html`<${Button} icon="x" onClick=${cancelar} class="cp-lado-btn">Cancelar a comparação</${Button}>`
+    : result || failed || local || remote
+      ? html`<${Button} icon="trash" onClick=${limpar} class="cp-lado-btn">Limpar comparação</${Button}>`
+      : null
+
+  const lado = html`<${Resumo} titulo=${result ? 'Resultado' : running ? 'Agora' : 'O que vai acontecer'}>
+      ${destaque}
+      <${Rota} de=${local ? baseName(local) : null} para=${remote ? remote.name : null} deIcone="laptop" paraIcone="cloud" />
+      ${!result && !running
+        ? html`<p class="cp-resumo-txt">${mode === 'deep' ? 'Lê cada arquivo do disco e compara o MD5 com o do Drive. Mais lento na primeira vez.' : 'Mostra, pasta por pasta, o que já está no Drive e o que falta subir.'}</p>`
+        : null}
+    </${Resumo}>
+    ${botao}
+    ${extra}`
+
+  return html`<${Pagina}
+    titulo="Comparar"
+    frase="Veja o que já subiu e o que ainda falta, pasta por pasta."
+    class=${cx('page-compare', (result || running || failed) && 'cp-lado-antes')}
+    lado=${lado}
+  >
+    ${topo}
+    <${Passo} n="1" titulo="De onde" sub="no computador" frase="A pasta do projeto. As subpastas entram junto." i=${2}>
+      <${Fonte}
+        icone="laptop"
+        tom="down"
+        valor=${local ? baseName(local) : null}
+        caminho=${local ? tildify(local, roots?.home) : ''}
+        vazio="Escolher a pasta do computador"
+        dica=${bridge ? 'Ou arraste a pasta para cá' : 'A pasta do projeto no seu disco'}
+        onTrocar=${chooseLocal}
+        onSoltarPasta=${setLocal}
+        onTirar=${local && !running ? () => setLocal(null) : null}
+        tirarLabel="Tirar a pasta do computador"
+      />
+    </${Passo}>
+    <${Passo} n="2" titulo="Para onde" sub="no Drive" frase="A pasta correspondente no Google Drive." i=${3}>
+      <${Fonte} icone="cloud" tom="drive" valor=${remote ? remote.name : null} caminho=${remote ? remote.path : ''} vazio="Escolher a pasta do Drive" dica="Onde o projeto deveria estar" onTrocar=${chooseRemote} onTirar=${remote && !running ? () => setRemote(null) : null} tirarLabel="Tirar a pasta do Drive" />
+    </${Passo}>
+    <${Passo} n="3" titulo="Como conferir" i=${4}>
+      <${Opcoes} label="Como comparar" valor=${mode} onEscolher=${setMode} itens=${MODES} colunas=${2} />
+      ${mode === 'deep' ? html`<p class="k-nota"><${Icon} name="info" size=${14} /> Em pastas de vários terabytes, ler cada arquivo leva um tempo. Só na primeira vez: depois o resultado fica guardado.</p>` : null}
+    </${Passo}>
+
+    ${running && !hidden ? html`<${Progresso} job=${job} mode=${mode} onEsconder=${() => setHidden(true)} onCancelar=${cancelar} />` : null}
+    ${canceled
+      ? html`<${Passo} id="cp-resultado" icone="x" cor="warn" titulo="Comparação cancelada" frase="Parou no meio e nada foi gravado. Compare de novo quando quiser." i=${5} acao=${html`<div class="cp-acoes-topo"><${Button} onClick=${limpar} icon="trash">Limpar</${Button}><${Button} onClick=${start} icon="retry" disabled=${!local || !remote}>Comparar de novo</${Button}></div>`} />`
+      : failed
+        ? html`<${Passo} id="cp-resultado" icone="warning" cor="err" titulo="A comparação não terminou" frase=${job?.error || 'Algo deu errado no caminho.'} i=${5} acao=${html`<${Button} onClick=${start} icon="retry">Tentar de novo</${Button}>`} />`
+        : null}
+    ${result
+      ? html`<${Resultado}
+          result=${result}
+          onLimpar=${limpar}
+          busy=${busy}
+          includeDiff=${includeDiff}
+          setIncludeDiff=${setIncludeDiff}
+          onUpload=${upload}
+          onDownload=${download}
+        />`
       : null}
-    ${result ? html`<${Results} jobId=${jobId} result=${result} onReset=${reset} />` : null}
-    ${!running && !result && !failed
-      ? html`<${EmptyState}
-          compact
-          art=${html`<div class="cmp-art" aria-hidden="true"><span class="src-icon src-local"><${Icon} name="laptop" size=${20} /></span><span class="cmp-art-line"></span><span class="src-icon src-drive"><${Icon} name="cloud" size=${20} /></span></div>`}
-          title="Escolha as duas pastas"
-        >
-          O SOBEDESCE cruza os nomes${mode === 'deep' ? ' e o conteúdo' : ' e tamanhos'} e mostra, pasta por pasta, o que já está no Drive e o que falta subir.
-        </${EmptyState}>`
-      : null}
-  </div>`
+  </${Pagina}>`
 }

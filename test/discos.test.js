@@ -269,6 +269,25 @@ describe('copiar entre discos', () => {
     assert.ok(ficou.length < 6)
   })
 
+  test('serviço: cancelar enquanto compara termina como "cancelado" (sem erro) e limpar volta ao começo', async (t) => {
+    const dir = await tmp(t)
+    const org = path.join(dir, 'CARD')
+    for (let i = 0; i < 4; i++) await escrever(path.join(org, `C${i}.MP4`), crypto.randomBytes(1024))
+    await fsp.mkdir(path.join(dir, 'SSD'))
+    const svc = new DiscosService({ keepAwake: semDormir })
+    t.after(() => svc.close())
+    const comparando = svc.planejar({ origem: org, destinos: [path.join(dir, 'SSD')] })
+    assert.equal(svc.view().fase, 'planejando')
+    svc.cancelar()
+    const v = await comparando
+    assert.equal(v.fase, 'cancelado')
+    assert.equal(v.plano ?? null, null)
+    assert.equal(v.erro ?? null, null)
+    // Limpar depois de cancelar: tela limpa; e dá para comparar de novo.
+    assert.equal(svc.limpar().fase, 'parado')
+    assert.equal((await svc.planejar({ origem: org, destinos: [path.join(dir, 'SSD')] })).fase, 'pronto')
+  })
+
   test('rota: repassa todas as opções da tela para o serviço', async () => {
     const rotas = {}
     let recebido = null

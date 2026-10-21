@@ -277,6 +277,15 @@ class CompareJobs {
     return !!job
   }
 
+  /** "Limpar comparação": para se ainda roda, tira da memória e apaga o resultado gravado. */
+  async forget(jobId) {
+    const job = this.jobs.get(jobId)
+    job?.ac?.abort()
+    if (job?.timer) clearTimeout(job.timer)
+    this.jobs.delete(jobId)
+    if (/^cmp[A-Za-z0-9_-]{0,100}$/.test(jobId)) await fs.rm(path.join(this.ctx.paths.compares, `${jobId}.json`), { force: true }).catch(() => {})
+  }
+
   close() {
     for (const job of this.jobs.values()) {
       job.ac?.abort()
@@ -925,6 +934,13 @@ export function createApi(ctx) {
 
   route('DELETE', '/api/compare/:jobId', ({ params }) => {
     if (!jobs.cancel(params.jobId)) throw new HttpProblem(404, 'Essa comparação não existe mais.')
+    return {}
+  })
+
+  // Limpar: tira a comparação da memória e do disco (a tela volta ao começo). Para antes, se ainda estiver rodando.
+  route('POST', '/api/compare/:jobId/limpar', async ({ params }) => {
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(params.jobId)) throw new HttpProblem(400, 'Comparação inválida.')
+    await jobs.forget(params.jobId)
     return {}
   })
 
