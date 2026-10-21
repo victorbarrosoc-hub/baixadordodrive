@@ -43,4 +43,20 @@ Cada fase só gasta dinheiro depois que a anterior mostrou resultado.
 
 **Fase 3 · crescimento:** plano anual, aparelho extra, indicação (1 mês grátis), página de preços, vídeos, aviso do Firewall no Windows.
 
-**Fase 4 · depois de ter assinantes:** Máxima segurança no Entre discos, relatório de backup em PDF, servidor TURN, plano para equipes maiores.
+**Fase 4 · depois de ter assinantes:** Máxima segurança no Entre discos, relatório de backup em PDF, plano para equipes maiores.
+
+**Fase avançada · "Enviar de qualquer lugar" (TURN):**
+- Hoje o Wi-Fi direto só funciona na mesma rede (sem TURN). De um 5G para outro 5G não conecta; o caminho é o Drive.
+- Ligar um servidor TURN (Cloudflare: grátis até 1 TB/mês, depois US$ 0,05 por GB).
+- Só no Pro e na Produtora, para o plano cobrir o custo por GB.
+- Atualizar a página de privacidade (o arquivo pode passar por um servidor, criptografado).
+
+## Funções guardadas: lançar uma por mês
+Ideia do Victor: não lançar tudo de uma vez; novidade mensal mantém a assinatura.
+
+- **No lançamento:** Wi-Fi entre celular e computador, Drive, comparador e Entre discos, calculadora de mídia, Backup Automático (Produtora).
+- **Mês 1:** Entre computadores · **Mês 2:** Frames · **Mês 3:** Resgate de vídeo · **Mês 4:** Busca por cena · **Mês 5:** LOG → Rec.709 · **Mês 6:** relatório de backup em PDF + Máxima segurança.
+- Ritmo: 1 novidade por mês, no mesmo dia, junto com uma melhoria de velocidade ou estabilidade. Cada lançamento: aviso no app, e-mail e post no Instagram.
+- Cada função guardada passa 1 mês em beta antes de sair. A conferir no código: se cada função já fica atrás de um interruptor no servidor.
+- Página pública "o que vem aí" para quem assina o plano anual.
+
