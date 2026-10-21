@@ -20,6 +20,7 @@ import { aprovar, buscarPedido, cancelar, lugarLegivel, normalizarCodigo } from 
 import { avisarComputadorConectado } from "@/lib/email/avisos";
 import { removerConta, trocarGoogleDeEntrar } from "@/lib/google/contas";
 import { ehAdmin } from "@/lib/admin";
+import { avisarMacsTravados } from "@/lib/atualizar-mac";
 import { ehPlano, trocarPlano } from "@/lib/recursos";
 
 export type EstadoForm = {
@@ -195,6 +196,14 @@ export async function acaoTrocarPlano(fd: FormData): Promise<void> {
   if (!usuarioId || !ehPlano(plano)) return;
   await trocarPlano(usuarioId, plano);
   refresh();
+}
+
+/** /admin/aviso-mac: manda o e-mail do Atualizar travado para quem tem Mac antes da correção e ainda não recebeu. */
+export async function acaoAvisarMacs(): Promise<void> {
+  const atual = await sessaoDoSite();
+  if (!atual || !(await ehAdmin(atual.usuario))) return;
+  const r = await avisarMacsTravados();
+  redirect(`/admin/aviso-mac?enviados=${r.enviados}&falharam=${r.falharam}`);
 }
 
 /** Admin: desconecta um aparelho (computador ou navegador) de uma conta. A pessoa precisa entrar de novo nele. */

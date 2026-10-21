@@ -145,6 +145,23 @@ export function emailComputadorConectado(
   });
 }
 
+/** Mac com o Atualizar travado (lib/atualizar-mac.ts): instalar a versão nova uma vez, à mão. Sai pelo admin. */
+export function emailAtualizarMac(para: string, nome: string, macs: string[]): Email {
+  const qual = macs.length === 1 ? `no ${macs[0]}` : "nos seus Macs";
+  return montar(para, "Atualize o SOBEDESCE no Mac (uma vez só)", {
+    previa: "O botão Atualizar pode estar dando erro. Instalando a versão nova uma vez, ele volta a funcionar.",
+    titulo: "Atualize o app no Mac",
+    paragrafos: [
+      `Oi, ${primeiroNome(nome)}. O botão Atualizar do SOBEDESCE ${qual} pode estar dando erro, com uma mensagem que começa com "ENOTEMPTY".`,
+      "O erro é nosso e já foi corrigido. Para a correção chegar, instale a versão nova uma vez: baixe, abra o arquivo e arraste o SOBEDESCE para Aplicativos, escolhendo Substituir.",
+    ],
+    detalhes: macs.length > 1 ? [{ rotulo: "Computadores", valor: macs.join(", ") }] : undefined,
+    depois: ["A conta, os ajustes e a fila continuam como estão. Depois disso, as próximas versões chegam sozinhas de novo."],
+    botao: { texto: "Baixar para Mac", url: `${siteUrl()}/baixar/mac` },
+    rodape: "Se o app já atualizou sem erro, pode ignorar este e-mail.",
+  });
+}
+
 /** Entrou na conta num aparelho ou navegador que a conta ainda não tinha usado. */
 export function emailEntradaNova(
   para: string,
