@@ -31,10 +31,11 @@ import { sizeIsBig } from '../lib/tamanho.js'
 import { Scrub, gradeDe } from './scrub.js'
 import { BarraSelecao, Marca, useSegurar, useSelecao } from './selecao.js'
 import { bytes, count, duration, plural, shortDate } from '../lib/format.js'
+import { Vazio } from './kit.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, cx, reducedMotion } from './ui.js'
 import { Preview } from './preview.js'
-import { KindGlyph, Thumb } from './thumb.js'
+import { Thumb } from './thumb.js'
 import { FileName } from './queue.js'
 import { CopyButton } from './copiar.js'
 import { MY_DRIVE, closeSheet, getState, openSheet, pushRecent, setState, setTab, toast, useApp } from '../lib/state.js'
@@ -1227,17 +1228,16 @@ export function DriveScreen({ active }) {
       <${MacLine} n=${macN} more=${partial} shown=${showMac} onToggle=${() => setShowMac(!showMac)} onClean=${cleanMac} />
       ${list.loading && !list.files ? html`<${SkeletonGrid} view=${view} />` : null}
       ${list.error && !list.files
-        ? html`<div class="drive-msg" role="alert">
-            <${Icon} name="warning" size=${26} />
-            <b>${list.error?.status === 0 ? 'Sem conexão com o Google' : list.error?.reconnect ? 'Reconecte o Google Drive' : 'Não consegui abrir este lugar'}</b>
-            <p>${list.error?.reconnect ? 'O Google pediu uma nova autorização. Abra sua conta para reconectar.' : 'Confira a internet e tente de novo.'}</p>
-            <${Button} size="sm" variant="secondary" icon="refresh" onClick=${list.reload}>Tentar de novo</${Button}>
-          </div>`
+        ? html`<div class="drive-vazio is-erro" role="alert"><${Vazio}
+            icone="warning"
+            titulo=${list.error?.status === 0 ? 'Sem conexão com o Google' : list.error?.reconnect ? 'Reconecte o Google Drive' : 'Não consegui abrir este lugar'}
+            acoes=${html`<${Button} size="sm" variant="secondary" icon="refresh" onClick=${list.reload}>Tentar de novo</${Button}>`}
+          >${list.error?.reconnect ? 'O Google pediu uma nova autorização. Abra sua conta para reconectar.' : 'Confira a internet e tente de novo.'}</${Vazio}></div>`
         : null}
       ${empty
-        ? html`<div class="drive-msg is-empty">
-            <${KindGlyph} kind="folder" size=${34} />
-            <b>${
+        ? html`<div class="drive-vazio"><${Vazio}
+            icone=${search ? 'search' : filtering ? 'sliders' : 'folder'}
+            titulo=${
               filtering
                 ? filterById(filter).none
                 : search
@@ -1247,20 +1247,16 @@ export function DriveScreen({ active }) {
                     : nav.scope === 'shared' && !nav.path.length
                       ? 'Nada compartilhado com você'
                       : 'Pasta vazia'
-            }</b>
-            ${filtering
-              ? html`<${Button} size="sm" variant="secondary" onClick=${() => changeFilter('all')}>Ver tudo</${Button}>`
-              : html`<p>${search ? 'A busca procura pelo começo das palavras do nome.' : nav.scope === 'drives' && !nav.path.length ? 'Os Drives de equipe que você participa aparecem aqui.' : 'Quando chegar algo, aparece aqui.'}</p>`}
-          </div>`
+            }
+            acoes=${filtering ? html`<${Button} size="sm" variant="secondary" onClick=${() => changeFilter('all')}>Ver tudo</${Button}>` : null}
+          >${filtering ? null : search ? 'A busca procura pelo começo das palavras do nome.' : nav.scope === 'drives' && !nav.path.length ? 'Os Drives de equipe que você participa aparecem aqui.' : 'Quando chegar algo, aparece aqui.'}</${Vazio}></div>`
         : null}
       ${emptyHere
-        ? html`<div class="drive-msg is-empty">
-            <${KindGlyph} kind="folder" size=${34} />
-            <b>${filtering ? filterById(filter).none : 'Só arquivos do Mac aqui'}</b>
-            ${filtering
-              ? html`<${Button} size="sm" variant="secondary" onClick=${() => changeFilter('all')}>Ver tudo</${Button}>`
-              : html`<p>Estão ocultos. Toque em Mostrar, acima, para ver.</p>`}
-          </div>`
+        ? html`<div class="drive-vazio"><${Vazio}
+            icone=${filtering ? 'sliders' : 'laptop'}
+            titulo=${filtering ? filterById(filter).none : 'Só arquivos do Mac aqui'}
+            acoes=${filtering ? html`<${Button} size="sm" variant="secondary" onClick=${() => changeFilter('all')}>Ver tudo</${Button}>` : null}
+          >${filtering ? null : 'Estão ocultos. Toque em Mostrar, acima, para ver.'}</${Vazio}></div>`
         : null}
       ${huntNote && !files.length ? html`<p class="drive-note dhunt" role="status"><span class="spinner" aria-hidden="true"></span>${huntText} <small>${count(raw.length)} vistos</small></p>` : null}
       ${files.length

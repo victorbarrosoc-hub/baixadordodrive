@@ -17,6 +17,7 @@ import { findProxy, mayPlay } from '../lib/browse.js'
 import { FUNDOS, LAYOUTS, ZOOM_MAX, desenharPost, enquadreDe, fatiar, frameNoPonto, layoutPorId, moverEnquadre } from '../lib/frames/posts.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, cx } from './ui.js'
+import { BotaoGrande, Destaque, Opcoes, Passo, Pilulas, Stats } from './kit.js'
 
 const QUANTOS = [6, 12, 24, 36]
 const GRANDE = 1.5e9 // acima disso, pelo celular demora: sugere o computador
@@ -287,13 +288,13 @@ async function subir(itens) {
 
 function Hub({ onFrames, onCalc, temCalc }) {
   return html`<div class="cr-hub">
-    <button type="button" class="cr-ferr" onClick=${onFrames}>
+    <button type="button" class="cr-ferr k-entra" style="--i:1" onClick=${onFrames}>
       <span class="cr-ferr-art is-frames" aria-hidden="true"><i></i><i></i><i></i></span>
       <span class="cr-ferr-txt"><b>Frames</b><span>Do vídeo final aos frames por cena e aos posts.</span></span>
       <${Icon} name="chevron-right" size=${18} />
     </button>
     ${temCalc
-      ? html`<button type="button" class="cr-ferr" onClick=${onCalc}>
+      ? html`<button type="button" class="cr-ferr k-entra" style="--i:2" onClick=${onCalc}>
           <span class="cr-ferr-art is-calc" aria-hidden="true"><i></i></span>
           <span class="cr-ferr-txt"><b>Calculadora</b><span>Quanto cabe no cartão e quanto HD levar.</span></span>
           <${Icon} name="chevron-right" size=${18} />
@@ -313,22 +314,24 @@ function Escolher() {
     detectar(job)
     mudou()
   }
-  return html`<div class="cr-origens">
+  return html`<div class="k-opcoes cr-origens" style="--n:2">
     <button
       type="button"
-      class="cr-origem"
+      class="k-opcao"
       onClick=${() => {
         setState({ escolher: { para: 'frames' } })
         setTab('drive')
       }}
     >
-      <span class="cr-origem-ic"><${Icon} name="drive" size=${22} /></span>
-      <span><b>Do Drive</b><small>Abra a pasta e toque no vídeo</small></span>
+      <span class="k-opcao-ic"><${Icon} name="drive" size=${18} strokeWidth=${1.9} /></span>
+      <b>Do Drive</b>
+      <span>Abra a pasta e toque no vídeo</span>
       <span class="cr-tag">Desce</span>
     </button>
-    <button type="button" class="cr-origem" onClick=${() => input.current?.click()}>
-      <span class="cr-origem-ic"><${Icon} name="film" size=${22} /></span>
-      <span><b>Da galeria</b><small>Um vídeo deste celular</small></span>
+    <button type="button" class="k-opcao is-up" onClick=${() => input.current?.click()}>
+      <span class="k-opcao-ic"><${Icon} name="film" size=${18} strokeWidth=${1.9} /></span>
+      <b>Da galeria</b>
+      <span>Um vídeo deste celular</span>
     </button>
     <input ref=${input} type="file" accept="video/*" hidden onChange=${daGaleria} />
   </div>`
@@ -341,29 +344,39 @@ function Ajustes({ j }) {
   const codec = j.video.codec
   const naoAbre = celularAbre(codec) === false
   const semFormato = j.video.origem === 'drive' && (!mayPlay(j.video.file) || naoAbre)
-  return html`<div class="cr-card">
-    <div class="cr-video">
-      <span class="cr-origem-ic"><${Icon} name=${j.video.origem === 'drive' ? 'drive' : 'film'} size=${20} /></span>
-      <span><b>${j.video.nome}</b><small>${j.video.origem === 'drive' ? 'Direto do Drive' : 'Da galeria'}${j.video.size ? ` · ${bytes(j.video.size)}` : ''}${codec ? ` · ${rotuloCodec(codec)}` : ''}</small></span>
-      <button type="button" class="link-btn" onClick=${limpar}>Trocar</button>
-    </div>
-    ${semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${naoAbre ? porqueNaoAbre(codec, j.video.nome) : 'Este aparelho não abre o formato do original.'} Os frames saem do proxy do Drive, se houver; em alta, peça ao computador.</p>` : null}
-    ${naoAbre && j.video.origem !== 'drive' ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${porqueNaoAbre(codec, j.video.nome)} Suba o vídeo para o Drive (aba Início) e peça os frames ao computador.</p>` : null}
-    ${grande && !semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Vídeo pesado: pelo celular demora e depende da internet. O app do computador faz mais rápido, com takes.</p>` : null}
-    <div class="cr-linha">
-      <span>Quantos frames<small>espalhados pelas cenas, só os que valem</small></span>
-      <div class="segmented" role="radiogroup" aria-label="Quantos frames">
-        ${QUANTOS.map((n) => html`<button type="button" role="radio" aria-checked=${q === n ? 'true' : 'false'} class=${cx('segmented-opt', q === n && 'is-on')} onClick=${() => setQ(n)}>${n}</button>`)}
+  return html`<div class="cr-passos">
+    <${Passo} n=${1} titulo="O vídeo final" i=${1}>
+      <div class="cr-video">
+        <span class="cr-origem-ic"><${Icon} name=${j.video.origem === 'drive' ? 'drive' : 'film'} size=${20} /></span>
+        <span><b>${j.video.nome}</b><small>${j.video.origem === 'drive' ? 'Direto do Drive' : 'Da galeria'}${j.video.size ? ` · ${bytes(j.video.size)}` : ''}${codec ? ` · ${rotuloCodec(codec)}` : ''}</small></span>
+        <button type="button" class="link-btn" onClick=${limpar}>Trocar</button>
       </div>
-    </div>
-    <div class="cr-linha">
-      <span>Arquivo<small>no tamanho do vídeo</small></span>
-      <div class="segmented" role="radiogroup" aria-label="Formato">
-        ${['jpg', 'png'].map((f) => html`<button type="button" role="radio" aria-checked=${fmt === f ? 'true' : 'false'} class=${cx('segmented-opt', fmt === f && 'is-on')} onClick=${() => setFmt(f)}>${f.toUpperCase()}</button>`)}
+      ${semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${naoAbre ? porqueNaoAbre(codec, j.video.nome) : 'Este aparelho não abre o formato do original.'} Os frames saem do proxy do Drive, se houver; em alta, peça ao computador.</p>` : null}
+      ${naoAbre && j.video.origem !== 'drive' ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />${porqueNaoAbre(codec, j.video.nome)} Suba o vídeo para o Drive (aba Início) e peça os frames ao computador.</p>` : null}
+      ${grande && !semFormato ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />Vídeo pesado: pelo celular demora e depende da internet. O app do computador faz mais rápido, com takes.</p>` : null}
+    </${Passo}>
+    <${Passo} n=${2} titulo="Frames" frase="Os melhores de cada cena, no tamanho do vídeo." i=${2}>
+      <div class="cr-quant">
+        <div class="cr-quant-num"><b>${q}</b><span>frames</span></div>
+        <${Pilulas} label="Quantos frames" valor=${q} onEscolher=${setQ} itens=${QUANTOS.map((n) => ({ value: n, label: String(n) }))} />
       </div>
-    </div>
-    <${Button} variant="primary" size="xl" icon="sparkle" class="cr-go" onClick=${() => rodar(q, fmt)}>Fazer os frames</${Button}>
-    ${j.video.origem === 'drive' ? html`<${NoComputador} file=${j.video.file} quantidade=${q} formato=${fmt} />` : null}
+      <${Opcoes}
+        label="Formato"
+        valor=${fmt}
+        onEscolher=${setFmt}
+        colunas=${2}
+        itens=${[
+          { value: 'jpg', titulo: 'JPG', sub: 'Leve, qualidade máxima' },
+          { value: 'png', titulo: 'PNG', sub: 'Sem perda' },
+        ]}
+      />
+      <${BotaoGrande} icone="sparkle" onClick=${() => rodar(q, fmt)} dica=${html`Escuro, desfocado e repetido ficam de fora.`}>Fazer os frames</${BotaoGrande}>
+    </${Passo}>
+    ${j.video.origem === 'drive'
+      ? html`<${Passo} icone="laptop" cor="up" titulo="Completo, no computador" frase="Com takes em 9:16 ou ProRes. Sobe pro Drive sozinho." i=${3}>
+          <${NoComputador} file=${j.video.file} quantidade=${q} formato=${fmt} />
+        </${Passo}>`
+      : null}
   </div>`
 }
 
@@ -403,9 +416,9 @@ function NoComputador({ file, quantidade, formato, abertoInicial = false }) {
     }
     setBusy(false)
   }
-  const seg = (rotulo, campo, opcoes, fmt = (v) => v) => html`<div class="cr-linha"><span>${rotulo}</span><div class="segmented" role="radiogroup" aria-label=${rotulo}>
-    ${opcoes.map((o) => html`<button type="button" role="radio" aria-checked=${takes[campo] === o ? 'true' : 'false'} class=${cx('segmented-opt', takes[campo] === o && 'is-on')} onClick=${() => setTakes((t) => ({ ...t, [campo]: o }))}>${fmt(o)}</button>`)}
-  </div></div>`
+  const seg = (rotulo, campo, opcoes, fmt = (v) => v) => html`<div class="cr-seg"><span class="k-rotulo">${rotulo}</span>
+    <${Pilulas} label=${rotulo} valor=${takes[campo]} onEscolher=${(o) => setTakes((t) => ({ ...t, [campo]: o }))} itens=${opcoes.map((o) => ({ value: o, label: fmt(o) }))} />
+  </div>`
   return html`<div class="cr-pc">
     ${ultimo
       ? html`<div class=${cx('cr-pc-estado', `is-${ultimo.status}`)}>
@@ -443,12 +456,10 @@ function Andamento({ j }) {
       : j.fase === 'lendo'
         ? 'Escuro, desfocado, tremido, perto de corte e repetido ficam de fora.'
         : `${count(j.frames?.length || 0)} prontos`
-  return html`<div class="cr-card cr-anda" aria-live="polite">
-    <div class="cr-scan" aria-hidden="true"><span style=${`left:${pct}%`}></span></div>
-    <b>${titulo}</b>
-    <small>${sub}</small>
-    <div class="cr-barra"><span style=${`width:${ini + ((fim - ini) * pct) / 100}%`}></span></div>
-    <${Button} variant="secondary" onClick=${() => j.ac?.abort()}>Parar</${Button}>
+  const total = Math.round(ini + ((fim - ini) * pct) / 100)
+  return html`<div class="cr-passos" aria-live="polite">
+    <${Destaque} titulo=${titulo} numero=${`${total}%`} progresso=${total / 100} vivo=${true} linha=${sub} class="k-entra" />
+    <div class="cr-anda-acoes"><${Button} variant="secondary" onClick=${() => j.ac?.abort()}>Parar</${Button}></div>
   </div>`
 }
 
@@ -472,9 +483,16 @@ function Resultado({ j }) {
   const escolhidos = sel.length ? sel : j.frames
   return html`<div class="cr-res">
     <div class="cr-res-top">
-      <span><b>${count(j.frames.length)} frames</b> · ${count(j.cenas.length)} cenas</span>
+      <span class="k-rotulo">Pronto</span>
       <button type="button" class="link-btn" onClick=${limpar}>Novo</button>
     </div>
+    <${Stats}
+      itens=${[
+        { icone: 'photo', valor: count(j.frames.length), rotulo: 'frames' },
+        { icone: 'film', valor: count(j.cenas.length), rotulo: 'cenas', tom: 'up' },
+        { icone: 'check', valor: count(sel.length), rotulo: 'escolhidos', tom: 'ok' },
+      ]}
+    />
     ${j.fonte?.tipo === 'proxy'
       ? html`<p class="cr-aviso"><${Icon} name="info" size=${15} />O iPhone não abre o original, então estes frames vieram do proxy (${j.fonte.largura}×${j.fonte.altura}). Para tirar do original em alta, peça ao computador.</p>`
       : null}
@@ -512,9 +530,14 @@ function FramesTela({ onVoltar }) {
   const j = useJob()
   return html`<div class="cr-frames">
     <button type="button" class="cr-voltar" onClick=${onVoltar}><${Icon} name="chevron-left" size=${18} />Criar</button>
-    <h2 class="cr-titulo">Frames</h2>
+    <header class="k-cabeca k-entra" style="--i:0">
+      <div class="k-cabeca-txt">
+        <h1>Frames</h1>
+        <p>Do filme pronto aos posts: frames em alta e artes para as redes.</p>
+      </div>
+    </header>
     ${!j
-      ? html`<p class="cr-lead">Escolha o vídeo final. O celular escolhe os melhores frames de cada cena, no tamanho do vídeo.</p><${Escolher} />`
+      ? html`<${Passo} n=${1} titulo="O vídeo final" frase="O filme pronto, do Drive ou da galeria." i=${1}><${Escolher} /></${Passo}>`
       : j.fase === 'ajustes'
         ? html`<${Ajustes} j=${j} />`
         : j.fase === 'baixando' || j.fase === 'lendo' || j.fase === 'frames'
@@ -727,10 +750,15 @@ export function CriarScreen({ active, Calculadora = null }) {
   }
   useJob()
   return html`<div class="screen cr-screen">
-    <header class="topbar dtop">
-      <div class="dtop-row"><h1 class="dtop-title">Criar</h1></div>
-    </header>
     <main class="cr-body">
+      ${tela === 'hub'
+        ? html`<header class="k-cabeca k-entra" style="--i:0">
+            <div class="k-cabeca-txt">
+              <h1>Criar</h1>
+              <p>Ferramentas para o filme pronto e para a gravação.</p>
+            </div>
+          </header>`
+        : null}
       ${tela === 'frames'
         ? html`<${FramesTela} onVoltar=${() => ir('hub')} />`
         : tela === 'calc' && Calculadora

@@ -6,7 +6,7 @@ import { local } from '../lib/config.js'
 import { calcular, comoOComputadorMostra, duracao, tamanho } from '../lib/midia-conta.js'
 import { MODOS } from '../lib/midia-modos.js'
 import { Icon } from './icons.js'
-import { cx } from './ui.js'
+import { Destaque, Opcoes, Passo, Pilulas, Stats } from './kit.js'
 
 const CARTOES = [64, 128, 256, 512, 1000]
 const num = (n, casas = 1) => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: casas }).format(n)
@@ -28,12 +28,6 @@ function useGuardado(chave, inicial) {
   ]
 }
 
-function Seg({ value, options, onChange, label }) {
-  return html`<div class="segmented" role="radiogroup" aria-label=${label}>
-    ${options.map((o) => html`<button type="button" role="radio" aria-checked=${o.value === value ? 'true' : 'false'} class=${cx('segmented-opt', o.value === value && 'is-on')} onClick=${() => onChange(o.value)}>${o.label}</button>`)}
-  </div>`
-}
-
 export function Calculadora() {
   const [cams, setCams] = useGuardado('cameras', () => [novaCamera()])
   const [cartao, setCartao] = useGuardado('cartao', '128')
@@ -52,17 +46,26 @@ export function Calculadora() {
   const muda = (i, c) => setCams(cams.map((x, j) => (j === i ? c : x)))
 
   return html`<div class="calc-cel">
-    <h2 class="cr-titulo">Calculadora</h2>
-    <p class="cr-lead">Quanta mídia levar para o trabalho, com a conta aberta.</p>
+    <header class="k-cabeca k-entra" style="--i:0">
+      <div class="k-cabeca-txt">
+        <h1>Calculadora</h1>
+        <p>Quanta mídia levar para o trabalho, com a conta aberta.</p>
+      </div>
+    </header>
 
-    <section class="cr-card calc-res" aria-live="polite">
+    <section class="calc-res k-entra" style="--i:1" aria-live="polite">
       ${r.linhas.length
-        ? html`<div class="calc-kpis">
-              <div><b>${r.totalCartoes}</b><span>${r.totalCartoes === 1 ? 'cartão' : 'cartões'} de ${tamanho(cartaoGB)}</span></div>
-              <div><b>${tamanho(r.totalGB)}</b><span>de gravação</span></div>
-              <div><b>${r.copias} × ${tamanho(r.totalGB)}</b><span>${r.copias === 1 ? 'HD de backup' : 'HDs (um por cópia)'}</span></div>
-              <div><b>${r.tempoTotalS != null ? duracao(r.tempoTotalS) : '—'}</b><span>${r.tempoTotalS != null ? 'copiar e conferir' : 'diga a velocidade do leitor e do HD'}</span></div>
-            </div>
+        ? html`<${Destaque} titulo="Leve" numero=${r.totalCartoes} unidade=${`${r.totalCartoes === 1 ? 'cartão' : 'cartões'} de ${tamanho(cartaoGB)}`}>
+              <div class="calc-sds" aria-hidden="true">${Array.from({ length: Math.min(r.totalCartoes, 24) }, (_, i) => html`<i style=${`--d:${i * 40}ms`}></i>`)}</div>
+            </${Destaque}>
+            <${Stats}
+              colunas=${3}
+              itens=${[
+                { icone: 'film', valor: tamanho(r.totalGB), rotulo: 'de gravação' },
+                { icone: 'disk', valor: `${r.copias} × ${tamanho(r.totalGB)}`, rotulo: r.copias === 1 ? 'HD de backup' : 'HDs, um por cópia', tom: 'up' },
+                { icone: 'clock', valor: r.tempoTotalS != null ? duracao(r.tempoTotalS) : '—', rotulo: r.tempoTotalS != null ? 'copiar e conferir' : 'diga o leitor e o HD', tom: 'neutro' },
+              ]}
+            />
             <div class="calc-cams">
               ${r.linhas.map((l) => html`<div class="calc-l"><span>${l.nome}<small>${num(l.mbps)} Mb/s · ${num(l.horas)} h</small></span><b>${tamanho(l.gbh)}/h · ${duracao(l.horasPorCartao * 3600)} por cartão</b></div>`)}
             </div>
@@ -77,41 +80,45 @@ export function Calculadora() {
         : html`<p class="calc-vazio">Escolha a câmera e as horas para ver a conta.</p>`}
     </section>
 
-    <h3 class="calc-sec">O que vai gravar</h3>
-    ${cams.map((c, i) => {
-      const modo = MODOS.find((m) => m.id === c.modo)
-      return html`<section key=${c.id} class="cr-card calc-cam">
-        <label class="cr-campo">
-          <span>Câmera e modo</span>
-          <select class="input" value=${c.modo} onChange=${(e) => muda(i, { ...c, modo: e.currentTarget.value })}>
-            ${CAMERAS.map((cam) => html`<optgroup label=${cam}>${MODOS.filter((m) => m.camera === cam).map((m) => html`<option value=${m.id} selected=${m.id === c.modo}>${m.camera} · ${m.modo} · ${num(m.mbps)} Mb/s</option>`)}</optgroup>`)}
-            <option value="manual" selected=${c.modo === 'manual'}>Outra: digitar o bitrate</option>
-          </select>
-          ${modo ? html`<small class="calc-fonte">Fonte: <a href=${modo.fonte} target="_blank" rel="noopener noreferrer">${modo.fonteNome}</a></small>` : null}
-        </label>
-        <div class="calc-dois">
+    <${Passo} n=${1} titulo="O que vai gravar" frase="Câmera, modo e quantas horas cada uma grava." i=${2}>
+      ${cams.map((c, i) => {
+        const modo = MODOS.find((m) => m.id === c.modo)
+        return html`<div key=${c.id} class="calc-cam">
+          <label class="cr-campo">
+            <span>Câmera ${cams.length > 1 ? i + 1 : ''}</span>
+            <select class="input" value=${c.modo} onChange=${(e) => muda(i, { ...c, modo: e.currentTarget.value })}>
+              ${CAMERAS.map((cam) => html`<optgroup label=${cam}>${MODOS.filter((m) => m.camera === cam).map((m) => html`<option value=${m.id} selected=${m.id === c.modo}>${m.camera} · ${m.modo} · ${num(m.mbps)} Mb/s</option>`)}</optgroup>`)}
+              <option value="manual" selected=${c.modo === 'manual'}>Outra: digitar o bitrate</option>
+            </select>
+            ${modo ? html`<small class="calc-fonte">Fonte: <a href=${modo.fonte} target="_blank" rel="noopener noreferrer">${modo.fonteNome}</a></small>` : null}
+          </label>
           ${c.modo === 'manual'
             ? html`<label class="cr-campo"><span>Bitrate (Mb/s)</span><input class="input" inputmode="decimal" placeholder="ex.: 100" value=${c.mbps} onInput=${(e) => muda(i, { ...c, mbps: e.currentTarget.value })} /></label>`
             : null}
-          <label class="cr-campo"><span>Horas gravando</span><input class="input" inputmode="decimal" value=${c.horas} onInput=${(e) => muda(i, { ...c, horas: e.currentTarget.value })} /></label>
-        </div>
-        ${cams.length > 1 ? html`<button type="button" class="link-btn calc-tirar" onClick=${() => setCams(cams.filter((_, j) => j !== i))}>Tirar esta câmera</button>` : null}
-      </section>`
-    })}
-    <button type="button" class="cr-mais" onClick=${() => setCams([...cams, novaCamera()])}><${Icon} name="plus" size=${17} />Somar outra câmera</button>
+          <span class="k-rotulo">Horas gravando</span>
+          <div class="calc-horas">
+            <${Pilulas} label="Horas gravando" valor=${String(lerNum(c.horas) ?? '')} onEscolher=${(v) => muda(i, { ...c, horas: v })} itens=${['2', '4', '8', '10', '12'].map((h) => ({ value: h, label: `${h} h` }))} />
+            <input class="input calc-horas-campo" inputmode="decimal" aria-label="Outras horas" value=${c.horas} onInput=${(e) => muda(i, { ...c, horas: e.currentTarget.value })} />
+          </div>
+          ${cams.length > 1 ? html`<button type="button" class="link-btn calc-tirar" onClick=${() => setCams(cams.filter((_, j) => j !== i))}>Tirar esta câmera</button>` : null}
+        </div>`
+      })}
+      <button type="button" class="cr-mais" onClick=${() => setCams([...cams, novaCamera()])}><span class="cr-mais-ic"><${Icon} name="plus" size=${16} strokeWidth=${2.2} /></span>Somar outra câmera</button>
+    </${Passo}>
 
-    <h3 class="calc-sec">Cartões e backup</h3>
-    <section class="cr-card">
-      <div class="cr-linha">
-        <span>Cartão<small>O de ${num(cartaoGB)} GB aparece com ~${num(mostra.windows)} GB no Windows e ${num(mostra.mac)} GB no Mac.</small></span>
-        <${Seg} label="Cartão" value=${cartao} onChange=${setCartao} options=${CARTOES.map((g) => ({ value: String(g), label: g >= 1000 ? '1 TB' : `${g}` }))} />
-      </div>
-      <div class="cr-linha"><span>Margem</span><${Seg} label="Margem" value=${margem} onChange=${setMargem} options=${['0.1', '0.2', '0.3'].map((v) => ({ value: v, label: `${Number(v) * 100}%` }))} /></div>
-      <div class="cr-linha"><span>Cópias de backup</span><${Seg} label="Cópias" value=${copias} onChange=${setCopias} options=${['1', '2', '3'].map((v) => ({ value: v, label: v === '1' ? '1 HD' : `${v} HDs` }))} /></div>
+    <${Passo} n=${2} titulo="Cartões e backup" frase="O cartão que você usa e quantas cópias de segurança." i=${3}>
+      <span class="k-rotulo">Cartão</span>
+      <${Pilulas} label="Cartão" valor=${cartao} onEscolher=${setCartao} itens=${CARTOES.map((g) => ({ value: String(g), label: g >= 1000 ? '1 TB' : `${g} GB` }))} />
+      <p class="calc-nota"><${Icon} name="info" size=${14} />O de ${num(cartaoGB)} GB aparece com ~${num(mostra.windows)} GB no Windows e ${num(mostra.mac)} GB no Mac.</p>
+      <span class="k-rotulo">Margem nos cartões</span>
+      <${Pilulas} label="Margem" valor=${margem} onEscolher=${setMargem} itens=${['0.1', '0.2', '0.3'].map((v) => ({ value: v, label: `${Number(v) * 100}%` }))} />
+      <span class="k-rotulo">Cópias de backup</span>
+      <${Opcoes} label="Cópias" valor=${copias} onEscolher=${setCopias} itens=${['1', '2', '3'].map((v) => ({ value: v, titulo: v === '1' ? '1 HD' : `${v} HDs`, sub: v === '1' ? 'Uma cópia' : `${v} cópias`, icone: 'disk', up: true }))} />
+      <span class="k-rotulo">Velocidade da cópia <small>opcional</small></span>
       <div class="calc-dois">
         <label class="cr-campo"><span>Leitor (MB/s)</span><input class="input" inputmode="decimal" placeholder="ex.: 280" value=${leitor} onInput=${(e) => setLeitor(e.currentTarget.value)} /></label>
         <label class="cr-campo"><span>HD mais lento (MB/s)</span><input class="input" inputmode="decimal" placeholder="ex.: 150" value=${hd} onInput=${(e) => setHd(e.currentTarget.value)} /></label>
       </div>
-    </section>
+    </${Passo}>
   </div>`
 }

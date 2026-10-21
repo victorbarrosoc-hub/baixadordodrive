@@ -8,6 +8,7 @@ import { createFolder, folderMeta, folderPath, listFolders, listSharedDrives, li
 import { isFolder, kindOf, listPage } from '../lib/browse.js'
 import { bytes } from '../lib/format.js'
 import { closeSheet, folderTrail, getRecents, getState, pushRecent, setState, toast, useApp } from '../lib/state.js'
+import { BotaoGrande } from './kit.js'
 import { Icon } from './icons.js'
 import { Thumb } from './thumb.js'
 import { Button, SheetHead, cx } from './ui.js'
@@ -540,9 +541,9 @@ export function FolderSheet({ verb, onChoose, onCancel } = {}) {
             />`}
     </div>
     <footer class="sheet-foot">
-      <${Button} variant="up" size="lg" class="btn-block" disabled=${atHome} onClick=${() => here && choose(here)}>
+      <${BotaoGrande} icone=${atHome ? null : 'upload'} disabled=${atHome} onClick=${() => here && choose(here)}>
         ${atHome ? 'Escolha um lugar' : html`${verb || 'Enviar para'} “${here.name}”`}
-      </${Button}>
+      </${BotaoGrande}>
     </footer>`
 }
 FolderSheet.label = 'Escolher a pasta de destino'
