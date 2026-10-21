@@ -1,7 +1,7 @@
 // Celular ↔ computador (e celular ↔ celular) pelo Wi-Fi (docs/CELULAR-WIFI.md, lib/p2p.js): o bloco "Mandar para…"
 // no Início (aparelhos da conta e, embaixo, outras pessoas por perto), a folha do envio, a folha do que alguém quer
 // mandar (aceitar, andamento, salvar) e a chave "Aceitar de outras pessoas por perto".
-import { html, useRef, useState } from '../vendor/preact-htm.js'
+import { html, useState } from '../vendor/preact-htm.js'
 import { bytes, percent, plural, speed } from '../lib/format.js'
 import { closeSheet, openSheet, useApp } from '../lib/state.js'
 import { aceitarOferta, cancelarEnvio, cancelarRecebimento, fecharRecebimento, limparEnvio, mandarPara, p2pAndando, quemManda, recusarOferta, salvar, setAceitarOutros } from '../lib/p2p.js'
@@ -68,7 +68,7 @@ export function AceitarOutros() {
 
 // ───── Início ─────
 
-function LinhaAparelho({ a, onEscolher }) {
+export function LinhaAparelho({ a, onEscolher }) {
   const outra = a.conta === 'outra'
   return html`<${Item}
     icone=${icone(a)}
@@ -81,75 +81,47 @@ function LinhaAparelho({ a, onEscolher }) {
   />`
 }
 
-/** "Mandar para…": os aparelhos ligados agora. Escolher um abre a escolha de arquivos. */
-export function MandarComputador({ i = 6, compacto = false }) {
-  const { aparelhos, envio, recebimento } = useApp((s) => s.p2p)
-  const input = useRef(null)
-  const para = useRef(null)
-  const ocupado = envio && p2pAndando(envio.fase)
-  const escolher = (id) => {
-    if (ocupado) return openSheet('p2pEnvio')
-    para.current = id
-    input.current.value = ''
-    input.current.click()
-  }
-  const meus = aparelhos.filter((a) => a.conta !== 'outra')
-  const outros = aparelhos.filter((a) => a.conta === 'outra')
-  const linhaRec =
-    recebimento &&
-    html`<${Item}
-      class="p2p-linha"
-      icone="download"
-      tom="down"
-      on=${recebimento.fase === 'pedido'}
-      titulo=${recebimento.fase === 'pedido' ? `${quemManda(recebimento.de)} quer mandar arquivos` : `De ${quemManda(recebimento.de)}`}
-      sub=${recebimento.fase === 'pedido' ? 'Toque para ver' : recebimento.fase === 'pronto' ? `${plural(recebimento.recebidos?.length || 0, 'arquivo', 'arquivos')} para salvar` : recebimento.fase === 'andando' ? `${percent(recebimento.total ? recebimento.bytes / recebimento.total : 0)} · ${speed(recebimento.velocidade || 0)}` : faseTexto(recebimento)}
-      fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
-      onClick=${() => openSheet('p2pReceber')}
-    />`
-  const linhaEnvio =
-    envio &&
-    html`<${Item}
-      class="p2p-linha"
-      icone="upload"
-      tom="up"
-      titulo=${`Para ${titulo(envio.para)}`}
-      sub=${envio.fase === 'andando' ? `${percent(envio.total ? envio.bytes / envio.total : 0)} · ${speed(envio.velocidade || 0)}` : faseTexto(envio, envio.para)}
-      fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
-      onClick=${() => openSheet('p2pEnvio')}
-    />`
-  if (!aparelhos.length && !envio && !recebimento) return null
-  if (compacto) return html`<section class="p2p-bloco k-itens" aria-label="No Wi-Fi">${recebimento ? linhaRec : null}${envio ? linhaEnvio : null}</section>`
-  return html`<section class="p2p-bloco ini-entra" style=${`--i:${i}`} aria-label="Mandar para outro aparelho">
-    <${Rotulo}>Mandar pelo Wi-Fi</${Rotulo}>
-    <div class="k-itens">
-      ${recebimento ? linhaRec : null}
-      ${envio ? linhaEnvio : null}
-      ${meus.map((a) => html`<${LinhaAparelho} key=${a.id} a=${a} onEscolher=${escolher} />`)}
-    </div>
-    ${outros.length
-      ? html`<${Rotulo}>Por perto</${Rotulo}>
-          <div class="k-itens">${outros.map((a) => html`<${LinhaAparelho} key=${a.id} a=${a} onEscolher=${escolher} />`)}</div>`
+/** O que está passando agora: o pedido ou o recebimento e o envio, cada um uma linha que abre a folha. */
+export function LinhasAgora() {
+  const { envio, recebimento } = useApp((s) => s.p2p)
+  return html`${recebimento
+      ? html`<${Item}
+          class="p2p-linha"
+          icone="download"
+          tom="down"
+          on=${recebimento.fase === 'pedido'}
+          titulo=${recebimento.fase === 'pedido' ? `${quemManda(recebimento.de)} quer mandar arquivos` : `De ${quemManda(recebimento.de)}`}
+          sub=${recebimento.fase === 'pedido' ? 'Toque para ver' : recebimento.fase === 'pronto' ? `${plural(recebimento.recebidos?.length || 0, 'arquivo', 'arquivos')} para salvar` : recebimento.fase === 'andando' ? `${percent(recebimento.total ? recebimento.bytes / recebimento.total : 0)} · ${speed(recebimento.velocidade || 0)}` : faseTexto(recebimento)}
+          fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
+          onClick=${() => openSheet('p2pReceber')}
+        />`
       : null}
-    <${AceitarOutros} />
-    <input
-      ref=${input}
-      type="file"
-      multiple
-      hidden
-      onChange=${(e) => {
-        const files = Array.from(e.currentTarget.files || [])
-        if (files.length && para.current) mandarPara(para.current, files)
-      }}
-    />
-  </section>`
+    ${envio
+      ? html`<${Item}
+          class="p2p-linha"
+          icone="upload"
+          tom="up"
+          titulo=${`Para ${titulo(envio.para)}`}
+          sub=${envio.fase === 'andando' ? `${percent(envio.total ? envio.bytes / envio.total : 0)} · ${speed(envio.velocidade || 0)}` : faseTexto(envio, envio.para)}
+          fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
+          onClick=${() => openSheet('p2pEnvio')}
+        />`
+      : null}`
 }
 
-/** Com a fila de envio andando (Início encolhido), só o que está passando no Wi-Fi. */
+/** No Início, só o que está passando no Wi-Fi (mandar e receber ficam na aba Aparelhos). */
 export function P2pAndamentoCompacto() {
   const { envio, recebimento } = useApp((s) => s.p2p)
   if (!(envio && p2pAndando(envio.fase)) && !(recebimento && (p2pAndando(recebimento.fase) || recebimento.fase === 'pedido'))) return null
-  return html`<${MandarComputador} compacto />`
+  return html`<section class="p2p-bloco k-itens" aria-label="No Wi-Fi"><${LinhasAgora} /></section>`
+}
+
+/** Algo para a aba Aparelhos chamar atenção: alguém pedindo para mandar ou arquivo passando. */
+export function useP2pAviso() {
+  const { envio, recebimento } = useApp((s) => s.p2p)
+  if (recebimento?.fase === 'pedido') return 'pedido'
+  if ((envio && p2pAndando(envio.fase)) || (recebimento && p2pAndando(recebimento.fase))) return 'andando'
+  return null
 }
 
 // ───── folha do envio ─────

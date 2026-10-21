@@ -13,6 +13,7 @@ import { Button, SheetHead, copyText, cx } from './ui.js'
 import { KindGlyph, Thumb } from './thumb.js'
 import { Preview } from './preview.js'
 import { switchDrive } from './account.js'
+import { TopoMarca } from './main.js'
 
 const POLL_MS = 15_000
 
@@ -264,6 +265,7 @@ function Home({ onOpen }) {
   const fila = st.fila || []
   const naFila = fila.filter((i) => i.status !== 'erro').length
   return html`<div class="screen refs-screen">
+    <${TopoMarca} />
     <header class="k-cabeca k-entra rtop-k" style="--i:0">
       <div class="k-cabeca-txt">
         <h1>Referências</h1>

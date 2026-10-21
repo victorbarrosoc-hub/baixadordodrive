@@ -103,6 +103,7 @@ if (!LAN) {
   // /app/#referencias (link de Sua conta): abre a aba, se a conta tiver o recurso.
   window.addEventListener('hashchange', () => {
     if (location.hash === '#referencias') setState({ tab: 'refs' })
+    if (location.hash === '#aparelhos') setState({ tab: 'ap' })
     if (location.hash === '#computador') openComputer()
   })
   // "No computador" (lib/computador.js): começa a acompanhar depois de entrar; /app/#computador (aviso do celular,

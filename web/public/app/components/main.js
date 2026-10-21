@@ -15,7 +15,7 @@ import { InstallHint } from './install-hint.js'
 import { isIOS } from '../lib/platform.js'
 import { ComputerCard } from './computador.js'
 import { Atalhos, Espaco, Recentes, Saudacao } from './inicio.js'
-import { MandarComputador, P2pAndamentoCompacto } from './p2p.js'
+import { P2pAndamentoCompacto } from './p2p.js'
 
 export function Avatar({ user, size = 32 }) {
   const [broken, setBroken] = useState(false)
@@ -25,6 +25,19 @@ export function Avatar({ user, size = 32 }) {
       ? html`<img src=${photo} alt="" width=${size} height=${size} referrerpolicy="no-referrer" onError=${() => setBroken(true)} />`
       : initials(user?.displayName, user?.emailAddress)}
   </span>`
+}
+
+/** A barra do topo (marca e conta) nas abas sem barra própria (Referências, Criar), igual à do Início. */
+export function TopoMarca() {
+  const user = useApp((s) => s.user)
+  return html`<header class="topbar">
+    <div class="topbar-row">
+      <${Wordmark} size=${24} />
+      <button type="button" class="avatar-btn" onClick=${() => openSheet('settings')} aria-label="Conta e ajustes">
+        <${Avatar} user=${user} size=${32} />
+      </button>
+    </div>
+  </header>`
 }
 
 /** Modo Wi-Fi: a conta e a pasta padrão vêm do computador (GET /m/api/info). Sem resposta, tenta de novo sozinho. */
@@ -334,7 +347,7 @@ export function MainScreen() {
         : html`<div class="ini-entra" style="--i:1"><${Destination} dest=${dest} /></div>`}
       ${reconnect ? html`<${ReconnectNotice} drive=${drive} message=${authError} />` : null}
       ${compact ? null : html`<div class="ini-entra" style="--i:2"><${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} /></div>`}
-      ${inicio ? html`<${Atalhos} /><${MandarComputador} /><${Espaco} /><${Recentes} user=${user} dest=${dest} />` : null}
+      ${inicio ? html`<${Atalhos} /><${P2pAndamentoCompacto} /><${Espaco} /><${Recentes} user=${user} dest=${dest} />` : null}
       ${LAN ? html`<${LanNotices} lan=${lan} sum=${sum} />` : null}
 
       ${engine.notice

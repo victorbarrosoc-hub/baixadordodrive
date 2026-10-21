@@ -2211,6 +2211,35 @@ code {
 .tab-refs.is-on {
   color: var(--text);
 }
+.tab-dot.is-pedido {
+  width: 11px;
+  height: 11px;
+  top: -3px;
+  right: -3px;
+  background: var(--warn);
+}
+/* Aparelhos: no meio e em destaque (vai ser muito usada) */
+.tab-ap-pilula {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 30px;
+  margin: -3px 0;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--up) 90%, transparent);
+  transition: transform 0.18s var(--ease), box-shadow 0.18s;
+}
+.tab-ap:active .tab-ap-pilula {
+  transform: scale(0.92);
+}
+.tab-ap.is-on .tab-ap-pilula {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--up) 28%, transparent), 0 8px 20px -8px color-mix(in srgb, var(--up) 90%, transparent);
+}
+.tab-ap.is-on {
+  color: var(--text);
+}
 .tab-dot {
   position: absolute;
   top: 0;
@@ -3723,6 +3752,13 @@ html.has-preview .toasts {
   flex-direction: column;
   gap: 14px;
   padding-top: 12px;
+}
+.rsave-k {
+  display: grid;
+  gap: 10px;
+}
+.rsave-k .k-botao-dica {
+  margin: 0;
 }
 .rtop .dtop-actions .icon-btn,
 .rtop .dtop-back {
@@ -8275,9 +8311,6 @@ button.k-item:active:not(:disabled) {
 }
 
 /* ───── Telas no kit: Criar (Frames, Calculadora) ───── */
-.cr-screen .k-cabeca {
-  padding-top: calc(var(--safe-t) + 14px);
-}
 .cr-body > .k-cabeca {
   margin-bottom: 4px;
 }
@@ -8584,4 +8617,22 @@ a.k-botao {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+/* ───── aba Aparelhos (components/aparelhos.js) ───── */
+.ap-body {
+  display: grid;
+  gap: 18px;
+  padding: 4px 0 calc(110px + var(--safe-b));
+}
+.ap-grupo {
+  display: grid;
+  gap: 8px;
+}
+.ap-body .k-vazio {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+.ap-como .k-item-txt > span {
+  white-space: normal;
 }

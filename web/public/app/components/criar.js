@@ -18,6 +18,7 @@ import { FUNDOS, LAYOUTS, ZOOM_MAX, desenharPost, enquadreDe, fatiar, frameNoPon
 import { Icon } from './icons.js'
 import { Button, SheetHead, cx } from './ui.js'
 import { BotaoGrande, Destaque, Opcoes, Passo, Pilulas, Stats } from './kit.js'
+import { TopoMarca } from './main.js'
 
 const QUANTOS = [6, 12, 24, 36]
 const GRANDE = 1.5e9 // acima disso, pelo celular demora: sugere o computador
@@ -750,6 +751,7 @@ export function CriarScreen({ active, Calculadora = null }) {
   }
   useJob()
   return html`<div class="screen cr-screen">
+    <${TopoMarca} />
     <main class="cr-body">
       ${tela === 'hub'
         ? html`<header class="k-cabeca k-entra" style="--i:0">
