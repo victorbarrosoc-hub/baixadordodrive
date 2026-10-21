@@ -7,6 +7,7 @@ import { closeSheet, getState, openSheet, setState, toast, useApp } from '../lib
 import { kindOf } from '../lib/browse.js'
 import { duration, plural } from '../lib/format.js'
 import { isIOS } from '../lib/platform.js'
+import { BotaoGrande, Item, Passo, Rotulo, Stats, Vazio } from './kit.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, copyText, cx } from './ui.js'
 import { KindGlyph, Thumb } from './thumb.js'
@@ -99,6 +100,8 @@ function FirstUse() {
 }
 
 function SaveButton({ colecaoId, small }) {
+  if (!small)
+    return html`<div class="rsave-k k-entra" style="--i:1"><${BotaoGrande} icone="link" onClick=${() => openSheet('refSave', colecaoId ? { colecaoId } : {})} dica="Instagram, YouTube, TikTok. O computador baixa e guarda no seu Drive.">Salvar link</${BotaoGrande}></div>`
   return html`<button type="button" class=${cx('rsave', small && 'is-small')} onClick=${() => openSheet('refSave', colecaoId ? { colecaoId } : {})}>
     <span class="rsave-icon" aria-hidden="true"><${Icon} name="link" size=${small ? 19 : 23} strokeWidth=${1.9} /></span>
     <span class="rsave-text">
@@ -113,13 +116,12 @@ function Waiting({ fila }) {
   const waiting = (fila || []).filter((i) => i.status !== 'erro').length
   const failed = (fila || []).filter((i) => i.status === 'erro').length
   if (!waiting && !failed) return null
-  return html`<div class="rwait" role="status">
-    <span class=${cx('rwait-dot', !waiting && 'is-err')} aria-hidden="true"></span>
-    <div>
-      <b>${waiting ? `${plural(waiting, 'link esperando', 'links esperando')} o computador` : `${plural(failed, 'link não baixou', 'links não baixaram')}`}</b>
-      <span>${waiting ? 'Com o SOBEDESCE aberto no computador, eles baixam sozinhos.' : 'Abra a coleção para tentar de novo.'}</span>
-    </div>
-  </div>`
+  return html`<div role="status"><${Item}
+    icone=${waiting ? 'clock' : 'warning'}
+    tom=${waiting ? 'warn' : 'erro'}
+    titulo=${waiting ? `${plural(waiting, 'link esperando', 'links esperando')} o computador` : `${plural(failed, 'link não baixou', 'links não baixaram')}`}
+    sub=${waiting ? 'Com o SOBEDESCE aberto no computador, eles baixam sozinhos.' : 'Abra a coleção para tentar de novo.'}
+  /></div>`
 }
 
 // ───── procurar referência no app de cada rede (o "Abrir navegador" do computador, no celular) ─────
@@ -189,24 +191,22 @@ function BackFrom({ from, dismiss }) {
 }
 
 function Sources() {
-  return html`<div class="rsrc">
-    <p class="rsrc-label">Procurar referência</p>
-    <div class="rsrc-row">
+  return html`<${Passo} icone="search" cor="up" titulo="Procurar referência" frase="Copie o link do post e volte para cá: um toque cola e salva." i=${3}>
+    <div class="k-pilulas rsrc-row">
       ${SOURCES.map(
         (s) => html`<a
           key=${s.id}
-          class="rsrc-btn"
+          class="k-pilula rsrc-btn"
           href=${s.href}
           target="_blank"
           rel="noopener noreferrer"
           onClick=${() => away.set({ label: s.label, em: Date.now() })}
         >
-          <span>${s.label}</span><${Icon} name="external" size=${14} strokeWidth=${2} />
+          <span>${s.label}</span><${Icon} name="external" size=${13} strokeWidth=${2} />
         </a>`,
       )}
     </div>
-    <p class="rsrc-hint">Copie o link do post e volte para cá: um toque cola e salva.</p>
-  </div>`
+  </${Passo}>`
 }
 
 // O atalho do iPhone já em uso? (null = ainda não sei). Só a chave gerada não basta: o atalho pode nunca ter sido
@@ -261,21 +261,33 @@ function Home({ onOpen }) {
   const { st, drive } = useApp((s) => ({ st: s.refs, drive: s.drive }))
   const list = st.colecoes || []
   const back = useBackFrom()
+  const fila = st.fila || []
+  const naFila = fila.filter((i) => i.status !== 'erro').length
   return html`<div class="screen refs-screen">
-    <header class="topbar dtop rtop">
-      <div class="dtop-row">
-        <h1 class="dtop-title">Referências</h1>
-        <div class="dtop-actions">
-          <button type="button" class="icon-btn" onClick=${() => openSheet('refName')} aria-label="Nova coleção">
-            <${Icon} name="plus" size=${22} strokeWidth=${2} />
-          </button>
-        </div>
+    <header class="k-cabeca k-entra rtop-k" style="--i:0">
+      <div class="k-cabeca-txt">
+        <h1>Referências</h1>
+        <p>Vídeos que inspiram, salvos no seu Drive.</p>
+      </div>
+      <div class="k-cabeca-acoes">
+        <button type="button" class="icon-btn" onClick=${() => openSheet('refName')} aria-label="Nova coleção">
+          <${Icon} name="plus" size=${22} strokeWidth=${2} />
+        </button>
       </div>
     </header>
     <main class="refs-body" aria-busy=${st.status === 'loading' ? 'true' : 'false'}>
       <${FirstUse} />
       <${BackFrom} ...${back} />
       <${SaveButton} />
+      ${st.status === 'ready' && list.length
+        ? html`<div class="k-entra" style="--i:2"><${Stats}
+            itens=${[
+              { icone: 'bookmark', valor: list.length, rotulo: list.length === 1 ? 'coleção' : 'coleções', tom: 'warn' },
+              { icone: 'clock', valor: naFila, rotulo: 'na fila', tom: naFila ? 'up' : 'neutro' },
+              { icone: 'laptop', valor: fila.length - naFila, rotulo: 'não baixaram', tom: fila.length - naFila ? 'erro' : 'neutro' },
+            ]}
+          /></div>`
+        : null}
       <${Sources} />
       <${ShortcutSlot} at="top" />
       <${Waiting} fila=${st.fila} />
@@ -293,7 +305,7 @@ function Home({ onOpen }) {
           </ul>`
         : null}
       ${st.status === 'ready' && list.length
-        ? html`<h2 class="rhead">Coleções <span>${list.length}</span></h2>
+        ? html`<${Rotulo}>Coleções · ${list.length}</${Rotulo}>
             <ul class="rgrid">
               ${list.map((c) => html`<${CollectionCard} key=${c.id} c=${c} drive=${drive} onOpen=${onOpen} />`)}
               <li>
@@ -306,12 +318,9 @@ function Home({ onOpen }) {
             </ul>`
         : null}
       ${st.status === 'ready' && !list.length
-        ? html`<div class="rempty">
-            <span class="rempty-art" aria-hidden="true"><${Icon} name="bookmark" size=${30} strokeWidth=${1.5} /></span>
-            <b>Suas referências, num lugar só</b>
-            <p>Crie coleções como “Planos-sequência” ou “Luz de janela” e salve os vídeos que inspiram. Tudo fica no seu Drive.</p>
-            <${Button} variant="primary" icon="plus" onClick=${() => openSheet('refName')}>Criar a primeira coleção</${Button}>
-          </div>`
+        ? html`<${Vazio} icone="bookmark" titulo="Suas referências, num lugar só" acoes=${html`<${Button} variant="primary" icon="plus" onClick=${() => openSheet('refName')}>Criar a primeira coleção</${Button}>`}>
+            Crie coleções como “Planos-sequência” ou “Luz de janela” e salve os vídeos que inspiram. Tudo fica no seu Drive.
+          </${Vazio}>`
         : null}
       <${ShortcutSlot} at="bottom" />
       <p class="foot">Tudo fica no seu Drive, na pasta SOBEDESCE Referências.</p>
