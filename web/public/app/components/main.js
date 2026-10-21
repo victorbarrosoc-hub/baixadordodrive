@@ -15,6 +15,7 @@ import { InstallHint } from './install-hint.js'
 import { isIOS } from '../lib/platform.js'
 import { ComputerCard } from './computador.js'
 import { Atalhos, Espaco, Recentes, Saudacao } from './inicio.js'
+import { MandarComputador, P2pAndamentoCompacto } from './p2p.js'
 
 export function Avatar({ user, size = 32 }) {
   const [broken, setBroken] = useState(false)
@@ -324,6 +325,7 @@ export function MainScreen() {
     <main class=${cx('main-body', compact && 'is-compact', inicio && 'is-inicio')}>
       ${inicio ? html`<${Saudacao} user=${user} />` : null}
       ${LAN ? null : html`<${ComputerCard} />`}
+      ${!LAN && compact ? html`<${P2pAndamentoCompacto} />` : null}
       ${compact
         ? html`<div class="sendbar">
             <${Destination} dest=${dest} compact />
@@ -332,7 +334,7 @@ export function MainScreen() {
         : html`<div class="ini-entra" style="--i:1"><${Destination} dest=${dest} /></div>`}
       ${reconnect ? html`<${ReconnectNotice} drive=${drive} message=${authError} />` : null}
       ${compact ? null : html`<div class="ini-entra" style="--i:2"><${Picker} dest=${lan?.noAccount || reconnect ? null : dest} account=${user?.emailAddress} /></div>`}
-      ${inicio ? html`<${Atalhos} /><${Espaco} /><${Recentes} user=${user} dest=${dest} />` : null}
+      ${inicio ? html`<${Atalhos} /><${MandarComputador} /><${Espaco} /><${Recentes} user=${user} dest=${dest} />` : null}
       ${LAN ? html`<${LanNotices} lan=${lan} sum=${sum} />` : null}
 
       ${engine.notice
