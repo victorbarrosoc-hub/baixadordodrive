@@ -112,6 +112,13 @@ export function openExternal(url) {
   window.open(abs, '_blank', 'noopener,noreferrer')
 }
 
+/** Mac: abre Ajustes do Sistema na Rede Local (src/celular/rede-local.js). */
+export function abrirAjustesRede() {
+  if (!bridge?.abrirAjustesRede) return false
+  safe(() => bridge.abrirAjustesRede())
+  return true
+}
+
 export function revealPath(path) {
   if (!path) return null
   if (bridge?.reveal) {

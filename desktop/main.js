@@ -418,6 +418,13 @@ ipcMain.handle('sobedesce:open-external', (event, url) => {
   if (trustedSender(event, engineUrl)) openExternal(url)
 })
 
+// Só este endereço fixo (openExternal só abre http/https): Ajustes do Sistema → Privacidade e Segurança → Rede Local.
+ipcMain.handle('sobedesce:abrir-ajustes-rede', event => {
+  if (!trustedSender(event, engineUrl) || process.platform !== 'darwin') return false
+  shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork')
+  return true
+})
+
 ipcMain.handle('sobedesce:abrir-navegador', (event, url) => {
   if (!trustedSender(event, engineUrl) || !engineUrl) return false
   const janela = abrirNavegador({ engineUrl, url: typeof url === 'string' ? url : null, openExternal })

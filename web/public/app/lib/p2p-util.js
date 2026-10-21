@@ -83,6 +83,37 @@ export class Medidor {
   }
 }
 
+const CAMINHO = { host: 'local', srflx: 'internet', prflx: 'descoberto', relay: 'retransmitido' }
+
+/**
+ * Por que não conectou, a partir das estatísticas do WebRTC: os caminhos de cada lado e quantas checagens foram e
+ * voltaram. Muitas idas e nenhuma volta = o outro lado não responde (no Mac, quase sempre a Rede Local desligada).
+ */
+export function resumoConexao(stats, estado) {
+  const local = new Set()
+  const remoto = new Set()
+  let idas = 0
+  let voltas = 0
+  for (const r of stats?.values?.() || []) {
+    if (r.type === 'local-candidate') local.add(CAMINHO[r.candidateType] || r.candidateType)
+    else if (r.type === 'remote-candidate') remoto.add(CAMINHO[r.candidateType] || r.candidateType)
+    else if (r.type === 'candidate-pair') {
+      idas += Number(r.requestsSent) || 0
+      voltas += Number(r.responsesReceived) || 0
+    }
+  }
+  return { local: [...local], remoto: [...remoto], idas, voltas, estado: estado || '' }
+}
+
+/** Uma linha curta para o print: "Este: local, internet · Outro: local · 24 idas, 0 voltas · failed". */
+export function textoConexao(d) {
+  if (!d) return ''
+  const lista = (a) => (a.length ? a.join(', ') : 'nenhum')
+  return `Este: ${lista(d.local)} · Outro: ${lista(d.remoto)} · ${d.idas} idas, ${d.voltas} voltas${d.estado ? ` · ${d.estado}` : ''}`
+}
+
+export const DICA_MAC = 'Se o outro for um Mac: Ajustes do Sistema → Privacidade e Segurança → Rede Local → ligue o SOBEDESCE.'
+
 /** Mensagem para a pessoa a partir de um erro do canal ou da rede. */
 export function mensagemDe(err) {
   const m = err?.motivo

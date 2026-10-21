@@ -102,6 +102,8 @@ mac:
     NSDownloadsFolderUsageDescription: O SOBEDESCE grava os downloads na pasta que você escolher.
     NSRemovableVolumesUsageDescription: O SOBEDESCE lê e grava arquivos em discos externos que você escolher.
     NSNetworkVolumesUsageDescription: O SOBEDESCE lê e grava arquivos em volumes de rede que você escolher.
+    # macOS 15+: sem a Rede Local, o Wi-Fi com o celular e com outros computadores não conecta (src/celular/rede-local.js).
+    NSLocalNetworkUsageDescription: O SOBEDESCE troca arquivos direto com o seu celular e com outros computadores no mesmo Wi-Fi.
 
 dmg:
   title: SOBEDESCE

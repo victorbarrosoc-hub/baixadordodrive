@@ -205,6 +205,17 @@
   box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--up) 80%, transparent);
   animation: dv-chama 2.4s var(--ease) infinite;
 }
+.dv-pedido.is-aviso {
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--warn) 16%, transparent), transparent 60%),
+    var(--surface);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--warn) 50%, transparent), 0 18px 40px -22px color-mix(in srgb, var(--warn) 70%, transparent);
+}
+.dv-pedido.is-aviso .dv-pedido-ic {
+  background: var(--warn);
+  box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--warn) 80%, transparent);
+  animation: none;
+}
 .dv-pedido-txt {
   display: grid;
   gap: 3px;

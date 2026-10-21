@@ -75,8 +75,8 @@ export function LinhaAparelho({ a, onEscolher }) {
     tom=${outra ? 'warn' : a.tipo === 'celular' ? 'up' : 'down'}
     titulo=${titulo(a)}
     sub=${outra ? a.nome : a.mesmaRede ? html`<span class="p2p-rede">● na mesma rede</span>` : 'Ligado agora'}
-    fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
-    label=${`Mandar para ${outra ? `${titulo(a)}, ${a.nome}` : a.nome}`}
+    fim=${html`<span class="p2p-enviar" aria-hidden="true"><${Icon} name="upload" size=${15} strokeWidth=${2.2} />Enviar</span>`}
+    label=${`Enviar arquivos para ${outra ? `${titulo(a)}, ${a.nome}` : a.nome}`}
     onClick=${() => onEscolher(a.id)}
   />`
 }
@@ -124,6 +124,13 @@ export function useP2pAviso() {
   return null
 }
 
+/** Não conectou: onde ligar (Mac sem Rede Local) e a linha técnica para mandar no print. */
+function PorQue({ dica, detalhe }) {
+  if (!dica && !detalhe) return null
+  return html`${dica ? html`<p class="p2p-dica"><${Icon} name="info" size=${15} /> ${dica}</p>` : null}
+    ${detalhe ? html`<p class="p2p-detalhe">${detalhe}</p>` : null}`
+}
+
 // ───── folha do envio ─────
 
 function prontoTexto(envio) {
@@ -149,6 +156,7 @@ export function P2pEnvioSheet() {
       <${Andamento} t=${envio} nomes=${envio.arquivos.map((a) => a.nome)} tom="up" alvo=${envio.para} />
       ${envio.fase === 'pronto' ? html`<p class="p2p-ok"><${Icon} name="circle-check" size=${18} /> ${prontoTexto(envio)}</p>` : null}
       ${envio.erro ? html`<p class="p2p-erro" role="alert"><${Icon} name="warning" size=${18} /> ${envio.erro}</p>` : null}
+      <${PorQue} dica=${envio.dica} detalhe=${envio.detalhe} />
       ${andando ? html`<${ManterAberta} />` : null}
       <div class="p2p-acoes">
         ${andando
@@ -227,6 +235,7 @@ export function P2pReceberSheet() {
     <div class="sheet-body sheet-scroll p2p-sheet">
       <${Andamento} t=${r} nomes=${(r.lista || []).map((a) => a.nome)} tom="down" />
       ${r.erro ? html`<p class="p2p-erro" role="alert"><${Icon} name="warning" size=${18} /> ${r.erro}</p>` : null}
+      <${PorQue} dica=${r.dica} detalhe=${r.detalhe} />
       ${andando ? html`<${ManterAberta} />` : null}
       ${r.fase === 'pronto' && recebidos.length
         ? html`<${Rotulo}>Chegou</${Rotulo}>

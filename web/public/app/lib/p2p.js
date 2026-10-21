@@ -9,7 +9,7 @@ import { LAN, local } from './config.js'
 import { closeSheet, getState, openSheet, setState, toast } from './state.js'
 import { keepAwake } from './wakelock.js'
 import { CANAL, CanalError, enviarArquivos, esperarAberto, esperarCandidatos, receberArquivos } from './p2p-canal.js'
-import { LIMITE_MEMORIA, Medidor, mensagemDe, nomeAparelho, nomeSeguro, ondeGuardar, tipoDe } from './p2p-util.js'
+import { DICA_MAC, LIMITE_MEMORIA, Medidor, mensagemDe, nomeAparelho, nomeSeguro, ondeGuardar, resumoConexao, textoConexao, tipoDe } from './p2p-util.js'
 
 export const API = { espera: '/api/p2p/espera', aparelhos: '/api/p2p/aparelhos', sinal: '/api/p2p/sinal' }
 
@@ -266,11 +266,23 @@ export async function mandarPara(aparelhoId, files) {
     if (envioAtual === meu) setP2p((s) => ({ envio: { ...s.envio, fase: 'pronto', bytes: total, velocidade: 0 } }))
     setTimeout(() => pc.close(), 1000)
   } catch (err) {
+    const falha = err?.motivo === 'rede' ? await porqueNaoConectou(meu.pc, comp.tipo === 'computador') : null
     meu.pc?.close()
     if (meu.ofertaId && err?.motivo !== 'recusado') mandarSinal({ para: comp.id, tipo: 'cancela', oferta: meu.ofertaId }).catch(() => {})
-    if (envioAtual === meu) setP2p((s) => ({ envio: { ...s.envio, fase: meu.cancelado ? 'cancelado' : 'erro', erro: meu.cancelado ? meu.motivo || null : mensagemDe(err), velocidade: 0 } }))
+    if (envioAtual === meu) setP2p((s) => ({ envio: { ...s.envio, fase: meu.cancelado ? 'cancelado' : 'erro', erro: meu.cancelado ? meu.motivo || null : mensagemDe(err), dica: falha?.dica || null, detalhe: falha?.detalhe || null, velocidade: 0 } }))
   } finally {
     if (envioAtual === meu) keepAwake(false)
+  }
+}
+
+/** Não conectou: a dica (o Mac sem Rede Local, quando o outro lado não respondeu nada) e a linha de detalhe. */
+async function porqueNaoConectou(pc, computador) {
+  if (!pc) return null
+  try {
+    const d = resumoConexao(await pc.getStats(), pc.iceConnectionState)
+    return { detalhe: textoConexao(d), dica: computador && d.voltas === 0 ? DICA_MAC : null }
+  } catch {
+    return { detalhe: null, dica: computador ? DICA_MAC : null }
   }
 }
 
@@ -471,11 +483,12 @@ export async function aceitarOferta() {
       setP2p((st) => ({ recebimento: { ...st.recebimento, fase: 'pronto', bytes: st.recebimento.total, velocidade: 0, recebidos: meu.armazem.arquivos.slice().sort((a, b) => a.i - b.i) } }))
     setTimeout(() => pc.close(), 1000)
   } catch (err) {
+    const falha = err?.motivo === 'rede' ? await porqueNaoConectou(meu.pc, s.de?.tipo === 'computador') : null
     meu.pc?.close()
     if (err?.motivo !== 'recusado' && err?.motivo !== 'caiu') mandarSinal({ para: s.de.id, tipo: 'cancela', oferta: s.id }).catch(() => {})
     if (recebimentoAtual === meu) {
       descartarArmazem({ armazem: meu.armazem })
-      setP2p((st) => ({ recebimento: { ...st.recebimento, fase: meu.cancelado ? 'cancelado' : 'erro', erro: meu.cancelado ? meu.motivo || null : mensagemDe(err), velocidade: 0, recebidos: [] } }))
+      setP2p((st) => ({ recebimento: { ...st.recebimento, fase: meu.cancelado ? 'cancelado' : 'erro', erro: meu.cancelado ? meu.motivo || null : mensagemDe(err), dica: falha?.dica || null, detalhe: falha?.detalhe || null, velocidade: 0, recebidos: [] } }))
     }
   } finally {
     if (recebimentoAtual === meu) keepAwake(false)

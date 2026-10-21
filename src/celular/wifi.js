@@ -15,6 +15,7 @@ import crypto from 'node:crypto'
 import { pipeline } from 'node:stream/promises'
 import { Transform } from 'node:stream'
 import { isJunkFile, safeLocalName } from '../util/paths.js'
+import { MSG_REDE_BLOQUEADA, criarRedeLocal } from './rede-local.js'
 
 export const RECEBENDO = '.sobedesce-recebendo'
 const ESPERA_TIMEOUT_MS = 40_000 // o site segura até 25 s; folga para a rede
@@ -113,16 +114,17 @@ export async function listarArquivos(caminhos, max = MAX_ARQUIVOS) {
 
 /**
  * @param {{ settings, cloud: () => object|null, nome?: () => Promise<string>|string, hub?: { send(ev, data): void },
- *           log?: Function, aparelhosMs?: number }} o
+ *           log?: Function, aparelhosMs?: number, redeLocal?: { estado, conferir() } }} o
  */
 export class CelularWifi {
-  constructor({ settings, cloud, nome = () => 'Computador', hub = null, log = () => {}, aparelhosMs = APARELHOS_MS } = {}) {
+  constructor({ settings, cloud, nome = () => 'Computador', hub = null, log = () => {}, aparelhosMs = APARELHOS_MS, redeLocal = criarRedeLocal() } = {}) {
     this.settings = settings
     this.cloud = typeof cloud === 'function' ? cloud : () => cloud
     this.nome = nome
     this.hub = hub
     this.log = log
     this.aparelhosMs = aparelhosMs
+    this.redeLocal = redeLocal
     this.celulares = []
     this.transfers = new Map()
     this.rodando = false
@@ -141,7 +143,20 @@ export class CelularWifi {
     this.cloud()?.on?.('status', this.onStatus)
     this.timer = setInterval(() => this.atualizarAparelhos().catch(() => {}), this.aparelhosMs)
     this.timer.unref?.()
+    // No macOS 15+, a primeira tentativa também faz o sistema pedir a permissão de Rede Local.
+    this.conferirRede().catch(() => {})
     this.#acordar()
+  }
+
+  /** Confere a permissão de Rede Local do macOS (rede-local.js) e avisa a tela se mudou. */
+  async conferirRede({ forcar = false } = {}) {
+    const antes = this.redeLocal.estado
+    const r = await this.redeLocal.conferir({ forcar })
+    if (r !== antes) {
+      if (r === 'bloqueada') this.log('celular: o macOS está bloqueando a rede local (Ajustes → Privacidade e Segurança → Rede Local)')
+      this.#avisar()
+    }
+    return r
   }
 
   async close() {
@@ -223,11 +238,14 @@ export class CelularWifi {
       if (s.de?.tipo && s.de.tipo !== 'celular') return
       const st = this.settings.get()
       const outra = s.de?.conta === 'outra'
+      const rede = st.celularReceber ? await this.conferirRede().catch(() => null) : null
       const motivo = !st.celularReceber
         ? 'Este computador não está recebendo do celular. Ligue em Dispositivos, no app do computador.'
         : outra && !st.celularOutros
           ? 'Este computador não aceita arquivos de outras pessoas.'
-          : !this.janelaPronta()
+          : rede === 'bloqueada'
+            ? MSG_REDE_BLOQUEADA
+            : !this.janelaPronta()
             ? 'O app do computador não está pronto para receber agora. Feche e abra o SOBEDESCE no computador.'
             : outra && this.pedidos.size >= MAX_PEDIDOS
               ? 'O computador tem pedidos demais esperando. Tente daqui a pouco.'
@@ -334,6 +352,7 @@ export class CelularWifi {
     if (typeof para !== 'string' || !para) throw new CelularError(400, 'Escolha o celular.')
     const lista = Array.isArray(caminhos) ? caminhos.filter((c) => typeof c === 'string' && c && path.isAbsolute(c)).slice(0, 500) : []
     if (!lista.length) throw new CelularError(400, 'Escolha o que mandar.')
+    if ((await this.conferirRede().catch(() => null)) === 'bloqueada') throw new CelularError(409, MSG_REDE_BLOQUEADA)
     const arquivos = await listarArquivos(lista)
     if (!arquivos.length) throw new CelularError(400, 'Não achei arquivos para mandar nessa escolha.')
     const cel = this.celulares.find((c) => c.id === para)
@@ -467,6 +486,8 @@ export class CelularWifi {
         await this.#encerrar(t, 'pronto')
       }
     } else if (estado === 'erro') {
+      // Não conectou: talvez o macOS tenha passado a bloquear a rede local; confere de novo para a tela avisar.
+      this.conferirRede({ forcar: true }).catch(() => {})
       await this.#encerrar(t, 'erro', typeof erro === 'string' && erro ? erro.slice(0, 300) : 'A transferência parou.')
     }
     return this.#publico(t)
@@ -502,6 +523,8 @@ export class CelularWifi {
       // Sem a janela oculta (npm start, teste), o computador não fala com o celular.
       pronto: this.janelaPronta(),
       outros: !!st.celularOutros,
+      // macOS 15+: 'bloqueada' = sem a permissão de Rede Local (a tela mostra como ligar); null fora do Mac ou sem saber.
+      redeLocal: this.redeLocal.estado,
       celulares: this.celulares,
       pedidos: [...this.pedidos.values()].map((p) => this.#pedidoPublico(p.sinal)),
       transferencias: lista.map((t) => this.#publico(t)),

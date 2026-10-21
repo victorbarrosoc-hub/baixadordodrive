@@ -2,7 +2,7 @@
 // que chega (OPFS ou memória, com o limite), nomes e tipos dos arquivos, velocidade e mensagens de erro.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LIMITE_MEMORIA, Medidor, mensagemDe, nomeAparelho, nomeSeguro, ondeGuardar, tipoDe } from '../web/public/app/lib/p2p-util.js'
+import { DICA_MAC, LIMITE_MEMORIA, Medidor, mensagemDe, nomeAparelho, nomeSeguro, ondeGuardar, resumoConexao, textoConexao, tipoDe } from '../web/public/app/lib/p2p-util.js'
 
 test('nome do aparelho pelo user-agent', () => {
   assert.equal(nomeAparelho('Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) Mobile/15E148 Safari/604.1'), 'iPhone')
@@ -49,4 +49,20 @@ test('mensagens de erro em português claro', () => {
   assert.match(mensagemDe({ motivo: 'caiu' }), /caiu/)
   assert.equal(mensagemDe({ motivo: 'cancelado', message: 'O computador cancelou.' }), 'O computador cancelou.')
   assert.equal(mensagemDe(new Error('Sem espaço no disco.')), 'Sem espaço no disco.')
+})
+
+test('não conectou: resumo das estatísticas do WebRTC para a linha de detalhe', () => {
+  const stats = new Map([
+    ['a', { type: 'local-candidate', candidateType: 'host' }],
+    ['b', { type: 'local-candidate', candidateType: 'srflx' }],
+    ['c', { type: 'remote-candidate', candidateType: 'host' }],
+    ['d', { type: 'candidate-pair', requestsSent: 14, responsesReceived: 0 }],
+    ['e', { type: 'candidate-pair', requestsSent: 10 }],
+    ['f', { type: 'transport' }],
+  ])
+  const d = resumoConexao(stats, 'failed')
+  assert.deepEqual(d, { local: ['local', 'internet'], remoto: ['local'], idas: 24, voltas: 0, estado: 'failed' })
+  assert.equal(textoConexao(d), 'Este: local, internet · Outro: local · 24 idas, 0 voltas · failed')
+  assert.equal(textoConexao(resumoConexao(new Map(), '')), 'Este: nenhum · Outro: nenhum · 0 idas, 0 voltas')
+  assert.match(DICA_MAC, /Rede Local/)
 })

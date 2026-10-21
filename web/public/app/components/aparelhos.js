@@ -35,7 +35,7 @@ export function AparelhosScreen({ active }) {
       <header class="k-cabeca k-entra" style="--i:0">
         <div class="k-cabeca-txt">
           <h1>Aparelhos</h1>
-          <p>Mande e receba arquivos direto no Wi-Fi.</p>
+          <p>Toque num aparelho para enviar fotos, vídeos e arquivos direto no Wi-Fi.</p>
         </div>
         <div class="k-cabeca-acoes">
           <button type="button" class="icon-btn" onClick=${() => atualizarAparelhos()} aria-label="Procurar aparelhos de novo">
@@ -52,7 +52,7 @@ export function AparelhosScreen({ active }) {
         : null}
 
       <section class="ap-grupo k-entra" style="--i:2" aria-label="Seus aparelhos">
-        <${Rotulo}>Seus aparelhos</${Rotulo}>
+        <${Rotulo}>Enviar para seus aparelhos</${Rotulo}>
         ${meus.length
           ? html`<div class="k-itens">${meus.map((a) => html`<${LinhaAparelho} key=${a.id} a=${a} onEscolher=${escolher} />`)}</div>`
           : html`<${Vazio} icone="wifi" titulo="Nenhum aparelho seu aberto agora">
@@ -62,7 +62,7 @@ export function AparelhosScreen({ active }) {
 
       ${outros.length
         ? html`<section class="ap-grupo k-entra" style="--i:3" aria-label="Por perto">
-            <${Rotulo}>Por perto</${Rotulo}>
+            <${Rotulo}>Enviar para quem está por perto</${Rotulo}>
             <div class="k-itens">${outros.map((a) => html`<${LinhaAparelho} key=${a.id} a=${a} onEscolher=${escolher} />`)}</div>
           </section>`
         : null}
