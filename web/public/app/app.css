@@ -7425,3 +7425,161 @@ html.is-dswipe body {
     animation: none;
   }
 }
+
+/* ───── Celular ↔ computador pelo Wi-Fi (components/p2p.js, docs/CELULAR-WIFI.md) ───── */
+.p2p-ico {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  color: var(--text-2);
+  background: var(--fill-2);
+}
+.p2p-ico.is-up {
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.p2p-ico.is-down {
+  color: var(--down-text);
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+}
+.p2p-ico.is-pessoa,
+.p2p-pedido.is-pessoa .p2p-pedido-ico {
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+}
+.p2p-bloco .p2p-perto {
+  margin-top: 6px;
+}
+.p2p-bloco .p2p-outros {
+  margin-top: 2px;
+}
+.p2p-bloco .p2p-outros .pc-push-text {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ini-pasta-txt .p2p-rede {
+  color: var(--ok-text);
+  font-weight: 550;
+}
+.p2p-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: calc(var(--safe-b) + 20px);
+}
+.p2p-sheet .list-label {
+  margin-bottom: -6px;
+}
+.p2p-andamento.is-pronto .pc-summary-pct {
+  color: var(--ok-text);
+}
+.p2p-andamento.is-erro .pc-summary-pct,
+.p2p-andamento.is-cancelado .pc-summary-pct {
+  font-size: 22px;
+  color: var(--err-text);
+}
+.p2p-andamento.is-conectando .pc-summary-pct,
+.p2p-andamento.is-esperando .pc-summary-pct {
+  font-size: 20px;
+  color: var(--text-2);
+}
+.p2p-nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.p2p-dica,
+.p2p-ok,
+.p2p-erro {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.p2p-dica svg,
+.p2p-ok svg,
+.p2p-erro svg {
+  flex: none;
+  margin-top: 1px;
+}
+.p2p-ok {
+  color: var(--ok-text);
+}
+.p2p-erro {
+  color: var(--err-text);
+}
+.p2p-acoes {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+.p2p-acoes.is-duas {
+  grid-template-columns: 1fr 1fr;
+}
+.p2p-acoes .btn {
+  width: 100%;
+}
+.p2p-pedido {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 12px 8px 4px;
+}
+.p2p-pedido-ico {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  margin-bottom: 8px;
+  border-radius: 18px;
+  color: var(--down-text);
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+}
+.p2p-pedido h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.p2p-pedido p {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--text-2);
+}
+.p2p-nomes {
+  width: 100%;
+  margin: 12px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  text-align: left;
+}
+.p2p-nomes li {
+  padding: 7px 14px;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.p2p-nomes li + li {
+  border-top: 0.5px solid var(--hairline);
+}
+.p2p-nomes li.is-mais {
+  color: var(--text-3);
+}
+.pc-row.p2p-arq {
+  grid-template-columns: 32px 1fr auto;
+  align-items: center;
+}

@@ -26,6 +26,12 @@ const NAVEGADORES: [RegExp, string][] = [
   [/Version\/[\d.]+.*Safari\//, "Safari"],
 ];
 
+/** O sistema do aparelho pelo User-Agent ("iPhone", "Android", "Mac"), ou null. */
+export function sistemaDoAparelho(ua: string | null | undefined): string | null {
+  const t = (ua ?? "").slice(0, 512);
+  return SISTEMAS.find(([re]) => re.test(t))?.[1] ?? null;
+}
+
 export function resumirNavegador(ua: string | null | undefined): string | null {
   const t = (ua ?? "").slice(0, 512);
   if (!t) return null;

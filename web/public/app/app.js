@@ -22,6 +22,8 @@ import { BaixarSheet, LixeiraSheet } from './components/selecao.js'
 import { ProxySheet } from './components/proxies.js'
 import { CopySheet } from './components/copiar.js'
 import { FramesPostSheet } from './components/criar.js'
+import { P2pEnvioSheet, P2pReceberSheet } from './components/p2p.js'
+import { startP2p } from './lib/p2p.js'
 import { parseDriveLink } from './lib/copiar.js'
 
 const SHEETS = {
@@ -43,6 +45,8 @@ const SHEETS = {
   proxySelecao: ProxySheet,
   copiar: CopySheet,
   framesPost: FramesPostSheet,
+  p2pEnvio: P2pEnvioSheet,
+  p2pReceber: P2pReceberSheet,
 }
 
 // Android (share_target nos manifestos): /app/?compartilhar=1&title=&text=&url=. O navegador pode trocar a query
@@ -106,6 +110,7 @@ if (!LAN) {
   subscribe((st) => {
     if (st.auth.status !== 'signedIn') return
     startPc()
+    startP2p() // celular ↔ computador pelo Wi-Fi (docs/CELULAR-WIFI.md)
     if (wantComputer) {
       wantComputer = false
       openComputer()

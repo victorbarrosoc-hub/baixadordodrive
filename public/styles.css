@@ -11479,6 +11479,41 @@ button.tree-twisty:hover {
   background: var(--ok);
 }
 
+/* Dispositivos → Celular (components/celular-wifi.js): a lista mora dentro do cartão, sem o padding do cartão. */
+.pc-celular .pc-celular-lista {
+  padding: 0;
+  gap: 8px;
+}
+.pc-celular .pc-chegando-linha b {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pc-celular .pc-comp[disabled] {
+  opacity: 0.6;
+}
+.cel-pedido {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--fill);
+}
+.cel-pedido-txt {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.cel-pedido-acoes {
+  display: flex;
+  gap: 8px;
+}
+
 /* ───── Movimento entre telas: a tela nova sobe e aparece (curto, sem atrapalhar) ───── */
 /* backwards, não both: terminada a entrada não pode sobrar transform (ele vira a referência das barras fixas, como a
    seleção do Drive, e elas saem do lugar). */

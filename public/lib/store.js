@@ -36,6 +36,7 @@ let state = {
   referencias: null, // Referências (src/referencias/service.js): { ativo, motivo, navegador, trabalhos, versoes, ytdlp }
   previas: null, // "Gerar prévias": o lote atual ou o último (mesmo formato)
   copia: null, // "Copiar de um link": a cópia atual ou a última (src/server/copiar.js)
+  celular: null, // Celular pelo Wi-Fi: { receber, pasta, conectado, pronto, celulares, transferencias } (src/server/celular.js)
   lan: null, // Entre computadores: { receber, rodando, porta, pasta, recebendo, envio, conectado } (src/server/lan.js)
   discos: null, // Copiar entre discos: { fase, erro, plano, progresso, resultado } (src/server/discos.js)
   cenas: null, // Busca por cena: { disponivel, modelo: { pronto, baixando, recebido, total, erro }, fila, analisando } (src/server/cenas.js)
@@ -114,6 +115,7 @@ function applyFull(data) {
     cenas: data.cenas !== undefined ? data.cenas : state.cenas,
     discos: data.discos !== undefined ? data.discos : state.discos,
     lan: data.lan !== undefined ? data.lan : state.lan,
+    celular: data.celular !== undefined ? data.celular : state.celular,
     versao: data.versao !== undefined ? data.versao : state.versao,
     referencias: data.referencias !== undefined ? data.referencias : state.referencias,
   })
@@ -253,6 +255,7 @@ function connect() {
   on('cenas', (d) => d && typeof d === 'object' && setState({ cenas: d }))
   on('discos', (d) => d && typeof d === 'object' && setState({ discos: d }))
   on('lan', (d) => d && typeof d === 'object' && setState({ lan: d }))
+  on('celular', (d) => d && typeof d === 'object' && setState({ celular: d }))
   // Outra conta por perto pediu para mandar arquivos: aviso aqui e no sistema (desktop.js), a resposta é na tela.
   on('lan-pedido', (d) => {
     if (!d?.id) return
@@ -260,6 +263,15 @@ function connect() {
     toast('info', `${quem} quer te mandar arquivos.`, { action: { label: 'Responder', href: '#/computadores' }, duration: 30_000 })
     try {
       window.dispatchEvent(new CustomEvent('sd:lan-pedido', { detail: { quem, de: d.de } }))
+    } catch {}
+  })
+  // Outra pessoa por perto quer mandar do celular (docs/CELULAR-WIFI.md): mesmo aviso, a resposta é em Dispositivos.
+  on('celular-pedido', (d) => {
+    if (!d?.id) return
+    const quem = d.dono || 'Alguém por perto'
+    toast('info', `${quem} quer te mandar arquivos do celular.`, { action: { label: 'Responder', href: '#/computadores' }, duration: 30_000 })
+    try {
+      window.dispatchEvent(new CustomEvent('sd:lan-pedido', { detail: { quem, de: d.nome } }))
     } catch {}
   })
   on('versao', (d) => setVersao(d?.versao || d))
