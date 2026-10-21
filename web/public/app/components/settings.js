@@ -9,6 +9,7 @@ import { engine } from '../lib/uploader.js'
 import { Icon } from './icons.js'
 import { Segmented, SheetHead, cx } from './ui.js'
 import { Avatar } from './main.js'
+import { AceitarOutros } from './p2p.js'
 
 function Storage({ quota }) {
   if (!quota) return null
@@ -105,6 +106,8 @@ export function SettingsSheet() {
           </button>
         </li>
       </ul>
+      <h3 class="list-label">No Wi-Fi</h3>
+      <${AceitarOutros} />
       <h3 class="list-label">Conta SOBEDESCE</h3>
       <ul class="group menu">
         <li>
