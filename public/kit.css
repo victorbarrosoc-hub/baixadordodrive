@@ -1,0 +1,836 @@
+/* Kit visual das telas (docs/UI-KIT.md): o padrão de Frames, Cartões e Início para todas as telas do app.
+   Cabeçalho com título e frase; coluna principal de "passos" numerados (cartões com cantos de 20 px); coluna lateral
+   opcional com o resumo colorido e o botão grande; opções em cartões com o check; pílulas; números grandes em
+   gradiente; blocos de estatística; linhas de ajuste; estado vazio com desenho animado. Entrada em cascata (--i).
+   Componentes em components/kit.js. Cores só pelos tokens (--down azul, --up violeta, --ok, --warn, --err). */
+
+:root {
+  --k-grad: linear-gradient(135deg, var(--down) 0%, var(--up) 100%);
+  --k-raio: 20px;
+}
+
+/* ───── página ───── */
+.k-pagina {
+  display: grid;
+  gap: 24px;
+  margin-bottom: 48px;
+}
+.k-cabeca {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.k-cabeca h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.k-cabeca p {
+  margin: 6px 0 0;
+  max-width: 70ch;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.k-cabeca-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.k-colunas {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 24px;
+  align-items: start;
+}
+.k-colunas.is-larga {
+  grid-template-columns: minmax(0, 1fr) 400px;
+}
+.k-principal {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.k-lado {
+  position: sticky;
+  top: 24px;
+  display: grid;
+  gap: 14px;
+}
+@media (max-width: 1180px) {
+  .k-colunas,
+  .k-colunas.is-larga {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .k-lado {
+    position: static;
+  }
+}
+
+/* ───── passo (bloco numerado) ───── */
+.k-passo {
+  display: grid;
+  gap: 16px;
+  padding: 24px 28px 28px;
+  border-radius: var(--k-raio);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--hairline), var(--shadow-sm);
+}
+.k-passo-cabeca {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.k-n {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--down) 70%, transparent);
+}
+.k-n.is-icone {
+  background: color-mix(in srgb, var(--c, var(--down)) 16%, transparent);
+  color: var(--c, var(--down));
+  box-shadow: none;
+}
+.k-passo-tit {
+  flex: 1;
+  min-width: 0;
+}
+.k-passo-tit h2 {
+  margin: 3px 0 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.k-passo-tit h2 small {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.k-passo-tit p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.k-passo-acao {
+  flex: none;
+  margin-top: 2px;
+}
+.k-rot {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.k-rot small {
+  margin-left: 6px;
+  font-weight: 450;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.k-nota {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* ───── opções em cartões (com o check) ───── */
+.k-opcoes {
+  display: grid;
+  grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr));
+  gap: 10px;
+}
+.k-opcao {
+  --c: var(--down);
+  position: relative;
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 4px;
+  min-height: 74px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  text-align: left;
+  color: inherit;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition: box-shadow 0.18s, background 0.18s, transform 0.18s var(--ease);
+}
+.k-opcao.is-up {
+  --c: var(--up);
+}
+.k-opcao:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px var(--hairline-2), var(--shadow-md);
+}
+.k-opcao:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.k-opcao b {
+  font-size: 14.5px;
+  font-weight: 650;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.k-opcao > span:not(.k-opcao-ok):not(.k-opcao-ic):not(.k-selo) {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.k-opcao.is-on {
+  background: color-mix(in srgb, var(--c) 10%, var(--surface));
+  box-shadow: inset 0 0 0 1.5px var(--c), 0 8px 22px -12px var(--c);
+}
+.k-opcao-ic {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+  transition: background 0.18s, color 0.18s;
+}
+.k-opcao.is-on .k-opcao-ic {
+  color: #fff;
+  background: var(--c);
+}
+.k-opcao-ok {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--c);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 0.18s, transform 0.25s var(--ease);
+}
+.k-opcao.is-on .k-opcao-ok {
+  opacity: 1;
+  transform: none;
+}
+.k-selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c, var(--down));
+  background: color-mix(in srgb, var(--c, var(--down)) 14%, transparent);
+}
+.k-opcao .k-selo {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+/* ───── pílulas ───── */
+.k-pilulas {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.k-pilula {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  min-width: 46px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  background: var(--fill-2);
+  transition: background 0.15s, color 0.15s, transform 0.15s var(--ease);
+}
+.k-pilula:hover {
+  color: var(--text);
+}
+.k-pilula.is-on {
+  color: #fff;
+  background: var(--down);
+  transform: scale(1.04);
+}
+.k-pilula .k-conta {
+  font-size: 11.5px;
+  opacity: 0.75;
+}
+
+/* ───── número grande ───── */
+.k-numero {
+  display: grid;
+  justify-items: start;
+}
+.k-numero b {
+  font-family: var(--font-display);
+  font-size: 46px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  background: var(--k-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.k-numero span {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.k-faixa {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 28px;
+  padding: 18px 22px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--down) 10%, transparent), color-mix(in srgb, var(--up) 10%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--down) 18%, transparent);
+}
+
+/* ───── destaque (cartão colorido) ───── */
+.k-destaque {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 12px;
+  padding: 22px;
+  border-radius: 20px;
+  color: #fff;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(255, 255, 255, 0.18), transparent 55%),
+    var(--k-grad);
+  box-shadow: 0 16px 34px -18px color-mix(in srgb, var(--up) 90%, transparent);
+}
+.k-destaque.is-ok {
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(255, 255, 255, 0.18), transparent 55%),
+    linear-gradient(135deg, color-mix(in srgb, var(--ok) 85%, #000), var(--ok));
+  box-shadow: 0 16px 34px -18px color-mix(in srgb, var(--ok) 80%, transparent);
+}
+.k-destaque.is-erro {
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(255, 255, 255, 0.16), transparent 55%),
+    linear-gradient(135deg, color-mix(in srgb, var(--err) 80%, #000), var(--err));
+  box-shadow: 0 16px 34px -18px color-mix(in srgb, var(--err) 80%, transparent);
+}
+.k-destaque-tit {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.k-destaque-num {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.k-destaque-num b {
+  font-family: var(--font-display);
+  font-size: 56px;
+  line-height: 0.95;
+  font-weight: 750;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+}
+.k-destaque-num span {
+  font-size: 15px;
+  font-weight: 550;
+  opacity: 0.9;
+}
+.k-destaque-linha {
+  font-size: 13.5px;
+  opacity: 0.9;
+}
+.k-destaque .k-barra {
+  background: rgba(255, 255, 255, 0.22);
+}
+.k-destaque .k-barra i {
+  background: #fff;
+}
+/* brilho que passa devagar (só com movimento ligado) */
+.k-destaque.is-vivo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.16) 50%, transparent 65%);
+  transform: translateX(-100%);
+  animation: k-varre 3.2s var(--ease) infinite;
+  pointer-events: none;
+}
+
+/* ───── resumo (painel lateral) ───── */
+.k-resumo {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 22px;
+  background:
+    radial-gradient(120% 70% at 0% 0%, color-mix(in srgb, var(--down) 16%, transparent), transparent 60%),
+    radial-gradient(120% 70% at 100% 100%, color-mix(in srgb, var(--up) 18%, transparent), transparent 60%),
+    var(--surface);
+  box-shadow: 0 0 0 1px var(--hairline), var(--shadow-md);
+}
+.k-resumo-tit {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.k-caixa {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+/* ───── estatísticas ───── */
+.k-stats {
+  display: grid;
+  grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr));
+  gap: 10px;
+}
+.k-stat {
+  --c: var(--down);
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--c) 7%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 18%, var(--hairline));
+}
+.k-stat.is-up {
+  --c: var(--up);
+}
+.k-stat.is-ok {
+  --c: var(--ok);
+}
+.k-stat.is-warn {
+  --c: var(--warn);
+}
+.k-stat.is-erro {
+  --c: var(--err);
+}
+.k-stat.is-neutro {
+  --c: var(--text-3);
+}
+.k-stat-ic {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 8px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--c);
+}
+.k-stat b {
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.k-stat span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* ───── barra de progresso ───── */
+.k-barra {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--fill-2);
+}
+.k-barra i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--p, 0%);
+  border-radius: inherit;
+  background: var(--k-grad);
+  transition: width 0.4s var(--ease);
+}
+.k-barra.is-ok i {
+  background: var(--ok);
+}
+.k-barra.is-erro i {
+  background: var(--err);
+}
+.k-barra.is-vivo i::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: translateX(-100%);
+  animation: k-varre 1.6s linear infinite;
+}
+
+/* ───── linha de ajuste (dentro de um passo) ───── */
+.k-linhas {
+  display: grid;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.k-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 56px;
+  padding: 12px 16px;
+  background: var(--surface-2);
+}
+.k-linha + .k-linha {
+  border-top: 1px solid var(--hairline);
+}
+.k-linha-txt {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.k-linha-txt b {
+  font-size: 14px;
+  font-weight: 600;
+}
+.k-linha-txt span {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.k-linha-ctl {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ───── lista de itens (aparelhos, coleções, lotes) ───── */
+.k-itens {
+  display: grid;
+  gap: 8px;
+}
+.k-item {
+  --c: var(--down);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  text-align: left;
+  color: inherit;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition: box-shadow 0.18s, transform 0.18s var(--ease), background 0.18s;
+}
+button.k-item:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px var(--hairline-2), var(--shadow-md);
+}
+.k-item.is-on {
+  background: color-mix(in srgb, var(--c) 10%, var(--surface));
+  box-shadow: inset 0 0 0 1.5px var(--c), 0 8px 22px -12px var(--c);
+}
+.k-item-ic {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.k-item-txt {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.k-item-txt b {
+  font-size: 14.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.k-item-txt span {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.k-item-fim {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.k-ponto {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.k-ponto.is-ok {
+  background: var(--ok);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
+  animation: k-pulsa 2s var(--ease) infinite;
+}
+
+/* ───── botão grande (ação da tela) ───── */
+.k-botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 22px;
+  border-radius: 16px;
+  font-size: 15.5px;
+  font-weight: 650;
+  color: #fff;
+  background: var(--k-grad);
+  background-size: 160% 160%;
+  box-shadow: 0 12px 28px -12px color-mix(in srgb, var(--up) 80%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.18s var(--ease), box-shadow 0.18s, background-position 0.4s, opacity 0.18s;
+}
+.k-botao.is-cheio {
+  width: 100%;
+}
+.k-botao:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background-position: 100% 0;
+  box-shadow: 0 16px 34px -12px color-mix(in srgb, var(--up) 90%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.k-botao:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+}
+.k-botao:disabled {
+  opacity: 0.4;
+  cursor: default;
+  box-shadow: none;
+}
+.k-botao-dica {
+  margin: -4px 0 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.k-botao-dica b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ───── área de soltar ───── */
+.k-soltar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 96px;
+  padding: 18px;
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+  border: 1.5px dashed var(--hairline-2);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.k-soltar-ic {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--k-grad);
+}
+.k-soltar:hover,
+.k-soltar.is-sobre {
+  color: var(--text);
+  border-color: var(--down);
+  background: color-mix(in srgb, var(--down) 6%, transparent);
+}
+
+/* ───── vazio ───── */
+.k-vazio {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 44px 24px;
+  text-align: center;
+}
+.k-vazio-arte {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 8px;
+  display: grid;
+  place-items: center;
+}
+.k-vazio-arte::before,
+.k-vazio-arte::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--down) 40%, transparent);
+  animation: k-onda 2.8s var(--ease) infinite;
+}
+.k-vazio-arte::after {
+  animation-delay: 1.4s;
+  border-color: color-mix(in srgb, var(--up) 40%, transparent);
+}
+.k-vazio-ic {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--k-grad);
+  box-shadow: 0 12px 28px -12px color-mix(in srgb, var(--up) 80%, transparent);
+}
+.k-vazio h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+.k-vazio p {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.k-vazio-acoes {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ───── gráfico de velocidade (svg) ───── */
+.k-grafico {
+  display: block;
+  width: 100%;
+  height: 120px;
+}
+.k-grafico .is-down {
+  stroke: var(--down);
+}
+.k-grafico .is-up {
+  stroke: var(--up);
+}
+.k-grafico path.k-area {
+  stroke: none;
+  opacity: 0.18;
+}
+.k-grafico path.k-area.is-down {
+  fill: var(--down);
+}
+.k-grafico path.k-area.is-up {
+  fill: var(--up);
+}
+.k-grafico path.k-linha-g {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ───── movimento: entrada em cascata (--i) ───── */
+.k-entra {
+  animation: k-entra 0.42s var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+@keyframes k-entra {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes k-varre {
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes k-pulsa {
+  70% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--ok) 0%, transparent);
+  }
+}
+@keyframes k-onda {
+  from {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .k-entra,
+  .k-destaque.is-vivo::after,
+  .k-barra.is-vivo i::after,
+  .k-ponto.is-ok,
+  .k-vazio-arte::before,
+  .k-vazio-arte::after {
+    animation: none;
+  }
+  .k-barra i {
+    transition: none;
+  }
+}
+@media (max-width: 860px) {
+  .k-opcoes,
+  .k-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .k-passo {
+    padding: 20px;
+  }
+}
