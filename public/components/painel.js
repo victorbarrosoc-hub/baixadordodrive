@@ -3,8 +3,8 @@
 // subindo agora e o que terminou por último. Tudo entra com movimento suave (e parado, para quem pediu menos movimento).
 import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore, ACTIVE } from '../lib/store.js'
-import { api } from '../lib/api.js'
-import { bytes, count, plural, relTime, aprox } from '../lib/format.js'
+import { api, attempt } from '../lib/api.js'
+import { bytes, count, plural, relTime, aprox, speed } from '../lib/format.js'
 import { cx, storage } from '../lib/ui.js'
 import { navigate } from '../lib/router.js'
 import { batchAction, driveFolderUrl, uploadFlow } from '../lib/actions.js'
@@ -174,15 +174,35 @@ function Atalhos() {
   </div>`
 }
 
+const CELULAR_ATIVO = new Set(['esperando', 'conectando', 'andando'])
+
+/** O que está passando com o celular pelo Wi-Fi (components/celular-wifi.js), no topo do "Em andamento". */
+function Celular({ t }) {
+  const frac = t.total ? t.feitos / t.total : 0
+  return html`<li class="pn-item" key=${t.id}>
+    <span class=${cx('pn-dir', t.direcao === 'enviando' ? 'is-up' : 'is-down')}><${Icon} name=${t.direcao === 'enviando' ? 'arrow-up' : 'arrow-down'} size=${16} strokeWidth=${2} /></span>
+    <div class="pn-item-txt">
+      <b>${t.direcao === 'recebendo' ? 'Do' : 'Para o'} ${t.dono ? `${t.aparelho} (${t.dono})` : t.aparelho}</b>
+      <span class="sub num">${plural(t.arquivos, 'arquivo', 'arquivos')} · ${bytes(t.total)} · ${t.estado === 'esperando' ? 'esperando o celular aceitar' : t.estado === 'conectando' ? 'conectando' : t.velocidade ? `${speed(t.velocidade)} pelo Wi-Fi` : 'pelo Wi-Fi'}</span>
+      <${Barra} frac=${frac} tom="ok" />
+    </div>
+    <span class="pn-pct num">${Math.floor(frac * 100)}%</span>
+    <button type="button" class="pn-redondo" aria-label="Cancelar" onClick=${() => attempt(api.post(`/api/celular/cancelar/${t.id}`, {}))}><${Icon} name="x" size=${14} /></button>
+  </li>`
+}
+
 function Andando({ lotes }) {
+  const celular = (useStore((s) => s.celular)?.transferencias || []).filter((t) => CELULAR_ATIVO.has(t.estado))
+  const n = lotes.length + celular.length
   return html`<section class="pn-bloco" style="--i:9">
     <header class="pn-bloco-topo">
-      <h2>Em andamento ${lotes.length ? html`<span class="pn-conta">${lotes.length}</span>` : null}</h2>
+      <h2>Em andamento ${n ? html`<span class="pn-conta">${n}</span>` : null}</h2>
       <button type="button" class="pn-link" onClick=${() => navigate('transferencias')}>Ver todos <${Icon} name="chevron-right" size=${13} /></button>
     </header>
-    ${lotes.length
+    ${n
       ? html`<ul class="pn-lista">
-          ${lotes.slice(0, 3).map((l) => {
+          ${celular.slice(0, 3).map((t) => html`<${Celular} key=${t.id} t=${t} />`)}
+          ${lotes.slice(0, Math.max(0, 3 - celular.length)).map((l) => {
             const frac = l.total ? l.feito / l.total : 0
             return html`<li class="pn-item" key=${l.b.id}>
               <span class=${cx('pn-dir', l.tipo === 'upload' ? 'is-up' : 'is-down')}><${Icon} name=${l.tipo === 'upload' ? 'arrow-up' : 'arrow-down'} size=${16} strokeWidth=${2} /></span>
