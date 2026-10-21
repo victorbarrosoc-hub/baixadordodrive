@@ -72,7 +72,7 @@ function Espaco({ d, precisa }) {
   </div>`
 }
 
-function Lista({ destino, estado }) {
+function Lista({ destino, estado, juntar = true }) {
   const [dados, setDados] = useState(null)
   useEffect(() => {
     let vivo = true
@@ -88,6 +88,7 @@ function Lista({ destino, estado }) {
           <span class="cp-item-nome">
             <span class="mono-path" title=${it.relPath}>${it.relPath}</span>
             ${it.achado ? html`<span class="cp-achado" title=${it.achado}><${Icon} name="folder" size=${12} /> já está em ${tildify(it.achado)}</span>` : null}
+            ${it.para && juntar && it.estados[destino] === 'novo' ? html`<span class="cp-achado" title=${it.para}><${Icon} name="folder" size=${12} /> vai para junto dos outros: ${tildify(it.para)}</span>` : null}
           </span>
           <span class="num sub">${bytes(it.size)}</span>
         </li>`,
@@ -138,9 +139,17 @@ function Plano({ v, opcoes, setOpcoes }) {
       ? html`<p class="k-nota cp-outro"><${Icon} name="folder" size=${14} /> ${plural(d.emOutro, 'arquivo já está', 'arquivos já estão')} nesta mídia em outra pasta (mesmo nome e tamanho). Não ${d.emOutro === 1 ? 'é copiado' : 'são copiados'} de novo.</p>`
       : null}
     <${Espaco} d=${d} precisa=${d.bytesNovos + (opcoes.substituir ? d.bytesDiferentes : 0)} />
-    <${Lista} destino=${destino} estado=${estado} />
-    ${p.destinos.some((x) => x.iguais || x.emOutro) || p.destinos.some((x) => x.diferentes)
+    <${Lista} destino=${destino} estado=${estado} juntar=${opcoes.juntar !== false} />
+    ${p.destinos.some((x) => x.iguais || x.emOutro) || p.destinos.some((x) => x.diferentes) || p.destinos.some((x) => x.juntos)
       ? html`<${Linhas}>
+          ${p.destinos.some((x) => x.juntos)
+            ? html`<${Linha}
+                titulo="Pôr os novos junto dos que já estão lá"
+                sub=${`${plural(d.juntos || 0, 'arquivo novo tem', 'arquivos novos têm')} os vizinhos em outra pasta desta mídia (ex.: o C055 vai para onde estão o C054 e o C056). Desligado, vai tudo para “${p.nome}”.`}
+              >
+                <${Switch} checked=${opcoes.juntar !== false} label="Pôr os novos junto dos que já estão lá" onChange=${(on) => setOpcoes({ ...opcoes, juntar: on })} />
+              </${Linha}>`
+            : null}
           ${p.destinos.some((x) => x.iguais || x.emOutro)
             ? html`<${Linha}
                 titulo="Conferir também os que já estão no destino"

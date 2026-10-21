@@ -72,6 +72,54 @@ function acharEmOutraPasta(indice, it) {
   return it.size >= PEQUENO ? l[0].path : null
 }
 
+/** A pasta da origem (relativa) de um arquivo: "Card 01/CLIP/C0055.MP4" → "Card 01/CLIP". */
+const pastaRel = (relPath) => {
+  const i = relPath.lastIndexOf('/')
+  return i < 0 ? '' : relPath.slice(0, i)
+}
+
+/**
+ * Para cada pasta da origem com arquivos achados em outra pasta do destino, a pasta do destino onde estão mais deles.
+ * Os novos dessa pasta (ou de uma subpasta dela) vão para lá, com o resto do caminho. Se já existir um arquivo com esse
+ * nome lá (outro tamanho), fica no caminho de sempre. Marca `it.para[di]` e conta em `r.juntos`.
+ */
+async function juntarAosVizinhos(itens, di, r) {
+  const votos = new Map() // pasta da origem → Map(pasta do destino → quantos)
+  for (const it of itens) {
+    if (it.estados[di] !== 'outro') continue
+    const de = pastaRel(it.relPath)
+    const para = path.dirname(it.achados[di])
+    const m = votos.get(de) || new Map()
+    m.set(para, (m.get(para) || 0) + 1)
+    votos.set(de, m)
+  }
+  if (!votos.size) return
+  const escolhida = new Map()
+  for (const [de, m] of votos) {
+    const [melhor] = [...m].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    escolhida.set(de, melhor[0])
+  }
+  for (const it of itens) {
+    if (it.estados[di] !== 'novo') continue
+    // A pasta mais próxima (ela mesma ou uma acima) que já tem vizinhos no destino.
+    let de = pastaRel(it.relPath)
+    let resto = ''
+    while (!escolhida.has(de) && de) {
+      const i = de.lastIndexOf('/')
+      resto = (i < 0 ? de : de.slice(i + 1)) + (resto ? `/${resto}` : '')
+      de = i < 0 ? '' : de.slice(0, i)
+    }
+    if (!escolhida.has(de)) continue
+    const alvo = path.join(escolhida.get(de), ...(resto ? resto.split('/') : []), path.basename(it.relPath))
+    try {
+      await fsp.stat(alvo)
+      continue // já existe um com esse nome lá (e outro tamanho, senão teria sido achado): não mexe
+    } catch {}
+    ;(it.para ||= [])[di] = alvo
+    r.juntos++
+  }
+}
+
 const dentro = (pai, filho) => {
   const r = path.relative(pai, filho)
   return r === '' || (!r.startsWith('..') && !path.isAbsolute(r))
@@ -124,7 +172,7 @@ export async function planejar({ origem, destinos, nome, signal, onProgress, pro
   for (let di = 0; di < dests.length; di++) {
     const d = dests[di]
     let feitos = 0
-    const r = { caminho: d.caminho, pasta: d.pasta, novos: 0, iguais: 0, diferentes: 0, emOutro: 0, bytesNovos: 0, bytesIguais: 0, bytesDiferentes: 0, bytesEmOutro: 0, livre: await livreEm(d.caminho) }
+    const r = { caminho: d.caminho, pasta: d.pasta, novos: 0, iguais: 0, diferentes: 0, emOutro: 0, juntos: 0, bytesNovos: 0, bytesIguais: 0, bytesDiferentes: 0, bytesEmOutro: 0, livre: await livreEm(d.caminho) }
     await mapLimit(itens, 16, async (it) => {
       if (signal?.aborted) return
       let estado = 'novo'
@@ -164,6 +212,9 @@ export async function planejar({ origem, destinos, nome, signal, onProgress, pro
           r.emOutro++
           r.bytesEmOutro += it.size
         }
+        // Os novos vão para junto dos vizinhos: se os outros arquivos da mesma pasta da origem já estão numa pasta do
+        // destino (C054 e C056 em ".../Cam A"), o C055 que falta vai para lá também, e não para a pasta nova.
+        await juntarAosVizinhos(itens, di, r)
       }
     }
     resumo.push(r)

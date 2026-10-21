@@ -324,9 +324,11 @@ describe('copiar entre discos', () => {
     assert.equal(fs.existsSync(path.join(ssd2, 'Projeto X', 'CAM A', 'C0001.MP4')), false, 'não duplicou o que já estava lá')
     assert.ok(fs.existsSync(path.join(ssd2, 'Projeto X', 'Novo.mov')))
 
-    // Sem procurar (o Backup Automático usa assim), só o caminho esperado conta.
+    // O STATUS.BIN novo foi para junto dos vizinhos de "CAM A" (empate: a primeira pasta em ordem alfabética).
+    assert.ok(fs.existsSync(path.join(ssd2, 'Backup antigo', 'Clipes', 'STATUS.BIN')))
+    // Sem procurar (o Backup Automático usa assim), só o caminho esperado conta: lá só está o Novo.mov.
     v = await svc.planejar({ origem: org, destinos: [ssd2] })
-    assert.deepEqual([v.plano.destinos[0].novos, v.plano.destinos[0].emOutro, v.plano.destinos[0].iguais], [2, 0, 2])
+    assert.deepEqual([v.plano.destinos[0].novos, v.plano.destinos[0].emOutro, v.plano.destinos[0].iguais], [3, 0, 1])
   })
 
   test('conferir os que já estão lá: os novos são copiados primeiro; a média conta o trabalho todo', async (t) => {
@@ -353,6 +355,51 @@ describe('copiar entre discos', () => {
     assert.ok(fim.progresso.velocidadeMedia > 0)
   })
 
+  test('juntar aos vizinhos: o C055 que falta vai para a pasta onde já estão o C054 e o C056', async (t) => {
+    const dir = await tmp(t)
+    const org = path.join(dir, 'Card 01')
+    const ssd = path.join(dir, 'SSD2')
+    const camA = path.join(ssd, 'Projeto', 'Dia 01', 'Cam A')
+    const data = new Date('2026-10-01T10:00:00Z')
+    for (const n of ['C054', 'C056']) {
+      const buf = Buffer.alloc(5000, n.charCodeAt(3))
+      await escrever(path.join(org, 'PRIVATE', 'CLIP', `${n}.MP4`), buf, data)
+      await escrever(path.join(camA, `${n}.MP4`), buf, data)
+    }
+    await escrever(path.join(org, 'PRIVATE', 'CLIP', 'C055.MP4'), Buffer.alloc(6000, 5), data)
+    await escrever(path.join(org, 'PRIVATE', 'CLIP', 'SUB', 'C055.XML'), Buffer.alloc(300, 1), data)
+    await escrever(path.join(org, 'OUTRA', 'solto.wav'), Buffer.alloc(200, 2), data)
+
+    const svc = new DiscosService({ keepAwake: semDormir })
+    t.after(() => svc.close())
+    let v = await svc.planejar({ origem: org, destinos: [ssd], procurarTudo: true })
+    assert.equal(v.plano.destinos[0].juntos, 2, 'o C055 e o XML da subpasta; o solto não tem vizinhos')
+    const novos = Object.fromEntries(svc.itens({ estado: 'novo' }).itens.map((x) => [x.relPath, x.para]))
+    assert.equal(novos['PRIVATE/CLIP/C055.MP4'], path.join(camA, 'C055.MP4'))
+    assert.equal(novos['PRIVATE/CLIP/SUB/C055.XML'], path.join(camA, 'SUB', 'C055.XML'))
+    assert.equal(novos['OUTRA/solto.wav'], null)
+
+    await svc.iniciar({ conferir: true })
+    v = await esperar(svc)
+    assert.equal(v.fase, 'feito', v.erro)
+    assert.ok(fs.existsSync(path.join(camA, 'C055.MP4')), 'foi para junto dos vizinhos')
+    assert.ok(fs.existsSync(path.join(camA, 'SUB', 'C055.XML')))
+    assert.ok(fs.existsSync(path.join(ssd, 'Card 01', 'OUTRA', 'solto.wav')), 'sem vizinhos: na pasta da cópia')
+    assert.equal(fs.existsSync(path.join(ssd, 'Card 01', 'PRIVATE', 'CLIP', 'C055.MP4')), false)
+    assert.equal(v.resultado.cobertura[0].presentes, 5)
+
+    // Desligado: vai tudo para a pasta da cópia.
+    const org2 = path.join(dir, 'Card 02')
+    await escrever(path.join(org2, 'C054.MP4'), Buffer.alloc(5000, 52), data)
+    await escrever(path.join(org2, 'C057.MP4'), Buffer.alloc(7000, 7), data)
+    await svc.planejar({ origem: org2, destinos: [ssd], procurarTudo: true })
+    await svc.iniciar({ conferir: false, juntar: false })
+    v = await esperar(svc)
+    assert.equal(v.fase, 'feito', v.erro)
+    assert.ok(fs.existsSync(path.join(ssd, 'Card 02', 'C057.MP4')))
+    assert.equal(fs.existsSync(path.join(camA, 'C057.MP4')), false)
+  })
+
   test('procurar em qualquer pasta: a origem dentro do destino não se acha a si mesma', async (t) => {
     const dir = await tmp(t)
     const ssd = path.join(dir, 'SSD')
@@ -371,9 +418,9 @@ describe('copiar entre discos', () => {
     const servico = { iniciar: async (o) => ((recebido = o), {}), planejar: async (o) => ((planejado = o), {}), view: () => ({}), close: async () => {} }
     registerDiscos({ route: (m, p, fn) => (rotas[`${m} ${p}`] = fn), ctx: {}, HttpProblem: Error, servico })
     await rotas['POST /api/discos/iniciar']({ body: { substituir: true, conferir: false, conferirIguais: true, relatorio: false, algoritmo: 'md5' } })
-    assert.deepEqual(recebido, { substituir: true, conferir: false, conferirIguais: true, relatorio: false, algoritmo: 'md5' })
+    assert.deepEqual(recebido, { substituir: true, conferir: false, conferirIguais: true, relatorio: false, algoritmo: 'md5', juntar: true })
     await rotas['POST /api/discos/iniciar']({ body: {} })
-    assert.deepEqual(recebido, { substituir: false, conferir: true, conferirIguais: false, relatorio: true, algoritmo: 'xxh64' })
+    assert.deepEqual(recebido, { substituir: false, conferir: true, conferirIguais: false, relatorio: true, algoritmo: 'xxh64', juntar: true })
     await rotas['POST /api/discos/planejar']({ body: { origem: '/a', destinos: ['/b'] } })
     assert.equal(planejado.procurarTudo, true, 'a tela compara procurando em qualquer pasta')
     await rotas['POST /api/discos/planejar']({ body: { origem: '/a', destinos: ['/b'], procurarTudo: false } })

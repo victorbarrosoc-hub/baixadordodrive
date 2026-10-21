@@ -41,6 +41,7 @@ export function registerDiscos({ route, ctx, HttpProblem, servico }) {
       conferirIguais: body.conferirIguais === true,
       relatorio: body.relatorio !== false,
       algoritmo: body.algoritmo == null ? 'xxh64' : String(body.algoritmo),
+      juntar: body.juntar !== false,
     })))
 
   route('POST', '/api/discos/cancelar', tratar(async () => svc.cancelar()))

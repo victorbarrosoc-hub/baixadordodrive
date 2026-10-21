@@ -19,6 +19,11 @@ discos. Ele compara antes, copia só o que falta, confere cada arquivo e mostra 
      destino inteiro pelo nome e pelo tamanho). Não são copiados de novo, e a lista mostra onde cada um está. Arquivo
      pequeno (até 1 MB) só conta com a mesma data, porque índices de câmera como STATUS.BIN têm tamanho fixo. Com
      **Conferir também os que já estão no destino**, o conteúdo de cada um é comparado e o que não bater é copiado.
+   - **Junto dos vizinhos:** um arquivo novo cuja pasta na origem tem outros arquivos achados em outra pasta do
+     destino vai para essa pasta, e não para a pasta da cópia (o C055 vai para onde já estão o C054 e o C056). Vale
+     também para subpastas (com o resto do caminho). Se a pasta tiver vizinhos em mais de um lugar, vai para onde estão
+     mais deles. Se já existir um arquivo com o mesmo nome lá, fica na pasta da cópia. Dá para desligar em **Pôr os novos
+     junto dos que já estão lá**.
    - O espaço livre de cada destino. Se não couber, o botão de copiar não libera.
 5. **Copiar**: anel de progresso, velocidade agora e média, tempo restante, tempo que passou e um gráfico da velocidade.
 6. No fim, você vê a cobertura de cada destino ("todos os N arquivos da origem estão aqui"), o total, a média e a lista
