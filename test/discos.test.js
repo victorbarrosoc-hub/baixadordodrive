@@ -329,6 +329,30 @@ describe('copiar entre discos', () => {
     assert.deepEqual([v.plano.destinos[0].novos, v.plano.destinos[0].emOutro, v.plano.destinos[0].iguais], [2, 0, 2])
   })
 
+  test('conferir os que já estão lá: os novos são copiados primeiro; a média conta o trabalho todo', async (t) => {
+    const dir = await tmp(t)
+    const org = path.join(dir, 'CARD')
+    const ssd = path.join(dir, 'SSD')
+    // "A..." vem antes na ordem alfabética e já está no destino; "Z..." é novo. Grandes (65 MB): um por vez, na ordem.
+    const grande = 65 * 1024 * 1024
+    const buf = crypto.randomBytes(grande)
+    await escrever(path.join(org, 'A0.MOV'), buf)
+    await escrever(path.join(ssd, 'CARD', 'A0.MOV'), buf)
+    await escrever(path.join(org, 'Z0.MOV'), Buffer.alloc(grande, 7))
+    const vistos = []
+    const svc = new DiscosService({ keepAwake: semDormir, onChange: (v) => v.progresso && vistos.push(v.progresso) })
+    t.after(() => svc.close())
+    await svc.planejar({ origem: org, destinos: [ssd] })
+    assert.equal(svc.plano.destinos[0].bytesIguais, grande)
+    await svc.iniciar({ conferir: true, conferirIguais: true })
+    const fim = await esperar(svc)
+    assert.equal(fim.fase, 'feito', fim.erro)
+    const primeiroConferindo = vistos.find((g) => g.soConferindo)
+    assert.ok(primeiroConferindo, 'passou pela conferência dos que já estavam lá')
+    assert.equal(primeiroConferindo.copiados, grande, 'o novo já estava copiado quando começou a conferir o outro')
+    assert.ok(fim.progresso.velocidadeMedia > 0)
+  })
+
   test('procurar em qualquer pasta: a origem dentro do destino não se acha a si mesma', async (t) => {
     const dir = await tmp(t)
     const ssd = path.join(dir, 'SSD')

@@ -75,7 +75,10 @@ export class DiscosService {
       inicio: g.inicio,
       decorrido,
       velocidade: Math.round(janela),
-      velocidadeMedia: Math.round(g.copiados / decorrido),
+      // Média do trabalho todo (copiar + conferir): só os bytes copiados dava 0 enquanto conferia o que já estava lá.
+      velocidadeMedia: Math.round(g.trabalho / decorrido),
+      // Conferindo o que já estava no destino (nada a copiar nesse arquivo).
+      soConferindo: g.soConferindo,
       restante: g.fim ? 0 : ritmo > 0 ? Math.round(restanteTrab / ritmo) : null,
       falhas: g.falhas.length,
     }
@@ -159,6 +162,9 @@ export class DiscosService {
     const trabalho = p.itens
       .map((it) => ({ it, alvos: indices(quer)(it), checar: conferirIguais ? indices((e) => e === 'igual' || e === 'outro')(it) : [] }))
       .filter((x) => x.alvos.length || x.checar.length)
+    // O que precisa ser copiado vai primeiro; conferir o que já estava lá (só leitura, opcional) fica para o fim.
+    // Assim os arquivos novos chegam logo, mesmo com muito para conferir.
+    trabalho.sort((a, b) => (b.alvos.length > 0) - (a.alvos.length > 0))
     // Espaço: o que vai para cada destino (substituir conta o tamanho inteiro, por segurança).
     for (let di = 0; di < p.destinos.length; di++) {
       const d = p.destinos[di]
@@ -186,6 +192,7 @@ export class DiscosService {
       atual: null,
       etapa: 'copiando',
       falhas: [],
+      soConferindo: false,
     }
     this.resultado = null
     this.erro = null
@@ -255,6 +262,7 @@ export class DiscosService {
     }
     const umArquivo = async ({ it, alvos: copiar, checar }) => {
       g.atual = it.relPath
+      g.soConferindo = !copiar.length
       this.#mudou()
       const alvos = [...copiar]
       if (checar.length) {
