@@ -3,7 +3,7 @@
 import { html, render } from './vendor/preact-htm.js'
 import { DEV, LAN } from './lib/config.js'
 import * as auth from './lib/auth.js'
-import { getState, openSheet, savedTab, setState, subscribe, useApp } from './lib/state.js'
+import { getState, openSheet, savedTab, setState, setTab, subscribe, useApp } from './lib/state.js'
 import { AccountScreen, DrivesSheet } from './components/account.js'
 import { MainScreen } from './components/main.js'
 import { Tabs } from './components/tabs.js'
@@ -155,6 +155,10 @@ if ('serviceWorker' in navigator && !LAN) {
 if (DEV || LAN) {
   window.__sobedesce = {
     getState,
+    // telas e folhas para as capturas automáticas (só neste modo)
+    setState,
+    openSheet,
+    setTab,
     items: () =>
       engine.items.map(({ id, name, size, status, offset, error, fileId, note, drive, chunk, sizeOk }) => ({ id, name, size, status, offset, error, fileId, note, drive, chunk, sizeOk })),
   }

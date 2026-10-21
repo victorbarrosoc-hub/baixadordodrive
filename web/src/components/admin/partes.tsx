@@ -21,10 +21,17 @@ export const velocidadeLegivel = (bps: number) => (bps > 0 ? `${bytesLegivel(bps
 export const nArquivos = (n: number) => `${n.toLocaleString("pt-BR")} ${n === 1 ? "arquivo" : "arquivos"}`;
 export const totalBytes = (u: NumerosUso) => u.enviadosBytes + u.baixadosBytes;
 
-export function Numero({ valor, rotulo, detalhe, alerta = false }: { valor: React.ReactNode; rotulo: string; detalhe?: string; alerta?: boolean }) {
+/** Número do admin, no padrão do kit (components/kit): bloco claro com a cor do tom; `alerta` = laranja. */
+export function Numero({ valor, rotulo, detalhe, alerta = false, i = 0 }: { valor: React.ReactNode; rotulo: string; detalhe?: string; alerta?: boolean; i?: number }) {
   return (
-    <div className="grid content-start gap-0.5 bg-surface px-5 py-4">
-      <p className="font-display text-[26px] leading-none font-semibold tracking-[-0.02em] tabular-nums sm:text-[30px]">{valor}</p>
+    <div
+      className={cn(
+        "k-entra grid content-start gap-0.5 rounded-2xl px-4 py-3.5 ring-1 ring-inset",
+        alerta ? "bg-warn/[0.08] ring-warn/25" : "bg-[color-mix(in_srgb,var(--color-down)_6%,var(--color-surface))] ring-[color-mix(in_srgb,var(--color-down)_16%,var(--color-line))]",
+      )}
+      style={{ "--i": i } as React.CSSProperties}
+    >
+      <p className="font-display text-[26px] leading-none font-bold tracking-[-0.02em] tabular-nums sm:text-[30px]">{valor}</p>
       <p className="text-[13px] text-ink-2">{rotulo}</p>
       {detalhe ? <p className={cn("text-[12px]", alerta ? "text-warn-text" : "text-ink-3")}>{detalhe}</p> : null}
     </div>
@@ -37,17 +44,14 @@ const diaCurto = (dia: string) => `${Number(dia.slice(8, 10))}/${Number(dia.slic
 export function Grafico30({ serie }: { serie: { dia: string; pessoas: number; bytes: number }[] }) {
   const max = Math.max(1, ...serie.map((s) => s.pessoas));
   return (
-    <figure className="px-5 pt-4 pb-3">
-      <figcaption className="mb-3 flex items-baseline justify-between text-[13px] text-ink-2">
-        <span>Pessoas ativas por dia</span>
-        <span className="text-ink-3">últimos 30 dias</span>
-      </figcaption>
+    <figure>
+      <figcaption className="sr-only">Pessoas ativas por dia, últimos 30 dias</figcaption>
       <div className="flex h-28 items-end gap-[3px]" role="img" aria-label={`Pico de ${max} pessoas ativas num dia nos últimos 30 dias`}>
         {serie.map((s) => (
           <div
             key={s.dia}
             title={`${diaCurto(s.dia)}: ${s.pessoas} ${s.pessoas === 1 ? "pessoa" : "pessoas"} · ${bytesLegivel(s.bytes)} pelo computador`}
-            className={cn("min-h-[3px] flex-1 rounded-t-[3px]", s.pessoas ? "bg-up" : "bg-line")}
+            className={cn("min-h-[3px] flex-1 rounded-t-[4px] transition-[height] duration-700", s.pessoas ? "bg-gradient-to-t from-down to-up" : "bg-line")}
             style={{ height: `${(s.pessoas / max) * 100}%` }}
           />
         ))}
@@ -63,7 +67,7 @@ export function Grafico30({ serie }: { serie: { dia: string; pessoas: number; by
 export function Funil({ etapas }: { etapas: { rotulo: string; n: number }[] }) {
   const topo = Math.max(1, etapas[0]?.n ?? 1);
   return (
-    <ol className="grid gap-2.5 px-5 py-4">
+    <ol className="grid gap-3">
       {etapas.map((e, i) => {
         const pct = Math.round((e.n / topo) * 100);
         return (
@@ -76,8 +80,8 @@ export function Funil({ etapas }: { etapas: { rotulo: string; n: number }[] }) {
                 {e.n} <span className="font-normal text-ink-3">({pct}%)</span>
               </span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-              <div className="h-full rounded-full bg-up" style={{ width: `${pct}%` }} />
+            <div className="h-2 overflow-hidden rounded-full bg-ink/[0.08]">
+              <div className="k-grad h-full rounded-full" style={{ width: `${pct}%` }} />
             </div>
           </li>
         );

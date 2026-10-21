@@ -7,7 +7,8 @@ import { fraction, isActive } from '../lib/computador.js'
 import { closeSheet, openSheet, useApp } from '../lib/state.js'
 import { engine } from '../lib/uploader.js'
 import { Icon } from './icons.js'
-import { Segmented, SheetHead, cx } from './ui.js'
+import { SheetHead } from './ui.js'
+import { Barra, Linha, Linhas, Opcoes, Passo } from './kit.js'
 import { Avatar } from './main.js'
 import { AceitarOutros } from './p2p.js'
 
@@ -16,16 +17,10 @@ function Storage({ quota }) {
   const usage = Number(quota.usage) || 0
   const limit = quota.limit != null ? Number(quota.limit) : null
   const frac = limit ? Math.min(1, usage / limit) : 0
-  return html`<div class="storage">
-    <div class="storage-text">
-      <span>${limit ? `${bytes(usage)} de ${bytes(limit)} usados` : `${bytes(usage)} usados`}</span>
-      ${limit ? html`<span class="sub">${bytes(Math.max(0, limit - usage))} livres</span>` : html`<span class="sub">sem limite</span>`}
-    </div>
-    ${limit
-      ? html`<div class=${cx('storage-bar', frac > 0.9 && 'is-full')} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${Math.round(frac * 100)} aria-label="Espaço usado no Drive">
-          <span style=${`width:${(frac * 100).toFixed(2)}%`}></span>
-        </div>`
-      : null}
+  return html`<div class="k-espaco">
+    <div class="k-espaco-num"><b>${limit ? bytes(Math.max(0, limit - usage)) : bytes(usage)}</b><span>${limit ? 'livres' : 'usados · sem limite'}</span></div>
+    ${limit ? html`<${Barra} p=${frac} tom=${frac > 0.9 ? 'erro' : null} label="Espaço usado no Drive" />` : null}
+    ${limit ? html`<span class="k-espaco-sub">${bytes(usage)} de ${bytes(limit)} usados</span>` : null}
   </div>`
 }
 
@@ -33,9 +28,9 @@ function Storage({ quota }) {
 // motor de envio usa. Automático (o padrão) mede a rede e escolhe o pedaço sozinho; as outras duas são tamanhos
 // fixos para quem prefere. Quem tinha valores salvos à mão: 3 ou mais arquivos juntos conta como Wi-Fi rápido.
 const NETWORKS = {
-  auto: { label: 'Automático', help: 'Mede a rede e ajusta o tamanho de cada pedaço.', concurrency: 2, chunkMiB: CHUNK_AUTO },
-  mobile: { label: 'Celular', help: 'Pedaços pequenos: mais estável no 4G e 5G.', concurrency: 2, chunkMiB: 8 },
-  wifi: { label: 'Wi-Fi rápido', help: 'Mais arquivos ao mesmo tempo, para rede boa.', concurrency: 4, chunkMiB: 16 },
+  auto: { label: 'Automático', curto: 'Mede a rede', icone: 'gauge', help: 'Mede a rede e ajusta o tamanho de cada pedaço.', concurrency: 2, chunkMiB: CHUNK_AUTO },
+  mobile: { label: 'Celular', curto: '4G e 5G', icone: 'phone', help: 'Pedaços pequenos: mais estável no 4G e 5G.', concurrency: 2, chunkMiB: 8 },
+  wifi: { label: 'Wi-Fi rápido', curto: 'Rede boa', icone: 'wifi', help: 'Mais arquivos ao mesmo tempo, para rede boa.', concurrency: 4, chunkMiB: 16 },
 }
 const networkOf = (s) => (s.chunkMiB === CHUNK_AUTO ? 'auto' : s.concurrency >= 3 ? 'wifi' : 'mobile')
 
@@ -63,65 +58,48 @@ export function SettingsSheet() {
       title="Ajustes"
       right=${html`<button type="button" class="link-btn is-strong" onClick=${closeSheet}>OK</button>`}
     />
-    <div class="sheet-body sheet-scroll settings">
-      <section class="group account">
-        <${Avatar} user=${user} size=${48} />
-        <div class="account-text">
-          <b>${user?.displayName || 'Google Drive'}</b>
-          <span class="sub">${user?.emailAddress || ''}</span>
-          ${LAN ? html`<span class="sub lan-via"><${Icon} name="wifi" size=${13} /> pelo ${LAN.label} “${lan?.mac || LAN.mac}”</span>` : null}
-        </div>
-      </section>
-      ${quota ? html`<section class="group"><${Storage} quota=${quota} /></section>` : null}
+    <div class="sheet-body sheet-scroll settings k-folha">
+      <${Passo} icone=${LAN ? 'wifi' : 'drive'} cor="down" titulo=${user?.displayName || 'Google Drive'} frase=${user?.emailAddress || (LAN ? `Pelo ${LAN.label} “${lan?.mac || LAN.mac}”` : 'O Drive que recebe os envios')} i=${0}
+        acao=${html`<${Avatar} user=${user} size=${40} />`}
+      >
+        ${quota ? html`<${Storage} quota=${quota} />` : null}
+      </${Passo}>
 
-      <h3 class="list-label">Envio</h3>
-      <section class="group form-group">
-        <div class="setting">
-          <div class="setting-text">
-            <b>Sua rede</b>
-            <span class="sub">${NETWORKS[network].help}</span>
-          </div>
-          <${Segmented}
-            label="Sua rede"
-            value=${network}
-            options=${Object.keys(NETWORKS)}
-            format=${(v) => NETWORKS[v].label}
-            onChange=${(v) => update({ concurrency: NETWORKS[v].concurrency, chunkMiB: NETWORKS[v].chunkMiB })}
-          />
-        </div>
-      </section>
+      <${Passo} icone="bolt" cor="up" titulo="Envio" frase=${NETWORKS[network].help} i=${1}>
+        <${Opcoes}
+          label="Sua rede"
+          valor=${network}
+          onEscolher=${(v) => update({ concurrency: NETWORKS[v].concurrency, chunkMiB: NETWORKS[v].chunkMiB })}
+          itens=${Object.entries(NETWORKS).map(([value, n]) => ({ value, titulo: n.label, sub: n.curto, icone: n.icone, up: true }))}
+        />
+      </${Passo}>
 
       ${LAN
-        ? html`<h3 class="list-label">Wi-Fi</h3>
-            <p class="group-foot lan-explain">
+        ? html`<${Passo} icone="wifi" cor="ok" titulo="Wi-Fi" i=${2}>
+            <p class="k-texto">
               Os arquivos vão deste celular para o ${LAN.label} pela rede local, e o SOBEDESCE de lá sobe pro Drive na conta
               acima${lan?.deleteAfterUpload ? ' (e apaga a cópia do computador depois de conferir)' : ''}. A pasta padrão e a conta
               se trocam no computador, em Ajustes → Celular.
-            </p>`
-        : html`<h3 class="list-label">No computador</h3>
-      <ul class="group menu">
-        <li>
-          <button type="button" class="menu-item" onClick=${() => openSheet('computador')}>
-            <${Icon} name="laptop" /><span class="menu-text">Transferências do computador<small>${pcSummary(pcs)}</small></span><${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="menu-chev" />
-          </button>
-        </li>
-      </ul>
-      <h3 class="list-label">No Wi-Fi</h3>
-      <${AceitarOutros} />
-      <h3 class="list-label">Conta SOBEDESCE</h3>
-      <ul class="group menu">
-        <li>
-          <button type="button" class="menu-item" onClick=${() => openSheet('drives')}>
-            <${Icon} name="drive" /><span>${drives.length > 1 ? 'Trocar de Google Drive' : 'Google Drive'}</span><${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="menu-chev" />
-          </button>
-        </li>
-        <li>
-          <a class="menu-item" href=${ACCOUNT.manage}>
-            <${Icon} name="user" /><span class="menu-text">Minha conta${account?.email ? html`<small>${account.email}</small>` : null}</span><${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="menu-chev" />
-          </a>
-        </li>
-      </ul>
-      <p class="group-foot">Drives, computadores conectados e sair ficam na sua conta.</p>`}
+            </p>
+          </${Passo}>`
+        : html`<${Passo} icone="laptop" cor="down" titulo="No computador" i=${2}>
+            <${Linhas}>
+              <${Linha} icone="transfers" titulo="Transferências do computador" sub=${pcSummary(pcs)} onClick=${() => openSheet('computador')} />
+            </${Linhas}>
+          </${Passo}>
+          <${Passo} icone="users" cor="warn" titulo="No Wi-Fi" i=${3}>
+            <${AceitarOutros} />
+          </${Passo}>
+          <${Passo} icone="user" cor="up" titulo="Conta SOBEDESCE" frase="Drives, computadores conectados e sair ficam na sua conta." i=${4}>
+            <${Linhas}>
+              <${Linha} icone="drive" titulo=${drives.length > 1 ? 'Trocar de Google Drive' : 'Google Drive'} onClick=${() => openSheet('drives')} />
+              <a class="k-linha is-botao" href=${ACCOUNT.manage}>
+                <span class="k-linha-ic" style="--c:var(--up)"><${Icon} name="user" size=${17} strokeWidth=${1.8} /></span>
+                <span class="k-linha-txt"><b>Minha conta</b>${account?.email ? html`<span>${account.email}</span>` : null}</span>
+                <span class="k-linha-ctl"><${Icon} name="chevron-right" size=${16} class="k-seta" /></span>
+              </a>
+            </${Linhas}>
+          </${Passo}>`}
 
       <p class="foot">
         SOBEDESCE Celular ${VERSION}${DEV ? ' · modo de teste' : LAN ? ' · pelo Wi-Fi' : ''}<br />${LAN

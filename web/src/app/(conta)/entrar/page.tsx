@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { LogIn } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Aviso } from "@/components/conta/aviso";
@@ -26,6 +27,7 @@ export default async function Entrar({ searchParams }: Props) {
   return (
     <Moldura
       estreita
+      icone={<LogIn />}
       titulo="Entrar"
       subtitulo="Com o Google ou com o e-mail da sua conta."
       acao={

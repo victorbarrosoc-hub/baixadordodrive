@@ -57,6 +57,10 @@ function Hero() {
 }
 
 function LinkPill({ href, variant = 'primary', icon, children }) {
+  if (variant === 'primary')
+    return html`<a class="k-botao" href=${href}>
+      ${icon ? html`<${Icon} name=${icon} size=${19} strokeWidth=${2} />` : null}<span>${children}</span>
+    </a>`
   return html`<a class=${cx('btn', `btn-${variant}`, 'btn-xl', 'btn-block')} href=${href}>
     ${icon ? html`<${Icon} name=${icon} size=${20} />` : null}<span>${children}</span>
   </a>`
@@ -120,10 +124,10 @@ export function AccountScreen() {
   const error = a.status !== 'error' ? a.error : null
   return html`<div class=${cx('screen', 'signin', `is-${a.status}`)}>
     <main class="signin-main">
-      <${Hero} />
-      ${head ? html`<h2 class="signin-head">${head}</h2>` : null}
-      ${lead ? html`<p class="lead signin-lead">${lead}</p>` : null}
-      <div class="signin-actions">
+      <div class="signin-topo k-entra" style="--i:0"><${Hero} /></div>
+      ${head ? html`<h2 class="signin-head k-entra" style="--i:1">${head}</h2>` : null}
+      ${lead ? html`<p class="lead signin-lead k-entra" style="--i:2">${lead}</p>` : null}
+      <div class="signin-actions k-entra" style="--i:3">
         ${body}
         ${error ? html`<p class="form-error" role="alert"><${Icon} name="warning" size=${16} /> <span>${error}</span></p>` : null}
       </div>
@@ -152,13 +156,13 @@ export function DrivesSheet() {
       ${confirm
         ? html`<p class="group-foot is-warn" role="alert">Os envios pausam e ficam guardados neste aparelho. Toque de novo para trocar.</p>`
         : html`<p class="group-foot">Os envios vão para o Drive marcado. A escolha fica neste aparelho.</p>`}
-      <ul class="group menu drives-more">
-        <li>
-          <a class="menu-item" href=${ACCOUNT.manage}>
-            <${Icon} name="plus" /><span>Conectar outro Drive</span><${Icon} name="chevron-right" size=${16} strokeWidth=${2} class="menu-chev" />
-          </a>
-        </li>
-      </ul>
+      <div class="k-linhas drives-more">
+        <a class="k-linha is-botao" href=${ACCOUNT.manage}>
+          <span class="k-linha-ic" style="--c:var(--down)"><${Icon} name="plus" size=${17} strokeWidth=${2} /></span>
+          <span class="k-linha-txt"><b>Conectar outro Drive</b><span>Na página da sua conta</span></span>
+          <span class="k-linha-ctl"><${Icon} name="chevron-right" size=${16} strokeWidth=${2} /></span>
+        </a>
+      </div>
     </div>`
 }
 DrivesSheet.label = 'Google Drive'

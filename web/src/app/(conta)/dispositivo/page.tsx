@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Laptop } from "lucide-react";
 import { Moldura } from "@/components/conta/moldura";
 import { exigirUsuario, ipAtual } from "@/lib/auth/atual";
 import { buscarPedido, lugarLegivel, mesmaRede, normalizarCodigo } from "@/lib/dispositivo";
@@ -17,7 +18,7 @@ export default async function Dispositivo({ searchParams }: Props) {
 
   if (!codigo) {
     return (
-      <Moldura estreita titulo="Conectar um computador" subtitulo="Digite o código que aparece no app SOBEDESCE do computador.">
+      <Moldura estreita icone={<Laptop />} titulo="Conectar um computador" subtitulo="Digite o código que aparece no app SOBEDESCE do computador.">
         <DigitarCodigo invalido={Boolean(bruto)} />
       </Moldura>
     );
@@ -26,7 +27,7 @@ export default async function Dispositivo({ searchParams }: Props) {
   const pedido = await buscarPedido(codigo);
   if (!pedido) {
     return (
-      <Moldura estreita titulo="Código vencido" subtitulo="Este código não vale mais. No computador, comece de novo para gerar outro.">
+      <Moldura estreita icone={<Laptop />} titulo="Código vencido" subtitulo="Este código não vale mais. No computador, comece de novo para gerar outro.">
         <PedidoVencido />
       </Moldura>
     );
@@ -36,7 +37,7 @@ export default async function Dispositivo({ searchParams }: Props) {
   const hora = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Fortaleza" }).format(pedido.criadoEm);
   const ip = await ipAtual();
   return (
-    <Moldura estreita titulo="Liberar computador" subtitulo="Ele entra na sua conta e usa os seus Drives.">
+    <Moldura estreita icone={<Laptop />} titulo="Liberar computador" subtitulo="Ele entra na sua conta e usa os seus Drives.">
       <Liberar
         pedidoEm={`${tempoRelativo(pedido.criadoEm, agora)}, às ${hora} (horário de Brasília)`}
         lugar={lugarLegivel(pedido.lugar)}

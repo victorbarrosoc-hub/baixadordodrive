@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { UserPlus } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BotaoGoogle } from "@/components/conta/google";
@@ -22,6 +23,7 @@ export default async function CriarConta({ searchParams }: Props) {
   return (
     <Moldura
       estreita
+      icone={<UserPlus />}
       titulo="Criar conta"
       subtitulo="Entre com o Google e o seu Drive já fica conectado."
       acao={

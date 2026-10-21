@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { buttonClasses } from "@/components/ui/button";
+import { Clock3, Copy, Film, HardDrive, Plus } from "lucide-react";
+import { Caixa, Destaque, Passo, Rotulo as RotuloKit, Stats } from "@/components/kit/kit";
 import { cn } from "@/lib/cn";
 import { calcular, comoOComputadorMostra, duracao, tamanho } from "@/lib/midia/conta.js";
 import { MODOS } from "@/lib/midia/modos.js";
@@ -33,8 +34,8 @@ function Escolha<T extends string>({ valor, opcoes, onChange, rotulo }: { valor:
           aria-checked={o.v === valor}
           onClick={() => onChange(o.v)}
           className={cn(
-            "h-9 rounded-full px-3.5 text-[14px] font-medium ring-1 transition-colors",
-            o.v === valor ? "bg-primary text-primary-fg ring-primary" : "bg-surface text-ink-2 ring-line-strong hover:text-ink",
+            "toque h-[30px] min-w-[46px] rounded-full px-3 text-[13px] font-semibold tabular-nums transition-[background-color,color,transform] duration-150",
+            o.v === valor ? "scale-[1.04] bg-down text-white" : "bg-ink/[0.06] text-ink-2 hover:text-ink",
           )}
         >
           {o.t}
@@ -45,7 +46,16 @@ function Escolha<T extends string>({ valor, opcoes, onChange, rotulo }: { valor:
 }
 
 function Rotulo({ children }: { children: React.ReactNode }) {
-  return <span className="text-[13px] font-medium text-ink-2">{children}</span>;
+  return <span className="text-[12px] font-semibold tracking-[0.04em] text-ink-3 uppercase">{children}</span>;
+}
+
+/** Cartão de memória desenhado (as capacidades e a fila de cartões do resultado). */
+function Sd({ cheio = 1, branco = false }: { cheio?: number; branco?: boolean }) {
+  return (
+    <span aria-hidden className={cn("relative inline-block h-[22px] w-4 overflow-hidden rounded-[3px] rounded-tr-[7px]", branco ? "bg-white/25" : "bg-ink/[0.12]")}>
+      <i className={cn("absolute inset-x-0 bottom-0", branco ? "bg-white" : "bg-down")} style={{ height: `${Math.max(0, Math.min(1, cheio)) * 100}%` }} />
+    </span>
+  );
 }
 
 export function Calculadora() {
@@ -76,13 +86,13 @@ export function Calculadora() {
   const muda = (i: number, c: Cam) => setCams(cams.map((x, j) => (j === i ? c : x)));
 
   return (
-    <div className="mt-12 grid items-start gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-      <section className="grid gap-6 rounded-[var(--radius-card)] bg-surface p-5 ring-1 ring-line sm:p-7">
-        <h2 className="text-[19px] font-semibold tracking-tight text-ink">O que vai gravar</h2>
+    <div className="mt-12 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="grid min-w-0 gap-4">
+      <Passo n={1} titulo="O que vai gravar" frase="Câmera, modo e quantas horas cada uma grava." i={1}>
         {cams.map((c, i) => {
           const m = modos.find((x) => x.id === c.modo);
           return (
-            <div key={c.id} className="grid gap-3 border-b border-line pb-5 sm:grid-cols-[minmax(0,1fr)_110px_auto] sm:items-start">
+            <div key={c.id} className="grid gap-3 rounded-2xl bg-surface-2 p-4 ring-1 ring-line ring-inset sm:grid-cols-[minmax(0,1fr)_110px_auto] sm:items-start">
               <label className="grid gap-1.5">
                 <Rotulo>Câmera e modo</Rotulo>
                 <select className={campo} value={c.modo} onChange={(e) => muda(i, { ...c, modo: e.currentTarget.value })}>
@@ -123,19 +133,39 @@ export function Calculadora() {
             </div>
           );
         })}
-        <button type="button" onClick={() => setCams([...cams, novaCamera()])} className={buttonClasses({ variant: "ghost", size: "sm", className: "justify-self-start ring-1 ring-line-strong" })}>
+        <button
+          type="button"
+          onClick={() => setCams([...cams, novaCamera()])}
+          className="flex h-[52px] items-center justify-center gap-2.5 rounded-2xl border-[1.5px] border-dashed border-line-strong text-[14px] font-semibold text-ink-2 transition-colors hover:border-down hover:bg-down/[0.06] hover:text-ink"
+        >
+          <span className="grid size-[26px] place-items-center rounded-lg bg-down text-white">
+            <Plus className="size-4" aria-hidden />
+          </span>
           Somar outra câmera
         </button>
+      </Passo>
 
-        <h2 className="pt-2 text-[19px] font-semibold tracking-tight text-ink">Cartões e backup</h2>
-        <div className="grid gap-2">
-          <Rotulo>Cartão</Rotulo>
-          <Escolha
-            rotulo="Capacidade do cartão"
-            valor={cartao}
-            onChange={setCartao}
-            opcoes={[...CARTOES.map((g) => ({ v: String(g), t: g >= 1000 ? `${g / 1000} TB` : `${g} GB` })), { v: "outro", t: "Outro" }]}
-          />
+      <Passo n={2} titulo="Cartões e backup" frase="O cartão que você usa e quantas cópias de segurança." i={2}>
+        <div className="grid gap-2.5">
+          <RotuloKit>Cartão</RotuloKit>
+          <div role="radiogroup" aria-label="Capacidade do cartão" className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {[...CARTOES.map((g) => ({ v: String(g), t: g >= 1000 ? `${g / 1000} TB` : `${g} GB` })), { v: "outro", t: "Outro" }].map((o, k) => (
+              <button
+                key={o.v}
+                type="button"
+                role="radio"
+                aria-checked={cartao === o.v}
+                onClick={() => setCartao(o.v)}
+                className={cn(
+                  "grid justify-items-center gap-2 rounded-[14px] bg-surface-2 px-1.5 pt-3.5 pb-3 ring-1 ring-line ring-inset transition-[box-shadow,background-color,transform] duration-200 hover:-translate-y-px",
+                  cartao === o.v && "bg-down/10 shadow-[0_8px_22px_-12px_var(--color-down)] ring-[1.5px] ring-down",
+                )}
+              >
+                <Sd cheio={o.v === "outro" ? 0 : cartao === o.v ? 1 : 0.15 + k * 0.17} />
+                <b className="text-[13px] font-semibold tabular-nums">{o.t}</b>
+              </button>
+            ))}
+          </div>
           {cartao === "outro" ? <input className={cn(campo, "max-w-[240px]")} inputMode="decimal" placeholder="GB impressos no cartão" value={cartaoOutro} onChange={(e) => setCartaoOutro(e.currentTarget.value)} /> : null}
           {mostra ? (
             <p className="text-[12.5px] text-pretty text-ink-3">
@@ -162,28 +192,35 @@ export function Calculadora() {
             <input className={campo} inputMode="decimal" placeholder="ex.: 150" value={hd} onChange={(e) => setHd(e.currentTarget.value)} />
           </label>
         </div>
-      </section>
+      </Passo>
+      </div>
 
-      <section aria-live="polite" className="grid gap-5 rounded-[var(--radius-card)] bg-surface p-5 ring-1 ring-line sm:p-7 lg:sticky lg:top-20">
-        <h2 className="text-[19px] font-semibold tracking-tight text-ink">Leve</h2>
+      <section aria-live="polite" aria-label="Resultado" className="k-entra grid gap-3.5 lg:sticky lg:top-20" style={{ "--i": 2 } as React.CSSProperties}>
         {r?.linhas.length ? (
           <>
-            <div className="grid grid-cols-2 gap-2.5">
-              {[
-                [String(r.totalCartoes), `${r.totalCartoes === 1 ? "cartão" : "cartões"} de ${tamanho(cartaoGB!)}`],
-                [tamanho(r.totalGB), "de gravação"],
-                [`${r.copias} × ${tamanho(r.totalGB)}`, r.copias === 1 ? "HD de backup" : "HDs de backup (um por cópia)"],
-                [
-                  r.tempoTotalS != null ? duracao(r.tempoTotalS) : "—",
-                  r.tempoTotalS != null ? (r.tempoConferenciaS != null ? "copiar e conferir (estimativa)" : "copiar, sem conferir (estimativa)") : "de cópia: diga a velocidade do leitor e do HD",
-                ],
-              ].map(([b, s]) => (
-                <div key={s} className="grid gap-0.5 rounded-xl bg-surface-2 p-3.5">
-                  <b className="text-[24px] leading-tight font-semibold tracking-tight text-ink tabular-nums">{b}</b>
-                  <span className="text-[12.5px] text-ink-2">{s}</span>
-                </div>
-              ))}
-            </div>
+            <Destaque titulo="Leve" numero={r.totalCartoes} unidade={`${r.totalCartoes === 1 ? "cartão" : "cartões"} de ${tamanho(cartaoGB!)}`}>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from({ length: Math.min(r.totalCartoes, 24) }, (_, k) => (
+                  <Sd key={k} branco />
+                ))}
+                {r.totalCartoes > 24 ? <span className="self-end text-[13px] font-semibold">+{r.totalCartoes - 24}</span> : null}
+              </div>
+            </Destaque>
+            <Stats
+              colunas={2}
+              itens={[
+                { icone: <Film />, valor: tamanho(r.totalGB), rotulo: "de gravação", tom: "down" },
+                { icone: <HardDrive />, valor: `${r.copias} × ${tamanho(r.totalGB)}`, rotulo: r.copias === 1 ? "HD de backup" : "HDs, um por cópia", tom: "up" },
+                {
+                  icone: r.tempoTotalS != null ? <Clock3 /> : <Copy />,
+                  valor: r.tempoTotalS != null ? duracao(r.tempoTotalS) : "—",
+                  rotulo: r.tempoTotalS != null ? (r.tempoConferenciaS != null ? "copiar e conferir" : "copiar, sem conferir") : "de cópia: diga o leitor e o HD",
+                  tom: "neutro",
+                },
+              ]}
+            />
+            <Caixa>
+            <RotuloKit>Por câmera</RotuloKit>
             <table className="w-full text-[13.5px]">
               <thead>
                 <tr className="text-left text-[12px] text-ink-3">
@@ -209,7 +246,8 @@ export function Calculadora() {
                 ))}
               </tbody>
             </table>
-            <button type="button" onClick={() => setVerConta(!verConta)} aria-expanded={verConta} className="justify-self-start text-[14px] font-medium text-down-text hover:underline">
+            </Caixa>
+            <button type="button" onClick={() => setVerConta(!verConta)} aria-expanded={verConta} className="toque justify-self-start px-1 text-[14px] font-medium text-down-text hover:underline">
               {verConta ? "Esconder a conta" : "Ver a conta, linha por linha"}
             </button>
             {verConta ? (
@@ -237,9 +275,9 @@ export function Calculadora() {
             ) : null}
           </>
         ) : (
-          <p className="text-[15px] text-ink-3">Escolha a câmera e as horas para ver a conta.</p>
+          <Destaque titulo="Leve" linha="Escolha a câmera e as horas para ver a conta." />
         )}
-        <div className="mt-2 border-t border-line pt-5 text-[14px] text-pretty text-ink-2">
+        <div className="rounded-2xl bg-surface p-4 text-[14px] text-pretty text-ink-2 ring-1 ring-line">
           No fim da diária, o app SOBEDESCE copia os cartões para os HDs e o Drive e confere cada arquivo.{" "}
           <Link href="/#baixar" className="font-medium text-down-text hover:underline">
             Baixar o app

@@ -9,6 +9,7 @@ import { ageOf, ago, aprox, disablePush, enablePush, fraction, isRelevant, pushN
 import { Icon } from './icons.js'
 import { SheetHead, cx } from './ui.js'
 import { FileName } from './queue.js'
+import { Destaque, Linhas, Pilulas, Rotulo, Stats, Vazio } from './kit.js'
 
 const ATIVOS = new Set(['enviando', 'baixando'])
 const pctW = (f) => `${(Math.max(0, Math.min(1, f)) * 100).toFixed(2)}%`
@@ -220,13 +221,13 @@ function Lotes({ pc, agora }) {
   const contagem = Object.fromEntries(FILTROS_LOTE.map((f) => [f.id, s.lotes.filter(f.test).length]))
   const atual = FILTROS_LOTE.find((f) => f.id === filtro) || FILTROS_LOTE[0]
   const lista = s.lotes.filter(atual.test)
-  return html`<div class="pc-filtros dchips-group" role="radiogroup" aria-label="Mostrar pedidos">
-      ${FILTROS_LOTE.map(
-        (f) => html`<button type="button" role="radio" aria-checked=${filtro === f.id ? 'true' : 'false'} class=${cx('dchip', filtro === f.id && 'is-on')} onClick=${() => setFiltro(f.id)}>
-          <span>${f.label}</span>${f.id !== 'tudo' && contagem[f.id] ? html`<small>${contagem[f.id]}</small>` : null}
-        </button>`,
-      )}
-    </div>
+  return html`<div class="pc-filtros"><${Pilulas}
+      rolar
+      label="Mostrar pedidos"
+      valor=${filtro}
+      onEscolher=${setFiltro}
+      itens=${FILTROS_LOTE.map((f) => ({ value: f.id, label: f.label, conta: f.id !== 'tudo' && contagem[f.id] ? contagem[f.id] : null }))}
+    /></div>
     ${lista.length
       ? html`<ul class="pc-lotes">${lista.map((l) => html`<${LoteCard} key=${l.id} l=${l} s=${s} agora=${agora} online=${pc.online} />`)}</ul>`
       : html`<p class="pc-lote-none">Nenhum pedido ${atual.label.toLowerCase()}.</p>`}`
@@ -268,29 +269,29 @@ function Computer({ pc, pcState }) {
       : null}
 
     ${s.estado !== 'parado'
-      ? html`<div class=${cx('group pc-summary', `is-${s.estado}`)}>
-          <div class="pc-summary-top">
-            <span class="pc-summary-pct">${s.estado === 'concluido' ? '100%' : percent(frac)}</span>
-            <span class="pc-summary-state">${estado}</span>
-          </div>
-          <${Bar} frac=${frac} tone=${toneOf(s)} label=${`${percent(frac)} no total`} />
-          <div class="pc-summary-nums">
-            <span>${count(g.feitos)} de ${plural(g.total, 'arquivo', 'arquivos')}${g.erros ? html` · <span class="is-err">${plural(g.erros, 'com erro', 'com erro')}</span>` : null}</span>
-            <span>${bytes(g.feitoBytes)} de ${bytes(g.totalBytes)}</span>
-          </div>
-          ${andando && pc.online
-            ? html`<div class="pc-summary-nums is-live">
-                <span>${g.velocidade ? speed(g.velocidade) : 'Esperando…'}</span>
-                <span>${eta ? `faltam ${eta}` : ''}</span>
-              </div>`
-            : null}
-        </div>`
+      ? html`<${Destaque}
+            class=${cx('pc-summary', `is-${s.estado}`)}
+            tom=${s.estado === 'erro' ? 'erro' : s.estado === 'concluido' ? 'ok' : s.estado === 'baixando' ? 'down' : s.estado === 'pausado' || !pc.online ? 'grad' : 'up'}
+            vivo=${andando && pc.online}
+            titulo=${estado}
+            numero=${s.estado === 'concluido' ? '100%' : percent(frac)}
+            progresso=${frac}
+          >
+            <span class="k-destaque-linha"><span>${count(g.feitos)} de ${plural(g.total, 'arquivo', 'arquivos')}</span><span>${bytes(g.feitoBytes)} de ${bytes(g.totalBytes)}</span></span>
+          </${Destaque}>
+          <${Stats}
+            itens=${[
+              { icone: 'gauge', valor: andando && pc.online && g.velocidade ? speed(g.velocidade) : '—', rotulo: 'agora', tom: s.estado === 'baixando' ? 'down' : 'up' },
+              { icone: 'clock', valor: andando && pc.online && eta ? eta : '—', rotulo: 'falta', tom: 'neutro' },
+              { icone: g.erros ? 'warning' : 'check', valor: g.erros ? count(g.erros) : count(g.feitos), rotulo: g.erros ? 'com erro' : 'prontos', tom: g.erros ? 'erro' : 'ok' },
+            ]}
+          />`
       : null}
 
-    ${s.lotes?.length ? html`<h3 class="list-label">Pedidos</h3><${Lotes} pc=${pc} agora=${agora} />` : null}
+    ${s.lotes?.length ? html`<${Rotulo}>Pedidos</${Rotulo}><${Lotes} pc=${pc} agora=${agora} />` : null}
 
     ${!s.lotes?.length && s.itens?.length
-      ? html`<h3 class="list-label">Agora</h3>
+      ? html`<${Rotulo}>Agora</${Rotulo}>
           <ul class="group pc-rows">
             ${s.itens.map((it) => html`<${ItemRow} key=${it.id} it=${it} />`)}
           </ul>
@@ -298,7 +299,7 @@ function Computer({ pc, pcState }) {
       : null}
 
     ${!s.lotes?.length && s.terminados?.length
-      ? html`<h3 class="list-label">Já passou</h3>
+      ? html`<${Rotulo}>Já passou</${Rotulo}>
           <ul class="group pc-rows">
             ${s.terminados.map((t, i) => html`<${DoneRow} key=${`${t.nome}-${t.terminouEm}-${i}`} t=${t} agora=${agora} />`)}
           </ul>`
@@ -343,17 +344,17 @@ function PushToggle() {
   else if (needsInstall) help = null
   else if (blocked) help = 'As notificações estão bloqueadas para este site. Libere nos ajustes do navegador e volte aqui.'
   else if (push?.ativo === false) help = 'Os avisos ainda não estão ligados no servidor.'
-  return html`<div class="group pc-push">
-    <button type="button" class="pc-push-row" role="switch" aria-checked=${on ? 'true' : 'false'} aria-disabled=${disabled ? 'true' : undefined} onClick=${toggle}>
-      <span class="pc-push-icon" aria-hidden="true"><${Icon} name="bell" size=${19} /></span>
-      <span class="pc-push-text">Avisar no celular quando terminar</span>
-      <span class=${cx('switch', on && 'is-on', disabled && 'is-disabled', busy && 'is-busy')} aria-hidden="true"><span></span></span>
-    </button>
+  return html`<div class="pc-push">
+    <${Linhas}>
+      <button type="button" class="k-linha is-botao" role="switch" aria-checked=${on ? 'true' : 'false'} aria-disabled=${disabled ? 'true' : undefined} onClick=${toggle}>
+        <span class="k-linha-ic" style="--c:var(--warn)"><${Icon} name="bell" size=${17} strokeWidth=${1.8} /></span>
+        <span class="k-linha-txt"><b>Avisar no celular quando terminar</b>${help ? html`<span>${help}</span>` : null}</span>
+        <span class="k-linha-ctl"><span class=${cx('switch', on && 'is-on', disabled && 'is-disabled', busy && 'is-busy')} aria-hidden="true"><span></span></span></span>
+      </button>
+    </${Linhas}>
     ${needsInstall
       ? html`<p class="pc-push-help is-hint"><${Icon} name="share" size=${15} /> <span>No iPhone, os avisos só funcionam com o app na Tela de Início: toque em <b>Compartilhar</b> e depois em <b>Adicionar à Tela de Início</b>.</span></p>`
-      : help
-        ? html`<p class="pc-push-help">${help}</p>`
-        : null}
+      : null}
   </div>`
 }
 
@@ -370,12 +371,10 @@ export function ComputerSheet() {
         ? lista.map((pc) => html`<${Computer} key=${pc.id} pc=${pc} pcState=${pcState} />`)
         : pcState.status === 'idle' || (pcState.status === 'loading' && !lista.length)
           ? html`<div class="pc-empty"><span class="spinner" aria-hidden="true"></span></div>`
-          : html`<div class="empty pc-empty">
-              <span class="pc-empty-icon" aria-hidden="true"><${Icon} name="laptop" size=${30} /></span>
-              <b>Nenhuma notícia do computador</b>
-              <p>No app SOBEDESCE do computador, entre na sua conta e deixe ligado Ajustes → Acompanhar pelo celular. O que estiver passando aparece aqui.</p>
-            </div>`}
-      <h3 class="list-label">Avisos</h3>
+          : html`<${Vazio} icone="laptop" titulo="Nenhuma notícia do computador">
+              No app SOBEDESCE do computador, entre na sua conta e deixe ligado Ajustes → Acompanhar pelo celular. O que estiver passando aparece aqui.
+            </${Vazio}>`}
+      <${Rotulo}>Avisos</${Rotulo}>
       <${PushToggle} />
       <p class="foot">Atualiza sozinho a cada 5 segundos com esta tela aberta. Os nomes dos arquivos ficam guardados na sua conta por até 7 dias.</p>
     </div>`

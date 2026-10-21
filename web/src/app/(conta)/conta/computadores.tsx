@@ -13,9 +13,9 @@ function Linha({ item }: { item: Item }) {
   const [pendente, iniciar] = useTransition();
   const Icone = item.plataforma === "mac" ? Laptop : Monitor;
   return (
-    <li className="px-5 py-4 sm:px-6">
+    <li className="rounded-2xl bg-surface-2 px-4 py-3.5 ring-1 ring-line ring-inset">
       <div className="flex items-center gap-4">
-        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-surface-2 text-ink-2 ring-1 ring-line">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-ok/14 text-ok-text">
           <Icone aria-hidden className="size-[18px]" />
         </span>
         <div className="grid min-w-0 flex-1 gap-0.5">
@@ -38,7 +38,7 @@ function Linha({ item }: { item: Item }) {
         ) : null}
       </div>
       {confirmando ? (
-        <div className="mt-4 grid gap-3 rounded-2xl bg-surface-2 px-4 py-4 sm:flex sm:items-center sm:justify-between">
+        <div className="mt-3 grid gap-3 rounded-xl bg-surface px-4 py-3.5 ring-1 ring-line sm:flex sm:items-center sm:justify-between">
           <p className="text-[14px] leading-relaxed text-pretty text-ink-2">Desconectar este computador? Ele vai pedir para entrar de novo.</p>
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setConfirmando(false)} disabled={pendente}>
@@ -57,13 +57,13 @@ function Linha({ item }: { item: Item }) {
 export function Computadores({ itens }: { itens: Item[] }) {
   if (itens.length === 0) {
     return (
-      <p className="px-5 py-5 text-[15px] leading-relaxed text-pretty text-ink-2 sm:px-6">
+      <p className="rounded-2xl bg-surface-2 px-4 py-4 text-[15px] leading-relaxed text-pretty text-ink-2 ring-1 ring-line ring-inset">
         Nenhum computador conectado. No app SOBEDESCE do computador, toque em Entrar e libere aqui.
       </p>
     );
   }
   return (
-    <ul className="divide-y divide-line">
+    <ul className="grid gap-2">
       {itens.map((i) => (
         <Linha key={i.id} item={i} />
       ))}

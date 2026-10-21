@@ -9,12 +9,12 @@ import { RefsDemo } from "./refs-demo";
 import { ScrubDemo } from "./scrub-demo";
 import { Container, SectionHeading } from "./section";
 
-/** As funções novas, cada uma com a sua animação: sobe pro Drive, desce do Drive ou já abre direto no Drive. */
+/** Para criar e organizar, cada função com a sua animação: sobe pro Drive, desce do Drive ou já abre direto no Drive. */
 export function NovidadesSection() {
   return (
     <section id="novidades" aria-labelledby="novidades-titulo" className="scroll-mt-14 pb-20 sm:pb-28 2xl:pb-40">
       <Container>
-        <SectionHeading id="novidades-titulo" eyebrow="Novidades" tone="up" title="Sobe, desce e abre direto no Drive." />
+        <SectionHeading id="novidades-titulo" eyebrow="Para criar" tone="up" title="Do bruto ao post, direto no Drive." />
 
         <div className="mt-12 grid gap-4 sm:mt-16 sm:gap-5 md:grid-cols-2 lg:grid-cols-3 2xl:gap-8">
           <Card className="grid content-start gap-8 md:col-span-2">
@@ -44,7 +44,7 @@ export function NovidadesSection() {
           </Card>
 
           <Card className="grid content-start gap-8" delay={0.12}>
-            <CardTitle eyebrow="Calculadora de mídia · grátis" tone="text-down-text" dir="sobe" dirLabel="Antes de subir" title="Quanto cabe no cartão?" text="GB por hora, cartões, HDs e tempo de cópia." />
+            <CardTitle eyebrow="Cartões · calculadora grátis" tone="text-down-text" dir="sobe" dirLabel="Antes de subir" title="Quanto cabe no cartão?" text="GB por hora, cartões, HDs e tempo de cópia." />
             <CalcDemo />
             <Link href="/calculadora" className="inline-flex w-fit items-center gap-1.5 text-[15px] font-medium text-down-text hover:underline">
               Abrir a calculadora

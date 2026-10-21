@@ -17,12 +17,13 @@ function assinar(fn: () => void) {
   return () => window.removeEventListener("hashchange", fn);
 }
 
+/** Um passo no padrão do kit (components/kit): cartão com o número em gradiente, entrando em cascata. */
 function Passo({ n, titulo, children }: { n: number; titulo: string; children?: React.ReactNode }) {
   return (
-    <li className="grid grid-cols-[32px_1fr] gap-x-4 gap-y-2">
-      <span className="grid size-8 place-items-center rounded-full bg-surface-2 text-[14px] font-semibold tabular-nums ring-1 ring-line">{n}</span>
-      <div className="grid gap-2.5 pt-1">
-        <p className="text-[16px] leading-snug font-medium text-ink">{titulo}</p>
+    <li className="k-entra grid grid-cols-[30px_1fr] gap-x-3.5 gap-y-2 rounded-[20px] bg-surface p-5 shadow-[0_1px_3px_rgba(0,0,0,0.04)] ring-1 ring-line sm:p-6" style={{ "--i": n } as React.CSSProperties}>
+      <span className="k-grad grid size-[30px] place-items-center rounded-[10px] text-[13px] font-bold text-white tabular-nums shadow-[0_6px_16px_-6px_color-mix(in_srgb,var(--color-down)_70%,transparent)]">{n}</span>
+      <div className="grid min-w-0 gap-2.5 pt-0.5">
+        <p className="text-[17px] leading-snug font-semibold tracking-[-0.01em] text-ink">{titulo}</p>
         {children ? <div className="grid gap-2.5 text-[15px] leading-relaxed text-pretty text-ink-2">{children}</div> : null}
       </div>
     </li>
@@ -36,15 +37,15 @@ export function Instrucoes({ endpoint }: { endpoint: string }) {
   return (
     <div className="grid gap-10">
       {chave ? (
-        <div className="grid gap-2 rounded-card bg-surface p-5 ring-1 ring-line">
-          <p className="text-[14px] font-medium text-ink">Sua chave do Atalho</p>
+        <div className="relative isolate grid gap-2.5 overflow-hidden rounded-[20px] bg-[radial-gradient(120%_90%_at_100%_0%,rgba(255,255,255,0.18),transparent_55%),linear-gradient(135deg,var(--color-down),var(--color-up))] p-5 text-white shadow-[0_16px_34px_-18px_var(--color-up)] sm:p-6">
+          <p className="text-[12px] font-semibold tracking-[0.1em] uppercase opacity-85">Sua chave do Atalho</p>
           <Comando comando={chave} rotulo="Chave do Atalho" />
-          <p className="text-[13px] leading-relaxed text-ink-3">
+          <p className="text-[13px] leading-relaxed opacity-90">
             Ela só põe links na sua fila: não abre a conta nem lê nada. Não compartilhe. Gerou outra no app? Esta para de valer.
           </p>
         </div>
       ) : (
-        <div className="rounded-card bg-surface-2 p-5 text-[15px] leading-relaxed text-ink-2 ring-1 ring-line">
+        <div className="rounded-[20px] bg-surface p-5 text-[15px] leading-relaxed text-ink-2 ring-1 ring-line sm:p-6">
           Primeiro gere a sua chave no app SOBEDESCE: aba <b className="font-semibold text-ink">Referências</b>, cartão{" "}
           <b className="font-semibold text-ink">Salvar direto do Instagram</b>. O botão traz você de volta para cá com a chave pronta.{" "}
           <a href="/app/#referencias" className="font-medium text-down-text underline-offset-2 hover:underline">
@@ -56,7 +57,7 @@ export function Instrucoes({ endpoint }: { endpoint: string }) {
       <p className="-mb-4 text-[13px] leading-relaxed text-ink-3">
         As telas abaixo são desenhos do app Atalhos para guiar cada passo. Dependendo da versão do iOS, um nome ou outro pode mudar um pouco.
       </p>
-      <ol className="grid gap-10">
+      <ol className="grid gap-4">
         <Passo n={1} titulo="Abra o app Atalhos e toque em +">
           <p>Dê o nome “Salvar na SOBEDESCE”.</p>
           <TelaNovo />

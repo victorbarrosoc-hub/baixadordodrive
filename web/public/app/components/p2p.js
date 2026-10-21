@@ -7,18 +7,13 @@ import { closeSheet, openSheet, useApp } from '../lib/state.js'
 import { aceitarOferta, cancelarEnvio, cancelarRecebimento, fecharRecebimento, limparEnvio, mandarPara, p2pAndando, quemManda, recusarOferta, salvar, setAceitarOutros } from '../lib/p2p.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, cx } from './ui.js'
+import { BotaoGrande, Destaque, Item, Linhas, Rotulo } from './kit.js'
 
 const pctW = (f) => `${(Math.max(0, Math.min(1, f)) * 100).toFixed(2)}%`
 const primeiro = (nome) => String(nome || '').trim().split(/\s+/)[0]
 const icone = (a) => (a?.conta === 'outra' ? 'user' : a?.tipo === 'celular' ? 'phone' : 'laptop')
 /** "MacBook de Victor" (da conta) ou "Ana" (outra pessoa). */
 const titulo = (a) => (a?.conta === 'outra' && a.dono ? primeiro(a.dono) : a?.nome || 'Aparelho')
-
-function Barra({ frac, tom = 'up', label }) {
-  return html`<div class=${cx('pc-bar', `tone-${tom}`)} role="progressbar" aria-label=${label} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${Math.round(frac * 100)}>
-    <span style=${`width:${pctW(frac)}`}></span>
-  </div>`
-}
 
 /** O que dizer em cada fase (o envio espera o computador da conta ou alguém tocar em Aceitar). */
 function faseTexto(t, alvo) {
@@ -30,24 +25,24 @@ function faseTexto(t, alvo) {
   return ''
 }
 
-/** O andamento de um envio ou recebimento: nome do arquivo, barra, quanto e a velocidade. */
+/** O andamento de um envio ou recebimento: o cartão colorido com a %, a barra, o arquivo e a velocidade. */
 function Andamento({ t, nomes, tom, alvo }) {
   const frac = t.total ? t.bytes / t.total : t.fase === 'pronto' ? 1 : 0
   const nomeAtual = nomes?.[t.atual || 0]
   const n = nomes?.length || 0
   const andando = t.fase === 'andando'
-  return html`<div class=${cx('group pc-summary p2p-andamento', `is-${t.fase}`)}>
-    <div class="pc-summary-top">
-      <span class="pc-summary-pct">${t.fase === 'pronto' ? '100%' : andando ? percent(frac) : faseTexto(t, alvo)}</span>
-      ${andando ? html`<span class="pc-summary-state">${n > 1 ? `${(t.atual || 0) + 1} de ${n}` : ''}</span>` : null}
-    </div>
-    <${Barra} frac=${frac} tom=${t.fase === 'erro' ? 'err' : t.fase === 'pronto' ? 'ok' : tom} label=${`${percent(frac)}`} />
-    <div class="pc-summary-nums">
-      <span class="p2p-nome">${andando && nomeAtual ? nomeAtual : plural(n, 'arquivo', 'arquivos')}</span>
-      <span>${bytes(t.bytes || 0)} de ${bytes(t.total || 0)}</span>
-    </div>
-    ${andando ? html`<div class="pc-summary-nums is-live"><span>${t.velocidade ? speed(t.velocidade) : 'Começando…'}</span><span></span></div>` : null}
-  </div>`
+  const cor = t.fase === 'erro' || t.fase === 'cancelado' ? 'erro' : t.fase === 'pronto' ? 'ok' : tom
+  return html`<${Destaque}
+    class=${cx('p2p-andamento', `is-${t.fase}`)}
+    tom=${cor}
+    vivo=${andando}
+    titulo=${andando ? (n > 1 ? `${(t.atual || 0) + 1} de ${n} arquivos` : 'Passando') : faseTexto(t, alvo) || 'Pronto'}
+    numero=${t.fase === 'pronto' ? '100%' : andando ? percent(frac) : null}
+    progresso=${t.fase === 'conectando' || t.fase === 'esperando' ? null : frac}
+  >
+    <span class="k-destaque-linha"><span class="p2p-nome">${andando && nomeAtual ? nomeAtual : plural(n, 'arquivo', 'arquivos')}</span><span>${bytes(t.bytes || 0)} de ${bytes(t.total || 0)}</span></span>
+    ${andando ? html`<span class="k-destaque-linha"><span>${t.velocidade ? speed(t.velocidade) : 'Começando…'}</span></span>` : null}
+  </${Destaque}>`
 }
 
 function ManterAberta() {
@@ -57,15 +52,17 @@ function ManterAberta() {
 /** "Aceitar de outras pessoas por perto": no Início (embaixo da lista) e em Ajustes. */
 export function AceitarOutros() {
   const on = useApp((s) => s.p2p.outros)
-  return html`<div class="group pc-push p2p-outros">
-    <button type="button" class="pc-push-row" role="switch" aria-checked=${on ? 'true' : 'false'} onClick=${() => setAceitarOutros(!on)}>
-      <span class="pc-push-icon" aria-hidden="true"><${Icon} name="users" size=${19} /></span>
-      <span class="pc-push-text">Aceitar de outras pessoas por perto</span>
-      <span class=${cx('switch', on && 'is-on')} aria-hidden="true"><span></span></span>
-    </button>
-    <p class="pc-push-help">${on
-      ? 'Quem usa a SOBEDESCE no mesmo Wi-Fi vê este celular e pode pedir para mandar arquivos. Nada chega sem você tocar em Aceitar.'
-      : 'Desligado: só os seus aparelhos veem este celular.'}</p>
+  return html`<div class="p2p-outros">
+    <${Linhas}>
+      <button type="button" class="k-linha is-botao" role="switch" aria-checked=${on ? 'true' : 'false'} onClick=${() => setAceitarOutros(!on)}>
+        <span class="k-linha-ic" style="--c:var(--warn)"><${Icon} name="users" size=${17} strokeWidth=${1.8} /></span>
+        <span class="k-linha-txt">
+          <b>Aceitar de outras pessoas por perto</b>
+          <span>${on ? 'Quem usa a SOBEDESCE no mesmo Wi-Fi vê este celular e pode pedir para mandar. Nada chega sem você tocar em Aceitar.' : 'Desligado: só os seus aparelhos veem este celular.'}</span>
+        </span>
+        <span class="k-linha-ctl"><span class=${cx('switch', on && 'is-on')} aria-hidden="true"><span></span></span></span>
+      </button>
+    </${Linhas}>
   </div>`
 }
 
@@ -73,16 +70,15 @@ export function AceitarOutros() {
 
 function LinhaAparelho({ a, onEscolher }) {
   const outra = a.conta === 'outra'
-  return html`<li>
-    <button type="button" onClick=${() => onEscolher(a.id)} aria-label=${`Mandar para ${outra ? `${titulo(a)}, ${a.nome}` : a.nome}`}>
-      <span class=${cx('p2p-ico', outra && 'is-pessoa')}><${Icon} name=${icone(a)} size=${17} /></span>
-      <span class="ini-pasta-txt">
-        <b>${titulo(a)}</b>
-        <span>${outra ? a.nome : a.mesmaRede ? html`<span class="p2p-rede">● na mesma rede</span>` : 'Ligado agora'}</span>
-      </span>
-      <${Icon} name="chevron-right" size=${15} strokeWidth=${2} class="ini-pasta-ir" />
-    </button>
-  </li>`
+  return html`<${Item}
+    icone=${icone(a)}
+    tom=${outra ? 'warn' : a.tipo === 'celular' ? 'up' : 'down'}
+    titulo=${titulo(a)}
+    sub=${outra ? a.nome : a.mesmaRede ? html`<span class="p2p-rede">● na mesma rede</span>` : 'Ligado agora'}
+    fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
+    label=${`Mandar para ${outra ? `${titulo(a)}, ${a.nome}` : a.nome}`}
+    onClick=${() => onEscolher(a.id)}
+  />`
 }
 
 /** "Mandar para…": os aparelhos ligados agora. Escolher um abre a escolha de arquivos. */
@@ -101,39 +97,39 @@ export function MandarComputador({ i = 6, compacto = false }) {
   const outros = aparelhos.filter((a) => a.conta === 'outra')
   const linhaRec =
     recebimento &&
-    html`<button type="button" class="p2p-linha" onClick=${() => openSheet('p2pReceber')}>
-      <span class="p2p-ico is-down"><${Icon} name="arrow-down" size=${17} strokeWidth=${2.1} /></span>
-      <span class="ini-pasta-txt">
-        <b>${recebimento.fase === 'pedido' ? `${quemManda(recebimento.de)} quer mandar arquivos` : `De ${quemManda(recebimento.de)}`}</b>
-        <span>${recebimento.fase === 'pedido' ? 'Toque para ver' : recebimento.fase === 'pronto' ? `${plural(recebimento.recebidos?.length || 0, 'arquivo', 'arquivos')} para salvar` : recebimento.fase === 'andando' ? `${percent(recebimento.total ? recebimento.bytes / recebimento.total : 0)} · ${speed(recebimento.velocidade || 0)}` : faseTexto(recebimento)}</span>
-      </span>
-      <${Icon} name="chevron-right" size=${15} strokeWidth=${2} class="ini-pasta-ir" />
-    </button>`
+    html`<${Item}
+      class="p2p-linha"
+      icone="download"
+      tom="down"
+      on=${recebimento.fase === 'pedido'}
+      titulo=${recebimento.fase === 'pedido' ? `${quemManda(recebimento.de)} quer mandar arquivos` : `De ${quemManda(recebimento.de)}`}
+      sub=${recebimento.fase === 'pedido' ? 'Toque para ver' : recebimento.fase === 'pronto' ? `${plural(recebimento.recebidos?.length || 0, 'arquivo', 'arquivos')} para salvar` : recebimento.fase === 'andando' ? `${percent(recebimento.total ? recebimento.bytes / recebimento.total : 0)} · ${speed(recebimento.velocidade || 0)}` : faseTexto(recebimento)}
+      fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
+      onClick=${() => openSheet('p2pReceber')}
+    />`
   const linhaEnvio =
     envio &&
-    html`<button type="button" class="p2p-linha" onClick=${() => openSheet('p2pEnvio')}>
-      <span class="p2p-ico is-up"><${Icon} name="arrow-up" size=${17} strokeWidth=${2.1} /></span>
-      <span class="ini-pasta-txt">
-        <b>Para ${titulo(envio.para)}</b>
-        <span>${envio.fase === 'andando' ? `${percent(envio.total ? envio.bytes / envio.total : 0)} · ${speed(envio.velocidade || 0)}` : faseTexto(envio, envio.para)}</span>
-      </span>
-      <${Icon} name="chevron-right" size=${15} strokeWidth=${2} class="ini-pasta-ir" />
-    </button>`
+    html`<${Item}
+      class="p2p-linha"
+      icone="upload"
+      tom="up"
+      titulo=${`Para ${titulo(envio.para)}`}
+      sub=${envio.fase === 'andando' ? `${percent(envio.total ? envio.bytes / envio.total : 0)} · ${speed(envio.velocidade || 0)}` : faseTexto(envio, envio.para)}
+      fim=${html`<${Icon} name="chevron-right" size=${16} strokeWidth=${2} />`}
+      onClick=${() => openSheet('p2pEnvio')}
+    />`
   if (!aparelhos.length && !envio && !recebimento) return null
-  if (compacto)
-    return html`<section class="ini-recentes p2p-bloco" aria-label="No Wi-Fi">
-      <ul>${recebimento ? html`<li>${linhaRec}</li>` : null}${envio ? html`<li>${linhaEnvio}</li>` : null}</ul>
-    </section>`
-  return html`<section class="ini-recentes p2p-bloco ini-entra" style=${`--i:${i}`} aria-label="Mandar para outro aparelho">
-    <h2 class="ini-rotulo">Mandar para…</h2>
-    <ul>
-      ${recebimento ? html`<li>${linhaRec}</li>` : null}
-      ${envio ? html`<li>${linhaEnvio}</li>` : null}
+  if (compacto) return html`<section class="p2p-bloco k-itens" aria-label="No Wi-Fi">${recebimento ? linhaRec : null}${envio ? linhaEnvio : null}</section>`
+  return html`<section class="p2p-bloco ini-entra" style=${`--i:${i}`} aria-label="Mandar para outro aparelho">
+    <${Rotulo}>Mandar pelo Wi-Fi</${Rotulo}>
+    <div class="k-itens">
+      ${recebimento ? linhaRec : null}
+      ${envio ? linhaEnvio : null}
       ${meus.map((a) => html`<${LinhaAparelho} key=${a.id} a=${a} onEscolher=${escolher} />`)}
-    </ul>
+    </div>
     ${outros.length
-      ? html`<h2 class="ini-rotulo p2p-perto">Por perto</h2>
-          <ul>${outros.map((a) => html`<${LinhaAparelho} key=${a.id} a=${a} onEscolher=${escolher} />`)}</ul>`
+      ? html`<${Rotulo}>Por perto</${Rotulo}>
+          <div class="k-itens">${outros.map((a) => html`<${LinhaAparelho} key=${a.id} a=${a} onEscolher=${escolher} />`)}</div>`
       : null}
     <${AceitarOutros} />
     <input
@@ -185,7 +181,7 @@ export function P2pEnvioSheet() {
       <div class="p2p-acoes">
         ${andando
           ? html`<${Button} variant="secondary" onClick=${() => cancelarEnvio()}>Cancelar</${Button}>`
-          : html`<${Button} variant="primary" onClick=${fechar}>OK</${Button}>`}
+          : html`<${BotaoGrande} icone="check" onClick=${fechar}>OK</${BotaoGrande}>`}
       </div>
     </div>`
 }
@@ -195,13 +191,14 @@ P2pEnvioSheet.label = 'Mandar para outro aparelho'
 
 function Arquivo({ a }) {
   const [salvando, setSalvando] = useState(false)
-  return html`<li class="pc-row p2p-arq">
-    <span class="pc-row-icon is-ok"><${Icon} name=${/^image\//.test(a.tipo) ? 'photo' : /^video\//.test(a.tipo) ? 'film' : 'doc'} size=${16} /></span>
-    <span class="pc-row-main">
-      <span class="pc-row-name">${a.nome}</span>
-      <span class="pc-row-meta">${bytes(a.tamanho)}</span>
-    </span>
-    <${Button}
+  const ic = /^image\//.test(a.tipo) ? 'photo' : /^video\//.test(a.tipo) ? 'film' : 'doc'
+  return html`<${Item}
+    class="p2p-arq"
+    icone=${ic}
+    tom="ok"
+    titulo=${a.nome}
+    sub=${bytes(a.tamanho)}
+    fim=${html`<${Button}
       size="sm"
       variant="secondary"
       loading=${salvando}
@@ -212,8 +209,8 @@ function Arquivo({ a }) {
         } finally {
           setSalvando(false)
         }
-      }}>Salvar</${Button}>
-  </li>`
+      }}>Salvar</${Button}>`}
+  />`
 }
 
 export function P2pReceberSheet() {
@@ -246,7 +243,7 @@ export function P2pReceberSheet() {
               recusarOferta()
               closeSheet()
             }}>Recusar</${Button}>
-          <${Button} variant="primary" onClick=${() => aceitarOferta()}>Aceitar</${Button}>
+          <${BotaoGrande} icone="download" onClick=${() => aceitarOferta()}>Aceitar</${BotaoGrande}>
         </div>
       </div>`
   }
@@ -260,15 +257,15 @@ export function P2pReceberSheet() {
       ${r.erro ? html`<p class="p2p-erro" role="alert"><${Icon} name="warning" size=${18} /> ${r.erro}</p>` : null}
       ${andando ? html`<${ManterAberta} />` : null}
       ${r.fase === 'pronto' && recebidos.length
-        ? html`<h3 class="list-label">Chegou</h3>
-            <ul class="group pc-rows">${recebidos.map((a) => html`<${Arquivo} key=${a.i} a=${a} />`)}</ul>
+        ? html`<${Rotulo}>Chegou</${Rotulo}>
+            <div class="k-itens">${recebidos.map((a) => html`<${Arquivo} key=${a.i} a=${a} />`)}</div>
             <p class="group-foot">Salvar abre as opções do celular: Salvar em Fotos, em Arquivos ou mandar para um app. Ao fechar, a cópia some daqui.</p>`
         : null}
       <div class="p2p-acoes">
         ${andando
           ? html`<${Button} variant="secondary" onClick=${() => cancelarRecebimento()}>Cancelar</${Button}>`
           : r.fase === 'pronto' && recebidos.length > 1
-            ? html`<${Button} variant="primary" icon="download" onClick=${() => salvar(recebidos.map((a) => a.file))}>Salvar todos</${Button}>`
+            ? html`<${BotaoGrande} icone="download" onClick=${() => salvar(recebidos.map((a) => a.file))}>Salvar todos</${BotaoGrande}>`
             : html`<${Button} variant=${r.fase === 'pronto' ? 'secondary' : 'primary'} onClick=${fechar}>Fechar</${Button}>`}
       </div>
     </div>`
