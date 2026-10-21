@@ -518,3 +518,10 @@
     animation: none;
   }
 }
+.dv-falha {
+  align-items: flex-start;
+  color: var(--text-2);
+}
+.dv-falha b {
+  color: var(--text);
+}

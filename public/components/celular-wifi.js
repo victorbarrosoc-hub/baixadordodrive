@@ -94,3 +94,37 @@ export function AvisoRedeLocal({ i = 0 }) {
     </div>
   </section>`
 }
+
+// Firewall do macOS ligado sem "Permitir" para o SOBEDESCE (src/celular/firewall.js): o celular manda as checagens para
+// o IP do Mac e elas são recusadas.
+export function AvisoFirewall({ fw, i = 0 }) {
+  const [ocupado, setOcupado] = useState(false)
+  const conferir = async () => {
+    setOcupado(true)
+    await attempt(api.post('/api/celular/aparelhos', {}))
+    setOcupado(false)
+  }
+  return html`<section class="dv-pedido is-aviso k-entra" style=${`--i:${i}`} role="alert" aria-label="Firewall bloqueando">
+    <span class="dv-pedido-ic" aria-hidden="true"><${Icon} name="shield" size=${22} strokeWidth=${1.8} /></span>
+    <div class="dv-pedido-txt">
+      <span class="k-rot">Wi-Fi com o celular</span>
+      <h2>${fw.bloquearTudo ? 'O Firewall do Mac está bloqueando todas as conexões' : 'O Firewall do Mac não deixa o SOBEDESCE receber conexões'}</h2>
+      <p>${fw.bloquearTudo
+        ? 'Em Ajustes do Sistema → Rede → Firewall → Opções, desligue “Bloquear todas as conexões de entrada”.'
+        : 'Em Ajustes do Sistema → Rede → Firewall → Opções, clique em +, escolha o SOBEDESCE em Aplicativos e deixe “Permitir conexões de entrada”.'}</p>
+    </div>
+    <div class="dv-pedido-acoes">
+      <${Button} onClick=${conferir} disabled=${ocupado}>Conferir de novo</${Button}>
+      <button type="button" class="k-botao dv-aceitar" onClick=${() => abrirAjustesRede('firewall')}>
+        <${Icon} name="sliders" size=${18} strokeWidth=${2} />Abrir Ajustes
+      </button>
+    </div>
+  </section>`
+}
+
+/** A última vez que um celular tentou e a ligação direta não abriu (com o que cada lado anunciou). */
+export function FalhaCelular({ f, i = 0 }) {
+  return html`<p class="k-nota dv-falha k-entra" style=${`--i:${i}`} role="status">
+    <${Icon} name="warning" size=${14} /> <span><b>O celular tentou e não conectou.</b> ${f.erro}</span>
+  </p>`
+}

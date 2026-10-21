@@ -141,6 +141,19 @@ test('Mac sem a permissão de Rede Local: recusa a oferta e o envio com o caminh
   assert.deepEqual(hub.eventos.filter(([ev]) => ev === 'celular-oferta').map(([, s]) => s.id), ['of10'])
 })
 
+test('a janela oculta conta que não conectou: Dispositivos mostra a última falha e o Firewall, se atrapalhar', async () => {
+  const site = siteFalso()
+  const fwEstado = { ligado: true, bloquearTudo: false, app: 'fora', atrapalha: true }
+  const firewall = { get estado() { return fwEstado }, conferir: async () => fwEstado }
+  const redeLocal = { estado: 'ok', conferir: async () => 'ok' }
+  const w = new CelularWifi({ settings: ajustes({ celularPasta: tmp() }), cloud: site, hub: hubFalso(), redeLocal, firewall })
+  assert.equal(w.view().ultimaFalha, null)
+  w.falha('Não deu para conectar no Wi-Fi (este computador: 1 local 192.168.1.x · celular: 1 local .local · failed).')
+  assert.match(w.view().ultimaFalha.erro, /192\.168\.1\.x/)
+  await w.conferirRede()
+  assert.equal(w.view().firewall.atrapalha, true)
+})
+
 test('de outra pessoa por perto: desligado recusa; ligado espera Aceitar ou Recusar na tela', async () => {
   const site = siteFalso()
   const hub = hubFalso()

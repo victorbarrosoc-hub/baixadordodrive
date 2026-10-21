@@ -51,6 +51,9 @@ export function registerCelular({ route, ctx, HttpProblem, baseHeaders, wifi }) 
 
   route('POST', '/api/celular/janela', tratar(async () => w.janela()))
 
+  // A janela oculta conta que a ligação direta com um celular não abriu (aparece em Dispositivos).
+  route('POST', '/api/celular/falha', tratar(async ({ body }) => w.falha(typeof body?.erro === 'string' ? body.erro : '')))
+
   // Pedido de outra pessoa por perto: Aceitar ou Recusar na tela.
   route('POST', '/api/celular/responder', tratar(async ({ body }) => {
     if (typeof body.id !== 'string' || !body.id) throw new HttpProblem(400, 'Pedido inválido.')
