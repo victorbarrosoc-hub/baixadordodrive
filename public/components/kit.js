@@ -93,9 +93,9 @@ export function Resumo({ titulo, children }) {
   </div>`
 }
 
-/** Blocos de número. itens: [{ icone, valor, rotulo, tom? ('down'|'up'|'ok'|'warn'|'erro'|'neutro') }] */
-export function Stats({ itens, colunas }) {
-  return html`<div class="k-stats" style=${`--n:${colunas || itens.length}`}>
+/** Blocos de número. itens: [{ icone, valor, rotulo, tom? ('down'|'up'|'ok'|'warn'|'erro'|'neutro') }]. `compacto`: coluna lateral. */
+export function Stats({ itens, colunas, compacto = false }) {
+  return html`<div class=${cx('k-stats', compacto && 'is-compacto')} style=${`--n:${colunas || itens.length}`}>
     ${itens.map(
       (s) => html`<div class=${cx('k-stat', s.tom && s.tom !== 'down' && `is-${s.tom}`)}>
         ${s.icone ? html`<span class="k-stat-ic"><${Icon} name=${s.icone} size=${15} strokeWidth=${1.9} /></span>` : null}
