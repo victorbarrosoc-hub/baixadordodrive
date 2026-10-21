@@ -15,7 +15,6 @@ import { openModal, pickDriveFolder, promptDialog } from '../lib/modals.js'
 import { FUNDOS, LAYOUTS, ZOOM_MAX, desenharPost, enquadreDe, fatiar, frameNoPonto, layoutPorId, moverEnquadre } from '../lib/frames-posts.js'
 import { Icon } from './icons.js'
 import { Button, EmptyState, IconButton, Segmented, Slider, Spinner, Stepper, Switch } from './common.js'
-import { CriarAbas } from './criar-abas.js'
 
 const VIDEO_EXT = /\.(mp4|mov|m4v|mxf|mkv|avi|mts|m2ts|ts|mpg|mpeg|webm|wmv|3gp|dv)$/i
 const LOGO_EXT = /\.(png|jpe?g|webp)$/i
@@ -443,7 +442,6 @@ function Inicio() {
         <h1>Frames</h1>
         <p class="page-lead">Do filme pronto aos posts: frames em alta, takes e artes para as redes.</p>
       </div>
-      <${CriarAbas} atual="frames" />
     </header>
     <${Andamento} job=${job} />
     ${job?.status === 'running' ? null : html`<${Novo} onComecou=${(id) => (esperando.current = id)} />`}
