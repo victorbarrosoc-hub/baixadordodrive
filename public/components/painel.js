@@ -164,7 +164,8 @@ function Atalhos() {
     ${[
       { id: 'drive', icone: 'cloud', titulo: 'Drive', sub: 'Seus arquivos', tom: 'down' },
       { id: 'referencias', icone: 'bookmark', titulo: 'Referências', sub: 'O que você salvou', tom: 'warn' },
-      { id: 'frames', icone: 'sparkle', titulo: 'Criar', sub: 'Frames e posts', tom: 'up' },
+      { id: 'frames', icone: 'frames', titulo: 'Frames', sub: 'Posts do filme', tom: 'up' },
+      { id: 'cartoes', icone: 'sdcard', titulo: 'Cartões', sub: 'Quanta mídia levar', tom: 'ok' },
     ].map(
       (a, i) => html`<button type="button" class=${cx('pn-atalho', `is-${a.tom}`)} onClick=${() => navigate(a.id)} style=${`--i:${6 + i}`}>
         <span class="pn-atalho-icone"><${Icon} name=${a.icone} size=${20} strokeWidth=${1.8} /></span>

@@ -11931,7 +11931,7 @@ button.pn-cartao:hover .pn-seta {
 /* atalhos */
 .pn-atalhos {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.5fr) repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 .pn-enviar {
@@ -12041,6 +12041,10 @@ button.pn-cartao:hover .pn-seta {
 .pn-atalho.is-warn {
   --c: var(--warn);
   --t: var(--warn-text);
+}
+.pn-atalho.is-ok {
+  --c: var(--ok);
+  --t: var(--ok-text);
 }
 .pn-atalho-icone {
   width: 44px;
@@ -12216,7 +12220,7 @@ button.pn-cartao:hover .pn-seta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .pn-atalhos {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .pn-enviar {
     grid-column: 1 / -1;

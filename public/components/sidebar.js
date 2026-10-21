@@ -10,13 +10,14 @@ import { LevelMeter } from './meter.js'
 import { useAbout } from './drive-data.js'
 import { UpdateCard } from './versao.js'
 
-// O que se usa todo dia em cima; Dispositivos e Ajustes embaixo. "Criar" junta Frames e Cartões (abas na tela).
+// O que se usa todo dia em cima; Dispositivos e Ajustes embaixo. Frames e Cartões com item próprio (não ficam escondidos).
 const NAV = [
   { id: 'painel', label: 'Início', icon: 'home' },
   { id: 'transferencias', label: 'Transferências', icon: 'transfers' },
   { id: 'drive', label: 'Drive', icon: 'cloud' },
   { id: 'referencias', label: 'Referências', icon: 'bookmark' },
-  { id: 'frames', label: 'Criar', icon: 'sparkle', tambem: ['cartoes'] },
+  { id: 'frames', label: 'Frames', icon: 'frames' },
+  { id: 'cartoes', label: 'Cartões', icon: 'sdcard' },
   { id: 'comparar', label: 'Comparar', icon: 'compare' },
 ]
 const NAV_BAIXO = [

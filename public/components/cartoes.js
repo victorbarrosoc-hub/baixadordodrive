@@ -7,7 +7,6 @@ import { calcular, comoOComputadorMostra, duracao, gbPorHora, tamanho } from '..
 import { MODOS } from '../lib/midia-modos.js'
 import { cx, usePersistentState } from '../lib/ui.js'
 import { Icon } from './icons.js'
-import { CriarAbas } from './criar-abas.js'
 
 const CARTOES = [64, 128, 256, 512, 1000]
 const num = (n, casas = 1) => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: casas }).format(n)
@@ -241,7 +240,6 @@ export function CartoesScreen() {
         <h1>Cartões</h1>
         <p class="page-lead">Quanta mídia levar para o trabalho, com a conta aberta.</p>
       </div>
-      <${CriarAbas} atual="cartoes" />
     </header>
     <${Calculadora} />
   </section>`
