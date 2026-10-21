@@ -213,6 +213,76 @@
   }
 }
 
+/*
+ * Kit das telas (components/kit, docs/UI-KIT.md): o mesmo padrão do app do computador (Frames, Cartões, Início).
+ * Gradiente azul → violeta; entrada em cascata (--i); brilho que passa no destaque "vivo"; ondas do estado vazio.
+ * "Reduzir movimento" para tudo pela regra geral no fim do arquivo.
+ */
+@utility k-grad {
+  background-image: linear-gradient(135deg, var(--color-down) 0%, var(--color-up) 100%);
+}
+@utility k-entra {
+  animation: sd-k-entra 0.45s var(--ease-out-soft) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+@keyframes sd-k-entra {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes sd-k-varre {
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes sd-k-onda {
+  from {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+@keyframes sd-k-pulsa {
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+.k-vivo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.16) 50%, transparent 65%);
+  transform: translateX(-100%);
+  animation: sd-k-varre 3.2s var(--ease-out-soft) infinite;
+  pointer-events: none;
+}
+.k-barra-viva::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: translateX(-100%);
+  animation: sd-k-varre 1.6s linear infinite;
+}
+.k-onda::before,
+.k-onda::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--color-down) 40%, transparent);
+  animation: sd-k-onda 2.8s var(--ease-out-soft) infinite;
+}
+.k-onda::after {
+  animation-delay: 1.4s;
+  border-color: color-mix(in srgb, var(--color-up) 40%, transparent);
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   overflow-x: clip;

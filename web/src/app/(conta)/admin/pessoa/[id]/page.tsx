@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Globe, Laptop, Smartphone } from "lucide-react";
+import { ArrowLeft, CalendarDays, Cloud, Globe, History, Laptop, Smartphone } from "lucide-react";
 import { Avatar } from "@/components/conta/avatar";
 import { MenuConta } from "@/components/conta/menu";
-import { Moldura, Secao } from "@/components/conta/moldura";
-import { Card } from "@/components/ui/card";
+import { Moldura } from "@/components/conta/moldura";
+import { Passo } from "@/components/kit/kit";
 import { Numero, Selo, Tira, UltimoUso, bytesLegivel, dataHora, nArquivos, totalBytes, velocidadeLegivel } from "@/components/admin/partes";
 import { buildPublicado, desatualizado, ehAdmin, linhaDoTempo, painelAdmin, velocidadeMedia } from "@/lib/admin";
 import { exigirUsuario } from "@/lib/auth/atual";
@@ -63,7 +63,7 @@ export default async function PessoaAdmin({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
-      <Card className="grid grid-cols-2 gap-px overflow-hidden bg-line sm:grid-cols-4 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-8">
         <Numero valor={p.diasAtivos30} rotulo="dias ativos no mês" />
         <Numero valor={bytesLegivel(totalBytes(u))} rotulo="transferido no mês" detalhe={nArquivos(u.enviados + u.baixados)} />
         <Numero valor={u.erros} rotulo="erros no mês" alerta={u.erros > 0} />
@@ -72,12 +72,12 @@ export default async function PessoaAdmin({ params }: { params: Promise<{ id: st
         <Numero valor={bytesLegivel(u.baixadosBytes)} rotulo="desceu no mês" />
         <Numero valor={bytesLegivel(totalBytes(p.usoTotal))} rotulo="no total" />
         <Numero valor={p.colecoes} rotulo="coleções" detalhe={`${p.referencias} links${p.referenciasComErro ? `, ${p.referenciasComErro} com erro` : ""}`} />
-      </Card>
+      </div>
 
       {/* Desktop largo: Drives e aparelhos lado a lado; embaixo, o dia a dia e a linha do tempo. */}
-      <div className="mt-12 xl:grid xl:grid-cols-2 xl:items-start xl:gap-x-[clamp(32px,3vw,64px)] [&>section]:xl:mt-0">
-        <Secao titulo="Drives" id="drives">
-          <Card className="overflow-hidden">
+      <div className="mt-4 grid items-start gap-4 xl:grid-cols-2">
+        <Passo icone={<Cloud />} tom="down" i={2} titulo="Drives" id="drives">
+          <div className="overflow-hidden rounded-2xl bg-surface-2 ring-1 ring-line ring-inset">
             {p.drives.length ? (
               <ul className="divide-y divide-line">
                 {p.drives.map((d) => (
@@ -90,11 +90,11 @@ export default async function PessoaAdmin({ params }: { params: Promise<{ id: st
             ) : (
               <p className="px-5 py-4 text-[14px] text-ink-2">Sem Google Drive conectado.</p>
             )}
-          </Card>
-        </Secao>
+          </div>
+        </Passo>
 
-        <Secao titulo="Aparelhos conectados" descricao="Desconectar faz o aparelho sair da conta; a pessoa entra de novo quando quiser." id="aparelhos">
-          <Card className="overflow-hidden">
+        <Passo icone={<Laptop />} tom="ok" i={3} titulo="Aparelhos conectados" frase="Desconectar faz o aparelho sair da conta; a pessoa entra de novo quando quiser." id="aparelhos">
+          <div className="overflow-hidden rounded-2xl bg-surface-2 ring-1 ring-line ring-inset">
             {sessoes.length ? (
               <ul className="divide-y divide-line">
                 {sessoes.map((s) => {
@@ -135,12 +135,12 @@ export default async function PessoaAdmin({ params }: { params: Promise<{ id: st
             ) : (
               <p className="px-5 py-4 text-[14px] text-ink-2">Nenhum aparelho conectado agora.</p>
             )}
-          </Card>
-        </Secao>
+          </div>
+        </Passo>
       </div>
-      <div className="mt-12 xl:grid xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:items-start xl:gap-x-[clamp(32px,3vw,64px)] [&>section]:xl:mt-0">
-        <Secao titulo="Dia a dia" descricao="Últimos 60 dias com uso. Só números: nada do que foi transferido." id="dias">
-          <Card className="overflow-hidden">
+      <div className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <Passo icone={<CalendarDays />} tom="up" i={4} titulo="Dia a dia" frase="Últimos 60 dias com uso. Só números: nada do que foi transferido." id="dias">
+          <div className="overflow-hidden rounded-2xl bg-surface-2 ring-1 ring-line ring-inset">
             {dias.length ? (
               <ul className="divide-y divide-line">
                 {dias.map((d) => {
@@ -167,11 +167,11 @@ export default async function PessoaAdmin({ params }: { params: Promise<{ id: st
             ) : (
               <p className="px-5 py-4 text-[14px] text-ink-2">Nenhum dia de uso registrado ainda (o registro começou nesta versão).</p>
             )}
-          </Card>
-        </Secao>
+          </div>
+        </Passo>
 
-        <Secao titulo="Linha do tempo" id="linha">
-          <Card className="overflow-hidden">
+        <Passo icone={<History />} tom="neutro" i={5} titulo="Linha do tempo" id="linha">
+          <div className="overflow-hidden rounded-2xl bg-surface-2 ring-1 ring-line ring-inset">
             <ol className="divide-y divide-line">
               {eventos.map((e, i) => (
                 <li key={i} className="flex items-baseline justify-between gap-3 px-5 py-3 text-[14px]">
@@ -180,8 +180,8 @@ export default async function PessoaAdmin({ params }: { params: Promise<{ id: st
                 </li>
               ))}
             </ol>
-          </Card>
-        </Secao>
+          </div>
+        </Passo>
       </div>
     </Moldura>
   );
