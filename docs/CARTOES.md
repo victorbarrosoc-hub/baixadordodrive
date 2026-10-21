@@ -19,7 +19,8 @@ do cartão, a conta de quanta mídia levar e o resgate do que se perdeu.
 |---|---|---|
 | 1 | Calculadora | **feita**: aba Cartões no app do computador e página grátis `sobedesce.com/calculadora`. Conta em `web/src/lib/midia/conta.js` (cópia igual em `public/lib/midia-conta.js`), 47 modos prontos de 20 câmeras, cada um com o link do fabricante, em `modos.js`, testes em `test/midia-conta.test.js` |
 | 7 | Resgate: o motor | **feito** (sem tela ainda): consertar clipe sem índice e varredura por assinatura, código próprio sem GPL. Ver `docs/RESGATE.md` |
-| 2–6, 8 | Painel, logger, velocidade, câmeras, teste de cartão; a tela do Resgate | a fazer |
+| 2 (parte) | Logger de set: **Backup Automático** | **feito**: Cartões → Backup Automático. Projeto com destinos e diária; espetou o cartão, um toque diz o dono na primeira vez; depois copia sozinho só o novo para `Diária NN/Cenas/Dono - Câmera/Cartão NN`, confere (xxHash64), compara de novo e diz "Cartão OK, pode formatar". Ver `docs/BACKUP-AUTOMATICO.md` |
+| 2–6, 8 | Resto do painel e do logger, velocidade, câmeras, teste de cartão; a tela do Resgate | a fazer |
 
 ### Conferido no código (o que o documento diz que "já tem")
 

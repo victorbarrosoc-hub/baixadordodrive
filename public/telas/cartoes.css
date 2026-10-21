@@ -1,0 +1,385 @@
+/* Cartões → Backup Automático (components/backup.js) e as abas da tela. Peças do kit em /kit.css; destinos e botões
+   "Outro destino" vêm de telas/comparar.css (cp-*). */
+
+.page-backup {
+  --neutro: var(--text-3);
+}
+.ct-abas {
+  margin-bottom: 4px;
+}
+.page-cartoes .ct-abas {
+  margin: 0 0 22px;
+  max-width: 760px;
+}
+
+/* formulário do projeto */
+.bk-nome {
+  width: 100%;
+  max-width: 520px;
+  height: 46px;
+  font-size: 16px;
+}
+.bk-arvore {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.bk-arvore-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: calc(var(--n) * 12px);
+  font-size: 13px;
+  color: var(--text-2);
+  animation: k-entra 0.4s var(--ease) both;
+  animation-delay: calc(var(--n) * 60ms);
+  min-width: 0;
+}
+.bk-arvore-linha span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bk-arvore-linha .icon {
+  flex: none;
+  color: var(--text-3);
+}
+.bk-arvore-linha span.is-dono {
+  color: var(--text);
+  font-weight: 600;
+}
+.bk-arvore-linha:last-child .icon {
+  color: var(--up);
+}
+
+/* "de quem é este cartão?" */
+.bk-pedido {
+  display: grid;
+  gap: 16px;
+  padding: 20px 22px;
+  border-radius: 20px;
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--warn) 15%, transparent), transparent 60%),
+    var(--surface);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--warn) 50%, transparent), 0 18px 40px -22px color-mix(in srgb, var(--warn) 70%, transparent);
+}
+.bk-pedido-topo {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.bk-pedido-ic {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--warn);
+  box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--warn) 80%, transparent);
+  animation: bk-chama 2.4s var(--ease) infinite;
+}
+@keyframes bk-chama {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+.bk-pedido-txt {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.bk-pedido-txt h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+.bk-pedido-txt p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.bk-donos-escolha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bk-dono-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--fill, rgba(127, 127, 127, 0.1));
+  box-shadow: inset 0 0 0 1px var(--hairline, rgba(127, 127, 127, 0.2));
+  transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.bk-dono-btn:hover {
+  transform: translateY(-1px);
+}
+.bk-dono-btn.is-on {
+  color: #fff;
+  background: var(--up);
+  box-shadow: 0 8px 18px -10px var(--up);
+}
+.bk-dono-btn.is-novo:not(.is-on) {
+  color: var(--up);
+}
+.bk-dono-btn em {
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  color: var(--ok);
+}
+.bk-dono-btn.is-on em {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.22);
+}
+.bk-novo-dono {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.7fr);
+  gap: 10px 12px;
+  align-items: end;
+}
+.bk-novo-dono label {
+  display: grid;
+  gap: 6px;
+}
+.bk-novo-dono .input {
+  height: 44px;
+  font-size: 15px;
+}
+.bk-novo-pasta {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.bk-pedido-acoes {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.bk-comecar {
+  height: 46px;
+}
+
+/* descarga, diária, donos */
+.bk-fase {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.bk-aviso {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 14px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--down) 12%, transparent);
+}
+.bk-aviso .icon {
+  flex: none;
+  color: var(--down);
+}
+.bk-aviso span {
+  flex: 1;
+  min-width: 0;
+}
+.bk-donos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+.bk-dono {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--fill, rgba(127, 127, 127, 0.08));
+}
+.bk-dono-ic {
+  grid-row: 1 / span 2;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.bk-dono b {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bk-dono > span:last-child {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.bk-vazio-txt {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.bk-estado {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  --c: var(--down);
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.bk-estado.is-ok {
+  --c: var(--ok);
+}
+.bk-estado.is-warn {
+  --c: var(--warn);
+}
+.bk-estado.is-err {
+  --c: var(--err);
+}
+.bk-estado.is-up {
+  --c: var(--up);
+}
+.bk-estado.is-neutro {
+  --c: var(--text-3);
+}
+.bk-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+}
+.bk-lista li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  min-width: 0;
+}
+.bk-lista li .mono-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bk-lista li.is-alerta .icon {
+  color: var(--warn);
+}
+.bk-hist-fim {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.bk-hist-fim b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.page-backup .k-stats .k-stat b {
+  font-size: 22px;
+  white-space: nowrap;
+}
+
+/* coluna lateral */
+.bk-destinos {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+.bk-destino {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.bk-destino-ic {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.bk-destino.is-fora .bk-destino-ic {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+.bk-destino-txt {
+  display: grid;
+  min-width: 0;
+}
+.bk-destino-txt b {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bk-destino-txt span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.bk-destino.is-fora .bk-destino-txt span {
+  color: var(--warn);
+}
+.bk-projetos,
+.bk-diarias {
+  min-width: 140px;
+}
+
+@media (max-width: 1180px) {
+  .bk-novo-dono {
+    grid-template-columns: 1fr;
+  }
+  /* uma coluna só: o "Agora" (andamento, ligar/desligar) vem antes, é o que se olha de longe no set */
+  .page-backup.bk-painel .k-lado {
+    order: -1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bk-pedido-ic,
+  .bk-arvore-linha {
+    animation: none;
+  }
+  .bk-dono-btn {
+    transition: none;
+  }
+}

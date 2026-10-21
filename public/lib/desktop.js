@@ -268,6 +268,7 @@ function systemNotify(title, body) {
 }
 
 if (typeof window !== 'undefined') {
+  window.addEventListener('sd:backup', (ev) => systemNotify(ev.detail?.titulo || 'SOBEDESCE', ev.detail?.texto || ''))
   window.addEventListener('sd:lan-pedido', (ev) => systemNotify(`${ev.detail?.quem || 'Alguém'} quer te mandar arquivos`, 'Abra Dispositivos no SOBEDESCE para aceitar ou recusar.'))
 }
 

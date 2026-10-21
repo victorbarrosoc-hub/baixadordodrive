@@ -1,5 +1,6 @@
-// Aba Cartões (docs/CARTOES.md). Por enquanto, a Calculadora de mídia: quanto cada câmera grava por hora, quanto cabe
-// no cartão, quantos cartões levar, o tamanho dos HDs de backup e o tempo de cópia, com a conta aberta.
+// Aba Cartões (docs/CARTOES.md): o Backup Automático (components/backup.js; espete o cartão e ele passa sozinho,
+// organizado por diária e por dono) e a Calculadora de mídia: quanto cada câmera grava por hora, quanto cabe no
+// cartão, quantos cartões levar, o tamanho dos HDs de backup e o tempo de cópia, com a conta aberta.
 // A conta fica em lib/midia-conta.js (a mesma do site, sobedesce.com/calculadora); os modos prontos, com a fonte, em
 // lib/midia-modos.js.
 import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
@@ -7,6 +8,8 @@ import { calcular, comoOComputadorMostra, duracao, gbPorHora, tamanho } from '..
 import { MODOS } from '../lib/midia-modos.js'
 import { cx, usePersistentState } from '../lib/ui.js'
 import { Icon } from './icons.js'
+import { Opcoes } from './kit.js'
+import { BackupPanel } from './backup.js'
 
 const CARTOES = [64, 128, 256, 512, 1000]
 const num = (n, casas = 1) => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: casas }).format(n)
@@ -233,7 +236,15 @@ function Calculadora() {
   </div>`
 }
 
+const ABAS = [
+  { value: 'backup', titulo: 'Backup Automático', sub: 'Espete o cartão: passa sozinho, por diária e por dono', icone: 'sdcard', up: true },
+  { value: 'calc', titulo: 'Calculadora', sub: 'Quanta mídia e quantos HDs levar', icone: 'film' },
+]
+
 export function CartoesScreen() {
+  const [aba, setAba] = usePersistentState('cartoes.aba', 'backup')
+  const topo = html`<div class="k-entra ct-abas" style="--i:1"><${Opcoes} label="Cartões" valor=${aba} onEscolher=${setAba} itens=${ABAS} colunas=${2} /></div>`
+  if (aba !== 'calc') return html`<${BackupPanel} topo=${topo} />`
   return html`<section class="page page-cartoes">
     <header class="page-head">
       <div>
@@ -241,6 +252,7 @@ export function CartoesScreen() {
         <p class="page-lead">Quanta mídia levar para o trabalho, com a conta aberta.</p>
       </div>
     </header>
+    ${topo}
     <${Calculadora} />
   </section>`
 }

@@ -25,6 +25,7 @@ import { registerCenas } from './cenas.js'
 import { registerDiscos } from './discos.js'
 import { registerLan } from './lan.js'
 import { registerCelular } from './celular.js'
+import { registerBackup } from './backup.js'
 
 const BODY_LIMIT = 1024 * 1024
 const BODY_HARD_LIMIT = 16 * BODY_LIMIT // além disso nem lê o resto: derruba a conexão
@@ -463,6 +464,8 @@ export function createApi(ctx) {
       lan: lan.view(),
       // Celular pelo Wi-Fi: celulares online, o ajuste e o que está passando.
       celular: celular.view(),
+      // Backup Automático: o projeto aberto, os cartões espetados, a descarga de agora e a última.
+      backup: backup.view(),
     }
   }
 
@@ -539,6 +542,8 @@ export function createApi(ctx) {
   const lan = registerLan({ route, ctx, account, HttpProblem, receptor: ctx.lanReceptor, enviador: ctx.lanEnviador })
   // Celular ↔ computador pelo Wi-Fi (src/server/celular.js): o celular da conta manda e recebe direto, por WebRTC.
   const celular = registerCelular({ route, ctx, HttpProblem, baseHeaders, wifi: ctx.celularWifi })
+  // Backup Automático (src/server/backup.js): Cartões → Projetos; cada cartão espetado é descarregado sozinho.
+  const backup = registerBackup({ route, ctx, HttpProblem, servico: ctx.backupServico })
 
   const stringList = (v, max = 10_000) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, max) : null)
 
@@ -1091,6 +1096,7 @@ export function createApi(ctx) {
       discos.close()
       lan.close()
       celular.close()
+      backup.close()
     },
   }
 }
