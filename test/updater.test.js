@@ -66,6 +66,7 @@ async function macUpdater(name, { fetch = fakeFetch(), canWrite = () => true, ap
       await fs.symlink('/Applications', path.join(mount, 'Applications')).catch(() => {})
     }
     if (cmd === 'ditto') await fs.cp(args[0], args[1], { recursive: true })
+    if (cmd === '/bin/rm') await fs.rm(args[1], { recursive: true, force: true })
     return ''
   }
   const up = new Updater({
@@ -173,12 +174,13 @@ test('Mac: baixa, confere, monta, copia o app novo ao lado, desmonta e entrega o
   assert.equal(fetch.calls[0].redirect, 'follow')
   assert.equal(up.status().recebido, BYTES.length)
 
-  // hdiutil attach (sem abrir janela, só leitura) → ditto → hdiutil detach → xattr -cr no app novo
+  // hdiutil attach (sem abrir janela, só leitura) → rm -rf da sobra → ditto → hdiutil detach → xattr -cr no app novo
   const novo = path.join(apps, '.SOBEDESCE-atualizacao.app')
-  assert.deepEqual(calls.map(c => c.slice(0, 2).join(' ')), ['hdiutil attach', `ditto ${calls[1][1]}`, 'hdiutil detach', 'xattr -cr'])
+  assert.deepEqual(calls.map(c => c.slice(0, 2).join(' ')), ['hdiutil attach', '/bin/rm -rf', `ditto ${calls[2][1]}`, 'hdiutil detach', 'xattr -cr'])
   assert.ok(calls[0].includes('-nobrowse') && calls[0].includes('-readonly'))
   assert.equal(calls[1][2], novo)
-  assert.equal(calls[3][2], novo)
+  assert.equal(calls[2][2], novo)
+  assert.equal(calls[4][2], novo)
   assert.equal(await fs.readFile(path.join(novo, 'Contents', 'versao.txt'), 'utf8'), 'nova')
   assert.equal(await fs.readFile(path.join(apps, 'SOBEDESCE.app', 'Contents', 'versao.txt'), 'utf8'), 'antiga', 'o app aberto só é trocado depois de fechar')
 
@@ -190,6 +192,31 @@ test('Mac: baixa, confere, monta, copia o app novo ao lado, desmonta e entrega o
   assert.match(texto, /PID=4242/)
   assert.match(texto, /open "\$APP"/)
   assert.equal(spawnSync('sh', ['-n', script]).status, 0, 'sh -n')
+})
+
+test('Mac: sobra de uma troca que não aconteceu (.SOBEDESCE-atualizacao.app com app.asar) é apagada pelo rm do sistema', async () => {
+  const { up, calls, apps } = await macUpdater('mac-sobra')
+  const novo = path.join(apps, '.SOBEDESCE-atualizacao.app')
+  await fs.mkdir(path.join(novo, 'Contents', 'Resources'), { recursive: true })
+  await fs.writeFile(path.join(novo, 'Contents', 'Resources', 'app.asar'), 'velho')
+  const st = await up.install({ build: 41, url: `${SITE}/baixar/mac`, sha256: SHA })
+  assert.equal(st.fase, 'reiniciando', st.erro || '')
+  assert.deepEqual(calls.find(c => c[0] === '/bin/rm'), ['/bin/rm', '-rf', novo], 'o fs do Electron não apaga .app com app.asar dentro')
+  assert.equal(fss.existsSync(path.join(novo, 'Contents', 'Resources', 'app.asar')), false)
+  assert.equal(await fs.readFile(path.join(novo, 'Contents', 'versao.txt'), 'utf8'), 'nova')
+})
+
+test('Mac: a sobra não sai: erro claro com Baixar, sem a mensagem do sistema', async () => {
+  const { up } = await macUpdater('mac-sobra-presa')
+  const run = up.run
+  up.run = async (cmd, args) => {
+    if (cmd === '/bin/rm') throw Object.assign(new Error('rm falhou'), { stderr: 'Operation not permitted' })
+    return run(cmd, args)
+  }
+  const st = await up.install({ build: 41, url: `${SITE}/baixar/mac`, sha256: SHA })
+  assert.equal(st.fase, 'erro')
+  assert.match(st.erro, /ficou presa.*Use Baixar/)
+  assert.doesNotMatch(st.erro, /ENOTEMPTY|rmdir/)
 })
 
 test('hash diferente: não instala, apaga o download e deixa tentar de novo (não trava o Atualizar)', async () => {

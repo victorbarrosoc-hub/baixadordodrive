@@ -410,7 +410,16 @@ export class Updater extends EventEmitter {
     const p = this.pronto
     this.pronto = null
     if (p?.tmp) await fsp.rm(p.tmp, { recursive: true, force: true }).catch(() => {})
-    if (p?.novo) await fsp.rm(p.novo, { recursive: true, force: true }).catch(() => {})
+    if (p?.novo) await this.#apagarApp(p.novo).catch(() => {})
+  }
+
+  /**
+   * Apaga um .app com o rm do sistema. O fs do Electron (o motor roda num utilityProcess) enxerga o app.asar como
+   * pasta, e o fs.rm recursivo para em ENOTEMPTY dentro de Contents/Resources: um .SOBEDESCE-atualizacao.app que
+   * sobrou de uma troca que não aconteceu travava toda atualização seguinte.
+   */
+  async #apagarApp(p) {
+    await this.run('/bin/rm', ['-rf', p])
   }
 
   async #preparar({ build, url, sha256, recheck }) {
@@ -494,12 +503,17 @@ export class Updater extends EventEmitter {
       const apps = (await fsp.readdir(mount)).filter(n => n.endsWith('.app'))
       const src = apps.includes(`${base}.app`) ? `${base}.app` : apps.find(n => /^SOBEDESCE.*\.app$/.test(n))
       if (!src) throw definitivo('O instalador baixado não tem o app dentro. Use Baixar.')
-      await fsp.rm(novo, { recursive: true, force: true })
+      try {
+        await this.#apagarApp(novo)
+      } catch (err) {
+        this.log('não consegui apagar a atualização que sobrou:', err?.stderr || err?.message)
+        throw definitivo('Uma atualização antiga ficou presa na pasta de Aplicativos. Use Baixar.')
+      }
       try {
         await this.run('ditto', [path.join(mount, src), novo])
       } catch (err) {
         this.log('ditto falhou:', err?.stderr || err?.message)
-        await fsp.rm(novo, { recursive: true, force: true }).catch(() => {})
+        await this.#apagarApp(novo).catch(() => {})
         throw definitivo('Não consegui copiar o app novo para a pasta de Aplicativos. Use Baixar.')
       }
     } finally {
