@@ -73,25 +73,51 @@ Sinal entregue: `{ id, tipo, de: { id, nome, tipo, conta, dono? }, oferta?, sdp?
 
 ## Computador
 
-- Ajustes: `celularReceber` (padrão ligado) e `celularPasta` (padrão `<Downloads>/SOBEDESCE do celular`).
-- `src/celular/wifi.js` (motor): a espera longa no site enquanto há conta, as transferências e a gravação (arquivo
-  `.parcial` + fsync + nome final sem colisão, como no receptor da rede). Recusa sozinho se `celularReceber` estiver
-  desligado ou faltar espaço.
+- Ajustes: `celularReceber` (padrão ligado), `celularPasta` (padrão `<Downloads>/SOBEDESCE do celular`) e
+  `celularOutros` ("Aceitar de outras pessoas por perto", padrão desligado; manda `outros=1` na espera longa).
+- `src/celular/wifi.js` (motor): a espera longa no site enquanto há conta (com recuo de 2 s a 60 s se falhar; para se
+  a sessão cair), a lista de celulares (`/api/p2p/aparelhos` a cada 20 s, só os do tipo celular), as transferências e
+  a gravação: `.parcial` em `.sobedesce-recebendo` dentro da pasta, escrito na ordem (offset errado = 409, maior que o
+  anunciado = 413), fsync no fim e o nome final sem colisão ("IMG_0001 (2).HEIC"). Cancelar ou falhar apaga o
+  pela metade. Recusa pelo site, sem incomodar ninguém: `celularReceber` desligado, falta de espaço, oferta de outra
+  pessoa com `celularOutros` desligado, ou a janela oculta fora do ar.
+- **Mesma conta** (`de.conta === 'minha'`): a oferta vai direto para a janela oculta, que responde sozinha.
+  **Outra pessoa** (`'outra'`): vira um pedido na tela ("Ana quer mandar 3 arquivos · 1,3 GB"), com aviso e
+  notificação do sistema; só depois de **Aceitar** a janela oculta responde. **Recusar** manda `recusa`; sem resposta
+  em 110 s, cai sozinho (também com `recusa`; o celular desiste em ~115 s). No máximo 3 pedidos esperando ao mesmo tempo.
 - `src/server/celular.js`, rotas locais:
-  - `GET /api/celular` (estado: ajustes, celulares online, transferências), `POST /api/celular/aparelhos` (pede a lista ao site agora)
-  - `POST /api/celular/sinal` (a janela oculta manda oferta/resposta pelo site)
-  - `POST /api/celular/enviar` `{ para, caminhos }` (interface) → a janela oculta recebe `celular-enviar` pelo SSE e cria a oferta
-  - `GET /api/celular/arquivo/:tid/:i` com `Range` (a janela oculta lê o que manda)
-  - `POST /api/celular/receber` `{ tid, de, arquivos }` → `{ ok, motivo? }`; `PUT /api/celular/receber/:tid/:i?offset=`
-    (corpo `application/octet-stream`); `POST /api/celular/receber/:tid/:i/fim`
-  - `POST /api/celular/estado/:tid` (andamento e fim, nos dois sentidos) e `POST /api/celular/cancelar/:tid`
-- SSE: `celular` (estado para a interface), `celular-oferta`, `celular-enviar`, `celular-sinal`, `celular-cancelar` (para a janela oculta).
-- Interface: em **Dispositivos**, a seção "Celular" (celulares online, Mandar para o celular, o que está passando, a
-  pasta e o ajuste). No Início, o que está chegando do celular aparece em "Em andamento".
+  - `GET /api/celular` (estado: ajustes, `pronto`, celulares online com `conta`/`dono`, pedidos, transferências) e
+    `POST /api/celular/aparelhos` (pede a lista ao site agora); `/api/state` também leva `celular`
+  - `POST /api/celular/responder` `{ id, aceitar }` (pedido de outra pessoa)
+  - `POST /api/celular/sinal` (a janela oculta manda oferta/resposta pelo site; `tid` liga a oferta à transferência)
+  - `POST /api/celular/enviar` `{ para, caminhos }` (interface; pastas abertas, sem lixo de sistema, até 2000
+    arquivos) → a janela oculta recebe `celular-enviar` pelo SSE e cria a oferta
+  - `GET /api/celular/arquivo/:tid/:i` com `Range` (a janela oculta lê o que manda, em blocos de 4 MiB)
+  - `POST /api/celular/receber` `{ tid, de, arquivos }` → `{ aceito, motivo? }`; `PUT /api/celular/receber/:tid/:i?offset=`
+    (corpo `application/octet-stream`; `src/server/app.js` deixa passar só esta rota sem JSON, e a Origin continua
+    conferida); `POST /api/celular/receber/:tid/:i/fim`
+  - `POST /api/celular/estado/:tid` (andamento e fim, nos dois sentidos), `POST /api/celular/cancelar/:tid` e
+    `POST /api/celular/limpar`
+  - `POST /api/celular/janela` (a janela oculta avisa a cada 20 s que está de pé; sem ela há 45 s, a oferta do
+    celular é recusada na hora com "Feche e abra o SOBEDESCE no computador" em vez de o celular esperar à toa)
+- SSE: `celular` (estado para a interface), `celular-pedido` (aviso de pedido de outra pessoa), e para a janela
+  oculta: `celular-oferta`, `celular-enviar`, `celular-sinal`, `celular-cancelar`.
+- Janela oculta (`desktop/main.js` → `public/celular/p2p.html` + `p2p.js`): `BrowserWindow` sem mostrar, sem
+  `backgroundThrottling`, navegação bloqueada, volta sozinha se o processo dela cair, fecha ao sair. Com ela de pé, o
+  app conta uma janela a mais: no Windows, fechar a janela principal fecha o app pelo `closed` dela.
+  `RTCPeerConnection` com STUN (`stun:stun.cloudflare.com:3478`) só para achar caminhos; os dados não passam por ele.
+  Grava o que chega em PUTs de ~4 MiB e conta o andamento ao motor no máximo a cada 300 ms.
+- Interface: em **Dispositivos** (a tela antiga Computadores), a seção "Celular": o ajuste e a pasta, "Aceitar de
+  outras pessoas por perto", os pedidos com Aceitar/Recusar, os celulares online ("Seus celulares" e "Por perto": "Ana ·
+  iPhone de Ana"), **Mandar para o celular** (seletor de arquivos e pastas do sistema), o que está passando
+  (%, velocidade, Cancelar) e "Mostrar no Finder" no que chegou. No Início, o que passa com o celular aparece em
+  "Em andamento".
 
 ## Testar
 
-- `test/celular-wifi.test.js`: protocolo do canal (par de canais falsos), cópia idêntica, rotas locais e gravação.
+- `test/celular-wifi.test.js`: protocolo do canal (par de canais falsos) e a cópia idêntica.
+- `test/celular-wifi-motor.test.js`: o motor com um site falso (gravação, colisão, offset, recusas, pedidos de outra
+  pessoa, espera longa com `outros=1`, mandar abrindo pastas) e as rotas locais por HTTP (trava do octet-stream, Range).
 - `web/tests/p2p.test.mts`: espera longa, presença, quem vê quem, regras dos sinais, validade e limite.
 - Falta testar com aparelhos de verdade: iPhone (Safari e app na Tela de Início) e Android com Mac e Windows, numa
   rede de casa e numa rede com isolamento entre aparelhos (precisa dar a mensagem certa).

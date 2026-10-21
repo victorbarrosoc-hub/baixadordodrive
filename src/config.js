@@ -149,6 +149,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   lanOutros: false,
   lanPorta: 4320,
   lanPasta: path.join(os.homedir(), 'SOBEDESCE Recebidos'),
+  // Celular ↔ computador pelo Wi-Fi (docs/CELULAR-WIFI.md): o app do celular com a conta manda direto para este
+  // computador (WebRTC na rede local). Fica só aqui, nesta pasta: não sobe pro Drive.
+  celularReceber: true,
+  // Aceitar de outras pessoas por perto (outra conta SOBEDESCE, mesma rede): sempre pergunta na tela antes de receber.
+  celularOutros: false,
+  celularPasta: path.join(os.homedir(), 'Downloads', 'SOBEDESCE do celular'),
   /** Onde os arquivos do celular ficam no computador antes (e, se quiser, depois) de subir. */
   mobileStagingDir: path.join(os.homedir(), 'SOBEDESCE Recebidos'),
   /** Apaga do computador o que veio do celular depois de subir e conferir no Drive. */
@@ -209,7 +215,7 @@ const OPTIONAL_STRINGS = {
   mobileWebUrl: v => v === '' || (v.length <= 2048 && isWebUrl(v)),
   webClientId: v => v === '' || /^[A-Za-z0-9][\w.-]*\.apps\.googleusercontent\.com$/.test(v),
 }
-const PATH_STRINGS = new Set(['downloadDir', 'mobileStagingDir', 'lanPasta'])
+const PATH_STRINGS = new Set(['downloadDir', 'mobileStagingDir', 'lanPasta', 'celularPasta'])
 
 /** Valida e normaliza um patch de ajustes. Campos desconhecidos são ignorados. Lança Error com mensagem em PT-BR. */
 export function validateSettings(patch, base = DEFAULT_SETTINGS) {
