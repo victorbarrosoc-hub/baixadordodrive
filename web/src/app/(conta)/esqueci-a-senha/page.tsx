@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { KeyRound } from "lucide-react";
 import Link from "next/link";
 import { connection } from "next/server";
 import { Aviso } from "@/components/conta/aviso";
@@ -17,6 +18,7 @@ export default async function EsqueciASenha() {
   return (
     <Moldura
       estreita
+      icone={<KeyRound />}
       titulo="Esqueci a senha"
       subtitulo="Mandamos um link para você criar uma senha nova."
       acao={

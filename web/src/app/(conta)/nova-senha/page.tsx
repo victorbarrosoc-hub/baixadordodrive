@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { LockKeyhole } from "lucide-react";
 import { Moldura } from "@/components/conta/moldura";
 import { ButtonLink } from "@/components/ui/button";
 import { linkValido } from "@/lib/auth/redefinir";
@@ -14,7 +15,7 @@ export default async function NovaSenha({ searchParams }: Props) {
   const token = typeof q.token === "string" ? q.token : "";
   if (!(await linkValido(token))) {
     return (
-      <Moldura estreita titulo="Link vencido" subtitulo="Este link venceu ou já foi usado. Peça outro, ele chega em instantes.">
+      <Moldura estreita icone={<LockKeyhole />} titulo="Link vencido" subtitulo="Este link venceu ou já foi usado. Peça outro, ele chega em instantes.">
         <ButtonLink href="/esqueci-a-senha" size="lg" className="w-full">
           Pedir outro link
         </ButtonLink>
@@ -22,7 +23,7 @@ export default async function NovaSenha({ searchParams }: Props) {
     );
   }
   return (
-    <Moldura estreita titulo="Senha nova" subtitulo="Depois de salvar, os outros aparelhos saem da conta e você entra com a senha nova.">
+    <Moldura estreita icone={<LockKeyhole />} titulo="Senha nova" subtitulo="Depois de salvar, os outros aparelhos saem da conta e você entra com a senha nova.">
       <FormNovaSenha token={token} />
     </Moldura>
   );

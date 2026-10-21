@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Check, Info, Laptop, Mail, Send } from "lucide-react";
 import { Aviso } from "@/components/conta/aviso";
 import { MenuConta } from "@/components/conta/menu";
-import { Moldura, Secao } from "@/components/conta/moldura";
-import { Card } from "@/components/ui/card";
+import { Moldura } from "@/components/conta/moldura";
+import { BotaoGrande, Destaque, Item, Pagina, Passo, Vazio } from "@/components/kit/kit";
 import { ehAdmin } from "@/lib/admin";
 import { CORRECAO_ATUALIZAR_MAC, contasComMacTravado } from "@/lib/atualizar-mac";
 import { exigirUsuario } from "@/lib/auth/atual";
@@ -44,49 +44,69 @@ export default async function AvisoMac({ searchParams }: Props) {
         </Aviso>
       ) : null}
 
-      <p className="mb-8 max-w-[70ch] text-[15px] leading-relaxed text-ink-2">
-        Até o build {CORRECAO_ATUALIZAR_MAC - 1}, o Atualizar do Mac travava quando sobrava uma troca anterior em Aplicativos. Quem está nessas versões só
-        sai baixando o instalador uma vez. Essas contas também veem um aviso no alto de Sua conta. Cada conta recebe o e-mail uma vez só.
-      </p>
+      <Pagina
+        lado={
+          <>
+            <Destaque
+              titulo="Macs travados"
+              numero={contas.length}
+              unidade={contas.length === 1 ? "conta" : "contas"}
+              linha={faltam.length ? `${faltam.length} ainda sem o e-mail` : contas.length ? "Todas já receberam o e-mail" : "Ninguém antes do build " + CORRECAO_ATUALIZAR_MAC}
+            />
+            {faltam.length ? (
+              <form action={acaoAvisarMacs} className="grid gap-3">
+                <BotaoGrande dica="Cada conta recebe uma vez só.">
+                  <Send aria-hidden />
+                  Mandar para {faltam.length === 1 ? "1 conta" : `${faltam.length} contas`}
+                </BotaoGrande>
+              </form>
+            ) : null}
+          </>
+        }
+      >
+        <Passo icone={<Info />} tom="warn" i={1} titulo="O que aconteceu">
+          <p className="text-[15px] leading-relaxed text-pretty text-ink-2">
+            Até o build {CORRECAO_ATUALIZAR_MAC - 1}, o Atualizar do Mac travava quando sobrava uma troca anterior em Aplicativos. Quem está nessas versões só sai
+            baixando o instalador uma vez. Essas contas também veem um aviso no alto de Sua conta.
+          </p>
+        </Passo>
 
-      <div className="xl:grid xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] xl:items-start xl:gap-x-8">
-        <Secao titulo={`${contas.length} ${contas.length === 1 ? "conta" : "contas"}`} id="contas" descricao={faltam.length ? `${faltam.length} ainda sem o e-mail.` : "Todas já receberam o e-mail."}>
-          <Card className="mb-4 overflow-hidden">
-            {contas.length ? (
-              <ul className="divide-y divide-line">
-                {contas.map((c) => (
-                  <li key={c.id} className="flex items-baseline justify-between gap-3 px-5 py-3 text-[15px]">
-                    <span className="min-w-0">
-                      <Link href={`/admin/pessoa/${encodeURIComponent(c.id)}`} className="font-medium hover:underline">
-                        {c.nome}
-                      </Link>
-                      <span className="block truncate text-[13px] text-ink-3">{c.macs.join(", ")}</span>
-                    </span>
-                    <span className="shrink-0 text-[13px] text-ink-3">{c.avisada ? "e-mail enviado" : "sem e-mail"}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="px-5 py-4 text-[15px] text-ink-2">Nenhum Mac antes do build {CORRECAO_ATUALIZAR_MAC}.</p>
-            )}
-          </Card>
-          {faltam.length ? (
-            <form action={acaoAvisarMacs}>
-              <button type="submit" className="toque h-11 rounded-full bg-primary px-5 text-[15px] font-semibold text-primary-fg hover:opacity-90">
-                Mandar para {faltam.length === 1 ? "1 conta" : `${faltam.length} contas`}
-              </button>
-            </form>
-          ) : null}
-        </Secao>
+        <Passo
+          icone={<Laptop />}
+          tom="down"
+          i={2}
+          id="contas"
+          titulo={`${contas.length} ${contas.length === 1 ? "conta" : "contas"}`}
+          frase={faltam.length ? `${faltam.length} ainda sem o e-mail.` : "Todas já receberam o e-mail."}
+        >
+          {contas.length ? (
+            <ul className="grid gap-2">
+              {contas.map((c) => (
+                <li key={c.id}>
+                  <Item
+                    href={`/admin/pessoa/${encodeURIComponent(c.id)}`}
+                    icone={<Laptop />}
+                    tom={c.avisada ? "ok" : "warn"}
+                    titulo={c.nome}
+                    sub={c.macs.join(", ")}
+                    fim={<span className="text-[13px] text-ink-3">{c.avisada ? "e-mail enviado" : "sem e-mail"}</span>}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Vazio icone={<Check />} titulo="Nenhum Mac travado">
+              Nenhum Mac antes do build {CORRECAO_ATUALIZAR_MAC}.
+            </Vazio>
+          )}
+        </Passo>
 
-        <div className="mt-12 xl:mt-0">
-          <Secao titulo="O e-mail" id="email" descricao={`Assunto: ${previa.assunto}`}>
-            <Card className="overflow-hidden">
-              <iframe title="Prévia do e-mail" srcDoc={previa.html} sandbox="" className="block h-[720px] w-full bg-white" />
-            </Card>
-          </Secao>
-        </div>
-      </div>
+        <Passo icone={<Mail />} tom="up" i={3} id="email" titulo="O e-mail" frase={`Assunto: ${previa.assunto}`}>
+          <div className="overflow-hidden rounded-2xl ring-1 ring-line">
+            <iframe title="Prévia do e-mail" srcDoc={previa.html} sandbox="" className="block h-[720px] w-full bg-white" />
+          </div>
+        </Passo>
+      </Pagina>
     </Moldura>
   );
 }
