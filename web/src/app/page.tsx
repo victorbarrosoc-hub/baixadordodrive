@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AvisoContaApagada } from "@/components/conta/aviso-conta-apagada";
+import { AparelhosSection } from "@/components/home/aparelhos-section";
 import { ClosingSection } from "@/components/home/closing-section";
 import { FeaturesGrid } from "@/components/home/features-grid";
 import { Hero } from "@/components/home/hero";
@@ -30,6 +31,7 @@ export default function Home() {
           <Hero />
           <StatsStrip />
           <FeaturesGrid />
+          <AparelhosSection />
           <NovidadesSection />
           <PlatformsSection />
           <ClosingSection />
