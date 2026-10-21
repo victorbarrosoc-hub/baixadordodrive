@@ -340,7 +340,8 @@ export class CelularWifi {
         nomes: (Array.isArray(resumo.nomes) ? resumo.nomes : []).filter((n) => typeof n === 'string').slice(0, 5).map((n) => n.slice(0, 120)),
       }
     }
-    const { data } = await c.request('POST', '/api/p2p/sinal', { body })
+    // O site responde 201 (Criado) ao guardar o sinal
+    const { data } = await c.request('POST', '/api/p2p/sinal', { body, expect: [200, 201] })
     const id = typeof data?.id === 'string' ? data.id : null
     if (tipo === 'oferta' && tid) {
       const t = this.transfers.get(tid)

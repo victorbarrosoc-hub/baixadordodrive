@@ -33,17 +33,22 @@ function siteFalso({ aparelhos = [], esperas = [] } = {}) {
     pedidos,
     on() {},
     off() {},
-    async request(metodo, caminho, { body } = {}) {
+    async request(metodo, caminho, { body, expect = [200] } = {}) {
       pedidos.push(`${metodo} ${caminho}`)
+      // Como o site de verdade: status fora de `expect` vira erro
+      const r = (status, data) => {
+        if (!expect.includes(status)) throw Object.assign(new Error(`HTTP ${status}`), { status })
+        return { status, data }
+      }
       if (caminho.startsWith('/api/p2p/espera')) {
         const proxima = esperas.shift()
-        if (proxima) return { status: 200, data: { sinais: proxima } }
+        if (proxima) return r(200, { sinais: proxima })
         return new Promise(() => {}) // fica esperando, como o site
       }
-      if (caminho === '/api/p2p/aparelhos') return { status: 200, data: { aparelhos } }
+      if (caminho === '/api/p2p/aparelhos') return r(200, { aparelhos })
       if (caminho === '/api/p2p/sinal') {
         enviados.push(body)
-        return { status: 200, data: { id: `sin${enviados.length}` } }
+        return r(201, { id: `sin${enviados.length}` }) // o site responde 201
       }
       throw new Error(`rota inesperada ${caminho}`)
     },
