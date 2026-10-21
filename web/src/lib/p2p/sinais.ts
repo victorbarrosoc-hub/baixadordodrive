@@ -1,13 +1,17 @@
 /**
- * Celular ↔ computador pelo Wi-Fi (docs/CELULAR-WIFI.md): a sinalização do WebRTC. O site só repassa a oferta e a
- * resposta entre dois aparelhos da MESMA conta; os arquivos vão direto pela rede local, cifrados pelo próprio WebRTC.
+ * Celular ↔ computador ↔ celular pelo Wi-Fi (docs/CELULAR-WIFI.md): a sinalização do WebRTC. O site só repassa a
+ * oferta e a resposta entre dois aparelhos; os arquivos vão direto pela rede local, cifrados pelo próprio WebRTC.
+ *  - Mesma conta: o celular vê os computadores e os outros celulares da conta; o computador vê os celulares.
+ *  - Outras pessoas ("por perto"): só quem ligou "Aceitar de outras pessoas por perto" aparece, e só para quem está na
+ *    mesma rede (mesmo HMAC do IP público). Quem recebe sempre aceita na tela; a conta e o primeiro nome vão junto.
  *  - Presença: cada aparelho com o app aberto fica numa espera longa (`esperar`), que marca "visto agora" e a rede
  *    (HMAC do IP público, como em lib/lan/presenca.ts). Online = visto há menos de ONLINE_MS.
  *  - Sinais valem VALIDADE_MS: depois disso não são entregues e somem.
- *  - Uma oferta só vai para um aparelho online da conta; resposta, recusa e cancela só sobre uma oferta entre os dois.
+ *  - Uma oferta só vai para um aparelho online que este pode ver (acima); resposta, recusa e cancela só sobre uma
+ *    oferta entre os dois.
  */
 import "server-only";
-import { and, asc, eq, gt, inArray, isNull, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import type { ResumoP2p, TipoAparelhoP2p, TipoSinalP2p } from "@/lib/db/schema";
@@ -16,7 +20,7 @@ import { redeDe } from "@/lib/lan/presenca";
 import { sistemaDoAparelho } from "@/lib/navegador";
 import type { Autenticado } from "@/lib/auth/sessao";
 
-const { p2pAparelhos, p2pSinais, sessoes } = schema;
+const { p2pAparelhos, p2pSinais, sessoes, usuarios } = schema;
 
 export const ONLINE_MS = 70_000;
 export const VALIDADE_MS = 2 * 60_000;
@@ -36,11 +40,12 @@ export class SinalError extends Error {
   }
 }
 
-export type Aparelho = { id: string; nome: string; tipo: TipoAparelhoP2p; mesmaRede: boolean };
+export type Conta = "minha" | "outra";
+export type Aparelho = { id: string; nome: string; tipo: TipoAparelhoP2p; mesmaRede: boolean; conta: Conta; dono?: string };
 export type SinalEntregue = {
   id: string;
   tipo: TipoSinalP2p;
-  de: { id: string; nome: string; tipo: TipoAparelhoP2p };
+  de: { id: string; nome: string; tipo: TipoAparelhoP2p; conta: Conta; dono?: string };
   oferta?: string;
   sdp?: string;
   resumo?: ResumoP2p;
@@ -61,48 +66,70 @@ export function nomeDoAparelho(a: Autenticado, pedido: string | null, ua: string
   return primeiro ? `${base} de ${primeiro}` : base;
 }
 
-/** Marca o aparelho como online (e em qual rede). */
-export async function marcarVisto(a: Autenticado, nome: string, ip: string | null): Promise<void> {
-  const valores = { usuarioId: a.usuario.id, tipo: tipoDe(a), nome, rede: redeDe(ip), vistoEm: new Date() };
+const primeiroNome = (nome: string | null | undefined) => (nome || "").trim().split(/\s+/)[0] || "Alguém";
+
+/** Marca o aparelho como online (em qual rede, e se aceita pedidos de outras pessoas por perto). */
+export async function marcarVisto(a: Autenticado, nome: string, ip: string | null, aceitaOutros = false): Promise<void> {
+  const valores = { usuarioId: a.usuario.id, tipo: tipoDe(a), nome, rede: redeDe(ip), aceitaOutros, vistoEm: new Date() };
   await db
     .insert(p2pAparelhos)
     .values({ sessaoId: a.sessao.id, ...valores })
     .onConflictDoUpdate({ target: p2pAparelhos.sessaoId, set: valores });
 }
 
-/** Os aparelhos do outro tipo, da mesma conta, online agora. Sessão revogada ou vencida fica de fora. */
-export async function aparelhosOnline(a: Autenticado, ip: string | null): Promise<Aparelho[]> {
+/** Quem este aparelho pode ver: o celular vê computadores e celulares; o computador, celulares (computador com
+ * computador é "Entre computadores", docs/LAN.md). */
+const tiposVisiveis = (a: Autenticado): TipoAparelhoP2p[] => (tipoDe(a) === "celular" ? ["computador", "celular"] : ["celular"]);
+
+type Linha = { id: string; nome: string; tipo: TipoAparelhoP2p; usuarioId: string; dono: string | null; rede: string | null; aceitaOutros: boolean };
+
+/** Aparelhos online que `a` pode ver: os da conta (tipos acima) e os de outras contas na mesma rede que aceitam. */
+async function visiveis(a: Autenticado, ip: string | null, so?: string): Promise<Linha[]> {
   const agora = Date.now();
   const minhaRede = redeDe(ip);
-  const outroTipo: TipoAparelhoP2p = tipoDe(a) === "celular" ? "computador" : "celular";
+  const tipos = tiposVisiveis(a);
+  const daConta = and(eq(p2pAparelhos.usuarioId, a.usuario.id), eq(sessoes.usuarioId, a.usuario.id));
+  const porPerto = minhaRede
+    ? and(ne(p2pAparelhos.usuarioId, a.usuario.id), eq(sessoes.usuarioId, p2pAparelhos.usuarioId), eq(p2pAparelhos.rede, minhaRede), eq(p2pAparelhos.aceitaOutros, true))
+    : undefined;
   const linhas = await db
-    .select({ id: p2pAparelhos.sessaoId, nome: p2pAparelhos.nome, rede: p2pAparelhos.rede, revogadaEm: sessoes.revogadaEm, expiraEm: sessoes.expiraEm })
+    .select({
+      id: p2pAparelhos.sessaoId,
+      nome: p2pAparelhos.nome,
+      tipo: p2pAparelhos.tipo,
+      usuarioId: p2pAparelhos.usuarioId,
+      dono: sql<string | null>`${usuarios.nome}`.as("dono_nome"),
+      rede: p2pAparelhos.rede,
+      aceitaOutros: p2pAparelhos.aceitaOutros,
+      revogadaEm: sessoes.revogadaEm,
+      expiraEm: sessoes.expiraEm,
+    })
     .from(p2pAparelhos)
     .innerJoin(sessoes, eq(sessoes.id, p2pAparelhos.sessaoId))
+    .innerJoin(usuarios, eq(usuarios.id, p2pAparelhos.usuarioId))
     .where(
       and(
-        eq(p2pAparelhos.usuarioId, a.usuario.id),
-        eq(sessoes.usuarioId, a.usuario.id),
-        eq(p2pAparelhos.tipo, outroTipo),
+        porPerto ? or(daConta, porPerto) : daConta,
+        inArray(p2pAparelhos.tipo, tipos),
         ne(p2pAparelhos.sessaoId, a.sessao.id),
         gt(p2pAparelhos.vistoEm, new Date(agora - ONLINE_MS)),
+        so ? eq(p2pAparelhos.sessaoId, so) : undefined,
       ),
-    );
-  return linhas
-    .filter((l) => !l.revogadaEm && l.expiraEm.getTime() > agora)
-    .map((l) => ({ id: l.id, nome: l.nome, tipo: outroTipo, mesmaRede: !!minhaRede && l.rede === minhaRede }))
-    .sort((x, y) => Number(y.mesmaRede) - Number(x.mesmaRede) || x.nome.localeCompare(y.nome, "pt-BR"));
+    )
+    .limit(60);
+  return linhas.filter((l) => !l.revogadaEm && l.expiraEm.getTime() > agora);
 }
 
-async function online(usuarioId: string, sessaoId: string): Promise<boolean> {
-  const agora = Date.now();
-  const [l] = await db
-    .select({ id: p2pAparelhos.sessaoId, revogadaEm: sessoes.revogadaEm, expiraEm: sessoes.expiraEm })
-    .from(p2pAparelhos)
-    .innerJoin(sessoes, eq(sessoes.id, p2pAparelhos.sessaoId))
-    .where(and(eq(p2pAparelhos.sessaoId, sessaoId), eq(p2pAparelhos.usuarioId, usuarioId), eq(sessoes.usuarioId, usuarioId), gt(p2pAparelhos.vistoEm, new Date(agora - ONLINE_MS))))
-    .limit(1);
-  return !!l && !l.revogadaEm && l.expiraEm.getTime() > agora;
+/** Os aparelhos que este vê agora: os da conta primeiro, na mesma rede antes; depois as pessoas por perto. */
+export async function aparelhosOnline(a: Autenticado, ip: string | null): Promise<Aparelho[]> {
+  const minhaRede = redeDe(ip);
+  return (await visiveis(a, ip))
+    .map((l): Aparelho => {
+      const conta: Conta = l.usuarioId === a.usuario.id ? "minha" : "outra";
+      return { id: l.id, nome: l.nome, tipo: l.tipo, mesmaRede: !!minhaRede && l.rede === minhaRede, conta, ...(conta === "outra" ? { dono: primeiroNome(l.dono) } : {}) };
+    })
+    .sort((x, y) => Number(x.conta === "outra") - Number(y.conta === "outra") || Number(y.mesmaRede) - Number(x.mesmaRede) || x.nome.localeCompare(y.nome, "pt-BR"))
+    .slice(0, 30);
 }
 
 const sdpSchema = z.string().min(10).max(20_000).startsWith("v=0");
@@ -128,12 +155,16 @@ export const sinalSchema = z.discriminatedUnion("tipo", [
 export type NovoSinal = z.infer<typeof sinalSchema>;
 
 /** Grava um sinal para outro aparelho da conta. Devolve o id (o da oferta é o que as respostas citam). */
-export async function mandarSinal(a: Autenticado, s: NovoSinal): Promise<string> {
+export async function mandarSinal(a: Autenticado, s: NovoSinal, ip: string | null = null): Promise<string> {
   const usuarioId = a.usuario.id;
   if (s.para === a.sessao.id) throw new SinalError(400, "mesmo_aparelho", "Escolha outro aparelho.");
   const desde = new Date(Date.now() - VALIDADE_MS);
+  let paraUsuario: string;
   if (s.tipo === "oferta") {
-    if (!(await online(usuarioId, s.para))) throw new SinalError(404, "offline", "Esse aparelho não está com o SOBEDESCE aberto agora.");
+    // Só para quem este aparelho vê agora: da conta, ou alguém por perto que aceita (mesma rede).
+    const [alvo] = await visiveis(a, ip, s.para);
+    if (!alvo) throw new SinalError(404, "offline", "Esse aparelho não está com o SOBEDESCE aberto por perto agora.");
+    paraUsuario = alvo.usuarioId;
     const recentes = await db
       .select({ id: p2pSinais.id })
       .from(p2pSinais)
@@ -143,18 +174,21 @@ export async function mandarSinal(a: Autenticado, s: NovoSinal): Promise<string>
   } else {
     // A oferta precisa existir, valer ainda e ser entre os dois (em qualquer sentido: quem ofereceu também cancela).
     const [o] = await db
-      .select({ de: p2pSinais.deSessao, para: p2pSinais.paraSessao })
+      .select({ de: p2pSinais.deSessao, para: p2pSinais.paraSessao, deUsuario: p2pSinais.usuarioId, paraUsuario: p2pSinais.paraUsuario })
       .from(p2pSinais)
-      .where(and(eq(p2pSinais.id, s.oferta), eq(p2pSinais.usuarioId, usuarioId), eq(p2pSinais.tipo, "oferta"), gt(p2pSinais.criadoEm, desde)))
+      .where(and(eq(p2pSinais.id, s.oferta), eq(p2pSinais.tipo, "oferta"), gt(p2pSinais.criadoEm, desde)))
       .limit(1);
-    const entreOsDois = o && ((o.de === s.para && o.para === a.sessao.id) || (o.de === a.sessao.id && o.para === s.para));
-    if (!entreOsDois) throw new SinalError(404, "sem_oferta", "Esse pedido já venceu. Tente de novo.");
-    if (s.tipo !== "cancela" && o.para !== a.sessao.id) throw new SinalError(400, "nao_e_seu", "Só quem recebeu o pedido responde.");
+    const euMandei = o && o.de === a.sessao.id && o.deUsuario === usuarioId && o.para === s.para;
+    const euRecebi = o && o.para === a.sessao.id && o.paraUsuario === usuarioId && o.de === s.para;
+    if (!euMandei && !euRecebi) throw new SinalError(404, "sem_oferta", "Esse pedido já venceu. Tente de novo.");
+    if (s.tipo !== "cancela" && !euRecebi) throw new SinalError(400, "nao_e_seu", "Só quem recebeu o pedido responde.");
+    paraUsuario = euMandei ? o.paraUsuario : o.deUsuario;
   }
   const id = novoId();
   await db.insert(p2pSinais).values({
     id,
     usuarioId,
+    paraUsuario,
     deSessao: a.sessao.id,
     paraSessao: s.para,
     tipo: s.tipo,
@@ -178,12 +212,15 @@ async function pegarSinais(a: Autenticado): Promise<SinalEntregue[]> {
       resumo: p2pSinais.resumo,
       motivo: p2pSinais.motivo,
       criadoEm: p2pSinais.criadoEm,
+      deUsuario: p2pSinais.usuarioId,
       deNome: p2pAparelhos.nome,
       deTipo: p2pAparelhos.tipo,
+      dono: sql<string | null>`${usuarios.nome}`.as("dono_nome"),
     })
     .from(p2pSinais)
     .leftJoin(p2pAparelhos, eq(p2pAparelhos.sessaoId, p2pSinais.deSessao))
-    .where(and(eq(p2pSinais.paraSessao, a.sessao.id), eq(p2pSinais.usuarioId, a.usuario.id), isNull(p2pSinais.entregueEm), gt(p2pSinais.criadoEm, desde)))
+    .leftJoin(usuarios, eq(usuarios.id, p2pSinais.usuarioId))
+    .where(and(eq(p2pSinais.paraSessao, a.sessao.id), eq(p2pSinais.paraUsuario, a.usuario.id), isNull(p2pSinais.entregueEm), gt(p2pSinais.criadoEm, desde)))
     .orderBy(asc(p2pSinais.criadoEm))
     .limit(20);
   if (!linhas.length) return [];
@@ -199,7 +236,10 @@ async function pegarSinais(a: Autenticado): Promise<SinalEntregue[]> {
     .map((l) => ({
       id: l.id,
       tipo: l.tipo,
-      de: { id: l.de, nome: l.deNome ?? "Aparelho", tipo: l.deTipo ?? "celular" },
+      de:
+        l.deUsuario === a.usuario.id
+          ? { id: l.de, nome: l.deNome ?? "Aparelho", tipo: l.deTipo ?? "celular", conta: "minha" as const }
+          : { id: l.de, nome: l.deNome ?? "Aparelho", tipo: l.deTipo ?? "celular", conta: "outra" as const, dono: primeiroNome(l.dono) },
       ...(l.oferta ? { oferta: l.oferta } : {}),
       ...(l.sdp ? { sdp: l.sdp } : {}),
       ...(l.resumo ? { resumo: l.resumo } : {}),
@@ -212,8 +252,8 @@ async function pegarSinais(a: Autenticado): Promise<SinalEntregue[]> {
  * A espera longa: marca o aparelho como online e devolve os sinais para ele assim que houver, ou [] depois de `ms`.
  * Olha o banco a cada segundo. `sinal` (do pedido) encerra antes quando o cliente desiste.
  */
-export async function esperar(a: Autenticado, o: { nome: string; ip: string | null; ms?: number; sinal?: AbortSignal }): Promise<SinalEntregue[]> {
-  await marcarVisto(a, o.nome, o.ip);
+export async function esperar(a: Autenticado, o: { nome: string; ip: string | null; outros?: boolean; ms?: number; sinal?: AbortSignal }): Promise<SinalEntregue[]> {
+  await marcarVisto(a, o.nome, o.ip, !!o.outros);
   const ate = Date.now() + Math.max(0, o.ms ?? ESPERA_MS);
   for (;;) {
     const sinais = await pegarSinais(a);

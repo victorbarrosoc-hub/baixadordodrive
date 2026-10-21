@@ -284,19 +284,26 @@ export const p2pAparelhos = pgTable(
     tipo: text().$type<TipoAparelhoP2p>().notNull(),
     nome: text().notNull(),
     rede: text(),
+    /** Aceita pedidos de outras contas na mesma rede (sempre perguntando antes). */
+    aceitaOutros: boolean().notNull().default(false),
     vistoEm: agora(),
   },
-  (t) => [index("p2p_aparelhos_usuario_idx").on(t.usuarioId, t.vistoEm)],
+  (t) => [index("p2p_aparelhos_usuario_idx").on(t.usuarioId, t.vistoEm), index("p2p_aparelhos_rede_idx").on(t.rede, t.vistoEm)],
 );
 
-/** Sinais WebRTC entre dois aparelhos da mesma conta (oferta e resposta inteiras, sem trickle). Valem 2 minutos. */
+/** Sinais WebRTC entre dois aparelhos (oferta e resposta inteiras, sem trickle). Valem 2 minutos. */
 export type TipoSinalP2p = "oferta" | "resposta" | "recusa" | "cancela";
 export type ResumoP2p = { arquivos: number; bytes: number; nomes: string[] };
 export const p2pSinais = pgTable(
   "p2p_sinais",
   {
     id: text().primaryKey(),
+    /** Conta de quem mandou. */
     usuarioId: text()
+      .notNull()
+      .references(() => usuarios.id, { onDelete: "cascade" }),
+    /** Conta de quem recebe (outra, quando é alguém por perto). */
+    paraUsuario: text()
       .notNull()
       .references(() => usuarios.id, { onDelete: "cascade" }),
     deSessao: text()

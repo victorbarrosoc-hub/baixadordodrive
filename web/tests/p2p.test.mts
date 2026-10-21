@@ -78,10 +78,10 @@ describe("p2p", () => {
     await curta(doCelular(victor, "/api/p2p/espera?curto=1"));
 
     const doCel = await corpo(await rAparelhos.GET(doCelular(victor, "/api/p2p/aparelhos")));
-    assert.deepEqual(doCel.aparelhos, [{ id: victor.macId, nome: "MacBook de Victor", tipo: "computador", mesmaRede: true }]);
+    assert.deepEqual(doCel.aparelhos, [{ id: victor.macId, nome: "MacBook de Victor", tipo: "computador", mesmaRede: true, conta: "minha" }], "o Mac da Ana (sem aceitar outros) não aparece");
 
     const doPc = await corpo(await rAparelhos.GET(doMac(victor, "/api/p2p/aparelhos")));
-    assert.deepEqual(doPc.aparelhos, [{ id: victor.celularId, nome: "iPhone de Victor", tipo: "celular", mesmaRede: true }]);
+    assert.deepEqual(doPc.aparelhos, [{ id: victor.celularId, nome: "iPhone de Victor", tipo: "celular", mesmaRede: true, conta: "minha" }]);
 
     const outraRede = await corpo(await rAparelhos.GET(doCelular(victor, "/api/p2p/aparelhos", { ip: "177.9.9.9" })));
     assert.equal(outraRede.aparelhos[0].mesmaRede, false, "outra rede ainda aparece, só sem o selo");
@@ -98,7 +98,7 @@ describe("p2p", () => {
     const s = noMac.sinais[0];
     assert.equal(s.id, of.id);
     assert.equal(s.tipo, "oferta");
-    assert.deepEqual(s.de, { id: victor.celularId, nome: "iPhone de Victor", tipo: "celular" });
+    assert.deepEqual(s.de, { id: victor.celularId, nome: "iPhone de Victor", tipo: "celular", conta: "minha" });
     assert.deepEqual(s.resumo, { arquivos: 2, bytes: 1234, nomes: ["IMG_1.HEIC", "IMG_2.MOV"] });
     assert.equal(s.sdp, SDP);
     assert.deepEqual((await corpo(await curta(doMac(victor, "/api/p2p/espera?curto=1")))).sinais, [], "entregue uma vez só");
@@ -160,10 +160,60 @@ describe("p2p", () => {
     assert.equal(ultimo, 429);
   });
 
+  test("por perto: outra pessoa que aceita aparece só na mesma rede; o pedido vai com o nome dela e volta a resposta", async () => {
+    const bia = await pessoa("Bia Fotografia");
+    // Bia abre o app no celular aceitando outras pessoas; o Mac dela não aceita.
+    await curta(doCelular(bia, "/api/p2p/espera?curto=1&outros=1", { ip: "200.1.1.1" }));
+    await curta(doMac(bia, "/api/p2p/espera?curto=1", { ip: "200.1.1.1" }));
+    await curta(doCelular(victor, "/api/p2p/espera?curto=1", { ip: "200.1.1.1" }));
+    await curta(doMac(victor, "/api/p2p/espera?curto=1", { ip: "200.1.1.1" }));
+
+    const lista = (await corpo(await rAparelhos.GET(doCelular(victor, "/api/p2p/aparelhos", { ip: "200.1.1.1" })))).aparelhos;
+    const daBia = lista.filter((x: { conta: string }) => x.conta === "outra");
+    assert.deepEqual(daBia, [{ id: bia.celularId, nome: "iPhone de Bia", tipo: "celular", mesmaRede: true, conta: "outra", dono: "Bia" }]);
+    assert.equal(lista[0].conta, "minha", "os da conta vêm primeiro");
+    // De outra rede, a Bia some.
+    const longe = (await corpo(await rAparelhos.GET(doCelular(victor, "/api/p2p/aparelhos", { ip: "177.9.9.9" })))).aparelhos;
+    assert.equal(longe.filter((x: { conta: string }) => x.conta === "outra").length, 0);
+    // O computador do Victor também vê o celular da Bia (celular), mas não o Mac dela.
+    const doPc = (await corpo(await rAparelhos.GET(doMac(victor, "/api/p2p/aparelhos", { ip: "200.1.1.1" })))).aparelhos;
+    assert.deepEqual(doPc.map((x: { id: string }) => x.id).sort(), [bia.celularId, victor.celularId].sort());
+
+    // Oferta de outra rede: recusada. Da mesma rede: chega com o nome de quem manda.
+    const oferta = { tipo: "oferta", para: bia.celularId, sdp: SDP, resumo: { arquivos: 1, bytes: 10, nomes: ["a.mov"] } };
+    assert.equal((await rSinal.POST(doCelular(victor, "/api/p2p/sinal", { corpo: oferta, ip: "177.9.9.9" }))).status, 404);
+    const of = await corpo(await rSinal.POST(doCelular(victor, "/api/p2p/sinal", { corpo: oferta, ip: "200.1.1.1" })));
+    assert.equal(of.status, 201);
+    const naBia = (await corpo(await curta(doCelular(bia, "/api/p2p/espera?curto=1&outros=1")))).sinais;
+    assert.deepEqual(naBia[0].de, { id: victor.celularId, nome: "iPhone de Victor", tipo: "celular", conta: "outra", dono: "Victor" });
+
+    // A Bia responde; o Victor recebe. Uma terceira conta não consegue responder no lugar dela.
+    assert.equal((await rSinal.POST(doMac(ana, "/api/p2p/sinal", { corpo: { tipo: "resposta", para: victor.celularId, oferta: of.id, sdp: SDP } }))).status, 404);
+    assert.equal((await rSinal.POST(doCelular(bia, "/api/p2p/sinal", { corpo: { tipo: "resposta", para: victor.celularId, oferta: of.id, sdp: SDP } }))).status, 201);
+    const noVictor = (await corpo(await curta(doCelular(victor, "/api/p2p/espera?curto=1")))).sinais;
+    assert.equal(noVictor[0].tipo, "resposta");
+    assert.equal(noVictor[0].de.dono, "Bia");
+
+    // Bia desliga "aceitar outras pessoas": some da lista e a oferta nova é recusada.
+    await curta(doCelular(bia, "/api/p2p/espera?curto=1", { ip: "200.1.1.1" }));
+    assert.equal((await rSinal.POST(doCelular(victor, "/api/p2p/sinal", { corpo: oferta, ip: "200.1.1.1" }))).status, 404);
+  });
+
+  test("celular vê os outros celulares da própria conta (iPhone → Android)", async () => {
+    const r = await contas.entrarComSenha({ email: (await banco.db.query.usuarios.findFirst({ where: eq(banco.schema.usuarios.id, victor.id) }))!.email, senha: "uma senha comprida", ip: "10.7.0.50" });
+    assert.ok(r.ok);
+    const android = pedido("/api/p2p/espera?curto=1", { cookies: { [COOKIE]: r.token }, ip: "200.1.1.1" });
+    android.headers.set("user-agent", "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Mobile Safari/537.36");
+    await curta(android);
+    await curta(doCelular(victor, "/api/p2p/espera?curto=1"));
+    const lista = (await corpo(await rAparelhos.GET(doCelular(victor, "/api/p2p/aparelhos")))).aparelhos;
+    assert.ok(lista.some((x: { nome: string; tipo: string; conta: string }) => x.nome === "Android de Victor" && x.tipo === "celular" && x.conta === "minha"), JSON.stringify(lista));
+  });
+
   test("computador desconectado some da lista do celular", async () => {
     await curta(doMac(victor, "/api/p2p/espera?curto=1"));
     await sessao.revogarSessaoDe(victor.id, victor.macId);
     const r = await corpo(await rAparelhos.GET(doCelular(victor, "/api/p2p/aparelhos")));
-    assert.deepEqual(r.aparelhos, []);
+    assert.equal(r.aparelhos.filter((x: { id: string }) => x.id === victor.macId).length, 0);
   });
 });

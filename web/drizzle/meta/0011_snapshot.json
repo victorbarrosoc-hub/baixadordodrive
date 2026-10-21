@@ -1,5 +1,5 @@
 {
-  "id": "fbd5e54c-914c-4e28-aa28-a3ba1cb48cdd",
+  "id": "5004cddc-8f2c-40df-98ea-9e22fac159ed",
   "prevId": "66c9ea3d-c37c-4a57-837a-ed978bb33418",
   "version": "7",
   "dialect": "postgresql",
@@ -996,6 +996,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "aceita_outros": {
+          "name": "aceita_outros",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "visto_em": {
           "name": "visto_em",
           "type": "timestamp with time zone",
@@ -1010,6 +1017,27 @@
           "columns": [
             {
               "expression": "usuario_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "visto_em",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "p2p_aparelhos_rede_idx": {
+          "name": "p2p_aparelhos_rede_idx",
+          "columns": [
+            {
+              "expression": "rede",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1073,6 +1101,12 @@
         },
         "usuario_id": {
           "name": "usuario_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "para_usuario": {
+          "name": "para_usuario",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1178,6 +1212,19 @@
           "tableTo": "usuarios",
           "columnsFrom": [
             "usuario_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "p2p_sinais_para_usuario_usuarios_id_fk": {
+          "name": "p2p_sinais_para_usuario_usuarios_id_fk",
+          "tableFrom": "p2p_sinais",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "para_usuario"
           ],
           "columnsTo": [
             "id"

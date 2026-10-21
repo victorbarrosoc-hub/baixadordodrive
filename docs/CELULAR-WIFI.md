@@ -1,10 +1,16 @@
-# Celular ↔ computador pelo Wi-Fi
+# Celular ↔ computador ↔ celular pelo Wi-Fi
 
-O celular (app em `/app/`, com a conta) e o app do computador da **mesma conta** trocam arquivos direto pela rede de
-casa ou do escritório, como o AirDrop: sem QR code, sem passar pela internet e sem subir pro Drive. Nos dois sentidos.
+Celulares (app em `/app/`, com a conta) e o app do computador trocam arquivos direto pela rede de casa ou do
+escritório, como o AirDrop: sem QR code, sem passar pela internet e sem subir pro Drive. Em qualquer combinação
+(iPhone, Android, Mac, Windows), nos dois sentidos.
+
+- **Da mesma conta:** o celular vê os computadores e os outros celulares da conta; o computador vê os celulares.
+- **Outras pessoas por perto:** quem liga "Aceitar de outras pessoas por perto" aparece para as contas na mesma rede
+  (mesmo IP público), com o primeiro nome. Quem recebe **sempre** toca em Aceitar, até no computador.
+- Computador com computador continua sendo o "Entre computadores" (docs/LAN.md).
 
 - **Celular → computador:** o arquivo fica só no computador, na pasta "SOBEDESCE do celular" (Ajustes, padrão em
-  Downloads). O computador aceita sozinho: é a mesma conta.
+  Downloads). Da mesma conta, o computador aceita sozinho; de outra pessoa, pergunta.
 - **Computador → celular:** o celular precisa estar com o app aberto. Aparece "MacBook de Victor quer mandar 3
   arquivos" com Aceitar; depois, cada arquivo tem Salvar (Fotos ou Arquivos, pela folha de compartilhar do sistema).
 - Fora da mesma rede não funciona (é a escolha: rápido e direto). A tela diz "Confira se os dois estão no mesmo Wi-Fi".
@@ -24,8 +30,9 @@ A página do app no celular é HTTPS e não pode falar com `http://192.168.x.x` 
 2. **Conexão direta:** o computador anuncia o IP local de verdade (o app desliga a ofuscação mDNS do Chromium:
    `--disable-features=WebRtcHideLocalIpsWithMdns`). O Safari anuncia um nome `.local`, mas manda as checagens de
    conexão para o IP do computador, e o computador aprende o endereço do celular por elas (candidato
-   peer-reflexivo). Sem servidor STUN/TURN: só a rede local. Rede de visitantes com isolamento entre aparelhos não
-   deixa conectar.
+   peer-reflexivo). Entre dois celulares (os dois só com nome `.local`), ajuda o STUN público da Cloudflare
+   (`stun:stun.cloudflare.com:3478`): só para cada um descobrir o próprio endereço; os arquivos não passam por ele.
+   Sem TURN: nada é retransmitido pela internet. Rede de visitantes com isolamento entre aparelhos não deixa conectar.
 3. **Protocolo do canal** (`web/public/app/lib/p2p-canal.js`, cópia idêntica em `public/celular/p2p-canal.js`): quem
    cria a oferta é sempre quem manda. Lista → pode/não → arquivo a arquivo em pedaços de 64 KiB → guardado → acabou.
    Controle de fluxo por confirmações (no máximo 16 MiB adiantados). O canal é cifrado (DTLS) pelo próprio WebRTC.
@@ -39,8 +46,8 @@ local; o motor faz a espera longa no site, grava os arquivos e mostra o andament
 Tabelas (`drizzle/0011_p2p.sql`):
 
 - `p2p_aparelhos`: `sessao_id` (PK, sessões), `usuario_id`, `tipo` (`celular` | `computador`), `nome`, `rede`,
-  `visto_em`. Online = visto há menos de 70 s.
-- `p2p_sinais`: `id`, `usuario_id`, `de_sessao`, `para_sessao`, `tipo` (`oferta` | `resposta` | `recusa` |
+  `aceita_outros`, `visto_em`. Online = visto há menos de 70 s.
+- `p2p_sinais`: `id`, `usuario_id` (quem manda), `para_usuario` (quem recebe), `de_sessao`, `para_sessao`, `tipo` (`oferta` | `resposta` | `recusa` |
   `cancela`), `oferta` (id da oferta, nos outros tipos), `sdp`, `resumo` (`{ arquivos, bytes, nomes[≤5] }`),
   `motivo`, `criado_em`, `entregue_em`. Mais velhos que 2 min não são entregues e somem.
 
@@ -48,11 +55,11 @@ Rotas (cookie do site no celular; Bearer `sdd_` no computador):
 
 | Rota | O quê |
 | --- | --- |
-| `GET /api/p2p/espera?nome=` | Marca online (tipo pela sessão: dispositivo = computador). Devolve `{ agora, sinais }` assim que houver sinal para esta sessão (e marca entregue), ou `[]` depois de 25 s. `curto=1`: não espera. |
-| `GET /api/p2p/aparelhos` | `{ aparelhos: [{ id, nome, tipo, mesmaRede }] }`: os da mesma conta, online, do outro tipo (o celular vê computadores; o computador, celulares). |
-| `POST /api/p2p/sinal` | `{ para, tipo: 'oferta', sdp, resumo }` ou `{ para, tipo: 'resposta' \| 'recusa' \| 'cancela', oferta, sdp?, motivo? }` → `{ id }`. Oferta só para aparelho online da conta; os outros só sobre uma oferta entre os dois. SDP até 20 mil caracteres. Até 20 ofertas por minuto por sessão. |
+| `GET /api/p2p/espera?nome=&outros=1` | Marca online (tipo pela sessão: dispositivo = computador; `outros=1` = aceita pessoas por perto). Devolve `{ agora, sinais }` assim que houver sinal para esta sessão (e marca entregue), ou `[]` depois de 25 s. `curto=1`: não espera. |
+| `GET /api/p2p/aparelhos` | `{ aparelhos: [{ id, nome, tipo, mesmaRede, conta: 'minha' \| 'outra', dono? }] }`: os da conta (acima) e as pessoas por perto que aceitam, online. |
+| `POST /api/p2p/sinal` | `{ para, tipo: 'oferta', sdp, resumo }` ou `{ para, tipo: 'resposta' \| 'recusa' \| 'cancela', oferta, sdp?, motivo? }` → `{ id }`. Oferta só para aparelho online que este vê (da conta, ou por perto na mesma rede e aceitando); os outros só sobre uma oferta entre os dois. SDP até 20 mil caracteres. Até 20 ofertas por minuto por sessão. |
 
-Sinal entregue: `{ id, tipo, de: { id, nome, tipo }, oferta?, sdp?, resumo?, motivo?, criadoEm }`.
+Sinal entregue: `{ id, tipo, de: { id, nome, tipo, conta, dono? }, oferta?, sdp?, resumo?, motivo?, criadoEm }`.
 
 ## Celular (`web/public/app/`)
 
