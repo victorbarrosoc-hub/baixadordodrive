@@ -1,5 +1,6 @@
 // Tela Drive: navegar Meu Drive e drives compartilhados, buscar, criar pasta, enviar para a pasta atual
-// e baixar a seleção (barra flutuante embaixo, translúcida como no macOS).
+// e baixar a seleção (barra flutuante embaixo, translúcida como no macOS). No padrão do kit (docs/UI-KIT.md):
+// cabeçalho com a ação principal, a faixa colorida com onde você está e o espaço no Drive, filtros em pílulas.
 import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore } from '../lib/store.js'
 import { navigate } from '../lib/router.js'
@@ -23,9 +24,10 @@ import { hasVideoFiles, isVideoName, onPreviasDone, openPrevias, openProxyArquiv
 import { FolderSummary, calcSize, focusSize, getSize, sizeId, useSizes } from './drive-tamanho.js'
 import { copyDriveLink } from './link-share.js'
 import { DEFAULT_SORT, FILTERS, driveView, filterChips, keepVisible, normalizeSort, visibleSummary } from '../lib/ordenar.js'
-import { FilterMenu, MacLine, SortMenu, openMacTrash } from './drive-ordenar.js'
+import { MacLine, SortMenu, openMacTrash } from './drive-ordenar.js'
 import { openCopyLink, useCopiaRunning } from './copiar-link.js'
 import { CenasPainel } from './cenas.js'
+import { Vazio } from './kit.js'
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
@@ -87,14 +89,46 @@ export function Breadcrumb({ path, folder, drives, onOpen }) {
   </nav>`
 }
 
-function Quota({ accountId }) {
+/** Espaço no Drive da conta, na faixa: quanto está usado e a barra (ou "Sem limite"). */
+function Espaco({ accountId }) {
   const about = useAbout(accountId)
   const q = about?.quota
-  if (!q || !q.limit) return null
-  const frac = Math.min(1, (q.usage || 0) / q.limit)
-  return html`<div class=${cx('quota', frac > 0.9 && 'is-full')} title=${`${bytes(q.usage)} usados de ${bytes(q.limit)}`}>
-    <span class="quota-bar"><i style=${`width:${(frac * 100).toFixed(1)}%`}></i></span>
-    <span>${bytes(q.usage)} de ${bytes(q.limit)}</span>
+  if (!q) return null
+  const frac = q.limit ? Math.min(1, (q.usage || 0) / q.limit) : null
+  return html`<div class=${cx('dv-espaco', frac != null && frac > 0.9 && 'is-cheio')} title=${q.limit ? `${bytes(q.usage)} usados de ${bytes(q.limit)}` : `${bytes(q.usage)} usados`}>
+    <span class="dv-rot">Espaço no Drive</span>
+    <b>${bytes(q.usage || 0)}</b>
+    ${frac != null
+      ? html`<span class="dv-espaco-barra" role="progressbar" aria-label="Espaço usado no Drive" aria-valuenow=${Math.round(frac * 100)} aria-valuemin="0" aria-valuemax="100"><i style=${`--p:${(frac * 100).toFixed(1)}%`}></i></span>
+          <span class="dv-sub">de ${bytes(q.limit)} · ${bytes(Math.max(0, q.limit - (q.usage || 0)))} livres</span>`
+      : html`<span class="dv-sub">Sem limite de espaço</span>`}
+  </div>`
+}
+
+/** Meu Drive e drives compartilhados, em pílulas (só quando há drive compartilhado). */
+function Fontes({ drives, current, onPick }) {
+  if (!drives.length) return null
+  return html`<div class="k-pilulas dv-fontes" role="tablist" aria-label="Onde procurar">
+    <button type="button" role="tab" aria-selected=${current === 'root' ? 'true' : 'false'} class=${cx('k-pilula', current === 'root' && 'is-on')} onClick=${() => onPick('root')}>
+      <${Icon} name="cloud" size=${14} /> Meu Drive
+    </button>
+    ${drives.map(
+      (d) => html`<button type="button" role="tab" aria-selected=${current === d.id ? 'true' : 'false'} class=${cx('k-pilula', current === d.id && 'is-on')} onClick=${() => onPick(d.id)} title=${d.name}>
+        <${Icon} name="users" size=${14} /> <span class="dv-fonte-nome">${d.name}</span>
+      </button>`,
+    )}
+  </div>`
+}
+
+/** Filtro por tipo em pílulas, com quantos de cada (só os tipos que existem na pasta). */
+function Filtros({ chips, value, onChange }) {
+  if (chips.length < 2 && value === 'all') return null
+  return html`<div class="k-pilulas dv-filtros" role="radiogroup" aria-label="Mostrar">
+    ${chips.map(
+      (c) => html`<button type="button" role="radio" aria-checked=${c.value === value ? 'true' : 'false'} class=${cx('k-pilula', c.value === value && 'is-on')} onClick=${() => onChange(c.value === value ? 'all' : c.value)}>
+        ${c.label}<span class="k-conta">${c.count}</span>
+      </button>`,
+    )}
   </div>`
 }
 
@@ -136,7 +170,9 @@ function SelectionBar({ items, destDir, home, onChangeDest, onDownload, onClear,
     ${onProxy && items.length === 1 && files.length === 1 && isVideoName(files[0].name)
       ? html`<${Button} icon="film" onClick=${() => onProxy(files[0])} title="Proxy (cópia leve 720p) para a prévia tocar fluida">Gerar proxy</${Button}>`
       : null}
-    <${Button} variant="primary" icon="download" onClick=${onDownload} loading=${busy}>Baixar</${Button}>
+    <button type="button" class="k-botao dv-baixar" onClick=${onDownload} disabled=${busy} aria-busy=${busy ? 'true' : 'false'}>
+      ${busy ? html`<${Spinner} size=${15} />` : html`<${Icon} name="download" size=${16} strokeWidth=${1.9} />`}Baixar
+    </button>
     <${IconButton} icon="x" label="Limpar seleção" onClick=${onClear} />
   </div>`
 }
@@ -313,12 +349,12 @@ export function DriveScreen({ route }) {
 
   const emptyView =
     shown.filter !== 'all' && items?.length
-      ? html`<div class="table-empty"><${Icon} name="search" size=${22} /><b>Nenhum ${filterDef.one} ${searching ? 'nos resultados' : 'nesta pasta'}</b><button type="button" class="btn btn-secondary btn-sm" onClick=${() => setFilter('all')}><span>Mostrar tudo</span></button></div>`
+      ? html`<${Vazio} icone="filter" titulo=${`Nenhum ${filterDef.one} ${searching ? 'nos resultados' : 'nesta pasta'}`} acoes=${html`<${Button} onClick=${() => setFilter('all')}>Mostrar tudo</${Button}>`} />`
       : shown.mac.length && !showMac && items?.length === shown.mac.length
-        ? html`<div class="table-empty"><${Icon} name="eye-off" size=${22} /><b>Só arquivos de controle do Mac aqui</b><span>${shown.mac.length === 1 ? 'Está oculto.' : 'Estão ocultos.'}</span><button type="button" class="btn btn-secondary btn-sm" onClick=${() => setShowMac(true)}><span>Mostrar</span></button></div>`
+        ? html`<${Vazio} icone="eye" titulo="Só arquivos de controle do Mac aqui" acoes=${html`<${Button} onClick=${() => setShowMac(true)}>Mostrar</${Button}>`}>${shown.mac.length === 1 ? 'Ele está oculto.' : 'Eles estão ocultos.'}</${Vazio}>`
         : searching
-          ? html`<span>Nada com “${q.trim()}” no nome.</span>`
-          : html`<div class="table-empty"><${Icon} name="folder" size=${22} /><b>Pasta vazia</b><span>Use “Enviar para esta pasta” para mandar arquivos para cá.</span></div>`
+          ? html`<${Vazio} icone="search" titulo=${`Nada com “${q.trim()}” no nome`} acoes=${html`<${Button} icon="x" onClick=${() => setQuery('')}>Limpar a busca</${Button}>`}>Confira a escrita ou procure por outra parte do nome.</${Vazio}>`
+          : html`<${Vazio} icone="folder" titulo="Pasta vazia" acoes=${html`<${Button} icon="upload" onClick=${uploadHere}>Enviar para esta pasta</${Button}>`}>Mande arquivos do computador para cá, ou arraste e solte em qualquer lugar da tela.</${Vazio}>`
 
   const macLine = shown.mac.length
     ? html`<${MacLine} mac=${shown.mac} shown=${showMac} onToggle=${() => setShowMac(!showMac)} onTrash=${!searching && folder ? () => trashMac() : null} />`
@@ -329,43 +365,81 @@ export function DriveScreen({ route }) {
     if (e.key === 'Escape' && selected.size) setSelected(new Set())
   }
 
-  return html`<div class=${cx('page page-drive', selected.size && 'has-selbar')} onKeyDown=${onKeyDownPage}>
+  const ondeIcone = searching ? 'search' : folderId === 'root' ? 'cloud' : drives.some((d) => d.id === folderId) ? 'users' : 'folder'
+  const resumoPasta =
+    !searching && accountId
+      ? html`<${FolderSummary}
+          accountId=${accountId}
+          folderId=${folderId}
+          items=${data?.items || null}
+          count=${shown.counts.all}
+          ready=${!!folder && !error}
+          filtro=${filtro}
+          extra=${macLine}
+        />`
+      : searching && items && (filtro || macLine)
+        ? html`<div class="drive-sum is-filtered">
+            <span class="dsum-main" aria-live="polite">${filtro ? html`<span class="dsum-count"><b>${filtro}</b></span>` : null}</span>
+            ${macLine ? html`<span class="dsum-end">${macLine}</span>` : null}
+          </div>`
+        : searching && items
+          ? html`<div class="drive-sum"><span class="dsum-main" aria-live="polite"><span class="dsum-count">${plural(items.length, 'resultado', 'resultados')}</span></span></div>`
+          : null
+
+  if (!accountId) {
+    return html`<div class="page page-drive k-pagina">
+      <header class="k-cabeca k-entra" style="--i:0"><div><h1>Drive</h1><p>Seus arquivos no Google Drive: abra as pastas, veja a prévia e baixe no computador.</p></div></header>
+      <${Vazio} icone="cloud" titulo="Nenhuma conta do Google conectada" acoes=${html`<${Button} variant="primary" icon="sliders" onClick=${() => navigate('ajustes')}>Abrir os Ajustes</${Button}>`}>Entre com a conta SOBEDESCE ou conecte um Google Drive para ver os arquivos aqui.</${Vazio}>
+    </div>`
+  }
+
+  return html`<div class=${cx('page page-drive k-pagina', selected.size && 'has-selbar')} onKeyDown=${onKeyDownPage}>
     <${FileDrop}
       label=${folderLabel(folder, drives)}
       enabled=${!!folder && !!accountId}
       onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives), destPath: folderPathText(data, drives) })}
     />
-    <header class="page-head">
-      <h1>Drive</h1>
-      <div class="page-head-actions">
-        <${Quota} accountId=${accountId} />
-        ${accountId
-          ? html`<${Button} icon="link" class=${cx(copiando && 'is-copying')} onClick=${copiarDeLink} title="Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para o seu Drive">
-              ${copiando ? `Copiando ${copiando.progress?.done || 0}/${copiando.progress?.total || 0}` : 'Copiar de um link'}
-            </${Button}>`
-          : null}
+    <header class="k-cabeca k-entra" style="--i:0">
+      <div>
+        <h1>Drive</h1>
+        <p>Seus arquivos no Google Drive: abra as pastas, veja a prévia e baixe no computador.</p>
+      </div>
+      <div class="k-cabeca-acoes">
+        <${Button} icon="link" class=${cx(copiando && 'is-copying')} onClick=${copiarDeLink} title="Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para o seu Drive">
+          ${copiando ? `Copiando ${copiando.progress?.done || 0}/${copiando.progress?.total || 0}` : 'Copiar de um link'}
+        </${Button}>
+        <button type="button" class="k-botao dv-enviar" onClick=${uploadHere} disabled=${searching} title=${searching ? 'Saia da busca para escolher a pasta de destino' : `Enviar arquivos do computador para “${folderLabel(folder, drives)}”`}>
+          <${Icon} name="upload" size=${17} strokeWidth=${1.9} />Enviar para esta pasta
+        </button>
       </div>
     </header>
-    <${SourceChips} drives=${drives} current=${searching ? null : sourceId} onPick=${(id) => { setQuery(''); openId(id) }} />
-    <div class="drive-bar">
-      ${searching
-        ? html`<div class="crumbs"><span class="crumb is-current">Resultados para “${q.trim()}”</span>${search.loading ? html`<${Spinner} size=${14} />` : null}</div>`
-        : html`<${Breadcrumb} path=${data?.path} folder=${folder} drives=${drives} onOpen=${openId} />`}
-      <div class="drive-bar-actions">
-        <label class="search">
-          <${Icon} name="search" size=${15} />
-          <input
-            type="search"
-            placeholder="Buscar no Drive"
-            value=${query}
-            onInput=${(e) => setQuery(e.currentTarget.value)}
-            onKeyDown=${(e) => e.key === 'Escape' && setQuery('')}
-            aria-label="Buscar no Drive"
-          />
-        </label>
-        <div class="drive-tools" role="group" aria-label="Ordenar e filtrar">
+    <${Fontes} drives=${drives} current=${searching ? null : sourceId} onPick=${(id) => { setQuery(''); openId(id) }} />
+    <section class=${cx('dv-faixa k-entra', searching && 'is-busca')} style="--i:1" aria-label="Onde você está">
+      <span class="dv-onde-ic" aria-hidden="true"><${Icon} name=${ondeIcone} size=${20} strokeWidth=${1.8} /></span>
+      <div class="dv-onde">
+        ${searching
+          ? html`<div class="crumbs"><span class="crumb is-current">Resultados para “${q.trim()}”</span>${search.loading ? html`<${Spinner} size=${14} />` : null}</div>`
+          : html`<${Breadcrumb} path=${data?.path} folder=${folder} drives=${drives} onOpen=${openId} />`}
+        ${resumoPasta}
+      </div>
+      <${Espaco} accountId=${accountId} />
+    </section>
+    <div class="dv-barra k-entra" style="--i:2">
+      <label class="search">
+        <${Icon} name="search" size=${15} />
+        <input
+          type="search"
+          placeholder="Buscar no Drive"
+          value=${query}
+          onInput=${(e) => setQuery(e.currentTarget.value)}
+          onKeyDown=${(e) => e.key === 'Escape' && setQuery('')}
+          aria-label="Buscar no Drive"
+        />
+      </label>
+      <${Filtros} chips=${chips} value=${shown.filter} onChange=${setFilter} />
+      <div class="dv-ferramentas">
+        <div class="drive-tools" role="group" aria-label="Ordenar">
           <${SortMenu} sort=${sort} onSort=${setSort} />
-          <${FilterMenu} chips=${chips} value=${shown.filter} onChange=${setFilter} />
         </div>
         <${Segmented}
           size="sm"
@@ -398,31 +472,12 @@ export function DriveScreen({ route }) {
             { icon: 'link', label: 'Copiar de um link para cá…', title: 'Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para esta pasta', disabled: searching || !folder, onSelect: copiarDeLink },
           ]}
         />
-        ${accountId
-          ? html`<button type="button" class=${cx('cn-botao', cenasAberto && 'is-on')} aria-pressed=${cenasAberto ? 'true' : 'false'} onClick=${() => setCenasAberto(!cenasAberto)} title="Achar momentos nos vídeos escrevendo o que você quer (noiva, DJ, criança entrando…)">
-              <${Icon} name="sparkle" size=${15} />Procurar cenas
-            </button>`
-          : null}
-        <${Button} variant="primary" icon="upload" onClick=${uploadHere} disabled=${searching}>Enviar para esta pasta</${Button}>
+        <button type="button" class=${cx('cn-botao dv-cenas', cenasAberto && 'is-on')} aria-pressed=${cenasAberto ? 'true' : 'false'} onClick=${() => setCenasAberto(!cenasAberto)} title="Achar momentos nos vídeos escrevendo o que você quer (noiva, DJ, criança entrando…)">
+          <${Icon} name="sparkle" size=${15} />Procurar cenas
+        </button>
       </div>
     </div>
-    ${!searching && accountId
-      ? html`<${FolderSummary}
-          accountId=${accountId}
-          folderId=${folderId}
-          items=${data?.items || null}
-          count=${shown.counts.all}
-          ready=${!!folder && !error}
-          filtro=${filtro}
-          extra=${macLine}
-        />`
-      : searching && items && (filtro || macLine)
-        ? html`<div class="drive-sum is-filtered">
-            <span class="dsum-main" aria-live="polite">${filtro ? html`<span class="dsum-count"><b>${filtro}</b></span>` : null}</span>
-            ${macLine ? html`<span class="dsum-end">${macLine}</span>` : null}
-          </div>`
-        : null}
-    ${cenasAberto && accountId && !searching
+    ${cenasAberto && !searching
       ? html`<${CenasPainel}
           accountId=${accountId}
           folderId=${folderId}
@@ -432,7 +487,7 @@ export function DriveScreen({ route }) {
           onFechar=${() => setCenasAberto(false)}
         />`
       : null}
-    <div class=${cx('card', view === 'grid' ? 'card-grid' : 'card-table')}>
+    <div class=${cx('card dv-lista k-entra', view === 'grid' ? 'card-grid' : 'card-table')} style="--i:3">
       ${view === 'grid'
         ? html`<${DriveGrid}
             items=${items}

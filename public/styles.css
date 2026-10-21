@@ -11665,8 +11665,10 @@ button.tree-twisty:hover {
 }
 
 /* ───── Movimento entre telas: a tela nova sobe e aparece (curto, sem atrapalhar) ───── */
+/* backwards, não both: terminada a entrada não pode sobrar transform (ele vira a referência das barras fixas, como a
+   seleção do Drive, e elas saem do lugar). */
 .tela-entra {
-  animation: tela-entra 0.32s var(--ease) both;
+  animation: tela-entra 0.32s var(--ease) backwards;
 }
 @keyframes tela-entra {
   from {
