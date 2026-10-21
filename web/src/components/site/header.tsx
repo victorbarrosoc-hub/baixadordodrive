@@ -5,7 +5,8 @@ import { Logo } from "./logo";
 
 const LINKS = [
   { href: "/#recursos", label: "Recursos" },
-  { href: "/#novidades", label: "Novidades" },
+  { href: "/#entre-aparelhos", label: "Entre aparelhos" },
+  { href: "/#novidades", label: "Para criar" },
   { href: "/#baixar", label: "Plataformas" },
   { href: "/privacidade", label: "Privacidade" },
 ];
