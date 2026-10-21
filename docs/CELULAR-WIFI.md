@@ -64,8 +64,11 @@ Sinal entregue: `{ id, tipo, de: { id, nome, tipo, conta, dono? }, oferta?, sdp?
 ## Celular (`web/public/app/`)
 
 - `lib/p2p.js`: a espera longa (só com a conta, tela à vista), a lista de computadores, mandar e receber.
-- **Início:** com computador online, o bloco "Mandar para o computador" (o nome, e "na mesma rede" quando o site sabe).
-  Toque → escolher arquivos → folha com o andamento (arquivo, %, velocidade) e Cancelar.
+- **Aba Aparelhos** (`components/aparelhos.js`, no meio da barra de baixo e em destaque; `/app/#aparelhos` abre direto):
+  "Seus aparelhos" (computadores e celulares da conta, abertos agora; sem nenhum, diz como fazer aparecer), "Por perto"
+  (outras pessoas que aceitam), a chave "Aceitar de outras pessoas por perto" e "Como funciona". Toque num aparelho →
+  escolher arquivos → folha com o andamento (arquivo, %, velocidade) e Cancelar. A aba ganha um ponto quando alguém
+  pede para mandar (laranja) ou quando algo está passando. No Início fica só o que está passando agora.
 - **Recebendo:** folha "MacBook de Victor quer mandar 3 arquivos · 1,2 GB" com Aceitar/Recusar. Os bytes vão para o
   armazenamento do app (OPFS, sem encher a memória); no fim, cada arquivo tem **Salvar** (`navigator.share` com o
   arquivo: Salvar em Fotos/Arquivos) e "Salvar todos". Sem OPFS: na memória, até 1 GB.

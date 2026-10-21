@@ -61,6 +61,7 @@ const SHELL = [
   './lib/uploader.js',
   './lib/wakelock.js',
   './components/account.js',
+  './components/aparelhos.js',
   './components/browser.js',
   './components/calculadora.js',
   './components/computador.js',

@@ -18,7 +18,7 @@ let state = {
   awake: false, // trava de tela acesa ativa
   lan: null, // modo Wi-Fi: { mac, noAccount, deleteAfterUpload, error, badCode }
   sheet: null, // { name, props }
-  tab: 'send', // 'send' (envio) | 'drive' (navegar e baixar) | 'refs' (Referências) | 'criar' (Frames…); no modo Wi-Fi só 'send'
+  tab: 'send', // 'send' (envio) | 'drive' (navegar e baixar) | 'ap' (Aparelhos, Wi-Fi) | 'refs' (Referências) | 'criar' (Frames…); no modo Wi-Fi só 'send'
   criarTela: 'hub', // aba Criar: 'hub' | 'frames' | 'calc'
   escolher: null, // aba Drive escolhendo um arquivo para outra tela: { para: 'frames' } (tocar no vídeo leva para lá)
   recursos: {}, // de /api/eu: { referencias: boolean }
@@ -131,6 +131,7 @@ export function setTab(tab) {
 export function savedTab() {
   if (LAN) return 'send'
   if (typeof location !== 'undefined' && location.hash === '#referencias') return 'refs'
+  if (typeof location !== 'undefined' && location.hash === '#aparelhos') return 'ap'
   const t = local.get('sobedesce.tab')
-  return t === 'drive' || t === 'refs' || t === 'criar' ? t : 'send'
+  return t === 'drive' || t === 'ap' || t === 'refs' || t === 'criar' ? t : 'send'
 }

@@ -1,5 +1,6 @@
-// Abas do app (embaixo, como no iOS): Início (o botão de enviar, atalhos e a fila; violeta), Drive (azul), Referências
-// (para quem tem o recurso) e Criar (Frames e as outras ferramentas do computador, adaptadas ao celular).
+// Abas do app (embaixo, como no iOS): Início (o botão de enviar, atalhos e a fila; violeta), Drive (azul), Aparelhos (no
+// meio e em destaque: mandar e receber pelo Wi-Fi), Referências (para quem tem o recurso) e Criar (Frames e as outras
+// ferramentas do computador, adaptadas ao celular).
 // No modo Wi-Fi não há abas: lá o celular não tem token do Google.
 import { html, useRef } from '../vendor/preact-htm.js'
 import { setTab, useApp } from '../lib/state.js'
@@ -10,12 +11,15 @@ import { MainScreen } from './main.js'
 import { DriveScreen } from './browser.js'
 import { RefsScreen } from './referencias.js'
 import { CriarScreen } from './criar.js'
+import { AparelhosScreen } from './aparelhos.js'
+import { useP2pAviso } from './p2p.js'
 import { Calculadora } from './calculadora.js'
 
 function TabBar({ tab, refsOn }) {
   useEngine()
   const sum = summarize(engine.items)
   const busy = sum.pending > 0
+  const aviso = useP2pAviso()
   return html`<nav class="tabbar" aria-label="Seções">
     <button type="button" class=${cx('tab', 'tab-up', tab === 'send' && 'is-on')} aria-current=${tab === 'send' ? 'page' : undefined} onClick=${() => setTab('send')}>
       <span class="tab-icon">
@@ -27,6 +31,13 @@ function TabBar({ tab, refsOn }) {
     <button type="button" class=${cx('tab', 'tab-down', tab === 'drive' && 'is-on')} aria-current=${tab === 'drive' ? 'page' : undefined} onClick=${() => setTab('drive')}>
       <span class="tab-icon"><${Icon} name="drive" size=${24} strokeWidth=${tab === 'drive' ? 2 : 1.7} /></span>
       <span class="tab-label">Drive</span>
+    </button>
+    <button type="button" class=${cx('tab', 'tab-ap', tab === 'ap' && 'is-on')} aria-current=${tab === 'ap' ? 'page' : undefined} onClick=${() => setTab('ap')}>
+      <span class="tab-icon">
+        <span class="tab-ap-pilula"><${Icon} name="wifi" size=${22} strokeWidth=${2.1} /></span>
+        ${aviso ? html`<span class=${cx('tab-dot', aviso === 'pedido' && 'is-pedido')} aria-label=${aviso === 'pedido' ? 'Alguém quer mandar arquivos' : 'Passando pelo Wi-Fi'}></span>` : null}
+      </span>
+      <span class="tab-label">Aparelhos</span>
     </button>
     ${refsOn
       ? html`<button type="button" class=${cx('tab', 'tab-refs', tab === 'refs' && 'is-on')} aria-current=${tab === 'refs' ? 'page' : undefined} onClick=${() => setTab('refs')}>
@@ -50,6 +61,7 @@ export function Tabs() {
   return html`<div class="tabs">
     <div class="tab-pane" hidden=${tab !== 'send'}><${MainScreen} /></div>
     ${seen.current.drive ? html`<div class="tab-pane" hidden=${tab !== 'drive'}><${DriveScreen} active=${tab === 'drive'} /></div>` : null}
+    ${seen.current.ap ? html`<div class="tab-pane" hidden=${tab !== 'ap'}><${AparelhosScreen} active=${tab === 'ap'} /></div>` : null}
     ${seen.current.refs && refsOn ? html`<div class="tab-pane" hidden=${tab !== 'refs'}><${RefsScreen} active=${tab === 'refs'} /></div>` : null}
     ${seen.current.criar ? html`<div class="tab-pane" hidden=${tab !== 'criar'}><${CriarScreen} active=${tab === 'criar'} Calculadora=${Calculadora} /></div>` : null}
     <${TabBar} tab=${tab} refsOn=${refsOn} />
