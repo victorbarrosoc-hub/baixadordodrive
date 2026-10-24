@@ -12,11 +12,11 @@ import { clipTime } from '../lib/media.js'
 import { toast } from '../lib/toasts.js'
 import { copyText } from '../lib/mobile.js'
 import { announceBatch, driveFolderUrl } from '../lib/actions.js'
-import { bridge, openExternal, pickFolderPath } from '../lib/desktop.js'
+import { bridge, openExternal, pickFolderPath, revealLabel, revealPath } from '../lib/desktop.js'
 import { openModal, promptDialog, registerModal } from '../lib/modals.js'
 import {
   ATALHOS, ATIVAS, apagarColecao, cancelarTrabalho, carregarColecoes, colecaoPorId, consultarFila, criarColecao, detectarLink, editarColecao, esquecerItens,
-  faseTexto, fracaoGeral, removerTrabalho, tentarItemFila, cancelarItemFila, tentarTrabalho, urlCurta, useColecoes, useItens,
+  faseTexto, fracaoGeral, removerTrabalho, tentarItemFila, cancelarItemFila, tentarTrabalho, tipoDoItem, urlCurta, useColecoes, useItens,
 } from '../lib/referencias.js'
 import { Icon } from './icons.js'
 import { Button, IconButton, Spinner, Switch } from './common.js'
@@ -25,6 +25,7 @@ import { Modal } from './modal.js'
 import { Thumb } from './drive-thumb.js'
 import { DrivePreview } from './drive-preview.js'
 import { SalvarReferencia } from './referencias-salvar.js'
+import { BaixarComo } from './referencias-formato.js'
 
 const AVISO = 'Salve só para referência dos seus projetos. Respeite os direitos de quem criou.'
 
@@ -203,27 +204,32 @@ function AbrirNavegador({ url }) {
   return html`<${Button} size="sm" variant="primary" icon="globe" onClick=${() => bridge.abrirNavegador(url || null)} title="Entre na sua conta no navegador de referências e salve de lá">Abrir navegador</${Button}>`
 }
 
+/** Na lista "Salvando agora": o que anda, o que deu erro e, por 10 min, o convertido que foi para o computador (com "Mostrar"). */
+const naLista = (t) => ATIVAS.has(t.fase) || t.fase === 'erro' || (t.tipo === 'formato' && t.fase === 'pronto' && t.caminho && Date.now() - (t.atualizadoEm || 0) < 10 * 60_000)
+
 /** Linha de um download em andamento (ou que deu erro). */
 function TrabalhoLinha({ t, mostrarColecao, i = 0 }) {
   const ativo = ATIVAS.has(t.fase)
   const frac = fracaoGeral(t)
+  const formato = t.tipo === 'formato'
   const titulo = t.nome ? t.nome.replace(/\.[a-z0-9]+$/i, '') : urlCurta(t.url)
   const cor = t.fase === 'erro' ? 'err' : t.fase === 'pronto' ? 'ok' : t.fase === 'enviando' ? 'up' : 'down'
-  return html`<div class=${cx('k-item rf-job k-entra', `is-${t.fase}`)} style=${`--c:var(--${cor});--i:${i}`}>
+  return html`<div class=${cx('k-item rf-job k-entra', `is-${t.fase}`, formato && 'is-formato')} style=${`--c:var(--${cor});--i:${i}`}>
     <span class="k-item-ic">${ativo ? html`<${Spinner} size=${17} />` : t.fase === 'pronto' ? html`<${Icon} name="check" size=${18} strokeWidth=${2} />` : html`<${Icon} name="warning" size=${18} />`}</span>
     <span class="k-item-txt">
       <span class="rf-job-top">
-        <span class="ref-plat">${t.plataformaNome || 'Link'}</span>
-        <b title=${t.url}>${titulo}</b>
+        ${formato ? html`<span class="ref-plat rf-job-fmt">${t.formatoNome}</span>` : html`<span class="ref-plat">${t.plataformaNome || 'Link'}</span>`}
+        <b title=${formato ? t.nome : t.url}>${titulo}</b>
       </span>
-      <span class="rf-job-status">${faseTexto(t)}${mostrarColecao && t.colecao ? html` · em <b>${t.colecao.nome}</b>` : null}</span>
+      <span class="rf-job-status">${faseTexto(t)}${mostrarColecao && t.colecao && !formato ? html` · em <b>${t.colecao.nome}</b>` : null}</span>
       ${ativo ? html`<${Barra} p=${frac} vivo=${true} label=${faseTexto(t)} />` : null}
     </span>
     <span class="k-item-fim">
       ${ativo && t.fase !== 'concluindo' ? html`<${IconButton} icon="x" label="Cancelar" onClick=${() => attempt(cancelarTrabalho(t.id))} />` : null}
-      ${t.fase === 'erro' && pedeLogin(t.erro?.codigo, t.erro?.mensagem) ? html`<${AbrirNavegador} url=${t.url} />` : null}
+      ${t.fase === 'erro' && !formato && pedeLogin(t.erro?.codigo, t.erro?.mensagem) ? html`<${AbrirNavegador} url=${t.url} />` : null}
+      ${formato && t.fase === 'pronto' && t.caminho ? html`<${Button} size="sm" icon="reveal" onClick=${() => revealPath(t.caminho)}>${revealLabel()}</${Button}>` : null}
       ${!ativo && t.fase !== 'pronto' ? html`<${Button} size="sm" icon="retry" onClick=${() => attempt(tentarTrabalho(t.id))}>Tentar de novo</${Button}>` : null}
-      ${!ativo && t.fase === 'erro' ? html`<${IconButton} icon="external" label="Abrir o link original" onClick=${() => openExternal(t.url)} />` : null}
+      ${!ativo && t.fase === 'erro' && !formato && t.url ? html`<${IconButton} icon="external" label="Abrir o link original" onClick=${() => openExternal(t.url)} />` : null}
       ${!ativo ? html`<${IconButton} icon="x" label="Tirar da lista" onClick=${() => attempt(removerTrabalho(t.id))} />` : null}
     </span>
   </div>`
@@ -352,7 +358,7 @@ function LadoColecoes({ colecoes, total, ativos }) {
             unidade=${andando.length === 1 ? 'link' : 'links'}
             progresso=${media}
             vivo=${true}
-            linha=${`${andando[0].plataformaNome || 'Link'} · ${faseTexto(andando[0])}`}
+            linha=${andando[0].tipo === 'formato' ? faseTexto(andando[0]) : `${andando[0].plataformaNome || 'Link'} · ${faseTexto(andando[0])}`}
           />`
         : html`<div class="k-caixa rf-dicas">
             <div class="rf-dica"><span class="rf-dica-ic" style="--c:var(--up)"><${Icon} name="link" size=${15} strokeWidth=${1.9} /></span><span><b>Colar link</b> O computador baixa e guarda na coleção.</span></div>
@@ -370,7 +376,7 @@ function Colecoes({ estado }) {
   const { colecoes, loading, error, status, reload } = useColecoes()
   const [contas, setContas] = useState({})
   const contar = (id, n) => setContas((m) => (m[id] === n ? m : { ...m, [id]: n }))
-  const ativos = (estado.trabalhos || []).filter((t) => ATIVAS.has(t.fase) || t.fase === 'erro')
+  const ativos = (estado.trabalhos || []).filter(naLista)
   if (status === 403) return html`<${Bloqueio} status=${403} />`
   const total = colecoes ? colecoes.reduce((s, c) => s + (contas[c.id] || 0), 0) : null
   const todasContadas = colecoes && colecoes.every((c) => contas[c.id] != null)
@@ -414,35 +420,79 @@ function Colecoes({ estado }) {
 
 // ─────────── dentro da coleção ───────────
 
-function RefCard({ it, accountId, onOpen, i = 0 }) {
+function RefCard({ it, accountId, onOpen, onMenu, menuAberto = false, i = 0 }) {
   const r = it.referencia || {}
   const dur = it.video?.durationMs ? clipTime(it.video.durationMs / 1000) : ''
   const titulo = r.titulo || it.name.replace(/\.[a-z0-9]+$/i, '')
-  return html`<button type="button" class="ref-card k-entra" style=${`--i:${Math.min(i, 14)}`} onClick=${onOpen} title=${titulo}>
-    <span class="ref-card-thumb">
-      <${Thumb} accountId=${accountId} item=${it} size=${640} iconSize=${36} />
-      ${r.plataforma ? html`<span class="ref-card-plat">${r.plataforma}</span>` : null}
-      ${dur ? html`<span class="gbadge">${dur}</span>` : null}
-      <span class="ref-card-play"><${Icon} name=${it.video || /^video\//.test(it.mimeType) ? 'play' : 'eye'} size=${18} /></span>
-    </span>
-    <span class="ref-card-meta">
-      <b>${titulo}</b>
-      <span class="sub">${[r.autor, it.createdTime ? relTime(it.createdTime) : null].filter(Boolean).join(' · ')}</span>
-    </span>
-  </button>`
+  const midia = Boolean(tipoDoItem(it))
+  // Botão direito no cartão: o mesmo "Baixar como…" do botão de download, aberto onde o clique foi.
+  const contexto = (e) => {
+    if (!midia || !onMenu) return
+    e.preventDefault()
+    onMenu(it, e.clientX, e.clientY)
+  }
+  return html`<div class=${cx('ref-card-wrap k-entra', menuAberto && 'is-menu')} style=${`--i:${Math.min(i, 14)}`} onContextMenu=${contexto}>
+    <button type="button" class="ref-card" onClick=${onOpen} title=${titulo}>
+      <span class="ref-card-thumb">
+        <${Thumb} accountId=${accountId} item=${it} size=${640} iconSize=${36} />
+        ${it.formato ? html`<span class="ref-card-plat rf-card-fmt">${it.formato}</span>` : r.plataforma ? html`<span class="ref-card-plat">${r.plataforma}</span>` : null}
+        ${dur ? html`<span class="gbadge">${dur}</span>` : null}
+        <span class="ref-card-play"><${Icon} name=${it.video || /^video\//.test(it.mimeType) ? 'play' : /^audio\//.test(it.mimeType) ? 'music' : 'eye'} size=${18} /></span>
+      </span>
+      <span class="ref-card-meta">
+        <b>${titulo}${it.formato ? html` <span class="rf-card-fmt-txt">· ${it.formato}</span>` : null}</b>
+        <span class="sub">${[r.autor, it.createdTime ? relTime(it.createdTime) : null].filter(Boolean).join(' · ')}</span>
+      </span>
+    </button>
+    ${midia && onMenu
+      ? html`<button
+          type="button"
+          class="rf-card-baixar"
+          data-fmt-abre
+          aria-label="Baixar como…"
+          title="Baixar como… (MP4, MP3 320, WAV…)"
+          aria-haspopup="menu"
+          aria-expanded=${menuAberto ? 'true' : 'false'}
+          onClick=${(e) => {
+            const r2 = e.currentTarget.getBoundingClientRect()
+            onMenu(it, r2.right - 336, r2.bottom + 6)
+          }}
+        >
+          <${Icon} name="download" size=${15} strokeWidth=${2} />
+        </button>`
+      : null}
+  </div>`
 }
 
-function Origem({ it }) {
+function Origem({ it, onBaixarComo }) {
   const r = it.referencia || {}
   const [aberta, setAberta] = useState(false)
-  if (!r.url && !r.legenda && !r.autor) return null
+  const midia = Boolean(tipoDoItem(it))
+  const baixarComo =
+    midia && onBaixarComo
+      ? html`<${Button}
+          size="sm"
+          icon="download"
+          class="rf-origem-fmt"
+          data-fmt-abre
+          onClick=${(e) => {
+            const b = e.currentTarget.getBoundingClientRect()
+            onBaixarComo(it, b.left, b.bottom + 6)
+          }}
+          >Baixar como…</${Button}
+        >`
+      : null
+  if (!r.url && !r.legenda && !r.autor) return baixarComo ? html`<div class="ref-origem">${baixarComo}</div>` : null
   const longa = (r.legenda || '').length > 280
   return html`<div class="ref-origem">
     <div class="ref-origem-head">
       ${r.plataforma ? html`<span class="ref-plat">${r.plataforma}</span>` : null}
       ${r.autor ? html`<b>${r.autor}</b>` : null}
     </div>
-    ${r.url ? html`<${Button} size="sm" icon="external" onClick=${() => openExternal(r.url)}>Abrir original</${Button}>` : null}
+    <div class="rf-origem-acoes">
+      ${r.url ? html`<${Button} size="sm" icon="external" onClick=${() => openExternal(r.url)}>Abrir original</${Button}>` : null}
+      ${baixarComo}
+    </div>
     ${r.nota ? html`<p class="ref-origem-nota"><span class="eyebrow">Nota</span>${r.nota}</p>` : null}
     ${r.legenda
       ? html`<div class=${cx('ref-origem-legenda', longa && !aberta && 'is-clamped')}>
@@ -477,12 +527,16 @@ function Colecao({ id, estado }) {
   const [menu, setMenu] = useState(false)
   const [peek, setPeek] = useState(null)
   const [destDir, setDestDir] = useState(null)
+  const [fmt, setFmt] = useState(null) // { it, x, y }: menu "Baixar como…" aberto
   const c = data?.colecao || colecaoPorId(id) || (colecoes ? null : { id, nome: '' })
   const itens = data?.itens || []
-  const trabalhos = (estado.trabalhos || []).filter((t) => t.colecao?.id === id && (ATIVAS.has(t.fase) || t.fase === 'erro'))
+  const trabalhos = (estado.trabalhos || []).filter((t) => t.colecao?.id === id && naLista(t))
   const dest = destDir || settings?.downloadDir || ''
   const videos = itens.filter((it) => it.video || /^video\//.test(it.mimeType || '')).length
   const fotos = itens.filter((it) => /^image\//.test(it.mimeType || '')).length
+  const andando = trabalhos.filter((t) => ATIVAS.has(t.fase))
+  const fracs = andando.map(fracaoGeral)
+  const mediaAndando = fracs.length && fracs.every((f) => f != null) ? fracs.reduce((a, f) => a + f, 0) / fracs.length : null
 
   useEffect(() => {
     consultarFila()
@@ -517,6 +571,11 @@ function Colecao({ id, estado }) {
     return !!res?.count
   }
   const peekIndex = peek ? itens.findIndex((x) => x.id === peek) : -1
+  const trocarPasta = async () => {
+    const p = await pickFolderPath({ title: 'Onde salvar os downloads?', defaultPath: dest })
+    if (p) setDestDir(p)
+  }
+  const abrirFormato = (it, x, y) => setFmt((f) => (f?.it.id === it.id ? null : { it, x: Math.max(12, x), y }))
 
   const frase = html`<a class="rf-voltar" href="#/referencias">Referências</a><span class="rf-sep" aria-hidden="true">›</span>${
     data ? (itens.length ? plural(itens.length, 'referência', 'referências') : 'Nada salvo aqui ainda') : ' '
@@ -532,6 +591,16 @@ function Colecao({ id, estado }) {
           { icone: 'photo', valor: data ? fotos : '–', rotulo: fotos === 1 ? 'foto' : 'fotos', tom: 'ok' },
         ]}
       />
+      ${andando.length
+        ? html`<${Destaque}
+            titulo=${andando.every((t) => t.tipo === 'formato') ? 'Convertendo agora' : 'Salvando agora'}
+            numero=${andando.length}
+            unidade=${andando.length === 1 ? 'arquivo' : 'arquivos'}
+            progresso=${mediaAndando}
+            vivo=${true}
+            linha=${andando[0].tipo === 'formato' ? faseTexto(andando[0]) : `${andando[0].plataformaNome || 'Link'} · ${faseTexto(andando[0])}`}
+          />`
+        : null}
       <div class="k-caixa rf-ia">
         <div class="rf-ia-top">
           <span class="rf-dica-ic" style="--c:var(--up)"><${Icon} name="sparkle" size=${15} strokeWidth=${1.9} /></span>
@@ -566,7 +635,9 @@ function Colecao({ id, estado }) {
             ? html`<${Vazio} icone="film" titulo="Nada salvo aqui ainda">
                 Cole o link de um vídeo ou post${bridge?.abrirNavegador ? ', ou abra o navegador e use “Salvar referência”' : ''}. Do celular, use Compartilhar → SOBEDESCE.
               </${Vazio}>`
-            : html`<div class="ref-grid rf-grid">${itens.map((it, i) => html`<${RefCard} key=${it.id} it=${it} i=${i} accountId=${data.accountId} onOpen=${() => setPeek(it.id)} />`)}</div>`}
+            : html`<div class="ref-grid rf-grid">
+                ${itens.map((it, i) => html`<${RefCard} key=${it.id} it=${it} i=${i} accountId=${data.accountId} onOpen=${() => setPeek(it.id)} onMenu=${abrirFormato} menuAberto=${fmt?.it.id === it.id} />`)}
+              </div>`}
     </${Passo}>
     ${peekIndex >= 0
       ? html`<${DrivePreview}
@@ -578,11 +649,22 @@ function Colecao({ id, estado }) {
           onDownload=${baixar}
           dest=${dest}
           destLabel=${shortPath(dest, home)}
-          onChangeDest=${async () => {
-            const p = await pickFolderPath({ title: 'Onde salvar os downloads?', defaultPath: dest })
-            if (p) setDestDir(p)
-          }}
-          extra=${(it) => html`<${Origem} it=${it} />`}
+          onChangeDest=${trocarPasta}
+          extra=${(it) => html`<${Origem} it=${it} onBaixarComo=${abrirFormato} />`}
+        />`
+      : null}
+    ${fmt
+      ? html`<${BaixarComo}
+          key=${fmt.it.id}
+          it=${fmt.it}
+          colecaoId=${id}
+          x=${fmt.x}
+          y=${fmt.y}
+          dest=${dest}
+          destLabel=${shortPath(dest, home)}
+          onChangeDest=${trocarPasta}
+          onOriginal=${baixar}
+          onClose=${() => setFmt(null)}
         />`
       : null}
   </${Pagina}>`
