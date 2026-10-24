@@ -34,6 +34,7 @@ export class BackupError extends Error {
   }
 }
 
+const limparPasta = (v) => nomeDePasta(String(v || '').trim().slice(0, 80)) || ''
 const novoId = (p) => `${p}${crypto.randomBytes(6).toString('base64url')}`
 const dois = (n) => String(n).padStart(2, '0')
 const hojeLocal = (d = new Date()) => `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`
@@ -46,6 +47,8 @@ const carimbo = (d = new Date()) => `${hojeLocal(d)}_${dois(d.getHours())}${dois
 
 /** "Aladim - FX30" (ou só o nome, sem câmera). */
 export const rotuloDono = (d) => [String(d?.nome || '').trim(), String(d?.camera || '').trim()].filter(Boolean).join(' - ') || 'Sem nome'
+/** A pasta do dono dentro de Cenas: a que a pessoa escolheu (ex.: "01_CAMERA_A_RAPHA_FX30") ou "Nome - Câmera". */
+export const pastaDono = (d) => nomeDePasta(String(d?.pasta || '').trim()) || nomeDePasta(rotuloDono(d)) || 'Sem nome'
 const mesmoModelo = (a, b) => !!a && !!b && String(a).replace(/\s+/g, '').toLowerCase() === String(b).replace(/\s+/g, '').toLowerCase()
 
 async function eDiretorio(p) {
@@ -199,6 +202,8 @@ export class BackupService {
           nome: o.nome,
           camera: o.camera,
           rotulo: rotuloDono(o),
+          pasta: pastaDono(o),
+          pastaPropria: !!String(o.pasta || '').trim(),
           cartoes: Object.keys(rolos).length,
           descargas: hs.length,
           bytes: hs.reduce((s, h) => s + (h.bytes || 0), 0),
@@ -395,6 +400,33 @@ export class BackupService {
   }
 
   /**
+   * Edita o dono: nome, câmera e a pasta dentro de Cenas (vazia = "Nome - Câmera"). Os cartões que já passaram ficam
+   * onde estão; os próximos vão para a pasta nova.
+   */
+  async editarDono(id, { nome, camera, pasta } = {}) {
+    const p = this.#projeto()
+    if (!p) throw new BackupError(409, 'Crie um projeto antes.')
+    const dono = p.donos.find((d) => d.id === id)
+    if (!dono) throw new BackupError(404, 'Dono não encontrado.')
+    if (this.job?.donoId === id) throw new BackupError(409, 'Espere o cartão deste dono terminar.')
+    // Monta o dono novo e confere antes de mexer: uma recusa não pode deixar a pasta trocada pela metade.
+    const novo = { ...dono }
+    if (nome !== undefined) {
+      novo.nome = String(nome || '').trim().slice(0, 60)
+      if (!novo.nome) throw new BackupError(400, 'Diga o nome do dono.')
+    }
+    if (camera !== undefined) novo.camera = String(camera || '').trim().slice(0, 40)
+    if (pasta !== undefined) novo.pasta = limparPasta(pasta)
+    const outro = p.donos.find((d) => d.id !== id && pastaDono(d).toLowerCase() === pastaDono(novo).toLowerCase())
+    if (outro) throw new BackupError(409, `A pasta "${pastaDono(novo)}" já é de ${rotuloDono(outro)}.`)
+    Object.assign(dono, { nome: novo.nome, camera: novo.camera, pasta: novo.pasta })
+    for (const reg of this.vistos.values()) if (reg.donoId === id) reg.dono = rotuloDono(dono)
+    await this.#salvar()
+    this.#mudou(true)
+    return this.view()
+  }
+
+  /**
    * "Usar como cartão": um disco que está plugado (o SSD que o vigia não perguntou, um ignorado, ou com o backup
    * desligado) entra agora: o conhecido vai para a fila; o novo pergunta de quem é.
    */
@@ -544,7 +576,7 @@ export class BackupService {
   }
 
   /** "De quem é este cartão?": um dono que já existe, um novo ("Aladim" + "FX30") ou ignorar o disco. */
-  async responder({ caminho, donoId, nome, camera, ignorar = false } = {}) {
+  async responder({ caminho, donoId, nome, camera, pasta, ignorar = false } = {}) {
     const p = this.#projeto()
     if (!p) throw new BackupError(409, 'Crie um projeto antes.')
     const pedido = this.pedidos.find((x) => x.caminho === caminho)
@@ -565,7 +597,13 @@ export class BackupService {
         }
         dono = p.donos.find((d) => d.nome.toLowerCase() === n.toLowerCase() && String(d.camera || '').toLowerCase() === c.toLowerCase())
         if (!dono) {
-          dono = { id: novoId('don'), nome: n, camera: c, criadoEm: this.agora().toISOString() }
+          dono = { id: novoId('don'), nome: n, camera: c, pasta: limparPasta(pasta), criadoEm: this.agora().toISOString() }
+          // Dois donos na mesma pasta misturariam os "Cartão NN" de um com os do outro.
+          const outro = p.donos.find((d) => pastaDono(d).toLowerCase() === pastaDono(dono).toLowerCase())
+          if (outro) {
+            this.pedidos.unshift(pedido)
+            throw new BackupError(409, `A pasta "${pastaDono(dono)}" já é de ${rotuloDono(outro)}. Escolha o dono ou outra pasta.`)
+          }
           p.donos.push(dono)
         }
       }
@@ -689,8 +727,8 @@ export class BackupService {
 
     const n = this.#rolo(p, diaria.n, dono.id, reg.id)
     const pasta = `Cartão ${dois(n)}`
-    const pais = p.destinos.map((d) => path.join(d, nomeDePasta(p.nome) || 'Projeto', diaria.nome, 'Cenas', nomeDePasta(rotuloDono(dono)) || 'Sem nome'))
-    job.pasta = [diaria.nome, 'Cenas', rotuloDono(dono), pasta].join(' / ')
+    const pais = p.destinos.map((d) => path.join(d, nomeDePasta(p.nome) || 'Projeto', diaria.nome, 'Cenas', pastaDono(dono)))
+    job.pasta = [diaria.nome, 'Cenas', pastaDono(dono), pasta].join(' / ')
     await this.#salvar()
 
     let copiados = 0

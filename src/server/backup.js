@@ -58,8 +58,19 @@ export function registerBackup({ route, ctx, HttpProblem, servico }) {
       donoId: texto(body.donoId, 100),
       nome: texto(body.nome, 200),
       camera: texto(body.camera, 200),
+      pasta: texto(body.pasta, 200),
       ignorar: body.ignorar === true,
     })))
+
+  route('POST', '/api/backup/dono', tratar(async ({ body }) => {
+    const id = texto(body.id, 100)
+    if (!id) throw new HttpProblem(400, 'Dono inválido.')
+    return svc.editarDono(id, {
+      nome: body.nome === undefined ? undefined : texto(body.nome, 200),
+      camera: body.camera === undefined ? undefined : texto(body.camera, 200),
+      pasta: body.pasta === undefined ? undefined : texto(body.pasta, 200),
+    })
+  }))
 
   route('POST', '/api/backup/repetir', tratar(async ({ body }) => svc.repetir(texto(body.caminho))))
 

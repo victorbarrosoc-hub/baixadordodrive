@@ -26,6 +26,9 @@ formatar. Sem internet: nada vai para o Drive.
 <destino>/<Projeto>/Diária 01/Cenas/Aladim - FX30/Cartão 01/<pastas do cartão, como estão>
 ```
 
+- **Nome da pasta do dono** (opcional): no primeiro toque ou no lápis do dono, ex.: `01_CAMERA_A_RAPHA_FX30`. Vazio =
+  "Nome - Câmera". Editar muda só os próximos cartões (os que já passaram ficam onde estão). Dois donos não podem
+  ter a mesma pasta: os "Cartão NN" de um se misturariam com os do outro.
 - **"Cartão NN"** é por cartão físico, dentro do dono e da diária. Protege contra nomes iguais: um cartão formatado
   que recomeça em C0001, ou os arquivos de índice da câmera (MEDIAPRO.XML), não vão por cima de nada.
 - **Segunda leva do mesmo cartão (sem formatar):** mesma pasta; copia só o que é novo.
@@ -86,9 +89,10 @@ formatar. Sem internet: nada vai para o Drive.
 | `POST /api/backup/abrir` / `apagar` `{ id }` | troca de projeto / tira da lista (os arquivos ficam) |
 | `POST /api/backup/ligar` `{ ligado }` | liga/desliga o vigia |
 | `POST /api/backup/diaria` `{}` ou `{ n }` | nova diária / volta para uma diária |
-| `POST /api/backup/responder` `{ caminho, donoId \| nome+camera \| ignorar }` | o toque "de quem é" |
+| `POST /api/backup/responder` `{ caminho, donoId \| nome+camera(+pasta) \| ignorar }` | o toque "de quem é" |
 | `POST /api/backup/repetir` / `ejetar` `{ caminho }` | copiar de novo / ejetar |
 | `POST /api/backup/usar` `{ caminho }` | "Usar como cartão" / "Copiar agora" |
+| `POST /api/backup/dono` `{ id, nome?, camera?, pasta? }` | edita o dono (a pasta vale para os próximos cartões) |
 | `POST /api/backup/cancelar` | para a descarga de agora |
 | `POST /api/backup/ignorados/limpar` | volta a perguntar pelos discos ignorados |
 
