@@ -223,7 +223,15 @@ function Dono({ d, k, bloqueado }) {
 function Agora({ job, pontos }) {
   const g = job.progresso
   if (job.fase === 'esperando-destino') {
-    return html`<${Passo} icone="disk" cor="warn" titulo=${`Esperando ${job.faltando.join(' e ')}`} frase=${`O cartão de ${job.dono} está pronto. Conecte o destino: começa sozinho.`} i=${3}>
+    return html`<${Passo}
+      icone="disk"
+      cor="warn"
+      titulo=${`Esperando ${job.faltando.join(' e ')}`}
+      sub=${job.nome}
+      frase=${`O disco "${job.nome}" (${job.dono}) está pronto. Conecte o destino: começa sozinho.`}
+      i=${3}
+      acao=${html`<${Button} size="sm" icon="x" onClick=${() => post('/api/backup/cancelar')}>Parar</${Button}>`}
+    >
       <${Barra} p=${null} label="Esperando o destino" />
     </${Passo}>`
   }
