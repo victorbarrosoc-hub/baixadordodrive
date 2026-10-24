@@ -3,7 +3,7 @@
 // não re-renderiza a lista de transferências, e cada transferência alterada troca só o próprio objeto.
 import { useEffect, useRef, useState } from '/vendor/preact-htm.js'
 import { api } from './api.js'
-import { toast } from './toasts.js'
+import { dismiss, toast } from './toasts.js'
 import { storage } from './ui.js'
 
 export const EMPTY_STATS = Object.freeze({
@@ -256,10 +256,22 @@ function connect() {
   on('frames', (d) => d?.jobId && setFrames(d))
   on('cenas', (d) => d && typeof d === 'object' && setState({ cenas: d }))
   on('discos', (d) => d && typeof d === 'object' && setState({ discos: d }))
-  on('backup', (d) => d && typeof d === 'object' && setState({ backup: d }))
+  const avisosPedido = new Map() // nome do cartão → id do aviso "de quem é?"
+  on('backup', (d) => {
+    if (!d || typeof d !== 'object') return
+    setState({ backup: d })
+    // Respondido (ou o cartão saiu): o aviso "de quem é?" daquele cartão sai da tela.
+    for (const [nome, id] of avisosPedido) {
+      if (!(d.pedidos || []).some((x) => x.nome === nome)) {
+        dismiss(id)
+        avisosPedido.delete(nome)
+      }
+    }
+  })
   // Backup Automático (docs/BACKUP-AUTOMATICO.md): cartão novo espera o toque "de quem é?"; descarga terminou.
   on('backup-pedido', (d) => {
-    toast('info', `Cartão novo${d?.nome ? ` (${d.nome})` : ''}: de quem é?`, { action: { label: 'Responder', href: '#/cartoes' }, duration: 30_000 })
+    const id = toast('info', `Cartão novo${d?.nome ? ` (${d.nome})` : ''}: de quem é?`, { action: { label: 'Responder', href: '#/cartoes' }, duration: 30_000 })
+    if (id && d?.nome) avisosPedido.set(d.nome, id)
     try {
       window.dispatchEvent(new CustomEvent('sd:backup', { detail: { titulo: 'Cartão novo: de quem é?', texto: 'Abra Cartões no SOBEDESCE e escolha o dono. Depois ele passa sozinho.' } }))
     } catch {}
