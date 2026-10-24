@@ -1,0 +1,1 @@
+ALTER TABLE "referencias_fila" ADD COLUMN "formatos" jsonb;

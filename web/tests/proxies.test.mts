@@ -197,3 +197,43 @@ describe("frames", () => {
     assert.match((await corpo(de)).mensagem, /frames já foram feitos/);
   });
 });
+
+describe("formato (\"Baixar como…\" das Referências)", () => {
+  test("pede um formato conhecido; sem ajustes, formato desconhecido ou o original, recusa", async () => {
+    const base = { contaGoogleId: "cg_victor", tipo: "formato", itens: [{ fileId: "reel1", nome: "Reel (Instagram).mp4" }] };
+    assert.equal((await pedir(victor, base)).status, 400, "sem ajustes");
+    assert.equal((await pedir(victor, { ...base, ajustes: { formato: "flac" } })).status, 400);
+    assert.equal((await pedir(victor, { ...base, ajustes: { formato: "original" } })).status, 400, "o original já está no Drive");
+    assert.equal((await pedir(victor, { ...base, ajustes: { formato: "mp3-320" }, itens: Array.from({ length: 21 }, (_, i) => ({ fileId: `r${i}` })) })).status, 400);
+    const r = await pedir(victor, { ...base, ajustes: { formato: "mp3-320", extra: "fora" } });
+    assert.equal(r.status, 201);
+    const p = (await corpo(r)).pedidos[0];
+    assert.equal(p.tipo, "formato");
+    assert.deepEqual(p.ajustes, { formato: "mp3-320" }, "só o formato fica");
+  });
+
+  test("o mesmo formato esperando não repete; outro formato do mesmo arquivo é outro pedido; o computador conclui", async () => {
+    const base = { contaGoogleId: "cg_victor", tipo: "formato", itens: [{ fileId: "reel1" }] };
+    const igual = await corpo(await pedir(victor, { ...base, ajustes: { formato: "mp3-320" } }));
+    assert.equal(igual.novos, 0);
+    const wav = await corpo(await pedir(victor, { ...base, ajustes: { formato: "wav" } }));
+    assert.equal(wav.novos, 1);
+    assert.deepEqual(wav.pedidos[0].ajustes, { formato: "wav" });
+    // O app antigo (sem tipo) e o consumidor de frames não veem os de formato.
+    const antigo = await corpo(await rLista.GET(pedido("/api/proxies/pedidos?status=pendente&fileIds=reel1", { bearer: victor.mac })));
+    assert.equal(antigo.pedidos.length, 0);
+    const doFormato = await corpo(await rLista.GET(pedido("/api/proxies/pedidos?status=pendente&tipo=formato", { bearer: victor.mac })));
+    assert.deepEqual(doFormato.pedidos.map((x: { ajustes: { formato: string } }) => x.ajustes.formato).sort(), ["mp3-320", "wav"]);
+    const id = wav.pedidos[0].id as string;
+    assert.equal((await pegar(victor.mac, id)).status, 200);
+    const erro = await corpo(await mudar(id, { status: "erro" }, { bearer: victor.mac }));
+    assert.equal(erro.pedido.erro, "Não deu para converter.");
+    assert.equal((await mudar(id, { status: "pendente" }, { cookie: victor })).status, 200, "tentar de novo pelo celular");
+    assert.equal((await pegar(victor.mac, id)).status, 200);
+    const pronto = await corpo(await mudar(id, { status: "pronto", resultado: "WAV salvo ao lado do original", proxyFileId: "wav123" }, { bearer: victor.mac }));
+    assert.equal(pronto.pedido.proxyFileId, "wav123");
+    const de = await mudar(id, { status: "pendente" }, { cookie: victor });
+    assert.equal(de.status, 409);
+    assert.match((await corpo(de)).mensagem, /já foi convertido/);
+  });
+});

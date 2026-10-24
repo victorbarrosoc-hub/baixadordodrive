@@ -5,7 +5,7 @@
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { novoId } from "@/lib/auth/tokens";
 import { db, schema } from "@/lib/db";
-import type { StatusFila } from "@/lib/db/schema";
+import type { FormatoReferencia, StatusFila } from "@/lib/db/schema";
 import { plataformaDe } from "./texto";
 
 const { referenciasFila: fila, colecoes } = schema;
@@ -25,6 +25,8 @@ export type ItemFila = {
   erro: string | null;
   driveFileId: string | null;
   dispositivoId: string | null;
+  /** "Também salvar como": formatos que o computador salva ao lado do original. */
+  formatos: FormatoReferencia[];
   colecao: { id: string; nome: string; driveFolderId: string; contaGoogleId: string };
   criadoEm: string;
   atualizadoEm: string;
@@ -47,6 +49,7 @@ function publico({ item, colecao }: LinhaComColecao): ItemFila {
     erro: item.erro,
     driveFileId: item.driveFileId,
     dispositivoId: item.dispositivoId,
+    formatos: item.formatos ?? [],
     colecao,
     criadoEm: item.criadoEm.toISOString(),
     atualizadoEm: item.atualizadoEm.toISOString(),
@@ -89,16 +92,34 @@ export async function listarFila(usuarioId: string, filtro: { status?: StatusFil
   return linhas.map(publico);
 }
 
-/** Guarda o link. Já está na fila (mesmo link, mesma coleção, ainda não baixado)? Devolve o que existe. */
-export async function adicionarNaFila(usuarioId: string, colecaoId: string, url: string, nota: string | null): Promise<{ item: ItemFila; novo: boolean }> {
+/**
+ * Guarda o link. Já está na fila (mesmo link, mesma coleção, ainda não baixado)? Devolve o que existe (com os
+ * formatos novos somados, se o computador ainda não pegou).
+ */
+export async function adicionarNaFila(
+  usuarioId: string,
+  colecaoId: string,
+  url: string,
+  nota: string | null,
+  formatos: FormatoReferencia[] = [],
+): Promise<{ item: ItemFila; novo: boolean }> {
   const [existente] = await db
-    .select({ id: fila.id })
+    .select({ id: fila.id, status: fila.status, formatos: fila.formatos })
     .from(fila)
     .where(and(eq(fila.usuarioId, usuarioId), eq(fila.colecaoId, colecaoId), eq(fila.url, url), inArray(fila.status, ["pendente", "baixando"])))
     .limit(1);
-  if (existente) return { item: (await umItem(usuarioId, existente.id))!, novo: false };
+  if (existente) {
+    const juntos = [...new Set([...(existente.formatos ?? []), ...formatos])];
+    if (existente.status === "pendente" && juntos.length !== (existente.formatos ?? []).length) {
+      await db
+        .update(fila)
+        .set({ formatos: juntos, atualizadoEm: new Date() })
+        .where(and(eq(fila.id, existente.id), eq(fila.status, "pendente")));
+    }
+    return { item: (await umItem(usuarioId, existente.id))!, novo: false };
+  }
   const id = novoId();
-  await db.insert(fila).values({ id, usuarioId, colecaoId, url, nota });
+  await db.insert(fila).values({ id, usuarioId, colecaoId, url, nota, formatos: formatos.length ? formatos : null });
   return { item: (await umItem(usuarioId, id))!, novo: true };
 }
 

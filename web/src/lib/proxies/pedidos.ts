@@ -1,13 +1,14 @@
 /**
  * Pedidos ao computador (docs/CONTAS.md §11): o celular marca vídeos e pede; o app do computador pega um por vez e
  * faz. Tipo "proxy": o proxy 720p e a tira de quadros (o hover scrub). Tipo "frames": frames, takes e posts do vídeo
- * final, numa pasta ao lado dele (docs/FRAMES.md). Quem não diz o tipo fala de proxy (os apps antigos). Mesmo esquema da fila das Referências: pegar de
+ * final, numa pasta ao lado dele (docs/FRAMES.md). Tipo "formato": a referência em outro formato (MP3 320, WAV,
+ * MP4 720p…), salva ao lado dela (docs/REFERENCIAS.md §7). Quem não diz o tipo fala de proxy (os apps antigos). Mesmo esquema da fila das Referências: pegar de
  * uma vez só (dois computadores, só um leva), sinal de vida e "gerando" sem notícia por 30 min volta para a fila.
  */
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { novoId } from "@/lib/auth/tokens";
 import { db, schema } from "@/lib/db";
-import type { AjustesFrames, StatusPedidoProxy, TipoPedido } from "@/lib/db/schema";
+import type { AjustesPedido, StatusPedidoProxy, TipoPedido } from "@/lib/db/schema";
 
 const { pedidosProxy: pedidos, contasGoogle } = schema;
 
@@ -19,12 +20,12 @@ const GUARDAR_FEITOS_MS = 14 * 24 * 60 * 60_000;
 /** Por pedido do celular. */
 export const MAX_POR_PEDIDO = 200;
 
-export const TIPOS: TipoPedido[] = ["proxy", "frames"];
+export const TIPOS: TipoPedido[] = ["proxy", "frames", "formato"];
 
 export type PedidoProxy = {
   id: string;
   tipo: TipoPedido;
-  ajustes: AjustesFrames | null;
+  ajustes: AjustesPedido | null;
   contaGoogleId: string;
   fileId: string;
   nome: string;
@@ -106,18 +107,21 @@ export async function listarPedidos(
 
 export type ItemNovo = { fileId: string; nome: string; tamanho: number | null };
 
+/** Formato pedido (só nos pedidos de formato): dois formatos do mesmo arquivo são dois pedidos. */
+const formatoDe = (a: AjustesPedido | null | undefined) => (a && "formato" in a && typeof a.formato === "string" ? a.formato : null);
+
 /**
- * Guarda os pedidos. O mesmo arquivo já esperando (pendente ou gerando) com o mesmo tipo não entra de novo: volta o
- * que existe. Devolve todos (novos e os que já estavam) na ordem pedida.
+ * Guarda os pedidos. O mesmo arquivo já esperando (pendente ou gerando) com o mesmo tipo (e, nos de formato, o mesmo
+ * formato) não entra de novo: volta o que existe. Devolve todos (novos e os que já estavam) na ordem pedida.
  */
 export async function pedirProxies(
   usuarioId: string,
   contaGoogleId: string,
   itens: ItemNovo[],
-  { tipo = "proxy", ajustes = null }: { tipo?: TipoPedido; ajustes?: AjustesFrames | null } = {},
+  { tipo = "proxy", ajustes = null }: { tipo?: TipoPedido; ajustes?: AjustesPedido | null } = {},
 ): Promise<{ pedidos: PedidoProxy[]; novos: number }> {
   const ids = [...new Set(itens.map((i) => i.fileId))];
-  const existentes = await db
+  const encontrados = await db
     .select()
     .from(pedidos)
     .where(
@@ -129,13 +133,14 @@ export async function pedirProxies(
         inArray(pedidos.status, ["pendente", "gerando"]),
       ),
     );
+  const existentes = tipo === "formato" ? encontrados.filter((l) => formatoDe(l.ajustes) === formatoDe(ajustes)) : encontrados;
   const porArquivo = new Map(existentes.map((l) => [l.fileId, l]));
   const novas: (typeof pedidos.$inferInsert)[] = [];
   const vistos = new Set<string>();
   for (const i of itens) {
     if (porArquivo.has(i.fileId) || vistos.has(i.fileId)) continue;
     vistos.add(i.fileId);
-    novas.push({ id: novoId(), usuarioId, contaGoogleId, tipo, ajustes: tipo === "frames" ? ajustes : null, fileId: i.fileId, nome: i.nome, tamanho: i.tamanho });
+    novas.push({ id: novoId(), usuarioId, contaGoogleId, tipo, ajustes: tipo === "proxy" ? null : ajustes, fileId: i.fileId, nome: i.nome, tamanho: i.tamanho });
   }
   if (novas.length) {
     const criadas = await db.insert(pedidos).values(novas).returning();
@@ -187,12 +192,18 @@ export async function mudarPedido(
         ? { ok: false, status: 409, erro: "ocupado", mensagem: "Outro computador pegou este pedido." }
         : { ok: false, status: 403, erro: "so_computador", mensagem: "Só o computador que está gerando muda este estado." };
     }
-    if (atual.status === "pronto") return { ok: false, status: 409, erro: "pronto", mensagem: atual.tipo === "frames" ? "Estes frames já foram feitos." : "Este proxy já foi gerado." };
+    if (atual.status === "pronto") {
+      const mensagem = atual.tipo === "frames" ? "Estes frames já foram feitos." : atual.tipo === "formato" ? "Este arquivo já foi convertido." : "Este proxy já foi gerado.";
+      return { ok: false, status: 409, erro: "pronto", mensagem };
+    }
     if (quem.via === "bearer" && atual.status === "gerando") return { ok: false, status: 409, erro: "ocupado", mensagem: "Outro computador pegou este pedido." };
   }
   const set: Partial<typeof pedidos.$inferInsert> = { status: m.status, atualizadoEm: new Date() };
   if (m.status === "pronto") Object.assign(set, { erro: null, resultado: (m.resultado ?? "").slice(0, 200) || null, proxyFileId: m.proxyFileId ?? null });
-  if (m.status === "erro") set.erro = (m.erro ?? "").slice(0, 500) || (atual.tipo === "frames" ? "Não deu para fazer os frames." : "Não deu para gerar o proxy.");
+  if (m.status === "erro") {
+    const padrao = atual.tipo === "frames" ? "Não deu para fazer os frames." : atual.tipo === "formato" ? "Não deu para converter." : "Não deu para gerar o proxy.";
+    set.erro = (m.erro ?? "").slice(0, 500) || padrao;
+  }
   if (m.status === "pendente") Object.assign(set, { dispositivoId: null, erro: null });
   const conds = [eq(pedidos.id, id), eq(pedidos.usuarioId, usuarioId), eq(pedidos.status, atual.status)];
   if (doComputador) conds.push(eq(pedidos.dispositivoId, quem.sessaoId));

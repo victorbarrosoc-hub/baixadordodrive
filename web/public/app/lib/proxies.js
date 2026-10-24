@@ -78,3 +78,20 @@ export async function framesPedidos(fileId, signal) {
   return r.pedidos || []
 }
 
+
+// ───── "Baixar como…" de uma referência (docs/REFERENCIAS.md §7): mesma fila, tipo "formato" ─────
+
+/** Pede ao computador o arquivo em outro formato (MP3 320, WAV, MP4 720p…), salvo ao lado do original no Drive. */
+export async function pedirFormato(file, formato) {
+  const conta = getState().drive?.id
+  if (!conta) throw new Error('Escolha um Drive primeiro.')
+  const body = { contaGoogleId: conta, tipo: 'formato', ajustes: { formato }, itens: [{ fileId: file.id, nome: file.name, tamanho: file.size != null ? Number(file.size) : undefined }] }
+  const r = await api(API, { method: 'POST', body })
+  return { pedido: (r.pedidos || [])[0] || null, novo: Number(r.novos) > 0 }
+}
+
+/** Os pedidos de formato deste arquivo, do mais novo para o mais velho. */
+export async function formatoPedidos(fileId, signal) {
+  const r = await api(`${API}?tipo=formato&fileIds=${encodeURIComponent(fileId)}`, { signal })
+  return r.pedidos || []
+}

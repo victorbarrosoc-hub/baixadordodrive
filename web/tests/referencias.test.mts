@@ -341,6 +341,24 @@ describe("fila", () => {
     assert.equal((await enfileirar(victor, { url: "https://youtu.be/abc", colecaoId }, { origin: "https://malicioso.exemplo" })).status, 403);
   });
 
+  test("\"Também salvar como\": formatos conhecidos ficam no item; desconhecido recusa; repetir soma os formatos", async () => {
+    assert.equal((await enfileirar(victor, { url: "https://www.instagram.com/reel/F1/", colecaoId, formatos: ["mp3"] })).status, 400);
+    assert.equal((await enfileirar(victor, { url: "https://www.instagram.com/reel/F1/", colecaoId, formatos: "mp3-320" })).status, 400);
+    const r = await enfileirar(victor, { url: "https://www.instagram.com/reel/F1/", colecaoId, formatos: ["mp3-320", "original", "mp3-320"] });
+    assert.equal(r.status, 201);
+    const { item } = await corpo(r);
+    assert.deepEqual(item.formatos, ["mp3-320"], "sem repetir e sem o original (ele sempre vai)");
+    const de2 = await corpo(await enfileirar(victor, { url: "https://www.instagram.com/reel/F1/", colecaoId, formatos: ["wav"] }));
+    assert.equal(de2.item.id, item.id);
+    assert.deepEqual(de2.item.formatos, ["mp3-320", "wav"]);
+    const semFormato = await corpo(await enfileirar(victor, { url: "https://www.instagram.com/reel/F2/", colecaoId }));
+    assert.deepEqual(semFormato.item.formatos, []);
+    // O computador recebe os formatos junto do item.
+    const lista = await corpo(await rFila.GET(pedido("/api/referencias/fila?status=pendente", { bearer: victor.mac })));
+    assert.deepEqual(lista.itens.find((i: { id: string }) => i.id === item.id).formatos, ["mp3-320", "wav"]);
+    for (const x of [item.id, semFormato.item.id]) await rItem.DELETE(pedido(`/api/referencias/fila/${x}`, comCookie(victor, { method: "DELETE" })), ctx({ id: x }));
+  });
+
   test("o computador lista e pega; dois ao mesmo tempo, só um leva", async () => {
     const lista = await corpo(await rFila.GET(pedido("/api/referencias/fila?status=pendente", { bearer: victor.mac })));
     assert.equal(lista.itens.length, 1);

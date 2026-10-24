@@ -189,6 +189,8 @@ export const colecoes = pgTable(
 );
 
 export type StatusFila = "pendente" | "baixando" | "pronto" | "erro";
+/** Formatos de "Baixar como…" (src/referencias/formatos.js no computador; o original não entra, ele sempre vai). */
+export type FormatoReferencia = "mp4" | "mp4-1080" | "mp4-720" | "mp3-320" | "wav" | "m4a" | "jpg";
 
 /** Links que o celular (ou o Atalho do iPhone) guardou para o computador baixar. */
 export const referenciasFila = pgTable(
@@ -208,6 +210,8 @@ export const referenciasFila = pgTable(
     driveFileId: text(),
     /** Sessão (computador) que pegou o item. */
     dispositivoId: text(),
+    /** "Também salvar como" (MP3 320, WAV…): o computador salva esses formatos ao lado do original. */
+    formatos: jsonb().$type<FormatoReferencia[]>(),
     criadoEm: agora(),
     atualizadoEm: agora(),
   },
@@ -421,13 +425,19 @@ export const avisosAdmin = pgTable("avisos_admin", {
 
 /** Pedido de proxy (docs/CONTAS.md §11): o celular pede, o app do computador gera o proxy e a tira de quadros. */
 export type StatusPedidoProxy = "pendente" | "gerando" | "pronto" | "erro";
-/** "proxy": a cópia leve e a tira de quadros. "frames": frames, takes e posts do vídeo final (docs/FRAMES.md). */
-export type TipoPedido = "proxy" | "frames";
+/**
+ * "proxy": a cópia leve e a tira de quadros. "frames": frames, takes e posts do vídeo final (docs/FRAMES.md).
+ * "formato": a referência em outro formato, ao lado dela (MP3 320, WAV, MP4 720p…; docs/REFERENCIAS.md §7).
+ */
+export type TipoPedido = "proxy" | "frames" | "formato";
 /** Ajustes de um pedido de Frames (o computador confere de novo antes de usar). */
 export type AjustesFrames = {
   frames: { quantidade: number; formato: "jpg" | "png" | "tiff" };
   takes: { quantidade: number; duracao: number; formato: "original" | "9:16" | "4:5" | "1:1"; codec: "h264" | "prores"; audio: boolean } | null;
 };
+/** Ajustes de um pedido de formato. */
+export type AjustesFormato = { formato: FormatoReferencia };
+export type AjustesPedido = AjustesFrames | AjustesFormato;
 
 export const pedidosProxy = pgTable(
   "pedidos_proxy",
@@ -445,7 +455,7 @@ export const pedidosProxy = pgTable(
     tamanho: bigint({ mode: "number" }),
     /** O que o computador faz: a cópia leve (padrão, também o que os apps antigos pegam) ou os Frames. */
     tipo: text().$type<TipoPedido>().notNull().default("proxy"),
-    ajustes: jsonb().$type<AjustesFrames>(),
+    ajustes: jsonb().$type<AjustesPedido>(),
     status: text().$type<StatusPedidoProxy>().notNull().default("pendente"),
     erro: text(),
     /** O que o computador fez ("Proxy gerado", "Já tinha proxy: tira de quadros feita", "Já é leve"). */
