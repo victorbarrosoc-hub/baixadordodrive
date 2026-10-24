@@ -7,8 +7,12 @@
 //     (icons/splash) e o carregamento do index.html (.boot), que são iguais: símbolo de 105 px com brilho e o nome
 //     pequeno, cinza e espaçado. As barras recolhem e disparam de novo e o nome faz a onda acendendo. Sem pulo de
 //     tamanho nem logo duplicado.
+//     No iPhone pela Tela de Início, a tela do app começa abaixo da barra de status e a imagem do sistema não: os dois
+//     sobem metade da barra (--sb-meio, medido no boot.js do celular).
 //   - A animação só começa depois que a tela foi desenhada (dois quadros): enquanto o app monta a tela, ela espera
 //     parada no primeiro quadro, em vez de correr escondida.
+//   - Fica por cima até o app estar pronto (`pronto`: no celular, a conta respondeu). Se demorar, as barras seguem num
+//     sobe e desce suave; a tela de "carregando" do app não chega a aparecer. No máximo ~6 s.
 //   - Uma vez por abertura: recarregar na mesma sessão não repete (sessionStorage).
 //   - Um toque, clique ou tecla pula na hora. "Reduzir movimento": só um esmaecer curto.
 //   - Sem Web Animations ou com a aba escondida: não mostra nada.
@@ -19,7 +23,8 @@ const SPRING = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
 const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)'
 const SAI = 'cubic-bezier(0.55, 0, 0.75, 0.2)'
 const CINZA = '#83838e' // o nome na imagem de abertura do iPhone
-const MAX_MS = 5000
+const ESPERA_MS = 4500 // quanto a abertura segura esperando o app ficar pronto
+const MAX_MS = 8000
 
 const CSS = `
 .ab-camada{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;background:var(--bg,#0b0b0c);color:var(--text,#f5f5f7);cursor:default;-webkit-user-select:none;user-select:none}
@@ -34,7 +39,7 @@ const CSS = `
 .ab-wm span{display:inline-block}
 .ab-f{font-weight:750}
 .ab-r{font-weight:300}
-.ab-camada.is-cont .ab-lockup{gap:28.4px}
+.ab-camada.is-cont .ab-lockup{gap:28.4px;translate:0 calc(-1 * var(--sb-meio,0px))}
 .ab-camada.is-cont .ab-mk{filter:drop-shadow(0 0 34px rgba(110,96,255,.28))}
 .ab-camada.is-cont .ab-wm{font-size:14px;font-weight:500;letter-spacing:.34em;color:${CINZA}}
 .ab-camada.is-cont .ab-wm span{font-weight:500}
@@ -63,11 +68,11 @@ function marcar() {
 
 /**
  * Mostra a abertura (uma vez por sessão).
- * @param {{ tamanho?: number, continuar?: boolean }} o
+ * @param {{ tamanho?: number, continuar?: boolean, pronto?: Promise<unknown> }} o
  *   tamanho: lado do símbolo em px. continuar: o celular, que já mostra o símbolo parado (imagem do iPhone e .boot);
- *   a animação parte desse quadro.
+ *   a animação parte desse quadro. pronto: resolve quando o app pode aparecer (a saída espera por ela).
  */
-export function abertura({ tamanho = 84, continuar = false } = {}) {
+export function abertura({ tamanho = 84, continuar = false, pronto = Promise.resolve() } = {}) {
   if (typeof document === 'undefined' || !document.body || jaMostrou()) return
   if (document.visibilityState === 'hidden' || typeof Element.prototype.animate !== 'function') return
   marcar()
@@ -98,7 +103,6 @@ export function abertura({ tamanho = 84, continuar = false } = {}) {
     anims.push(x)
     return x
   }
-  let fim = null
   let saindo = false
   let terminou = false
   const tirar = () => {
@@ -113,21 +117,43 @@ export function abertura({ tamanho = 84, continuar = false } = {}) {
   const pular = () => {
     if (saindo || terminou) return
     saindo = true
-    for (const x of anims) x.pause()
+    for (const x of camada.getAnimations({ subtree: true })) x.pause()
     camada.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: SAI, fill: 'forwards' }).finished.then(tirar, tirar)
   }
   for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, pular, { capture: true, passive: true })
   const seguranca = setTimeout(tirar, MAX_MS)
-  const tocar = () => {
+  let miolo = 0 // quando o miolo da animação acaba (depois disso: esperar o app e sair)
+  // Esperando o app: as barras seguem num sobe e desce suave (a violeta sobe, a azul desce), em laço.
+  const esperando = () => [
+    up.animate([{ translate: '0 0' }, { translate: `0 ${-tamanho * 0.07}px` }], { duration: 520, easing: 'ease-in-out', direction: 'alternate', iterations: Infinity }),
+    down.animate([{ translate: '0 0' }, { translate: `0 ${tamanho * 0.07}px` }], { duration: 520, delay: 120, easing: 'ease-in-out', direction: 'alternate', iterations: Infinity }),
+  ]
+  const sair = () => {
+    if (saindo || terminou) return
+    saindo = true
+    lk.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }], { duration: reduzir ? 1 : 480, easing: SAI, fill: 'forwards' })
+    const f = camada.animate(reduzir ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(6px)' }], { delay: reduzir ? 0 : 20, duration: reduzir ? 260 : 420, easing: SAI, fill: 'forwards' })
+    f.finished.then(tirar, tirar)
+  }
+  const tocar = async () => {
     if (saindo || terminou) return
     for (const x of anims) x.play()
-    fim?.finished.then(tirar, () => {}) // cancelada = pulou: quem tira é o pular
+    let pronta = false
+    const ok = Promise.resolve(pronto).then(() => (pronta = true), () => (pronta = true))
+    await new Promise((r) => setTimeout(r, miolo))
+    if (saindo || terminou) return
+    if (!pronta) {
+      const laco = reduzir ? [] : esperando()
+      await Promise.race([ok, new Promise((r) => setTimeout(r, ESPERA_MS))])
+      for (const x of laco) x.cancel()
+    }
+    sair()
   }
 
   const s = tamanho
   if (reduzir) {
     if (!continuar) a(lk, [{ opacity: 0 }, { opacity: 1 }], { duration: 220 })
-    fim = a(camada, [{ opacity: 1 }, { opacity: 0 }], { delay: 650, duration: 260, easing: SAI })
+    miolo = 650
   } else if (continuar) {
     // Do quadro parado: as barras recolhem e disparam de novo, o nome faz a onda e acende.
     const texto = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#f5f5f7'
@@ -141,8 +167,7 @@ export function abertura({ tamanho = 84, continuar = false } = {}) {
       a(l, [{ transform: 'translateY(0)', color: CINZA }, { transform: `translateY(${d * 55}%)`, offset: 0.4 }, { transform: 'translateY(0)', color: texto }], { delay: 560 + k * 38, duration: 560, easing: 'cubic-bezier(.3,.7,.3,1)' })
     })
     pulo(a, up, down, s, 1180)
-    a(lk, [{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }], { delay: 1480, duration: 480, easing: SAI })
-    fim = a(camada, [{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(6px)' }], { delay: 1500, duration: 420, easing: SAI })
+    miolo = 1480
   } else {
     a(mk, [{ transform: 'scale(.4) rotate(-12deg)', opacity: 0 }, { transform: 'scale(1) rotate(0deg)', opacity: 1 }], { delay: 60, duration: 620, easing: SPRING })
     a(up, [{ transform: 'translateY(60%) scaleY(0)', transformOrigin: '50% 100%' }, { transform: 'translateY(0) scaleY(1)', transformOrigin: '50% 100%' }], { delay: 280, duration: 560, easing: SPRING })
@@ -152,8 +177,7 @@ export function abertura({ tamanho = 84, continuar = false } = {}) {
       a(l, [{ transform: `translateY(${k < 4 ? 70 : -70}%)`, opacity: 0, filter: 'blur(4px)' }, { transform: 'translateY(0)', opacity: 1, filter: 'blur(0)' }], { delay: 720 + k * 42, duration: 520, easing: SPRING })
     })
     pulo(a, up, down, s, 1300)
-    a(lk, [{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }], { delay: 1600, duration: 480, easing: SAI })
-    fim = a(camada, [{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(6px)' }], { delay: 1620, duration: 420, easing: SAI })
+    miolo = 1600
   }
 
   // Dois quadros: o app desenha a tela (o render vem logo depois desta função) e a camada aparece parada; aí anda.
