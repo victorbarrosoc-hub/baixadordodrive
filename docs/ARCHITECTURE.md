@@ -228,6 +228,15 @@ async folderSize(folderId, { signal, onProgress, concurrency = 4 }): { bytes, fi
     // pageSize 1000, sem lixeira, corpora=drive no drive compartilhado. Atalhos não são seguidos (contam em `shortcuts`),
     // Docs do Google contam 0 (em `docs`, dentro de `files`). Subpasta que some no meio fica de fora.
     // Cancelado: AbortError com err.partial. O app do celular faz a mesma conta em web/public/app/lib/tamanho.js.
+async listSharedWithMe({ signal, media = true, limit = 1000 }): DriveItem[]   // "Compartilhados comigo": q sharedWithMe = true and trashed = false, sem os de drive compartilhado, pastas primeiro + nome
+async rename(fileId, name, { signal }): DriveItem                  // files.update { name }; 403 → SobeDesceError "Sua conta não pode renomear…"
+async move(fileId, destId, { signal }): { item: DriveItem, moved }  // files.update addParents=dest&removeParents=<pais atuais> (supportsAllDrives)
+    // Já está lá: moved false, sem escrita. Pasta para dentro dela mesma ou de uma subpasta (getPath do destino) e destino
+    // que não é pasta: 400 antes de chamar o Google. Raiz do que foi compartilhado comigo (sem pai à vista): 403 "só quem é
+    // dono". Recusa do Google: 403 "não pode mover este item para lá" (ou a regra do drive compartilhado/empresa). Limpa os
+    // caches de pasta (breadcrumb, ensureFolderPath).
+// BROWSE_FIELDS (media: true) também traz capabilities(canEdit,canRename,canAddChildren,canMoveItemWithinDrive,canTrash):
+// o DriveItem ganha canRename, canMove, canAddChildren, canTrash (só quando a resposta trouxe) para o menu de contexto.
 async setThumbnail(fileId, image: Buffer, mimeType = 'image/jpeg', { signal, retries }): { id, hasThumbnail }
     // PATCH files/{id} com contentHints.thumbnail = { image: base64 URL-safe (RFC 4648 §5, com '='), mimeType }.
     // PNG/JPEG/GIF até 2 MB (valida antes de chamar). O Drive só usa quando não gera a dele; conteúdo novo derruba.
@@ -894,6 +903,9 @@ Respostas JSON `{ ok: true, ... }` ou `{ ok: false, error: 'mensagem PT-BR' }` c
 | POST | `/api/drive/:acc/link/liberar` | `{ id, rk?, confirmado: true }` | `{ link }`. Cria "qualquer pessoa com o link" (leitor). Sem `confirmado: true` → 400; a tela só manda depois da confirmação "Qualquer pessoa com o link vai poder ver e baixar". Recusa do Workspace/drive compartilhado → 403 com a mensagem |
 | POST | `/api/drive/:acc/lixeira/mac` | `{ folderId, ids: [1–50], confirmado: true }` | `{ movidos, pulados, recusados }`. Manda para a lixeira do Drive (files.update `trashed: true`, recuperável por 30 dias) os arquivos de controle do Mac da pasta: `._*` com menos de 4 MB, `.DS_Store` e `Thumbs.db` (`isMacClutter`). A pasta é listada de novo: id que não é filho dela ou não passa na regra vai para `pulados`. Sem `confirmado: true` → 400; a tela manda em lotes de 10 depois da confirmação. Tudo recusado por permissão → 403 com a mensagem (drive compartilhado pede Administrador de conteúdo) |
 | POST | `/api/drive/:acc/folders` | `{ parentId, name }` | `{ item }` |
+| GET | `/api/drive/:acc/compartilhados` | | `{ items }` ("Compartilhados comigo": pastas e arquivos de outras pessoas; as pastas abrem pelo `/list`, com `path` começando nelas) |
+| POST | `/api/drive/:acc/renomear` | `{ id, name }` | `{ item }` (400 nome vazio, com "/" ou maior que 255; 403 sem permissão) |
+| POST | `/api/drive/:acc/mover` | `{ ids: [1–50], destId }` | `{ movidos, ja, recusados: [{ id, status, error }] }`. Um de cada vez (`DriveClient.move`). Nada movido e tudo recusado → erro com a mensagem do primeiro (400 pasta para dentro dela mesma, 403 sem permissão, 404) |
 | POST | `/api/drive/:acc/tamanho` | `{ folderId, refresh?, auto? }` | `{ tamanho: TamanhoView }` (começa ou devolve a conta guardada; `auto` não recomeça uma parada à mão) |
 | GET | `/api/drive/:acc/tamanho` | `ids=a,b,c` (até 200) | `{ tamanhos: { id: TamanhoView\|null } }` (a interface pergunta a cada ~0,7 s; sem pergunta por 20 s a conta é abandonada) |
 | DELETE | `/api/drive/:acc/tamanho` | `{ folderId, discard? }` | `{ tamanho }` ("Parar": guarda o parcial; `discard` esquece) |
@@ -1060,8 +1072,11 @@ Telas: **Transferências** (medidor ao vivo ↓/↑ com gráfico dos últimos 2 
 barra de progresso que mostra os segmentos como clipes numa timeline de edição, pausar/retomar/cancelar,
 filtros), **Primeiros passos** (sem nenhum Drive: "Entrar com a conta SOBEDESCE" — código grande, "Abrir no navegador",
 "Pronto. Seus Drives apareceram aqui." — e, como alternativa, "Conectar um Drive só neste computador", que leva ao
-caminho antigo da chave em `#/inicio/local`), **Drive** (navegar Meu Drive e drives compartilhados, selecionar e baixar, enviar para a pasta
-atual), **Comparar** (pasta local × pasta do Drive, árvore com o que falta por pasta, botão
+caminho antigo da chave em `#/inicio/local`), **Drive** (navegar Meu Drive, Compartilhados comigo — rota `#/drive/compartilhados` — e drives compartilhados,
+selecionar e baixar, enviar para a pasta atual; botão direito ou a tecla de menu numa linha/cartão abre o menu do item
+em `components/drive-menu.js`, na camada das janelas: Abrir, Baixar, Enviar para esta pasta, Copiar link, Abrir no
+Google Drive, Renomear, Mover para… (seletor de pasta), Calcular tamanho, Gerar proxy; arrastar linhas para cima de uma
+pasta move), **Comparar** (pasta local × pasta do Drive, árvore com o que falta por pasta, botão
 "Subir o que falta"), **Ajustes**.
 Seletor de pastas/arquivos locais próprio (modal) usando `/api/local/*`.
 

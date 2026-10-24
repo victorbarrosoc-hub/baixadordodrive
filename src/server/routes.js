@@ -632,11 +632,12 @@ export function createApi(ctx) {
     account(params.acc)
     const drive = ctx.manager.driveFor(params.acc)
     let folderId = query.get('folderId') || 'root'
-    let item = await drive.getItem(folderId, { signal, resourceKey: query.get('resourceKey') || undefined })
+    // media: a pasta aberta também diz se a conta pode pôr coisas nela (canAddChildren: "Enviar para esta pasta").
+    let item = await drive.getItem(folderId, { signal, resourceKey: query.get('resourceKey') || undefined, media: true })
     // Atalho para pasta: abre a pasta de verdade.
     if (item.isShortcut && item.shortcutTargetId && item.shortcutTargetMimeType === FOLDER_MIME) {
       folderId = item.shortcutTargetId
-      item = await drive.getItem(folderId, { signal, resourceKey: item.shortcutTargetResourceKey || undefined })
+      item = await drive.getItem(folderId, { signal, resourceKey: item.shortcutTargetResourceKey || undefined, media: true })
     }
     if (!item.isFolder) throw new HttpProblem(400, 'Isso não é uma pasta.')
     const [crumbs, items] = await Promise.all([drive.getPath(folderId, { signal }), drive.listChildren(folderId, { signal, media: true })])
@@ -799,6 +800,60 @@ export function createApi(ctx) {
     if (name.length > 255) throw new HttpProblem(400, 'Nome de pasta longo demais.')
     const parentId = typeof body.parentId === 'string' && body.parentId ? body.parentId : 'root'
     return { item: await ctx.manager.driveFor(params.acc).createFolder(name, parentId, { signal }) }
+  })
+
+  // ── Compartilhados comigo: o que outras pessoas compartilharam com a conta (pastas abrem pelo /list de sempre).
+  route('GET', '/api/drive/:acc/compartilhados', async ({ params, signal }) => {
+    account(params.acc)
+    const items = await ctx.manager.driveFor(params.acc).listSharedWithMe({ signal, media: true })
+    ctx.media?.remember(params.acc, items)
+    return { items }
+  })
+
+  // ── Renomear (menu de contexto da tela Drive).
+  route('POST', '/api/drive/:acc/renomear', async ({ params, body, signal }) => {
+    account(params.acc)
+    const id = typeof body.id === 'string' ? body.id : ''
+    if (!DRIVE_ID.test(id) || id === 'root') throw new HttpProblem(400, 'Item inválido.')
+    const name = typeof body.name === 'string' ? body.name.replace(/[\u0000-\u001f\u007f]/g, '').trim() : ''
+    if (!name) throw new HttpProblem(400, 'Dê um nome.')
+    if (name.length > 255) throw new HttpProblem(400, 'Nome longo demais.')
+    if (name.includes('/')) throw new HttpProblem(400, 'O nome não pode ter “/”.')
+    return { item: await ctx.manager.driveFor(params.acc).rename(id, name, { signal }) }
+  })
+
+  // ── Mover para… (menu de contexto e arrastar e soltar): de 1 a 50 itens para uma pasta. Um de cada vez (cada
+  // files.update passa pelo limitador da conta). O que não deu volta em `recusados`; nada movido e tudo recusado →
+  // erro com a mensagem do primeiro (a tela mostra).
+  const MOVER_LOTE = 50
+  route('POST', '/api/drive/:acc/mover', async ({ params, body, signal }) => {
+    account(params.acc)
+    const ids = Array.isArray(body.ids) ? [...new Set(body.ids)] : []
+    if (!ids.length || ids.length > MOVER_LOTE || !ids.every(id => typeof id === 'string' && DRIVE_ID.test(id) && id !== 'root')) {
+      throw new HttpProblem(400, `Mande de 1 a ${MOVER_LOTE} itens por vez.`)
+    }
+    const destId = typeof body.destId === 'string' && DRIVE_ID.test(body.destId) ? body.destId : null
+    if (!destId) throw new HttpProblem(400, 'Escolha a pasta de destino.')
+    const drive = ctx.manager.driveFor(params.acc)
+    const movidos = []
+    const ja = []
+    const recusados = []
+    for (const id of ids) {
+      try {
+        const r = await drive.move(id, destId, { signal })
+        ;(r.moved ? movidos : ja).push(id)
+      } catch (err) {
+        const info = classifyError(err)
+        if (info.kind === 'abort' || info.kind === 'auth' || info.kind === 'reauth' || info.kind === 'retry' || info.kind === 'quota') throw err
+        recusados.push({ id, status: info.status ?? null, error: info.message })
+      }
+    }
+    if (movidos.length) ctx.log?.(`mover: ${movidos.length} item(ns) para ${destId}`)
+    if (!movidos.length && !ja.length && recusados.length) {
+      const st = recusados[0].status
+      throw new HttpProblem(st === 400 || st === 403 || st === 404 ? st : 400, recusados[0].error)
+    }
+    return { movidos, ja, recusados }
   })
 
   // ── disco local

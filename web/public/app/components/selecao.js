@@ -1,5 +1,5 @@
-// Selecionar itens na aba Drive: segurar um item liga a seleção (vibra no Android); com ela ligada, tocar marca e
-// desmarca. A barra de baixo diz quantos e quanto pesam, marca todos ou nenhum e faz as ações só nos marcados:
+// Selecionar itens na aba Drive: segurar um item abre o menu dele (components/item-menu.js), que tem "Selecionar"
+// (vibra no Android ao segurar); com a seleção ligada, tocar ou segurar marca e desmarca. A barra de baixo diz quantos e quanto pesam, marca todos ou nenhum e faz as ações só nos marcados:
 // Baixar (um depois do outro), Copiar links, Gerar proxy (o computador gera; components/proxies.js), Frames (aba Criar,
 // components/criar.js) e Mover para a
 // lixeira (com confirmação; dá para recuperar por 30 dias).
@@ -25,18 +25,33 @@ const ARRASTO_PX = 12 // depois de segurar, mais que isso para os lados: é o ar
 const DIRETO_PX = 8 // sem segurar: andou isso e decide se é correr o take (para os lados) ou rolar
 const ENTRE_DOWNLOADS_MS = 1600
 
+/** Engole o próximo clique (em qualquer lugar) nos próximos `ms`. */
+function engolirClique(ms) {
+  const ate = Date.now() + ms
+  const f = (e) => {
+    document.removeEventListener('click', f, true)
+    if (Date.now() < ate) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+  }
+  document.addEventListener('click', f, true)
+  setTimeout(() => document.removeEventListener('click', f, true), ms)
+}
+
 /**
- * Gesto de segurar num item (só toque). `onSegurar()` ao soltar sem arrastar; `onArrastar(clientX|null)` enquanto
+ * Gesto de segurar num item (só toque). `onSegurar()` ao soltar sem arrastar; `onMenu()` no botão direito do mouse
+ * (o app aberto no computador; o "segurar" do sistema no toque não conta); `onArrastar(clientX|null)` enquanto
  * arrasta depois de segurar (null ao terminar). `direto`: arrastar para os lados já corre, sem segurar antes, quando o
  * dedo começa na área que tira o "voltar" (`[data-noswipe]`, a miniatura do vídeo); para cima e para baixo rola.
  * Devolve os handlers para o elemento e um ref (o touchmove não passivo, que segura a rolagem só com o gesto ligado,
  * precisa do elemento).
  */
-export function useSegurar({ onSegurar, onArrastar, direto = false }) {
+export function useSegurar({ onSegurar, onArrastar, onMenu, direto = false }) {
   const ref = useRef(null)
-  const t = useRef({ timer: 0, segurou: false, arrastando: false, rolando: false, direto: false, x: 0, y: 0, engolir: 0 })
-  const cbs = useRef({ onSegurar, onArrastar, direto })
-  cbs.current = { onSegurar, onArrastar, direto }
+  const t = useRef({ timer: 0, segurou: false, arrastando: false, rolando: false, direto: false, x: 0, y: 0, engolir: 0, toque: 0 })
+  const cbs = useRef({ onSegurar, onArrastar, onMenu, direto })
+  cbs.current = { onSegurar, onArrastar, onMenu, direto }
   // Antes de segurar: andou mais para os lados que para cima = corre o take (com `direto`); senão é rolagem.
   const decidir = (x, y) => {
     const c = t.current
@@ -69,8 +84,10 @@ export function useSegurar({ onSegurar, onArrastar, direto = false }) {
     const c = t.current
     clearTimeout(c.timer)
     if (c.segurou) {
-      // Soltar depois de segurar nunca abre o arquivo.
+      // Soltar depois de segurar nunca abre o arquivo. Nem toca no que acabou de abrir por cima (o fundo do menu do
+      // item): o clique que alguns aparelhos ainda mandam depois do toque longo é engolido na página toda.
       c.engolir = Date.now() + 500
+      engolirClique(500)
       if (c.arrastando) cbs.current.onArrastar?.(null)
       else if (!cancelado) cbs.current.onSegurar?.()
     }
@@ -82,6 +99,7 @@ export function useSegurar({ onSegurar, onArrastar, direto = false }) {
     onPointerDown: (e) => {
       if (e.pointerType !== 'touch') return
       const c = t.current
+      c.toque = Date.now()
       clearTimeout(c.timer)
       c.segurou = false
       c.arrastando = false
@@ -119,6 +137,8 @@ export function useSegurar({ onSegurar, onArrastar, direto = false }) {
     onContextMenu: (e) => {
       // O menu de segurar do sistema (iOS/Android) não aparece por cima do nosso gesto.
       e.preventDefault()
+      // Botão direito do mouse (sem toque recente): o nosso menu, na hora.
+      if (Date.now() - t.current.toque > 1500) cbs.current.onMenu?.()
     },
   }
 }
@@ -216,7 +236,7 @@ export function BarraSelecao({ sel, visiveis, onSair, onRemovidos }) {
   </div>`
 }
 
-async function copiarLinks(itens) {
+export async function copiarLinks(itens) {
   const linhas = itens.map((f) => {
     const t = target(f)
     return `${f.name}\n${isFolder(f) ? folderLink(t.id) : fileLink(t.id)}`

@@ -8,14 +8,17 @@ import { Checkbox, FileIcon, SkeletonRows, Button } from './common.js'
 import { Thumb } from './drive-thumb.js'
 import { FolderSizeCell } from './drive-tamanho.js'
 import { DEFAULT_SORT, compareItems, isFolderLike, nextSort, normalizeSort } from '../lib/ordenar.js'
+import { comecarArrasto, fimArrasto, idsSoltos, podeSoltar, pontoDoItem, teclaDeMenu } from './drive-menu.js'
 
 const PAGE = 200
 
 export const isOpenable = isFolderLike
 
-const Row = memo(function Row({ item, index, selected, focused, mode, blocked, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview, fsize, onCalcSize, hasProxy, onLink }) {
+const Row = memo(function Row({ item, index, selected, focused, mode, blocked, onRowClick, onRowDouble, onCheck, onKey, accountId, proxy, onPreview, fsize, onCalcSize, hasProxy, onLink, dnd }) {
   const folderLike = isOpenable(item)
   const disabled = blocked ?? (mode === 'folder' && !folderLike)
+  // Menu de contexto e arrastar para uma pasta (só na tela Drive: `dnd` = handlers estáveis da tabela).
+  const alvo = dnd && folderLike && !item.isShortcut && item.canAddChildren !== false
   return html`<div
     class=${cx('drow', selected && 'is-selected', disabled && 'is-disabled', folderLike && 'is-folder')}
     role="row"
@@ -26,6 +29,13 @@ const Row = memo(function Row({ item, index, selected, focused, mode, blocked, o
     onClick=${(e) => onRowClick(e, index)}
     onDblClick=${() => onRowDouble(index)}
     onKeyDown=${(e) => onKey(e, index)}
+    onContextMenu=${dnd ? (e) => dnd.onMenu(e, index) : undefined}
+    draggable=${dnd ? 'true' : undefined}
+    onDragStart=${dnd ? (e) => dnd.onDragStart(e, index) : undefined}
+    onDragEnd=${dnd ? fimArrasto : undefined}
+    onDragOver=${alvo ? (e) => dnd.onDragOver(e, index) : undefined}
+    onDragLeave=${alvo ? (e) => e.currentTarget.classList.remove('is-alvo') : undefined}
+    onDrop=${alvo ? (e) => dnd.onDrop(e, index) : undefined}
   >
     ${mode === 'browse'
       ? html`<span class="drow-check" role="gridcell"><${Checkbox} checked=${selected} label=${`Selecionar ${item.name}`} tabIndex=${-1} onChange=${() => onCheck(index)} /></span>`
@@ -67,7 +77,7 @@ const Row = memo(function Row({ item, index, selected, focused, mode, blocked, o
  * @param {{ items: any[], mode?: 'browse'|'folder', selected: Set<string>, onSelect: (s:Set<string>)=>void,
  *           onOpen: (item)=>void, loading?: boolean, error?: string|null, onRetry?: ()=>void, empty?: any, resetKey?: string }} props
  */
-export function DriveTable({ items, sorted: sortedProp, mode = 'browse', pode, onPick, selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort, sizeOf, onCalcSize, comProxy, onCopyLink }) {
+export function DriveTable({ items, sorted: sortedProp, mode = 'browse', pode, onPick, selected, onSelect, onOpen, loading, error, onRetry, empty, resetKey, compact, accountId, onPreview, proxies, sort: sortProp, onSort, sizeOf, onCalcSize, comProxy, onCopyLink, onMenu, onSoltar }) {
   const [sortLocal, setSortLocal] = useState(DEFAULT_SORT)
   const sort = normalizeSort(sortProp || sortLocal)
   const setSort = onSort || setSortLocal
@@ -156,12 +166,50 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', pode, o
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && mode !== 'folder') {
       e.preventDefault()
       onSelect(new Set(sorted.map((x) => x.id))) // tudo o que está visível (também o que ainda não desceu na página)
+    } else if (onMenu && teclaDeMenu(e)) {
+      e.preventDefault()
+      abrirMenu(i, pontoDoItem(e.currentTarget))
     } else if (e.key === 'Escape' && selected.size) {
       e.stopPropagation()
       onSelect(new Set())
     } else if (e.key === 'Backspace' && (e.metaKey || e.altKey)) {
       // ⌘⌫ não faz nada aqui (não apagamos nada do Drive)
     }
+  }
+
+  // Botão direito: como no Finder, o item clicado entra na seleção (se ainda não estava, fica só ele).
+  const abrirMenu = (i, ponto) => {
+    const it = shown[i]
+    if (!it) return
+    setFocus(i)
+    if (!selected.has(it.id)) {
+      anchor.current = i
+      onSelect(new Set([it.id]))
+    }
+    onMenu?.(it, ponto)
+  }
+  const onCtx = (e, i) => {
+    e.preventDefault()
+    abrirMenu(i, { x: e.clientX, y: e.clientY })
+  }
+  // Arrastar: leva a seleção inteira quando a linha faz parte dela; senão, só ela.
+  const onDragStart = (e, i) => {
+    const it = shown[i]
+    const ids = selected.has(it.id) ? sorted.filter((x) => selected.has(x.id)).map((x) => x.id) : [it.id]
+    comecarArrasto(e, ids, it.name)
+  }
+  const onDragOver = (e, i) => {
+    if (!podeSoltar(e, shown[i].id)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    e.currentTarget.classList.add('is-alvo')
+  }
+  const onDrop = (e, i) => {
+    if (!podeSoltar(e, shown[i].id)) return
+    e.preventDefault()
+    const ids = idsSoltos(e)
+    fimArrasto()
+    if (ids.length) onSoltar?.(ids, shown[i])
   }
 
   // handlers estáveis para as linhas memoizadas (sempre chamam a versão mais nova)
@@ -172,7 +220,7 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', pode, o
   }
   const onCalc = (i) => onCalcSize?.(shown[i])
   const onLink = (i) => onCopyLink?.(shown[i])
-  live.current = { onRowClick, onRowDouble, onCheck, onKey, onPeek, onCalc, onLink }
+  live.current = { onRowClick, onRowDouble, onCheck, onKey, onPeek, onCalc, onLink, onCtx, onDragStart, onDragOver, onDrop }
   const stable = useRef(null)
   if (!stable.current)
     stable.current = {
@@ -183,6 +231,12 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', pode, o
       onPeek: (i) => live.current.onPeek(i),
       onCalc: (i) => live.current.onCalc(i),
       onLink: (i) => live.current.onLink(i),
+      dnd: {
+        onMenu: (e, i) => live.current.onCtx(e, i),
+        onDragStart: (e, i) => live.current.onDragStart(e, i),
+        onDragOver: (e, i) => live.current.onDragOver(e, i),
+        onDrop: (e, i) => live.current.onDrop(e, i),
+      },
     }
   const h = stable.current
 
@@ -232,6 +286,7 @@ export function DriveTable({ items, sorted: sortedProp, mode = 'browse', pode, o
         fsize=${sizeOf && isOpenable(it) ? sizeOf(it) : null}
         onCalcSize=${onCalcSize && mode !== 'folder' ? h.onCalc : null}
         onLink=${onCopyLink && mode !== 'folder' ? h.onLink : null}
+        dnd=${onMenu && mode === 'browse' ? h.dnd : null}
       />`,
     )}
     ${sorted.length > limit

@@ -1,7 +1,7 @@
 // Aba Drive: navegar no Meu Drive, Compartilhados comigo e Drives compartilhados, em grade com miniaturas ou em
 // lista; ordenar e filtrar por tipo (chips abaixo da busca), buscar por nome, puxar para atualizar e carregar mais ao
 // rolar. Os arquivos ._ do Mac ficam ocultos (com a opção de mostrar ou mandar para a lixeira, com confirmação).
-// Tocar num arquivo abre a prévia.
+// Tocar num arquivo abre a prévia; segurar o dedo (ou o botão direito do mouse) abre o menu do item.
 import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact-htm.js'
 import {
   FILTERS,
@@ -46,6 +46,10 @@ import { LAN } from '../lib/config.js'
 
 // Listas já abertas (voltar para uma pasta não pisca). Vale enquanto a página está aberta.
 const lists = new Map()
+/** Esquece as listas guardadas de uma pasta (recebeu algo pelo "Mover para…": abre de novo atualizada). */
+function esquecer(id) {
+  for (const k of [...lists.keys()]) if (k.includes(JSON.stringify(id))) lists.delete(k)
+}
 // Carregar a pasta toda sozinho (ordem por tipo, "Somar tudo") vai até aqui.
 const AUTO_MAX = 3000
 
@@ -140,7 +144,7 @@ function avisarSemTira() {
   toast('Este vídeo ainda não tem a prévia de arrastar. Selecione e toque em Gerar proxy: o computador cria.', { ms: 6000 })
 }
 
-function Tile({ f, siblings, onOpen, selecionando = false, marcado = false, onMarcar }) {
+function Tile({ f, siblings, onOpen, selecionando = false, marcado = false, onMarcar, onMenu }) {
   const kind = kindOf(f)
   const dur = f.videoMediaMetadata?.durationMillis
   // Miniatura de vídeo: arrastar para os lados corre o take (sem segurar; o "voltar" sai de fora dela). Sem a tira
@@ -148,8 +152,10 @@ function Tile({ f, siblings, onOpen, selecionando = false, marcado = false, onMa
   const [toqueX, setToqueX] = useState(null)
   const video = kind === 'video'
   const tira = video && Boolean(gradeDe(f))
+  // Segurar e soltar: o menu do item (com a seleção ligada, marca e desmarca).
   const gesto = useSegurar({
-    onSegurar: onMarcar ? () => onMarcar(f) : null,
+    onSegurar: onMarcar ? () => (selecionando || !onMenu ? onMarcar(f) : onMenu(f)) : null,
+    onMenu: onMenu && !selecionando ? () => onMenu(f) : null,
     onArrastar: tira ? setToqueX : video ? (x) => x != null && avisarSemTira() : null,
     direto: video,
   })
@@ -181,13 +187,16 @@ function Tile({ f, siblings, onOpen, selecionando = false, marcado = false, onMa
   </li>`
 }
 
-function Row({ f, siblings, onOpen, driveId, selecionando = false, marcado = false, onMarcar }) {
+function Row({ f, siblings, onOpen, driveId, selecionando = false, marcado = false, onMarcar, onMenu }) {
   const kind = kindOf(f)
   const dur = f.videoMediaMetadata?.durationMillis
   // Pasta: "Calcular" ao lado soma o que tem dentro (sob pedido; o Drive não guarda o tamanho de pastas).
   const t = kind === 'folder' && !f.isDrive ? target(f) : null
   const calc = !selecionando && t && !folderSizes.get(t.id)
-  const gesto = useSegurar({ onSegurar: onMarcar ? () => onMarcar(f) : null })
+  const gesto = useSegurar({
+    onSegurar: onMarcar ? () => (selecionando || !onMenu ? onMarcar(f) : onMenu(f)) : null,
+    onMenu: onMenu && !selecionando ? () => onMenu(f) : null,
+  })
   return html`<li class=${calc ? 'has-calc' : undefined}>
     <button
       type="button"
@@ -238,6 +247,17 @@ function destOf(scope, path) {
  * "Enviar aqui": a pasta aberta vira o destino e o seletor de arquivos abre na hora (o toque no rótulo é o gesto que
  * o iPhone exige). Escolhidos os arquivos, a fila começa e o app vai para a aba Início, onde se vê o andamento.
  */
+export function enviarPara(files, dest) {
+  const account = getState().user?.emailAddress
+  setState({ dest })
+  pushRecent(dest, account)
+  const r = engine.addFiles(files, dest)
+  setTab('send')
+  const n = r.added + r.resumed
+  if (n) toast(n === 1 ? `Enviando para ${dest.name}` : `${n} arquivos indo para ${dest.name}`, { tone: 'success' })
+  if (r.dupes) toast(r.dupes === 1 ? 'Esse arquivo já está na fila' : `${r.dupes} arquivos já estavam na fila`)
+}
+
 function SendHere({ scope, path }) {
   const dest = destOf(scope, path)
   if (!dest) return null
@@ -246,14 +266,7 @@ function SendHere({ scope, path }) {
     const files = [...(e.currentTarget.files || [])]
     e.currentTarget.value = ''
     if (!files.length) return
-    const account = getState().user?.emailAddress
-    setState({ dest })
-    pushRecent(dest, account)
-    const r = engine.addFiles(files, dest)
-    setTab('send')
-    const n = r.added + r.resumed
-    if (n) toast(n === 1 ? `Enviando para ${dest.name}` : `${n} arquivos indo para ${dest.name}`, { tone: 'success' })
-    if (r.dupes) toast(r.dupes === 1 ? 'Esse arquivo já está na fila' : `${r.dupes} arquivos já estavam na fila`)
+    enviarPara(files, dest)
   }
   return html`<span class="dhere">
     <input id=${id} class="offscreen" type="file" multiple onChange=${onChange} />
@@ -1073,6 +1086,30 @@ export function DriveScreen({ active }) {
     if (isIOS && isStandalone()) document.documentElement.classList.add('is-ios-app')
   }, [])
   const marcar = (f) => sel.alternar(f.id)
+  // Segurar um item: o menu dele (components/item-menu.js). A pasta que vira destino de envio e onde o "Mover para…" abre
+  // seguem o caminho de agora (numa busca, a pasta achada começa a trilha).
+  const abrirMenu = (f) => {
+    if (escolher) return
+    const t = target(f)
+    const pasta = isFolder(f)
+    const entry = { id: t.id, name: f.name, driveId: f.driveId || null }
+    const base = search || f.isDrive ? [] : nav.path
+    const podeEnviar = pasta && (Boolean(t.shortcut) || f.capabilities?.canAddChildren !== false)
+    openSheet('itemMenu', {
+      f,
+      driveId,
+      onAbrir: () => open(f),
+      onSelecionar: () => sel.alternar(f.id),
+      dest: podeEnviar ? destOf(nav.scope, [...base, entry]) : null,
+      inicio: folder && !search ? destOf(nav.scope, nav.path) : null,
+      onMudou: ({ removidos, destId, recarregar } = {}) => {
+        if (removidos?.length) list.drop(removidos)
+        if (destId) esquecer(destId)
+        if (recarregar) list.reload()
+        if (folder && removidos?.length) folderSizes.start({ id: folder.id, driveId: driveId || folder.driveId || null }, { refresh: true })
+      },
+    })
+  }
   const canSwipe = active && !preview && !sel.ativa && !search && nav.path.length > 0 && swipeHere()
   useSwipeBack({
     enabled: canSwipe,
@@ -1261,8 +1298,8 @@ export function DriveScreen({ active }) {
       ${huntNote && !files.length ? html`<p class="drive-note dhunt" role="status"><span class="spinner" aria-hidden="true"></span>${huntText} <small>${count(raw.length)} vistos</small></p>` : null}
       ${files.length
         ? view === 'grid'
-          ? html`<ul class="tiles">${files.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${raw} onOpen=${open} selecionando=${sel.ativa} marcado=${sel.tem(f.id)} onMarcar=${marcar} />`)}</ul>`
-          : html`<ul class="group lrows">${files.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${raw} onOpen=${open} driveId=${driveId} selecionando=${sel.ativa} marcado=${sel.tem(f.id)} onMarcar=${marcar} />`)}</ul>`
+          ? html`<ul class="tiles">${files.map((f) => html`<${Tile} key=${f.id} f=${f} siblings=${raw} onOpen=${open} selecionando=${sel.ativa} marcado=${sel.tem(f.id)} onMarcar=${marcar} onMenu=${abrirMenu} />`)}</ul>`
+          : html`<ul class="group lrows">${files.map((f) => html`<${Row} key=${f.id} f=${f} siblings=${raw} onOpen=${open} driveId=${driveId} selecionando=${sel.ativa} marcado=${sel.tem(f.id)} onMarcar=${marcar} onMenu=${abrirMenu} />`)}</ul>`
         : null}
       ${list.error && list.files ? html`<p class="drive-note is-error">Não consegui carregar mais. <button type="button" class="link-btn" onClick=${() => list.more()}>Tentar de novo</button></p>` : null}
       <div ref=${sentinel} class="drive-sentinel">

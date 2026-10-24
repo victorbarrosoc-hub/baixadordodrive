@@ -10,8 +10,8 @@ import { useStore } from '../lib/store.js'
 import { ProxyChoice, proxyPadrao } from './previa.js'
 import { Modal } from './modal.js'
 import { DriveTable } from './drive-table.js'
-import { Breadcrumb, SourceChips } from './drive.js'
-import { createDriveFolder, useDriveFolder, useFolderSearch, useSharedDrives } from './drive-data.js'
+import { Breadcrumb, SourceChips, sourceOf } from './drive.js'
+import { SHARED_ID, createDriveFolder, crumbsFor, useDriveFolder, useFolderSearch, useSharedDrives } from './drive-data.js'
 
 /** "Meu Drive / SERHS / 01 Brutos / Diária 02" → "em 01 Brutos" (a pasta de cima; o caminho todo fica na dica). */
 function parentOf(path) {
@@ -20,13 +20,7 @@ function parentOf(path) {
 }
 
 function crumbsOf(data, drives) {
-  const list = (data?.path || []).slice()
-  if (data?.folder && (!list.length || list[list.length - 1].id !== data.folder.id)) list.push({ id: data.folder.id, name: data.folder.name })
-  return list.map((c, i) => {
-    if (i) return c.name
-    const shared = drives.find((d) => d.id === c.id)
-    return shared ? shared.name : 'Meu Drive'
-  })
+  return data?.folder || data?.path?.length ? crumbsFor(data, drives).map((c) => c.name) : []
 }
 
 /** Resultados de "Buscar pasta": nome e, embaixo, onde ela está (para diferenciar duas "Diária 02"). */
@@ -68,11 +62,14 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
   const drives = useSharedDrives(accountId)
   const { data, loading, error, errorStatus, reload } = useDriveFolder(accountId, folderId)
   const folder = data?.folder
-  const sourceId = folder?.driveId || (data?.path?.[0] && drives.some((d) => d.id === data.path[0].id) ? data.path[0].id : 'root')
-  // Buscar pasta: no escopo aberto (Meu Drive ou o drive compartilhado da pasta atual).
+  const sourceId = sourceOf(data, drives)
+  // Buscar pasta: no escopo aberto (Meu Drive ou o drive compartilhado da pasta atual). A busca do Meu Drive já
+  // inclui o que foi compartilhado com você.
   const searching = !!q
-  const search = useFolderSearch(accountId, q, sourceId)
-  const scopeName = sourceId === 'root' ? 'Meu Drive' : drives.find((d) => d.id === sourceId)?.name || 'neste drive'
+  const search = useFolderSearch(accountId, q, sourceId === SHARED_ID ? 'root' : sourceId)
+  const scopeName = sourceId === 'root' ? 'Meu Drive' : sourceId === SHARED_ID ? 'Meu Drive e compartilhados' : drives.find((d) => d.id === sourceId)?.name || 'neste drive'
+  // "Compartilhados comigo" não é pasta, e pasta de outra pessoa só para ver não recebe nada: aí só vale marcar uma subpasta.
+  const soVer = !!folder && (folder.virtual || folder.canAddChildren === false)
 
   // A última pasta de destino sumiu (apagada, sem acesso): sai dos Recentes e o seletor abre no Meu Drive.
   useEffect(() => {
@@ -99,6 +96,7 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
       if (chosenSub) onClose(chosenSub)
       return
     }
+    if (!chosenSub && soVer) return
     if (chosenSub) {
       onClose({ id: chosenSub.id, name: chosenSub.name, path: [...crumbs, chosenSub.name].join(' / '), driveId: chosenSub.driveId || folder.driveId || null, ...extra })
     } else {
@@ -116,7 +114,10 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
     }
   }
 
-  const label = confirmLabel || (arquivo ? (chosenSub ? `Escolher “${chosenSub.name}”` : `Escolha ${arquivo.nome || 'o arquivo'}`) : chosenSub ? `Escolher “${chosenSub.name}”` : 'Escolher esta pasta')
+  const label =
+    !arquivo && soVer && !chosenSub
+      ? 'Escolha uma pasta'
+      : confirmLabel || (arquivo ? (chosenSub ? `Escolher “${chosenSub.name}”` : `Escolha ${arquivo.nome || 'o arquivo'}`) : chosenSub ? `Escolher “${chosenSub.name}”` : 'Escolher esta pasta')
 
   return html`<${Modal}
     size="xl"
@@ -135,9 +136,9 @@ export function DrivePicker({ accountId, title = 'Escolha uma pasta do Drive', s
         <${Icon} name="cloud" size=${15} />
         <span class="mono-path" title=${crumbs.join(' / ')}>${[...crumbs, ...(chosenSub ? [chosenSub.name] : [])].join(' / ') || '…'}</span>
       </div>
-      ${arquivo ? null : html`<${Button} icon="folder-plus" onClick=${newFolder} disabled=${!folder}>Nova pasta</${Button}>`}
+      ${arquivo ? null : html`<${Button} icon="folder-plus" onClick=${newFolder} disabled=${!folder || soVer}>Nova pasta</${Button}>`}
       <${Button} onClick=${() => onClose(null)}>Cancelar</${Button}>
-      <${Button} variant="primary" onClick=${confirm} disabled=${!folder || (arquivo && !chosenSub)}>${label}</${Button}>
+      <${Button} variant="primary" onClick=${confirm} disabled=${!folder || (arquivo && !chosenSub) || (!arquivo && soVer && !chosenSub)}>${label}</${Button}>
     `}
   >
     <div class="picker-grid">
