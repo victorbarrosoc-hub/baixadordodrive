@@ -227,7 +227,8 @@ function Agora({ job, pontos }) {
       icone="disk"
       cor="warn"
       titulo=${`Esperando ${job.faltando.join(' e ')}`}
-      frase=${`O cartão de ${job.dono} está pronto. Conecte o destino: começa sozinho.`}
+      sub=${job.nome}
+      frase=${`O disco "${job.nome}" (${job.dono}) está pronto. Conecte o destino: começa sozinho.`}
       i=${3}
       acao=${html`<${Button} size="sm" icon="x" onClick=${() => post('/api/backup/cancelar')}>Parar</${Button}>`}
     >
