@@ -152,6 +152,10 @@
 
 /* ───── barra: busca, filtros em pílulas e as ferramentas ───── */
 .dv-barra {
+  /* Os menus da barra (Ordenar, Mais) abrem por cima da lista que vem logo abaixo, mesmo durante a entrada em cascata
+     (enquanto anima, cada bloco é um contexto de empilhamento e o de baixo, mais novo no DOM, ficaria na frente). */
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 10px;
