@@ -8738,3 +8738,26 @@ a.k-botao {
   margin: 2px 0 0;
   color: var(--text-2);
 }
+
+/* ───── nada passa da largura do celular ─────
+   No iPhone (Safari), um <select> mede a opção mais comprida ("Canon EOS R6 Mark II · 4K 23.98/29.97p IPB (Standard) ·
+   120 Mb/s") e uma grade sem colunas definidas cresce junto: a página inteira desliza para o lado. O select encolhe
+   (texto com reticências), as grades das telas do Criar têm uma coluna que nunca passa da largura, e a tela corta o
+   que sobrar (clip não cria rolagem: o topo grudado continua). O que precisa deslizar (filtros) rola dentro dele. */
+select.input {
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+.cr-campo,
+.calc-cel,
+.calc-cam,
+.calc-res,
+.calc-cams,
+.calc-l,
+.calc-l span {
+  grid-template-columns: minmax(0, 1fr);
+}
+.screen {
+  overflow-x: clip;
+}
