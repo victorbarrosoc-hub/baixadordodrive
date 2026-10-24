@@ -454,3 +454,41 @@ test('sem licença para ler o cartão (macOS): a mensagem diz onde liberar', asy
   assert.equal(v.volumes.find((x) => x.nome === 'SD').erro, MSG_PERMISSAO)
   await svc.close()
 })
+
+test('pasta do dono: o nome escolhido vira a pasta em Cenas; editar muda só os próximos; pasta repetida é recusada', async () => {
+  const { svc, discos, ocioso } = montar()
+  await svc.init()
+  const hd = tmp('sobedesce-hd-')
+  await svc.criarProjeto({ nome: 'Festa', destinos: [hd] })
+  const a = cartaoSony({ clipes: 1, serial: 'A1' })
+  discos.push({ caminho: a, nome: 'SD A', id: 'uuid:A', capacidade: 1 })
+  await svc.varrer()
+  await svc.responder({ caminho: a, nome: 'Rapha', camera: 'FX30', pasta: '01_CAMERA_A_RAPHA_FX30' })
+  await ocioso()
+  const cenas = path.join(hd, 'Festa', 'Diária 01', 'Cenas')
+  assert.ok(fs.existsSync(path.join(cenas, '01_CAMERA_A_RAPHA_FX30', 'Cartão 01', 'PRIVATE', 'M4ROOT', 'CLIP', 'C0001.MP4')))
+  let v = svc.view()
+  const rapha = v.projeto.donos[0]
+  assert.equal(rapha.pasta, '01_CAMERA_A_RAPHA_FX30')
+  assert.equal(rapha.pastaPropria, true)
+  // Outro dono não pode usar a mesma pasta (os "Cartão NN" se misturariam).
+  const b = cartaoSony({ clipes: 1, serial: 'B2' })
+  discos.push({ caminho: b, nome: 'SD B', id: 'uuid:B', capacidade: 1 })
+  await svc.varrer()
+  await assert.rejects(svc.responder({ caminho: b, nome: 'Ana', camera: 'A7', pasta: '01_camera_a_rapha_fx30' }), (e) => e.status === 409)
+  assert.equal(svc.view().pedidos.length, 1) // a pergunta continua
+  await svc.responder({ caminho: b, nome: 'Ana', camera: 'A7' })
+  await ocioso()
+  assert.ok(fs.existsSync(path.join(cenas, 'Ana - A7', 'Cartão 01')))
+  // Editar a pasta: os próximos vão para a nova; vazia volta a "Nome - Câmera".
+  v = await svc.editarDono(rapha.id, { pasta: '' })
+  assert.equal(v.projeto.donos.find((d) => d.id === rapha.id).pasta, 'Rapha - FX30')
+  await assert.rejects(svc.editarDono(rapha.id, { pasta: 'Ana - A7' }), (e) => e.status === 409)
+  await assert.rejects(svc.editarDono(rapha.id, { nome: '  ' }), (e) => e.status === 400)
+  assert.equal(svc.view().projeto.donos.find((d) => d.id === rapha.id).pasta, 'Rapha - FX30') // recusado não muda nada
+  escrever(a, 'PRIVATE/M4ROOT/CLIP/C0002.MP4', Buffer.alloc(4000, 2))
+  await svc.repetir(a)
+  await ocioso()
+  assert.ok(fs.existsSync(path.join(cenas, 'Rapha - FX30', 'Cartão 01', 'PRIVATE', 'M4ROOT', 'CLIP', 'C0002.MP4')))
+  await svc.close()
+})

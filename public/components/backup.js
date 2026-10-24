@@ -121,6 +121,8 @@ function FormProjeto({ inicial, onPronto, onCancelar, topo }) {
   </${Pagina}>`
 }
 
+const pastaPadrao = (nome, camera) => [nome.trim() || 'Nome', camera.trim()].filter(Boolean).join(' - ')
+
 // ───── "de quem é este cartão?" ─────
 
 function Pedido({ p, donos, i }) {
@@ -128,6 +130,7 @@ function Pedido({ p, donos, i }) {
   const [novo, setNovo] = useState(!donos.length)
   const [nome, setNome] = useState('')
   const [camera, setCamera] = useState(p.camera?.curto && p.camera.curto !== p.camera.marca ? p.camera.curto : p.camera?.curto || '')
+  const [pasta, setPasta] = useState('')
   const [ocupado, setOcupado] = useState(false)
   const responder = async (extra) => {
     setOcupado(true)
@@ -159,16 +162,60 @@ function Pedido({ p, donos, i }) {
       ? html`<div class="bk-novo-dono">
           <label><span class="k-rot">Nome</span><input class="input" type="text" maxlength="60" placeholder="ex.: Aladim" value=${nome} onInput=${(e) => setNome(e.currentTarget.value)} /></label>
           <label><span class="k-rot">Câmera</span><input class="input" type="text" maxlength="40" placeholder="ex.: FX30" value=${camera} onInput=${(e) => setCamera(e.currentTarget.value)} /></label>
-          <span class="bk-novo-pasta mono-path">Pasta: ${[nome.trim() || 'Nome', camera.trim()].filter(Boolean).join(' - ')}</span>
+          <label class="bk-novo-pasta-campo"><span class="k-rot">Nome da pasta <em>opcional</em></span><input class="input mono-path" type="text" maxlength="80" placeholder=${pastaPadrao(nome, camera)} value=${pasta} onInput=${(e) => setPasta(e.currentTarget.value)} aria-label="Nome da pasta do dono" /></label>
+          <span class="bk-novo-pasta mono-path">Cenas / ${pasta.trim() || pastaPadrao(nome, camera)} / Cartão 01</span>
         </div>`
       : null}
     <div class="bk-pedido-acoes">
       <${Button} variant="ghost" icon="eye-off" onClick=${() => responder({ ignorar: true })} disabled=${ocupado}>Ignorar este disco</${Button}>
-      <button type="button" class="k-botao bk-comecar" disabled=${ocupado || !pronto} onClick=${() => responder(novo ? { nome, camera } : { donoId })}>
+      <button type="button" class="k-botao bk-comecar" disabled=${ocupado || !pronto} onClick=${() => responder(novo ? { nome, camera, pasta } : { donoId })}>
         <${Icon} name="copy" size=${18} strokeWidth=${2} />Começar o backup
       </button>
     </div>
   </section>`
+}
+
+// ───── os donos da diária (com a pasta de cada um) ─────
+
+function Dono({ d, k, bloqueado }) {
+  const [editando, setEditando] = useState(false)
+  const [nome, setNome] = useState(d.nome || '')
+  const [camera, setCamera] = useState(d.camera || '')
+  const [pasta, setPasta] = useState(d.pastaPropria ? d.pasta : '')
+  const [ocupado, setOcupado] = useState(false)
+  const abrir = () => {
+    setNome(d.nome || '')
+    setCamera(d.camera || '')
+    setPasta(d.pastaPropria ? d.pasta : '')
+    setEditando(true)
+  }
+  const salvar = async () => {
+    setOcupado(true)
+    const r = await post('/api/backup/dono', { id: d.id, nome, camera, pasta })
+    setOcupado(false)
+    if (r) setEditando(false)
+  }
+  if (editando) {
+    return html`<div class="bk-dono is-editando">
+      <div class="bk-novo-dono">
+        <label><span class="k-rot">Nome</span><input class="input" type="text" maxlength="60" value=${nome} onInput=${(e) => setNome(e.currentTarget.value)} /></label>
+        <label><span class="k-rot">Câmera</span><input class="input" type="text" maxlength="40" value=${camera} onInput=${(e) => setCamera(e.currentTarget.value)} /></label>
+        <label class="bk-novo-pasta-campo"><span class="k-rot">Nome da pasta <em>opcional</em></span><input class="input mono-path" type="text" maxlength="80" placeholder=${pastaPadrao(nome, camera)} value=${pasta} onInput=${(e) => setPasta(e.currentTarget.value)} aria-label="Nome da pasta do dono" /></label>
+        <span class="bk-novo-pasta">Os cartões que já passaram ficam onde estão. Os próximos vão para “${pasta.trim() || pastaPadrao(nome, camera)}”.</span>
+      </div>
+      <div class="bk-dono-acoes">
+        <${Button} size="sm" variant="ghost" onClick=${() => setEditando(false)} disabled=${ocupado}>Cancelar</${Button}>
+        <${Button} size="sm" icon="check" onClick=${salvar} disabled=${ocupado || !nome.trim()}>Salvar</${Button}>
+      </div>
+    </div>`
+  }
+  return html`<div class="bk-dono k-entra" style=${`--i:${k}`}>
+    <span class="bk-dono-ic"><${Icon} name="user" size=${16} /></span>
+    <b>${d.rotulo}</b>
+    <span>${d.cartoes ? `${plural(d.cartoes, 'cartão', 'cartões')} · ${bytes(d.bytes)}` : 'Nenhum cartão nesta diária'}</span>
+    <span class="bk-dono-pasta mono-path" title="Pasta dentro de Cenas"><${Icon} name="folder" size=${12} />${d.pasta}</span>
+    <button type="button" class="bk-dono-editar" onClick=${abrir} disabled=${bloqueado} aria-label=${`Editar ${d.rotulo}`} title="Editar nome, câmera e pasta"><${Icon} name="pencil" size=${13} /></button>
+  </div>`
 }
 
 // ───── a descarga de agora ─────
@@ -321,7 +368,6 @@ function Painel({ v, topo, onNovo, onEditar }) {
     <${Button} icon="plus" onClick=${onNovo}>Novo projeto</${Button}>`
 
   const espetados = v.volumes.filter((x) => x.estado !== 'pedido' && x.estado !== 'copiando')
-  const comDados = p.donos.filter((d) => d.cartoes || d.descargas)
 
   return html`<${Pagina} titulo="Cartões" frase=${FRASE} class="page-backup bk-painel" lado=${lado} acoes=${acoes}>
     ${topo}
@@ -346,16 +392,8 @@ function Painel({ v, topo, onNovo, onEditar }) {
       ${p.sugerirNovaDiaria
         ? html`<div class="bk-aviso"><${Icon} name="info" size=${15} /><span>A data mudou desde a última descarga desta diária. Começar a próxima?</span><${Button} size="sm" onClick=${() => post('/api/backup/diaria')} disabled=${!!v.job}>Começar Diária ${String(Math.max(...p.diarias.map((d) => d.n)) + 1).padStart(2, '0')}</${Button}></div>`
         : null}
-      ${comDados.length
-        ? html`<div class="bk-donos">
-            ${comDados.map(
-              (d, k) => html`<div class="bk-dono k-entra" style=${`--i:${k}`}>
-                <span class="bk-dono-ic"><${Icon} name="user" size=${16} /></span>
-                <b>${d.rotulo}</b>
-                <span>${plural(d.cartoes, 'cartão', 'cartões')} · ${bytes(d.bytes)}</span>
-              </div>`,
-            )}
-          </div>`
+      ${p.donos.length
+        ? html`<div class="bk-donos">${p.donos.map((d, k) => html`<${Dono} key=${d.id} d=${d} k=${k} bloqueado=${v.job?.dono === d.rotulo} />`)}</div>`
         : html`<p class="bk-vazio-txt">Nenhum cartão nesta diária ainda.</p>`}
     </${Passo}>
 
