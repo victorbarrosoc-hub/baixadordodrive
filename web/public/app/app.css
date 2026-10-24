@@ -244,17 +244,31 @@ code {
   border: 0;
 }
 
-/* abertura (antes do JS) */
+/* abertura (antes do JS): igual, em tamanho e lugar, à imagem de abertura do iPhone (icons/splash: símbolo de 98 pt com
+   um brilho suave e o nome pequeno, cinza e espaçado). A animação (lib/abertura.js) começa deste mesmo quadro. */
 .boot {
   min-height: 100vh;
   min-height: 100dvh;
   display: grid;
   place-items: center;
 }
-.boot svg {
-  width: 56px;
-  height: 56px;
-  opacity: 0.9;
+.boot-lockup {
+  display: grid;
+  justify-items: center;
+  gap: 28.4px;
+}
+.boot-mk {
+  width: 105px;
+  height: 105px;
+  filter: drop-shadow(0 0 34px rgba(110, 96, 255, 0.28));
+}
+.boot-nome {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.34em;
+  color: #83838e;
 }
 
 /* ───────────── marca ───────────── */
