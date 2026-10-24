@@ -256,6 +256,7 @@ code {
   display: grid;
   justify-items: center;
   gap: 28.4px;
+  translate: 0 calc(-1 * var(--sb-meio, 0px)); /* a imagem do iPhone ocupa também a barra de status (boot.js) */
 }
 .boot-mk {
   width: 105px;

@@ -143,8 +143,17 @@ function App() {
 }
 
 // A abertura com o símbolo (uma vez por abertura do app; lib/abertura.js). Ela parte do quadro que já está na tela: a
-// imagem de abertura do iPhone e o carregamento do index.html (.boot), iguais (símbolo de 105 px).
-if (!LAN) abertura({ tamanho: 105, continuar: true })
+// imagem de abertura do iPhone e o carregamento do index.html (.boot), iguais (símbolo de 105 px). E só sai quando a
+// conta respondeu: a tela de "carregando" da conta não chega a aparecer.
+const contaPronta = new Promise((ok) => {
+  if (getState().auth.status !== 'loading') return ok()
+  const parar = subscribe(() => {
+    if (getState().auth.status === 'loading') return
+    parar()
+    ok()
+  })
+})
+if (!LAN) abertura({ tamanho: 105, continuar: true, pronto: contaPronta })
 render(html`<${App} />`, document.getElementById('app'))
 document.documentElement.classList.add('is-ready')
 
