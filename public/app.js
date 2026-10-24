@@ -20,6 +20,7 @@ import { SetupScreen } from './components/setup.js'
 import { ModalHost } from './components/modal.js'
 import { Toasts } from './components/toasts.js'
 import { OAuthWaitDialog } from './components/oauth-wait.js'
+import { abertura } from './lib/abertura.js'
 
 const TITLES = { painel: 'Início', transferencias: 'Transferências', drive: 'Drive', referencias: 'Referências', frames: 'Frames', comparar: 'Comparar', computadores: 'Dispositivos', cartoes: 'Cartões', ajustes: 'Ajustes', inicio: 'Primeiros passos' }
 
@@ -120,6 +121,8 @@ function App() {
   `
 }
 
+// A abertura com o símbolo (uma vez por abertura do app; lib/abertura.js) fica por cima enquanto a tela carrega.
+abertura({ tamanho: 84 })
 render(html`<${App} />`, document.getElementById('app'))
 startDesktopIntegration()
 startCloudWatch()
