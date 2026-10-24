@@ -175,7 +175,10 @@ test('rota compartilhados: lista o que foi compartilhado e a pasta abre pelo /li
   assert.equal(lista.status, 200)
   assert.deepEqual(lista.json.path, [{ id: pasta.id, name: 'Casamento Ana e Leo' }])
   assert.deepEqual(lista.json.items.map(x => x.name), ['Ceri_A001.mov'])
-  assert.equal(lista.json.folder.canAddChildren, undefined, 'a pasta aberta vem pelo getItem simples')
+  assert.equal(lista.json.folder.canAddChildren, true, 'a pasta aberta diz se dá para enviar para ela')
+  const so = m.addShared('Só para ver', { folder: true, role: 'reader' })
+  const r2 = await call('GET', `/api/drive/${acc()}/list?folderId=${so.id}`)
+  assert.equal(r2.json.folder.canAddChildren, false)
 })
 
 test('rota renomear: valida o pedido e devolve o item novo; leitor → 403', async () => {

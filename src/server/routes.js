@@ -632,11 +632,12 @@ export function createApi(ctx) {
     account(params.acc)
     const drive = ctx.manager.driveFor(params.acc)
     let folderId = query.get('folderId') || 'root'
-    let item = await drive.getItem(folderId, { signal, resourceKey: query.get('resourceKey') || undefined })
+    // media: a pasta aberta também diz se a conta pode pôr coisas nela (canAddChildren: "Enviar para esta pasta").
+    let item = await drive.getItem(folderId, { signal, resourceKey: query.get('resourceKey') || undefined, media: true })
     // Atalho para pasta: abre a pasta de verdade.
     if (item.isShortcut && item.shortcutTargetId && item.shortcutTargetMimeType === FOLDER_MIME) {
       folderId = item.shortcutTargetId
-      item = await drive.getItem(folderId, { signal, resourceKey: item.shortcutTargetResourceKey || undefined })
+      item = await drive.getItem(folderId, { signal, resourceKey: item.shortcutTargetResourceKey || undefined, media: true })
     }
     if (!item.isFolder) throw new HttpProblem(400, 'Isso não é uma pasta.')
     const [crumbs, items] = await Promise.all([drive.getPath(folderId, { signal }), drive.listChildren(folderId, { signal, media: true })])
