@@ -416,12 +416,14 @@ function FolderSearch({ text, onOpen, onRetry, opening }) {
 
 /**
  * Seletor de pasta. Sem props escolhe o destino dos envios; com `onChoose` devolve a pasta para quem abriu (o "Copiar de
- * um link", por exemplo), com `verb` no botão e `onCancel` para voltar.
+ * um link", o "Mover para…" do menu do item), com `verb` e `icone` no botão e `onCancel` para voltar. `inicio`
+ * ({ path, driveId }) abre numa pasta; `recente: false` não guarda a escolha nos Recentes (mover não é destino de envio).
  */
-export function FolderSheet({ verb, onChoose, onCancel } = {}) {
+export function FolderSheet({ titulo = 'Destino', verb, icone = 'upload', onChoose, onCancel, inicio = null, recente = true } = {}) {
   const { dest, account } = useApp((s) => ({ dest: s.dest, account: s.user?.emailAddress }))
-  // Abre na última pasta usada: o destino de agora ou, sem ele, a mais recente.
+  // Abre em `inicio` ou na última pasta usada: o destino de agora ou, sem ele, a mais recente.
   const [nav, setNav] = useState(() => {
+    if (inicio?.path?.length) return { path: inicio.path, driveId: inicio.driveId || null }
     const last = dest?.path?.length ? dest : getRecents(account)[0]
     return last?.path?.length ? { path: last.path, driveId: last.driveId || null } : { path: [], driveId: null }
   })
@@ -470,14 +472,14 @@ export function FolderSheet({ verb, onChoose, onCancel } = {}) {
   }
   const searching = Boolean(search) && !LAN
   const choose = (folder) => {
-    pushRecent(folder, account)
+    if (recente) pushRecent(folder, account)
     if (onChoose) return onChoose(folder)
     setState({ dest: folder })
     closeSheet()
   }
 
   return html`<${SheetHead}
-      title="Destino"
+      title=${titulo}
       left=${html`<button type="button" class="link-btn" onClick=${onCancel || closeSheet}>Cancelar</button>`}
       right=${!atHome && !LAN && !searching
         ? html`<button type="button" class="link-btn" onClick=${() => setCreating(true)} disabled=${creating}>Nova pasta</button>`
@@ -541,7 +543,7 @@ export function FolderSheet({ verb, onChoose, onCancel } = {}) {
             />`}
     </div>
     <footer class="sheet-foot">
-      <${BotaoGrande} icone=${atHome ? null : 'upload'} disabled=${atHome} onClick=${() => here && choose(here)}>
+      <${BotaoGrande} icone=${atHome ? null : icone} disabled=${atHome} onClick=${() => here && choose(here)}>
         ${atHome ? 'Escolha um lugar' : html`${verb || 'Enviar para'} “${here.name}”`}
       </${BotaoGrande}>
     </footer>`

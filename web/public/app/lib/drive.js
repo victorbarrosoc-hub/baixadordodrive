@@ -253,6 +253,56 @@ export function trashFile(id, signal) {
   })
 }
 
+// ───── renomear e mover (menu do item na aba Drive) ─────
+
+/** Troca o nome (files.update). */
+export function renameFile(id, name) {
+  return call(`/files/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    query: { supportsAllDrives: true, fields: 'id,name' },
+    body: { name: String(name).trim() },
+    retries: 1,
+  })
+}
+
+/**
+ * Move para a pasta `dest` ({ id, path? } do seletor de pastas): files.update addParents/removeParents, com
+ * supportsAllDrives. Antes confere o que o Google recusaria com mensagem ruim: pasta para dentro dela mesma (ou de uma
+ * subpasta, pelo caminho do destino) e item sem pai à vista (a raiz do que foi compartilhado com você: só o dono move).
+ * Já está lá: { moved: false }, sem escrita.
+ */
+export async function moveFile(id, dest, signal) {
+  const meta = await call(`/files/${encodeURIComponent(id)}`, { query: { supportsAllDrives: true, fields: 'id,name,mimeType,parents' }, signal, retries: 2 })
+  const destId = dest.id === 'root' ? await myDriveId(signal) : dest.id
+  if (destId === meta.id || (meta.mimeType === FOLDER_MIME && (dest.path || []).some((p) => p.id === meta.id))) {
+    throw new DriveError(400, 'cannotMoveItemIntoItself', 'Não dá para mover uma pasta para dentro dela mesma.')
+  }
+  const parents = meta.parents || []
+  if (parents.includes(destId)) return { moved: false }
+  if (!parents.length) throw new DriveError(403, 'semPai', 'Foi compartilhado com você: só quem é dono muda de lugar.')
+  await call(`/files/${encodeURIComponent(meta.id)}`, {
+    method: 'PATCH',
+    query: { addParents: destId, removeParents: parents.join(','), supportsAllDrives: true, fields: 'id,parents' },
+    body: {},
+    signal,
+    retries: 1,
+  })
+  folderInfo.delete(meta.id) // o caminho guardado da pasta mudou
+  return { moved: true }
+}
+
+/** Erro do Renomear/Mover em linguagem de gente. `o` = 'renomear' | 'mover'. */
+export function moveErrorText(err, o = 'mover') {
+  const reason = err?.reason || ''
+  if (reason === 'cannotMoveItemIntoItself') return 'Não dá para mover uma pasta para dentro dela mesma.'
+  if (reason === 'semPai') return err.message
+  if (err?.status === 0) return 'Sem conexão com o Google. Confira a internet e tente de novo.'
+  if (err?.status === 404) return 'Não achei este item ou a pasta: foi apagado ou a conta perdeu o acesso.'
+  if (/teamDrive|shareOut|shareIn|crossDomain/i.test(reason)) return 'O Google não deixa mover para lá (regra do drive compartilhado ou da empresa).'
+  if (err?.status === 403) return o === 'mover' ? 'Você não pode mover este item para lá. Precisa poder editar o item e a pasta.' : 'Você não pode renomear este item. Peça a quem é dono.'
+  return o === 'mover' ? 'Não consegui mover agora. Tente de novo.' : 'Não consegui renomear agora. Tente de novo.'
+}
+
 // Recusas de política (Google Workspace da empresa, Drive compartilhado só para o domínio): o app não tem como
 // contornar, só explicar.
 const POLICY = new Set([
