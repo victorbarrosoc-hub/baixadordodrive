@@ -1,28 +1,24 @@
-// Abertura (Versão 1, "Sobe e desce"): ao abrir o app, a barra violeta sobe, a azul desce, o nome entra no sentido de
-// cada metade (SOBE subindo, DESCE descendo), as barras dão um pulo e o app aparece por baixo.
+// Abertura (Versão 1, "Sobe e desce"): ao abrir o app, o quadrado se forma girando, a barra violeta sobe, a azul desce,
+// o nome entra letra por letra no sentido de cada metade (SOBE subindo, DESCE descendo), as barras dão um pulo e o app
+// aparece por baixo. Igual à prévia aprovada, no computador e no celular.
 // O mesmo arquivo vive no app do computador (public/lib/) e no do celular (web/public/app/lib/): mantenha os dois iguais
 // (test/abertura.test.js confere).
-//   - Computador: o quadrado se forma girando e o nome grande entra letra por letra.
-//   - Celular (`continuar`): começa exatamente do quadro que já está na tela, a imagem de abertura do iPhone
-//     (icons/splash) e o carregamento do index.html (.boot), que são iguais: símbolo de 105 px com brilho e o nome
-//     pequeno, cinza e espaçado. As barras recolhem e disparam de novo e o nome faz a onda acendendo. Sem pulo de
-//     tamanho nem logo duplicado.
-//     No iPhone pela Tela de Início, a tela do app começa abaixo da barra de status e a imagem do sistema não: os dois
-//     sobem metade da barra (--sb-meio, medido no boot.js do celular).
-//   - A animação só começa depois que a tela foi desenhada (dois quadros): enquanto o app monta a tela, ela espera
-//     parada no primeiro quadro, em vez de correr escondida.
+//   - Computador: uma vez por abertura do programa (recarregar na mesma sessão não repete: sessionStorage).
+//   - Celular (`sempre`): toda vez que o app abre, e de novo quando ele volta para a tela depois de um tempo fora
+//     (tocar no ícone com o app em segundo plano: aberturaAoVoltar). A imagem de abertura do iPhone (icons/splash) e o
+//     carregamento do index.html (.boot) são só o fundo: a animação começa do vazio, como na prévia.
+//   - A animação só começa depois que a tela foi desenhada (dois quadros) e com o app à vista: até lá fica parada no
+//     primeiro quadro (fundo liso), em vez de correr escondida.
 //   - Fica por cima até o app estar pronto (`pronto`: no celular, a conta respondeu). Se demorar, as barras seguem num
-//     sobe e desce suave; a tela de "carregando" do app não chega a aparecer. No máximo ~6 s.
-//   - Uma vez por abertura: recarregar na mesma sessão não repete (sessionStorage).
-//   - Um toque, clique ou tecla pula na hora. "Reduzir movimento": só um esmaecer curto.
-//   - Sem Web Animations ou com a aba escondida: não mostra nada.
+//     sobe e desce suave; a tela de "carregando" do app não chega a aparecer. No máximo ~8 s.
+//   - Um toque, clique ou tecla pula na hora.
+//   - Sem Web Animations: não mostra nada.
 // O símbolo é o do favicon (viewBox 24: quadrado rx 7; barras de 3,6 em x 9 e x 15).
 
 const CHAVE = 'sobedesce.abertura'
 const SPRING = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
 const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)'
 const SAI = 'cubic-bezier(0.55, 0, 0.75, 0.2)'
-const CINZA = '#83838e' // o nome na imagem de abertura do iPhone
 const ESPERA_MS = 4500 // quanto a abertura segura esperando o app ficar pronto
 const MAX_MS = 8000
 
@@ -39,10 +35,6 @@ const CSS = `
 .ab-wm span{display:inline-block}
 .ab-f{font-weight:750}
 .ab-r{font-weight:300}
-.ab-camada.is-cont .ab-lockup{gap:28.4px;translate:0 calc(-1 * var(--sb-meio,0px))}
-.ab-camada.is-cont .ab-mk{filter:drop-shadow(0 0 34px rgba(110,96,255,.28))}
-.ab-camada.is-cont .ab-wm{font-size:14px;font-weight:500;letter-spacing:.34em;color:${CINZA}}
-.ab-camada.is-cont .ab-wm span{font-weight:500}
 `
 
 function el(tag, cls, pai) {
@@ -66,21 +58,23 @@ function marcar() {
   } catch {}
 }
 
+let ativa = false // uma camada por vez (voltar ao app no meio da abertura não empilha outra)
+
 /**
- * Mostra a abertura (uma vez por sessão).
- * @param {{ tamanho?: number, continuar?: boolean, pronto?: Promise<unknown> }} o
- *   tamanho: lado do símbolo em px. continuar: o celular, que já mostra o símbolo parado (imagem do iPhone e .boot);
- *   a animação parte desse quadro. pronto: resolve quando o app pode aparecer (a saída espera por ela).
+ * Mostra a abertura.
+ * @param {{ tamanho?: number, sempre?: boolean, pronto?: Promise<unknown> }} o
+ *   tamanho: lado do símbolo em px. sempre: toda vez (celular), sem a trava de uma vez por sessão. pronto: resolve
+ *   quando o app pode aparecer (a saída espera por ela).
  */
-export function abertura({ tamanho = 84, continuar = false, pronto = Promise.resolve() } = {}) {
-  if (typeof document === 'undefined' || !document.body || jaMostrou()) return
-  if (document.visibilityState === 'hidden' || typeof Element.prototype.animate !== 'function') return
+export function abertura({ tamanho = 84, sempre = false, pronto = Promise.resolve() } = {}) {
+  if (typeof document === 'undefined' || !document.body || ativa || (!sempre && jaMostrou())) return
+  if (typeof Element.prototype.animate !== 'function') return
+  ativa = true
   marcar()
-  const reduzir = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
   const estilo = el('style', null, document.head)
   estilo.textContent = CSS
-  const camada = el('div', `ab-camada${continuar ? ' is-cont' : ''}`, document.body)
+  const camada = el('div', 'ab-camada', document.body)
   camada.setAttribute('aria-hidden', 'true')
   camada.style.setProperty('--ab-s', `${tamanho}px`)
   const lk = el('div', 'ab-lockup', camada)
@@ -108,6 +102,7 @@ export function abertura({ tamanho = 84, continuar = false, pronto = Promise.res
   const tirar = () => {
     if (terminou) return
     terminou = true
+    ativa = false
     clearTimeout(seguranca)
     for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.removeEventListener(ev, pular, true)
     camada.remove()
@@ -121,7 +116,7 @@ export function abertura({ tamanho = 84, continuar = false, pronto = Promise.res
     camada.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: SAI, fill: 'forwards' }).finished.then(tirar, tirar)
   }
   for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, pular, { capture: true, passive: true })
-  const seguranca = setTimeout(tirar, MAX_MS)
+  let seguranca = 0
   let miolo = 0 // quando o miolo da animação acaba (depois disso: esperar o app e sair)
   // Esperando o app: as barras seguem num sobe e desce suave (a violeta sobe, a azul desce), em laço.
   const esperando = () => [
@@ -131,19 +126,20 @@ export function abertura({ tamanho = 84, continuar = false, pronto = Promise.res
   const sair = () => {
     if (saindo || terminou) return
     saindo = true
-    lk.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }], { duration: reduzir ? 1 : 480, easing: SAI, fill: 'forwards' })
-    const f = camada.animate(reduzir ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(6px)' }], { delay: reduzir ? 0 : 20, duration: reduzir ? 260 : 420, easing: SAI, fill: 'forwards' })
+    lk.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }], { duration: 480, easing: SAI, fill: 'forwards' })
+    const f = camada.animate([{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(6px)' }], { delay: 20, duration: 420, easing: SAI, fill: 'forwards' })
     f.finished.then(tirar, tirar)
   }
   const tocar = async () => {
     if (saindo || terminou) return
+    seguranca = setTimeout(tirar, MAX_MS)
     for (const x of anims) x.play()
     let pronta = false
     const ok = Promise.resolve(pronto).then(() => (pronta = true), () => (pronta = true))
     await new Promise((r) => setTimeout(r, miolo))
     if (saindo || terminou) return
     if (!pronta) {
-      const laco = reduzir ? [] : esperando()
+      const laco = esperando()
       await Promise.race([ok, new Promise((r) => setTimeout(r, ESPERA_MS))])
       for (const x of laco) x.cancel()
     }
@@ -151,37 +147,37 @@ export function abertura({ tamanho = 84, continuar = false, pronto = Promise.res
   }
 
   const s = tamanho
-  if (reduzir) {
-    if (!continuar) a(lk, [{ opacity: 0 }, { opacity: 1 }], { duration: 220 })
-    miolo = 650
-  } else if (continuar) {
-    // Do quadro parado: as barras recolhem e disparam de novo, o nome faz a onda e acende.
-    const texto = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#f5f5f7'
-    a(up, [{ transform: 'scaleY(1)', transformOrigin: '50% 100%' }, { transform: 'scaleY(.08)', transformOrigin: '50% 100%' }], { duration: 200, easing: SAI })
-    a(down, [{ transform: 'scaleY(1)', transformOrigin: '50% 0%' }, { transform: 'scaleY(.08)', transformOrigin: '50% 0%' }], { delay: 40, duration: 200, easing: SAI })
-    a(up, [{ transform: 'translateY(60%) scaleY(0)', transformOrigin: '50% 100%' }, { transform: 'translateY(0) scaleY(1)', transformOrigin: '50% 100%' }], { delay: 220, duration: 560, easing: SPRING, fill: 'forwards' })
-    a(down, [{ transform: 'translateY(-60%) scaleY(0)', transformOrigin: '50% 0%' }, { transform: 'translateY(0) scaleY(1)', transformOrigin: '50% 0%' }], { delay: 300, duration: 560, easing: SPRING, fill: 'forwards' })
-    faiscas(a, mk, s, 500)
-    letras.forEach((l, k) => {
-      const d = k < 4 ? -1 : 1
-      a(l, [{ transform: 'translateY(0)', color: CINZA }, { transform: `translateY(${d * 55}%)`, offset: 0.4 }, { transform: 'translateY(0)', color: texto }], { delay: 560 + k * 38, duration: 560, easing: 'cubic-bezier(.3,.7,.3,1)' })
-    })
-    pulo(a, up, down, s, 1180)
-    miolo = 1480
-  } else {
-    a(mk, [{ transform: 'scale(.4) rotate(-12deg)', opacity: 0 }, { transform: 'scale(1) rotate(0deg)', opacity: 1 }], { delay: 60, duration: 620, easing: SPRING })
-    a(up, [{ transform: 'translateY(60%) scaleY(0)', transformOrigin: '50% 100%' }, { transform: 'translateY(0) scaleY(1)', transformOrigin: '50% 100%' }], { delay: 280, duration: 560, easing: SPRING })
-    a(down, [{ transform: 'translateY(-60%) scaleY(0)', transformOrigin: '50% 0%' }, { transform: 'translateY(0) scaleY(1)', transformOrigin: '50% 0%' }], { delay: 380, duration: 560, easing: SPRING })
-    faiscas(a, mk, s, 620)
-    letras.forEach((l, k) => {
-      a(l, [{ transform: `translateY(${k < 4 ? 70 : -70}%)`, opacity: 0, filter: 'blur(4px)' }, { transform: 'translateY(0)', opacity: 1, filter: 'blur(0)' }], { delay: 720 + k * 42, duration: 520, easing: SPRING })
-    })
-    pulo(a, up, down, s, 1300)
-    miolo = 1600
-  }
+  a(mk, [{ transform: 'scale(.4) rotate(-12deg)', opacity: 0 }, { transform: 'scale(1) rotate(0deg)', opacity: 1 }], { delay: 60, duration: 620, easing: SPRING })
+  a(up, [{ transform: 'translateY(60%) scaleY(0)', transformOrigin: '50% 100%' }, { transform: 'translateY(0) scaleY(1)', transformOrigin: '50% 100%' }], { delay: 280, duration: 560, easing: SPRING })
+  a(down, [{ transform: 'translateY(-60%) scaleY(0)', transformOrigin: '50% 0%' }, { transform: 'translateY(0) scaleY(1)', transformOrigin: '50% 0%' }], { delay: 380, duration: 560, easing: SPRING })
+  faiscas(a, mk, s, 620)
+  letras.forEach((l, k) => {
+    a(l, [{ transform: `translateY(${k < 4 ? 70 : -70}%)`, opacity: 0, filter: 'blur(4px)' }, { transform: 'translateY(0)', opacity: 1, filter: 'blur(0)' }], { delay: 720 + k * 42, duration: 520, easing: SPRING })
+  })
+  pulo(a, up, down, s, 1300)
+  miolo = 1600
 
   // Dois quadros: o app desenha a tela (o render vem logo depois desta função) e a camada aparece parada; aí anda.
+  // Com o app escondido (o iPhone ainda abrindo) o navegador não desenha quadros: espera ele aparecer.
   requestAnimationFrame(() => requestAnimationFrame(tocar))
+}
+
+/**
+ * Celular: repete a abertura quando o app volta para a tela depois de `foraMs` em segundo plano (tocar no ícone com o
+ * app ainda aberto não recarrega a página).
+ */
+export function aberturaAoVoltar(opcoes = {}, foraMs = 2000) {
+  if (typeof document === 'undefined') return
+  let saiu = 0
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      saiu = Date.now()
+      return
+    }
+    const fora = saiu ? Date.now() - saiu : 0
+    saiu = 0
+    if (fora >= foraMs) abertura({ ...opcoes, sempre: true })
+  })
 }
 
 /** As faíscas: uma sobe violeta, outra desce azul. */
