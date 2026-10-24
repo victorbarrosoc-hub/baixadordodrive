@@ -26,6 +26,7 @@ import { FramesPostSheet } from './components/criar.js'
 import { P2pEnvioSheet, P2pReceberSheet } from './components/p2p.js'
 import { startP2p } from './lib/p2p.js'
 import { parseDriveLink } from './lib/copiar.js'
+import { abertura } from './lib/abertura.js'
 
 const SHEETS = {
   folders: FolderSheet,
@@ -141,6 +142,9 @@ function App() {
   return html`${view}<${SheetHost} registry=${SHEETS} /><${Toasts} />`
 }
 
+// A abertura com o símbolo (uma vez por abertura do app; lib/abertura.js). Aberto pela Tela de Início do iPhone, a
+// imagem de abertura do sistema já mostrou o símbolo com 98 pt no mesmo lugar: o quadrado começa pronto.
+if (!LAN) abertura({ tamanho: 98, quadradoPronto: window.navigator.standalone === true })
 render(html`<${App} />`, document.getElementById('app'))
 document.documentElement.classList.add('is-ready')
 
