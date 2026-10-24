@@ -66,6 +66,8 @@ export function normalizarItem(i) {
     driveFileId: str(i.driveFileId),
     plataforma: str(i.plataforma),
     colecao,
+    // "Também salvar como" escolhido no celular (ids de src/referencias/formatos.js; o serviço confere de novo).
+    formatos: Array.isArray(i.formatos) ? i.formatos.filter(f => typeof f === 'string').slice(0, 8) : [],
     criadoEm: i.criadoEm ?? null,
   }
 }

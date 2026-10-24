@@ -9,7 +9,8 @@
 //   …/lento            progresso devagar por ~30 s (para cancelar)
 //   …/trava            não escreve nada por muito tempo (travamento)
 //   …/sem-arquivo      sai 0 sem gravar o vídeo
-// Variáveis: FAKE_YTDLP_LOG = arquivo onde cada chamada vira uma linha JSON { args, cookies: { modo, texto } | null }.
+// Variáveis: FAKE_YTDLP_LOG = arquivo onde cada chamada vira uma linha JSON { args, cookies: { modo, texto } | null };
+// FAKE_YTDLP_MEDIA = vídeo de verdade copiado como media.mp4 (sem ela, 4 KB de bytes repetidos).
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -75,7 +76,9 @@ async function main() {
   if (partes === 2) out(`[Merger] Merging formats into "${path.join(dir, 'media.mp4')}"`)
   if (/sem-arquivo/.test(url)) process.exit(0)
   fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(path.join(dir, 'media.mp4'), Buffer.alloc(4096, 7))
+  // FAKE_YTDLP_MEDIA: um vídeo de verdade (para converter com o ffmpeg nos testes de "Também salvar como").
+  if (process.env.FAKE_YTDLP_MEDIA) fs.copyFileSync(process.env.FAKE_YTDLP_MEDIA, path.join(dir, 'media.mp4'))
+  else fs.writeFileSync(path.join(dir, 'media.mp4'), Buffer.alloc(4096, 7))
   fs.writeFileSync(path.join(dir, 'media.jpg'), JPEG)
   const info = {
     id: 'abc123',

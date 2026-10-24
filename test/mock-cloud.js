@@ -120,8 +120,8 @@ class MockCloud {
   }
 
   /** Põe um link na fila (como o celular). */
-  addFila(url, colecaoId, { nota = null, status = 'pendente', erro = null } = {}) {
-    const i = { id: `fila_${++this.seq}`, url, nota, status, erro, driveFileId: null, colecaoId, dispositivo: null, criadoEm: new Date().toISOString() }
+  addFila(url, colecaoId, { nota = null, status = 'pendente', erro = null, formatos = null } = {}) {
+    const i = { id: `fila_${++this.seq}`, url, nota, status, erro, driveFileId: null, colecaoId, dispositivo: null, formatos, criadoEm: new Date().toISOString() }
     this.fila.push(i)
     return i
   }
@@ -133,7 +133,7 @@ class MockCloud {
 
   #itemPublico(i) {
     const c = this.colecoes.find(x => x.id === i.colecaoId)
-    return { id: i.id, url: i.url, nota: i.nota, status: i.status, erro: i.erro, driveFileId: i.driveFileId, criadoEm: i.criadoEm, colecao: c ? { id: c.id, nome: c.nome, driveFolderId: c.driveFolderId, contaGoogleId: c.contaGoogleId } : null }
+    return { id: i.id, url: i.url, nota: i.nota, status: i.status, erro: i.erro, driveFileId: i.driveFileId, formatos: i.formatos ?? null, criadoEm: i.criadoEm, colecao: c ? { id: c.id, nome: c.nome, driveFolderId: c.driveFolderId, contaGoogleId: c.contaGoogleId } : null }
   }
 
   async #referencias(req, res, url, session) {
@@ -184,7 +184,7 @@ class MockCloud {
     if (method === 'POST' && p === '/api/referencias/fila') {
       const body = await this.#body(req)
       if (!body?.url || !this.colecoes.some(c => c.id === body.colecaoId)) return falha(400, 'entrada', 'Pedido incompleto.')
-      return ok({ item: this.#itemPublico(this.addFila(String(body.url), body.colecaoId, { nota: body.nota || null })) }, 201)
+      return ok({ item: this.#itemPublico(this.addFila(String(body.url), body.colecaoId, { nota: body.nota || null, formatos: Array.isArray(body.formatos) ? body.formatos : null })) }, 201)
     }
     if ((m = /^\/api\/referencias\/fila\/([^/]+)\/pegar$/.exec(p)) && method === 'POST') {
       this.stats.pegar++

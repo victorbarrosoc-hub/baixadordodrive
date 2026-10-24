@@ -6,6 +6,12 @@
 //   fila do celular: a cada 60 s (e quando o app volta ao foco) pega os links pendentes da conta, um computador por item
 //                    (POST …/pegar; 409 = outro pegou), baixa e marca pronto/erro no site.
 //
+//   formatos ("Baixar como…", src/referencias/formatos.js): trabalho tipo 'formato' na mesma fila. A fonte é o vídeo que
+//                    o yt-dlp acabou de baixar ("Também salvar como", um vínculo em <dados>/referencias/formatos/<id>/)
+//                    ou o original da coleção, baixado do Drive (guardado por 10 min: outro formato do mesmo arquivo
+//                    não baixa de novo) ──▶ ffmpeg ──▶ ao lado do original na coleção (envio normal) e/ou numa pasta
+//                    do computador. Pedidos do celular chegam por src/referencias/pedidos-formato.js.
+//
 // Os trabalhos ficam em <dados>/referencias.json: fechar o app no meio não perde nada (o download recomeça; o envio
 // continua de onde parou, como qualquer envio). Temporários são apagados sempre (deu certo, deu erro, cancelou).
 import fs from 'node:fs/promises'
@@ -16,7 +22,8 @@ import { dispatcherFor } from '../net/http.js'
 import { newId } from '../util/ids.js'
 import { isAbortError } from '../util/backoff.js'
 import { JsonFile } from '../util/store.js'
-import { BROWSE_FIELDS, escapeQueryValue, toDriveItem } from '../google/drive.js'
+import { BROWSE_FIELDS, FILE_FIELDS, escapeQueryValue, toDriveItem } from '../google/drive.js'
+import { PART_SUFFIX, safeLocalName, uniqueName } from '../util/paths.js'
 import { ReferenciasApi, ReferenciasApiError } from './api.js'
 import { detectar, dominiosDeCookies, limparUrl, nomeDaPlataforma } from './plataformas.js'
 import { appProperties, descricao, lerReferencia, nomeDoArquivo } from './metadados.js'
@@ -27,6 +34,7 @@ import { YtdlpUpdater } from './ytdlp-update.js'
 import { CELULAR_OK, ConsertoCelular, MARCA_CELULAR, paraCelular } from './celular.js'
 import { detectarMotor } from '../media/previa.js'
 import { UploadTask } from '../engine/upload.js'
+import { FORMATOS, FormatoError, MSG_FORMATO, converterFormato, ehFormato, formatoServe, limparFormatos, nomeConvertido, tipoDoArquivo } from './formatos.js'
 
 const POLL_MS = 30_000 // fila do celular: o contrato pede ~30 s com o app aberto
 const VIDA_MS = 5 * 60_000 // item pego da fila: "ainda estou baixando" (sem notícia por 30 min, o site libera o item)
@@ -41,6 +49,9 @@ const MINIATURA_MAX = 2 * 1024 * 1024
 const ATIVAS = new Set(['na_fila', 'baixando', 'enviando', 'concluindo'])
 const FINAIS = new Set(['pronto', 'erro', 'cancelado'])
 const EVENTO_MS = 250
+const ORIGINAL_TTL_MS = 10 * 60_000 // original baixado do Drive para converter: fica um pouco (outro formato não baixa de novo)
+const ORIGINAIS_MAX = 3
+const DESTINOS = new Set(['drive', 'computador', 'ambos'])
 
 const MSG = {
   semConta: 'Entre na conta SOBEDESCE para usar as Referências.',
@@ -51,6 +62,19 @@ const MSG = {
   cancelado: 'Cancelado no computador.',
   envioFalhou: 'Não consegui enviar para o Drive.',
   imagem: 'Não consegui baixar a imagem.',
+  semOriginal: 'O original não está mais neste computador nem no Drive. Salve a referência de novo.',
+  semArquivo: 'Este arquivo não está mais no Drive.',
+  naoMidia: 'Só dá para converter vídeos e fotos.',
+  formato: 'Escolha um formato.',
+  jaNaColecao: 'O original já está na coleção.',
+}
+
+/** appProperties do convertido: as do original (link, autor, título, plataforma) com a marca 'formato'. */
+export function propsDoFormato(props, formato, de = null) {
+  const out = { sobedesce: 'formato', formato }
+  for (const k of ['plataforma', 'autor', 'titulo', 'fonte']) if (typeof props?.[k] === 'string' && props[k]) out[k] = props[k]
+  if (typeof de === 'string' && de) out.de = de.slice(0, 100)
+  return out
 }
 
 /** Cabeçalho Cookie para `url` a partir de cookies do Electron (domínio, caminho e "secure" conferidos). */
@@ -145,6 +169,12 @@ function publico(j) {
     driveFileId: j.driveFileId || null,
     filaId: j.filaId || null,
     origem: j.origem,
+    formatos: j.formatos?.length ? j.formatos : undefined,
+    formato: j.formato || undefined,
+    formatoNome: j.formato ? FORMATOS[j.formato]?.curto || j.formato : undefined,
+    destino: j.destino || undefined,
+    caminho: j.caminho || undefined,
+    pasta: j.tipo === 'formato' && j.destino !== 'drive' ? j.pasta || null : undefined,
     criadoEm: j.criadoEm,
     atualizadoEm: j.atualizadoEm,
   }
@@ -159,9 +189,10 @@ export class ReferenciasService extends EventEmitter {
    * @param {object} o.manager TransferManager (envios e driveFor)
    * Peças trocáveis (testes): cloud, api, updater, baixar (baixarVideo), baixarImagem, ffmpeg (() => caminho|null),
    * jsRuntime, cookies (async (dominios) => Cookie[]), pollMs, concorrencia, log, motor (async () => conversor de vídeo),
-   * converter (paraCelular), conserto (false desliga a passada das antigas; src/referencias/celular.js), criarUpload.
+   * converter (paraCelular), conserto (false desliga a passada das antigas; src/referencias/celular.js), criarUpload,
+   * converterFormato ("Baixar como…", src/referencias/formatos.js), originalTtlMs.
    */
-  constructor({ paths, settings, auth, manager, cloud = auth?.cloud ?? null, api, updater, baixar = baixarVideo, baixarImg = baixarImagem, ffmpeg, jsRuntime, cookies = null, pollMs = POLL_MS, vidaMs = VIDA_MS, concorrencia = CONCORRENCIA, log, autoStart = true, motor, converter = paraCelular, conserto = true, criarUpload = (rec, ctx) => new UploadTask(rec, ctx) } = {}) {
+  constructor({ paths, settings, auth, manager, cloud = auth?.cloud ?? null, api, updater, baixar = baixarVideo, baixarImg = baixarImagem, ffmpeg, jsRuntime, cookies = null, pollMs = POLL_MS, vidaMs = VIDA_MS, concorrencia = CONCORRENCIA, log, autoStart = true, motor, converter = paraCelular, conserto = true, criarUpload = (rec, ctx) => new UploadTask(rec, ctx), converterFormato: converterFmt = converterFormato, originalTtlMs = ORIGINAL_TTL_MS } = {}) {
     super()
     this.paths = paths
     this.settings = settings
@@ -172,6 +203,11 @@ export class ReferenciasService extends EventEmitter {
     this.dir = path.join(paths.root, 'referencias')
     this.tmpDir = path.join(this.dir, 'tmp')
     this.enviosDir = path.join(this.dir, 'envios')
+    this.formatosDir = path.join(this.dir, 'formatos') // fonte local dos "Também salvar como" (vínculo ao vídeo baixado)
+    this.originaisDir = path.join(this.dir, 'originais') // originais baixados do Drive para converter
+    this.converterFormato = converterFmt
+    this.originalTtlMs = originalTtlMs
+    this.originais = new Map() // chave (conta, arquivo, versão) -> { path, limpar, timer, usos }
     this.updater = updater === undefined ? new YtdlpUpdater({ dir: path.join(paths.root, 'yt-dlp'), log: (...a) => this.log(...a) }) : updater
     this.baixar = baixar
     this.baixarImg = baixarImg
@@ -228,6 +264,7 @@ export class ReferenciasService extends EventEmitter {
     await fs.mkdir(this.dir, { recursive: true, mode: 0o700 })
     // Restos de downloads de uma abertura anterior (queda, app fechado no meio): sempre fora.
     await fs.rm(this.tmpDir, { recursive: true, force: true }).catch(() => {})
+    await fs.rm(this.originaisDir, { recursive: true, force: true }).catch(() => {})
     for (const j of Array.isArray(raw?.trabalhos) ? raw.trabalhos : []) {
       if (!j || typeof j.id !== 'string' || !j.url) continue
       this.jobs.set(j.id, j)
@@ -251,6 +288,11 @@ export class ReferenciasService extends EventEmitter {
     for (const ac of this.running.values()) ac.abort()
     for (const t of this.vida.values()) clearInterval(t)
     this.vida.clear()
+    for (const o of this.originais.values()) {
+      clearTimeout(o.timer)
+      o.limpar()
+    }
+    this.originais.clear()
     this.manager?.off?.('transfers', this.onTransfers)
     this.manager?.off?.('removed', this.onRemoved)
     this.cloud?.off?.('status', this.onCloud)
@@ -443,6 +485,8 @@ export class ReferenciasService extends EventEmitter {
         if (it.isFolder) continue
         it.createdTime = f.createdTime ?? null
         it.referencia = lerReferencia(f)
+        // Convertido pelo "Baixar como…" (MP3 320, WAV…): a tela mostra o formato junto do título.
+        if (f.appProperties?.sobedesce === 'formato') it.formato = FORMATOS[f.appProperties.formato]?.curto || f.appProperties.formato || null
         itens.push(it)
       }
       pageToken = r.nextPageToken
@@ -482,36 +526,37 @@ export class ReferenciasService extends EventEmitter {
 
   /**
    * Salva um vídeo/post (o yt-dlp baixa, o envio sobe). Volta na hora com o trabalho; o resto é em segundo plano.
-   * @param {{ url: string, colecaoId: string, nota?: string, origem?: 'navegador'|'colar'|'fila', filaId?: string, colecao?: object }} o
+   * `formatos`: "Também salvar como" (ids de src/referencias/formatos.js): convertidos do vídeo baixado, ao lado dele.
+   * @param {{ url: string, colecaoId: string, nota?: string, origem?: 'navegador'|'colar'|'fila', filaId?: string, colecao?: object, formatos?: string[] }} o
    */
-  async salvar({ url, colecaoId, nota = '', origem = 'colar', filaId = null, colecao = null } = {}) {
+  async salvar({ url, colecaoId, nota = '', origem = 'colar', filaId = null, colecao = null, formatos = [] } = {}) {
     this.#semConta()
     const limpo = limparUrl(url)
     if (!limpo) throw new ReferenciasApiError('entrada', MSG.linkInvalido, { status: 400 })
     const c = colecao?.driveFolderId && colecao?.contaId ? colecao : await this.#colecao(colecaoId)
     this.#contaDaColecao(c)
-    const job = this.#novo({ tipo: 'video', url: limpo, colecao: c, nota, origem, filaId })
+    const job = this.#novo({ tipo: 'video', url: limpo, colecao: c, nota, origem, filaId, formatos: limparFormatos(formatos).filter(id => formatoServe(id, 'video')) })
     this.#proximo()
     return publico(job)
   }
 
   /**
    * Salva uma imagem (menu "Salvar imagem como referência" do navegador de referências).
-   * @param {{ imagemUrl: string, paginaUrl?: string, titulo?: string, colecaoId: string, nota?: string }} o
+   * @param {{ imagemUrl: string, paginaUrl?: string, titulo?: string, colecaoId: string, nota?: string, formatos?: string[] }} o
    */
-  async salvarImagem({ imagemUrl, paginaUrl = '', titulo = '', colecaoId, nota = '' } = {}) {
+  async salvarImagem({ imagemUrl, paginaUrl = '', titulo = '', colecaoId, nota = '', formatos = [] } = {}) {
     this.#semConta()
     const isData = typeof imagemUrl === 'string' && /^data:image\//i.test(imagemUrl)
     if (!isData && !limparUrl(imagemUrl)) throw new ReferenciasApiError('entrada', 'Endereço de imagem inválido.', { status: 400 })
     const c = await this.#colecao(colecaoId)
     this.#contaDaColecao(c)
     const pagina = limparUrl(paginaUrl) || (isData ? '' : imagemUrl)
-    const job = this.#novo({ tipo: 'imagem', url: pagina || imagemUrl.slice(0, 200), imagemUrl, titulo: String(titulo || '').slice(0, 300), colecao: c, nota, origem: 'navegador' })
+    const job = this.#novo({ tipo: 'imagem', url: pagina || imagemUrl.slice(0, 200), imagemUrl, titulo: String(titulo || '').slice(0, 300), colecao: c, nota, origem: 'navegador', formatos: limparFormatos(formatos).filter(id => formatoServe(id, 'foto')) })
     this.#proximo()
     return publico(job)
   }
 
-  #novo({ tipo, url, imagemUrl, titulo, colecao, nota, origem, filaId }) {
+  #novo({ tipo, url, imagemUrl, titulo, colecao, nota, origem, filaId, formatos = [] }) {
     const now = Date.now()
     const job = {
       id: newId('ref'),
@@ -524,6 +569,7 @@ export class ReferenciasService extends EventEmitter {
       nota: String(nota || '').trim().slice(0, 2000),
       origem,
       filaId: filaId || null,
+      formatos,
       fase: 'na_fila',
       progresso: null,
       erro: null,
@@ -584,7 +630,7 @@ export class ReferenciasService extends EventEmitter {
       if (j.fase !== 'na_fila' || this.running.has(j.id)) continue
       const ac = new AbortController()
       this.running.set(j.id, ac)
-      this.#rodar(j, ac.signal)
+      ;(j.tipo === 'formato' ? this.#rodarFormato(j, ac.signal) : this.#rodar(j, ac.signal))
         .catch(err => this.log('trabalho falhou sem tratamento:', err?.stack || err))
         .finally(() => {
           this.running.delete(j.id)
@@ -609,7 +655,10 @@ export class ReferenciasService extends EventEmitter {
       await fs.mkdir(work, { recursive: true, mode: 0o700 })
       await fs.mkdir(envio, { recursive: true, mode: 0o700 })
       let pronto
-      if (j.tipo === 'imagem') pronto = await this.#prepararImagem(j, envio, signal)
+      if (j.tipo === 'imagem') {
+        pronto = await this.#prepararImagem(j, envio, signal)
+        await this.#formatosDoSalvamento(j, pronto)
+      }
       else {
         const bin = await this.updater?.resolver?.()
         if (!bin) throw new YtdlpError('sem_ytdlp', MSG.semYtdlp)
@@ -646,6 +695,7 @@ export class ReferenciasService extends EventEmitter {
         cookiesFile = null
         pronto = await this.#prepararVideo(j, r, envio)
         await this.#paraCelular(j, pronto, signal)
+        await this.#formatosDoSalvamento(j, pronto)
       }
       await limpar()
       if (signal.aborted) throw Object.assign(new Error('cancelado'), { name: 'AbortError' })
@@ -836,6 +886,378 @@ export class ReferenciasService extends EventEmitter {
     if (!added.records.length) throw new Error('o envio não entrou na fila')
   }
 
+  // ─────────── formatos ("Baixar como…") ───────────
+
+  /** O ffmpeg que converte (o da prévia leve) e o codificador de vídeo que ela testou nesta máquina. */
+  async conversor() {
+    const motor = await Promise.resolve(this.motor()).catch(() => null)
+    const ffmpeg = motor?.ffmpeg?.path || this.ffmpeg() || null
+    return { ffmpeg, encoder: motor?.encoder?.nome || null }
+  }
+
+  /**
+   * "Também salvar como": cada formato vira um trabalho que converte o vídeo recém-baixado (um vínculo dele em
+   * <dados>/referencias/formatos/<id>/, que some quando a conversão termina) e sobe ao lado do original.
+   */
+  async #formatosDoSalvamento(j, pronto) {
+    const tipo = j.tipo === 'imagem' ? 'foto' : 'video'
+    const ids = (j.formatos || []).filter(id => formatoServe(id, tipo) && id !== 'original')
+    for (const formato of ids) {
+      // Foto que já é JPEG não precisa de "JPG": seria o mesmo arquivo duas vezes.
+      if (formato === 'jpg' && /\.jpe?g$/i.test(pronto.nome)) continue
+      const id = newId('fmt')
+      const dir = path.join(this.formatosDir, id)
+      try {
+        await fs.mkdir(dir, { recursive: true, mode: 0o700 })
+        const fonte = path.join(dir, `fonte${path.extname(pronto.nome).toLowerCase() || '.mp4'}`)
+        await fs.link(pronto.arquivo, fonte).catch(() => fs.copyFile(pronto.arquivo, fonte))
+        const plataforma = pronto.meta?.appProperties?.plataforma || j.plataforma
+        this.#novoFormato({
+          id,
+          formato,
+          destino: 'drive',
+          colecao: j.colecao,
+          url: j.url,
+          plataforma: detectar(j.url).plataforma || plataforma || 'web',
+          nome: nomeConvertido(pronto.nome, formato),
+          fonte: { tipo: 'local', path: fonte, nome: pronto.nome, mimeType: tipo === 'foto' ? '' : 'video/mp4', accountId: j.colecao.contaId, fileId: null },
+          pastaDrive: j.colecao.driveFolderId,
+          meta: { description: pronto.meta?.description || '', appProperties: propsDoFormato(pronto.meta?.appProperties, formato) },
+          origem: j.origem === 'fila' ? 'fila' : 'salvar',
+          de: j.id,
+        })
+      } catch (err) {
+        await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+        this.log(`não preparei o ${FORMATOS[formato]?.curto || formato}:`, err?.message)
+      }
+    }
+    if (ids.length) this.#proximo()
+  }
+
+  #novoFormato({ id = newId('fmt'), formato, destino, pasta = null, colecao, url, plataforma, nome, fonte, pastaDrive, meta, origem, de = null, pedidoId = null }) {
+    const now = Date.now()
+    const job = {
+      id,
+      tipo: 'formato',
+      formato,
+      destino,
+      pasta,
+      url,
+      plataforma: plataforma || 'web',
+      colecao: colecao ? { id: colecao.id, nome: colecao.nome, driveFolderId: colecao.driveFolderId, contaId: colecao.contaId } : null,
+      nome,
+      fonte,
+      pastaDrive,
+      meta,
+      origem,
+      de,
+      pedidoId,
+      nota: '',
+      fase: 'na_fila',
+      progresso: null,
+      erro: null,
+      criadoEm: now,
+      atualizadoEm: now,
+    }
+    this.jobs.set(job.id, job)
+    this.file.saveSoon?.()
+    this.#emit()
+    return job
+  }
+
+  /**
+   * "Baixar como…" de uma referência que já está no Drive. A coleção diz a conta e a pasta; sem ela (pedido do
+   * celular), vale `accountId` e o convertido fica na pasta do próprio arquivo.
+   * @param {{ colecaoId?: string, accountId?: string, fileId: string, formato: string, destino?: 'drive'|'computador'|'ambos',
+   *   destDir?: string|null, pedidoId?: string|null, origem?: string, signal?: AbortSignal }} o
+   */
+  async exportar({ colecaoId = null, accountId = null, fileId, formato, destino = 'computador', destDir = null, pedidoId = null, origem = 'tela', signal } = {}) {
+    this.#semConta()
+    if (!ehFormato(formato)) throw new ReferenciasApiError('entrada', MSG.formato, { status: 400 })
+    if (!DESTINOS.has(destino)) throw new ReferenciasApiError('entrada', 'Escolha onde salvar.', { status: 400 })
+    if (formato === 'original') throw new ReferenciasApiError('entrada', MSG.jaNaColecao, { status: 400 })
+    let c = null
+    let conta = accountId
+    if (colecaoId) {
+      c = await this.#colecao(colecaoId)
+      conta = this.#contaDaColecao(c).id
+    }
+    if (!conta || !(this.auth?.listAccounts?.() || []).some(a => a.id === conta)) throw new ReferenciasApiError('sem_drive', MSG.semDrive, { status: 409 })
+    const drive = this.manager.driveFor(conta)
+    let f
+    try {
+      f = await drive.api('GET', `files/${encodeURIComponent(fileId)}`, { query: { fields: `${FILE_FIELDS},description,appProperties,trashed`, supportsAllDrives: 'true' }, signal, retries: 2 })
+    } catch (err) {
+      if (err?.status === 404) throw new ReferenciasApiError('nao_encontrada', MSG.semArquivo, { status: 404 })
+      throw err
+    }
+    if (!f || f.trashed) throw new ReferenciasApiError('nao_encontrada', MSG.semArquivo, { status: 404 })
+    const item = toDriveItem(f)
+    const tipo = tipoDoArquivo(item)
+    if (!tipo || item.isFolder) throw new ReferenciasApiError('entrada', MSG.naoMidia, { status: 400 })
+    if (!formatoServe(formato, tipo)) throw new ReferenciasApiError('entrada', MSG_FORMATO.naoServe, { status: 400 })
+    const pastaDrive = c?.driveFolderId || item.parents?.[0] || null
+    if (destino !== 'computador' && !pastaDrive) throw new ReferenciasApiError('entrada', 'Não achei a pasta deste arquivo no Drive.', { status: 400 })
+    if (!c && pastaDrive) {
+      const conhecida = (this.colecoesCache?.colecoes || []).find(x => x.driveFolderId === pastaDrive)
+      if (conhecida) c = conhecida
+    }
+    const props = f.appProperties || {}
+    const origemLink = lerReferencia(f).url || ''
+    const pasta = destino === 'drive' ? null : path.resolve(destDir || this.settings?.get?.()?.downloadDir || path.join(process.env.HOME || '.', 'Downloads'))
+    const job = this.#novoFormato({
+      formato,
+      destino,
+      pasta,
+      colecao: c || { id: null, nome: 'Drive', driveFolderId: pastaDrive, contaId: conta },
+      url: origemLink,
+      plataforma: (origemLink && detectar(origemLink).plataforma) || props.plataforma || 'web',
+      nome: nomeConvertido(item.name, formato),
+      fonte: { tipo: 'drive', accountId: conta, fileId: item.id, nome: item.name, mimeType: item.mimeType, size: item.size, md5: item.md5, modifiedTime: item.modifiedTime, headRevisionId: item.headRevisionId || null, resourceKey: item.resourceKey || null, parents: item.parents || [] },
+      pastaDrive,
+      meta: { description: typeof f.description === 'string' ? f.description : '', appProperties: propsDoFormato(props, formato, item.id) },
+      origem,
+      pedidoId,
+    })
+    this.#proximo()
+    return publico(job)
+  }
+
+  /** Espera um trabalho chegar ao fim (pronto, erro ou cancelado). */
+  esperar(id) {
+    const j = this.jobs.get(id)
+    if (!j) return Promise.resolve(null)
+    if (FINAIS.has(j.fase)) return Promise.resolve(publico(j))
+    return new Promise(resolve => {
+      const fim = t => {
+        if (t.id !== id) return
+        this.off('fim', fim)
+        resolve(t)
+      }
+      this.on('fim', fim)
+    })
+  }
+
+  async #rodarFormato(j, signal) {
+    const work = path.join(this.tmpDir, j.id)
+    let original = null
+    // `fonte: false` = o app está fechando: o vídeo baixado fica para a conversão recomeçar na próxima abertura.
+    const limpar = async ({ fonte = true } = {}) => {
+      await fs.rm(work, { recursive: true, force: true }).catch(() => {})
+      if (fonte && j.fonte?.tipo === 'local') await fs.rm(path.join(this.formatosDir, j.id), { recursive: true, force: true }).catch(() => {})
+    }
+    this.#touch(j, { fase: 'baixando', erro: null, progresso: { fase: 'preparando', fracao: null }, caminho: null, driveFileId: null, transferId: null })
+    try {
+      await fs.mkdir(work, { recursive: true, mode: 0o700 })
+      const conv = await this.conversor()
+      // 1) a fonte: o vídeo baixado agora há pouco (salvar) ou o original da coleção (do Drive, uma vez só)
+      let entrada = null
+      if (j.fonte?.tipo === 'local' && j.fonte.path && (await fs.stat(j.fonte.path).catch(() => null))?.isFile()) entrada = j.fonte.path
+      else if (j.fonte?.fileId) {
+        original = await this.#original(j, signal)
+        entrada = original.path
+      } else throw new FormatoError('sem_original', MSG.semOriginal)
+      // 2) a conversão
+      const f = FORMATOS[j.formato]
+      const saida = path.join(work, `saida.${f.ext}`)
+      this.#touch(j, { progresso: { fase: 'convertendo', fracao: 0 } })
+      let ultimo = 0
+      await this.converterFormato({
+        ffmpeg: conv.ffmpeg,
+        motorEncoder: conv.encoder,
+        formato: j.formato,
+        entrada,
+        saida,
+        mimeType: j.fonte?.mimeType || '',
+        signal,
+        log: (...a) => this.log(...a),
+        onProgress: frac => {
+          j.progresso = { fase: 'convertendo', fracao: frac ?? null }
+          const now = Date.now()
+          if (now - ultimo > EVENTO_MS) {
+            ultimo = now
+            this.#emit()
+          }
+        },
+      })
+      original?.soltar()
+      original = null
+      if (signal.aborted) throw Object.assign(new Error('cancelado'), { name: 'AbortError' })
+      // 3) os destinos: o computador primeiro (é na hora), depois o Drive (envio normal, retomável)
+      let caminho = null
+      if (j.destino !== 'drive') caminho = await this.#paraComputador(j, saida)
+      if (j.destino === 'computador') {
+        await limpar()
+        await this.#terminar(j, 'pronto', null, { caminho })
+        this.#toast('success', `${f.curto} salvo em ${path.basename(j.pasta) || j.pasta}`)
+        return
+      }
+      const envio = path.join(this.enviosDir, j.id)
+      await fs.mkdir(envio, { recursive: true, mode: 0o700 })
+      const arquivo = path.join(envio, 'arquivo')
+      await fs.rename(saida, arquivo)
+      await limpar()
+      if (caminho) this.#touch(j, { caminho })
+      await this.#enviarFormato(j, arquivo)
+    } catch (err) {
+      original?.soltar()
+      original = null
+      const abortado = isAbortError(err) || signal.aborted
+      await limpar({ fonte: !(abortado && this.closed) })
+      if (abortado) {
+        if (this.closed) return
+        if (ATIVAS.has(j.fase)) await this.#terminar(j, 'cancelado', { codigo: 'cancelado', mensagem: MSG.cancelado })
+        return
+      }
+      const conhecido = err instanceof FormatoError || err instanceof ReferenciasApiError
+      if (!conhecido || err.detalhe) this.log(`${FORMATOS[j.formato]?.curto || j.formato}:`, err?.detalhe || err?.message)
+      const mensagem = conhecido ? err.message : /espaço/i.test(err?.message || '') ? `Sem espaço no disco: ${err.message}.` : `Não deu para converter para ${FORMATOS[j.formato]?.curto || j.formato}.`
+      await fs.rm(path.join(this.enviosDir, j.id), { recursive: true, force: true }).catch(() => {})
+      await this.#terminar(j, 'erro', { codigo: err?.codigo || 'erro', mensagem })
+    } finally {
+      original?.soltar()
+    }
+  }
+
+  /**
+   * Original do Drive para converter. Fica guardado 10 min depois de usado (outro formato do mesmo arquivo não
+   * baixa de novo); no máximo 3 de uma vez; tudo some ao fechar o app.
+   * @returns {Promise<{ path: string, soltar: () => void }>}
+   */
+  async #original(j, signal) {
+    const f = j.fonte
+    const chave = `${f.accountId}:${f.fileId}:${f.md5 || f.headRevisionId || f.modifiedTime || ''}`
+    const guardado = this.originais.get(chave)
+    if (guardado && (await fs.stat(guardado.path).catch(() => null))?.isFile()) {
+      clearTimeout(guardado.timer)
+      guardado.timer = null
+      guardado.usos++
+      return { path: guardado.path, soltar: this.#soltarUmaVez(chave, guardado) }
+    }
+    const previas = this.manager?.previas
+    if (!previas?.baixarOriginal) throw new FormatoError('sem_original', 'Baixar do Drive para converter não está disponível nesta versão.')
+    await fs.mkdir(this.originaisDir, { recursive: true, mode: 0o700 })
+    const drive = this.manager.driveFor(f.accountId)
+    const item = { id: f.fileId, name: f.nome, mimeType: f.mimeType, size: f.size, md5: f.md5, modifiedTime: f.modifiedTime, headRevisionId: f.headRevisionId, resourceKey: f.resourceKey }
+    let ultimo = 0
+    this.#touch(j, { progresso: { fase: 'original', fracao: 0 } })
+    const b = await previas.baixarOriginal(drive, item, {
+      signal,
+      tmpRoot: this.originaisDir,
+      onFase: (_fase, frac) => {
+        j.progresso = { fase: 'original', fracao: frac ?? null }
+        const now = Date.now()
+        if (now - ultimo > EVENTO_MS) {
+          ultimo = now
+          this.#emit()
+        }
+      },
+    })
+    if (this.originais.size >= ORIGINAIS_MAX) {
+      // Sai o mais antigo que ninguém está usando.
+      for (const [k, o] of this.originais) {
+        if (o.usos > 0) continue
+        clearTimeout(o.timer)
+        this.originais.delete(k)
+        o.limpar()
+        break
+      }
+    }
+    const entrada = { path: b.path, limpar: b.limpar, timer: null, usos: 1 }
+    this.originais.get(chave)?.limpar?.() // corrida: dois trabalhos baixaram o mesmo arquivo ao mesmo tempo
+    this.originais.set(chave, entrada)
+    return { path: b.path, soltar: this.#soltarUmaVez(chave, entrada) }
+  }
+
+  #soltarUmaVez(chave, o) {
+    let feito = false
+    return () => {
+      if (feito) return
+      feito = true
+      this.#soltarOriginal(chave, o)
+    }
+  }
+
+  #soltarOriginal(chave, o) {
+    o.usos = Math.max(0, o.usos - 1)
+    if (o.usos > 0 || this.originais.get(chave) !== o) return
+    clearTimeout(o.timer)
+    o.timer = setTimeout(() => {
+      if (this.originais.get(chave) !== o || o.usos > 0) return
+      this.originais.delete(chave)
+      o.limpar()
+    }, this.originalTtlMs)
+    o.timer.unref?.()
+  }
+
+  /** Copia o convertido para a pasta escolhida (Downloads por padrão), sem sobrescrever nada: "Nome (2).mp3". */
+  async #paraComputador(j, saida) {
+    const pasta = j.pasta
+    try {
+      await fs.mkdir(pasta, { recursive: true })
+    } catch (err) {
+      throw new FormatoError('pasta', `Não consegui usar a pasta ${pasta}.`, { detalhe: err?.message })
+    }
+    const nome = uniqueName(safeLocalName(j.nome), await fs.readdir(pasta).catch(() => []))
+    const final = path.join(pasta, nome)
+    const parcial = `${final}${PART_SUFFIX}`
+    try {
+      await fs.copyFile(saida, parcial)
+      await fs.rename(parcial, final)
+    } catch (err) {
+      await fs.rm(parcial, { force: true }).catch(() => {})
+      if (err?.code === 'ENOSPC') throw new FormatoError('espaco', `Sem espaço em ${pasta}.`)
+      throw new FormatoError('pasta', `Não consegui gravar em ${pasta}.`, { detalhe: err?.message })
+    }
+    return final
+  }
+
+  /** Sobe o convertido ao lado do original (mesma pasta da coleção), pela fila de envios, como uma referência. */
+  async #enviarFormato(j, arquivo) {
+    const st = await fs.stat(arquivo)
+    const now = Date.now()
+    const conta = j.colecao?.contaId || j.fonte?.accountId
+    const batch = { id: newId('b'), type: 'upload', label: `Referência · ${j.colecao?.nome || 'Drive'}`, createdAt: now, accountId: conta, quiet: true }
+    const rec = {
+      id: newId('t'),
+      type: 'upload',
+      accountId: conta,
+      batchId: batch.id,
+      status: 'queued',
+      name: j.nome,
+      relPath: j.nome,
+      size: st.size,
+      bytesDone: 0,
+      createdAt: now,
+      startedAt: null,
+      finishedAt: null,
+      updatedAt: now,
+      error: null,
+      retryAt: null,
+      attempts: 0,
+      verify: null,
+      note: null,
+      conflict: 'skip',
+      local: { path: arquivo, size: st.size, mtimeMs: st.mtimeMs },
+      target: { rootId: j.pastaDrive, relDir: '', parentId: j.pastaDrive, driveId: null, replaceFileId: null, fileId: null, meta: j.meta },
+      session: null,
+      referencia: { jobId: j.id, colecao: j.colecao?.nome || null },
+    }
+    this.byTransfer.set(rec.id, j.id)
+    this.#touch(j, { fase: 'enviando', transferId: rec.id, progresso: { fase: 'enviando', fracao: 0 } })
+    const added = await this.manager.add({ batch, records: [rec] })
+    if (!added.records.length) throw new Error('o envio não entrou na fila')
+  }
+
+  /** Trabalhos de formato que esperavam o original deste salvamento: agora sabem onde ele está no Drive. */
+  #originalNoDrive(j) {
+    for (const x of this.jobs.values()) {
+      if (x.tipo !== 'formato' || x.de !== j.id || !x.fonte) continue
+      x.fonte = { ...x.fonte, accountId: j.colecao.contaId, fileId: j.driveFileId }
+      x.meta = { ...x.meta, appProperties: { ...x.meta?.appProperties, de: j.driveFileId } }
+    }
+  }
+
   // ─────────── fim dos envios (eventos da fila de transferências) ───────────
 
   #transfersChanged(list) {
@@ -884,7 +1306,9 @@ export class ReferenciasService extends EventEmitter {
       }
     }
     await this.#terminar(j, 'pronto', null, { driveFileId: fileId })
-    this.#toast('success', `Salvo em ${j.colecao.nome}`)
+    if (j.tipo === 'formato') {
+      if (j.origem !== 'pedido') this.#toast('success', `${FORMATOS[j.formato]?.curto || 'Convertido'} salvo em ${j.colecao?.nome || 'Drive'}${j.caminho ? ` e em ${path.basename(j.pasta || '') || 'sua pasta'}` : ''}`)
+    } else this.#toast('success', `Salvo em ${j.colecao.nome}`)
   }
 
   /** Estado final: grava, apaga os temporários e avisa o site quando o trabalho veio da fila do celular. */
@@ -896,11 +1320,19 @@ export class ReferenciasService extends EventEmitter {
     const daFila = j.filaId
     // Apaga os temporários antes de anunciar o fim: quem vê "pronto" (a tela, os testes) não encontra resto.
     if (fase === 'pronto' || fase === 'cancelado' || fase === 'erro') await fs.rm(path.join(this.enviosDir, j.id), { recursive: true, force: true }).catch(() => {})
+    if (j.tipo === 'formato') await fs.rm(path.join(this.formatosDir, j.id), { recursive: true, force: true }).catch(() => {})
     this.#touch(j, { fase, erro, progresso: null, miniatura: null, ...extra })
     terminando.delete(j) // daqui em diante a fase final barra; "Tentar de novo" reusa o mesmo trabalho
     if (j.transferId && fase !== 'enviando') this.byTransfer.delete(j.transferId)
-    if (fase === 'pronto') this.#bump(j.colecao.id)
-    if (fase === 'erro' && j.origem !== 'fila') this.#toast('error', `${j.colecao?.nome ? `${j.colecao.nome}: ` : ''}${erro?.mensagem || 'não deu para salvar.'}`)
+    if (fase === 'pronto' && j.colecao?.id) this.#bump(j.colecao.id)
+    if (fase === 'pronto' && j.tipo !== 'formato' && j.driveFileId) this.#originalNoDrive(j)
+    // Cancelou o salvamento: os "Também salvar como" que nem começaram vão junto.
+    if (fase === 'cancelado' && j.tipo !== 'formato') for (const x of this.jobs.values()) if (x.tipo === 'formato' && x.de === j.id && x.fase === 'na_fila') this.#terminar(x, 'cancelado', { codigo: 'cancelado', mensagem: MSG.cancelado }).catch(() => {})
+    if (fase === 'erro' && j.origem !== 'fila' && j.origem !== 'pedido') {
+      const quem = j.tipo === 'formato' ? FORMATOS[j.formato]?.curto || 'Conversão' : j.colecao?.nome
+      this.#toast('error', `${quem ? `${quem}: ` : ''}${erro?.mensagem || 'não deu para salvar.'}`)
+    }
+    this.emit('fim', publico(j))
     if (daFila) {
       const patch = fase === 'pronto' ? { status: 'pronto', driveFileId: j.driveFileId } : { status: 'erro', erro: erro?.mensagem || 'Não deu para salvar.' }
       await this.api.atualizarItem(daFila, patch).catch(err => this.log('não consegui avisar o site sobre o item da fila:', err?.message))
@@ -943,11 +1375,13 @@ export class ReferenciasService extends EventEmitter {
     this.file.saveSoon?.()
   }
 
-  /** Pastas de envio sem trabalho ativo (sobras): fora. */
+  /** Pastas de envio e fontes de formato sem trabalho ativo (sobras): fora. */
   async #limparEnvios() {
     const vivos = new Set([...this.jobs.values()].filter(j => ATIVAS.has(j.fase)).map(j => j.id))
-    const nomes = await fs.readdir(this.enviosDir).catch(() => [])
-    for (const n of nomes) if (!vivos.has(n)) await fs.rm(path.join(this.enviosDir, n), { recursive: true, force: true }).catch(() => {})
+    for (const dir of [this.enviosDir, this.formatosDir]) {
+      const nomes = await fs.readdir(dir).catch(() => [])
+      for (const n of nomes) if (!vivos.has(n)) await fs.rm(path.join(dir, n), { recursive: true, force: true }).catch(() => {})
+    }
   }
 
   #agendar() {
@@ -1006,7 +1440,7 @@ export class ReferenciasService extends EventEmitter {
           if (!meu) continue // outro computador pegou antes
           const colecaoInfo = item.colecao?.driveFolderId && item.colecao.contaId ? item.colecao : null
           try {
-            await this.salvar({ url: item.url, colecaoId: item.colecao?.id, colecao: colecaoInfo, nota: item.nota || '', origem: 'fila', filaId: item.id })
+            await this.salvar({ url: item.url, colecaoId: item.colecao?.id, colecao: colecaoInfo, nota: item.nota || '', origem: 'fila', filaId: item.id, formatos: item.formatos || [] })
             pegos++
           } catch (err) {
             // Link ruim, coleção apagada, Drive desconectado: o celular fica sabendo pelo erro do item.
