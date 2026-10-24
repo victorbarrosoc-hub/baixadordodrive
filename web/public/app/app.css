@@ -244,8 +244,8 @@ code {
   border: 0;
 }
 
-/* abertura (antes do JS): igual, em tamanho e lugar, à imagem de abertura do iPhone (icons/splash: símbolo de 98 pt com
-   um brilho suave e o nome pequeno, cinza e espaçado). A animação (lib/abertura.js) começa deste mesmo quadro. */
+/* carregamento (antes do JS): fundo liso, igual à imagem de abertura do iPhone (icons/splash). A abertura
+   (lib/abertura.js) começa do vazio por cima dele. O símbolo só aparece se o app demorar a carregar. */
 .boot {
   min-height: 100vh;
   min-height: 100dvh;
@@ -256,7 +256,12 @@ code {
   display: grid;
   justify-items: center;
   gap: 28.4px;
-  translate: 0 calc(-1 * var(--sb-meio, 0px)); /* a imagem do iPhone ocupa também a barra de status (boot.js) */
+  animation: boot-aparece 0.4s ease 2.5s both;
+}
+@keyframes boot-aparece {
+  from {
+    opacity: 0;
+  }
 }
 .boot-mk {
   width: 105px;

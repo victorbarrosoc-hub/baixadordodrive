@@ -26,7 +26,7 @@ import { FramesPostSheet } from './components/criar.js'
 import { P2pEnvioSheet, P2pReceberSheet } from './components/p2p.js'
 import { startP2p } from './lib/p2p.js'
 import { parseDriveLink } from './lib/copiar.js'
-import { abertura } from './lib/abertura.js'
+import { abertura, aberturaAoVoltar } from './lib/abertura.js'
 
 const SHEETS = {
   folders: FolderSheet,
@@ -142,9 +142,8 @@ function App() {
   return html`${view}<${SheetHost} registry=${SHEETS} /><${Toasts} />`
 }
 
-// A abertura com o símbolo (uma vez por abertura do app; lib/abertura.js). Ela parte do quadro que já está na tela: a
-// imagem de abertura do iPhone e o carregamento do index.html (.boot), iguais (símbolo de 105 px). E só sai quando a
-// conta respondeu: a tela de "carregando" da conta não chega a aparecer.
+// A abertura com o símbolo (Versão 1, lib/abertura.js): toda vez que o app abre e quando ele volta para a tela depois
+// de um tempo em segundo plano. Só sai quando a conta respondeu: a tela de "carregando" da conta não chega a aparecer.
 const contaPronta = new Promise((ok) => {
   if (getState().auth.status !== 'loading') return ok()
   const parar = subscribe(() => {
@@ -153,7 +152,10 @@ const contaPronta = new Promise((ok) => {
     ok()
   })
 })
-if (!LAN) abertura({ tamanho: 105, continuar: true, pronto: contaPronta })
+if (!LAN) {
+  abertura({ tamanho: 92, sempre: true, pronto: contaPronta })
+  aberturaAoVoltar({ tamanho: 92 })
+}
 render(html`<${App} />`, document.getElementById('app'))
 document.documentElement.classList.add('is-ready')
 
