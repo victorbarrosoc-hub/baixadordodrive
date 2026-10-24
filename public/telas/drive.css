@@ -262,3 +262,62 @@
     animation: none;
   }
 }
+
+/* ───── menu de contexto (drive-menu.js) ─────
+   Na camada das janelas (fixo, fora da página): nunca fica atrás de painel nem é cortado. Mesmas peças dos outros
+   menus (fundo do menu, raio 14, sombra grande, itens de 32 px). */
+.menu.ctx-menu {
+  position: fixed;
+  bottom: auto;
+  right: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: ctx-abre 0.12s var(--ease) both;
+  transform-origin: top left;
+}
+@keyframes ctx-abre {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.ctx-fundo {
+  /* o fundo invisível só pega o clique de fora; o cursor não muda */
+  cursor: default;
+}
+.ctx-titulo {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding-bottom: 4px;
+}
+.ctx-menu .menu-item-hint {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.ctx-menu .menu-item:disabled {
+  cursor: default;
+}
+.ctx-menu .menu-item.is-perigo,
+.ctx-menu .menu-item.is-perigo .icon {
+  color: var(--err);
+}
+
+/* ───── arrastar para uma pasta ───── */
+.drow.is-alvo,
+.gcard.is-alvo {
+  background: color-mix(in srgb, var(--down) 16%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--down) 70%, transparent);
+}
+.gcard.is-alvo {
+  border-radius: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu.ctx-menu {
+    animation: none;
+  }
+}

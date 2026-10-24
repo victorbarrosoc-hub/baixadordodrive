@@ -1072,8 +1072,11 @@ Telas: **Transferências** (medidor ao vivo ↓/↑ com gráfico dos últimos 2 
 barra de progresso que mostra os segmentos como clipes numa timeline de edição, pausar/retomar/cancelar,
 filtros), **Primeiros passos** (sem nenhum Drive: "Entrar com a conta SOBEDESCE" — código grande, "Abrir no navegador",
 "Pronto. Seus Drives apareceram aqui." — e, como alternativa, "Conectar um Drive só neste computador", que leva ao
-caminho antigo da chave em `#/inicio/local`), **Drive** (navegar Meu Drive e drives compartilhados, selecionar e baixar, enviar para a pasta
-atual), **Comparar** (pasta local × pasta do Drive, árvore com o que falta por pasta, botão
+caminho antigo da chave em `#/inicio/local`), **Drive** (navegar Meu Drive, Compartilhados comigo — rota `#/drive/compartilhados` — e drives compartilhados,
+selecionar e baixar, enviar para a pasta atual; botão direito ou a tecla de menu numa linha/cartão abre o menu do item
+em `components/drive-menu.js`, na camada das janelas: Abrir, Baixar, Enviar para esta pasta, Copiar link, Abrir no
+Google Drive, Renomear, Mover para… (seletor de pasta), Calcular tamanho, Gerar proxy; arrastar linhas para cima de uma
+pasta move), **Comparar** (pasta local × pasta do Drive, árvore com o que falta por pasta, botão
 "Subir o que falta"), **Ajustes**.
 Seletor de pastas/arquivos locais próprio (modal) usando `/api/local/*`.
 
