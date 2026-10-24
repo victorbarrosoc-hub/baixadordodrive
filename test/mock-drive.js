@@ -16,6 +16,9 @@
 //  - Compartilhamento: permissions.list/create, `permissions` só fora de drive compartilhado (como no Google), `shared`,
 //    herança das pastas de cima, recusa da política do Workspace (`anyoneSharingBlocked`) e do drive compartilhado
 //    (`addSharedDrive(nome, { domainUsersOnly: true })`). share()/permissionsOf() montam e conferem cenários.
+//  - "Compartilhados comigo": addShared(nome, { folder, role }) cria o item de outra pessoa, fora do Meu Drive, que
+//    aparece em `sharedWithMe`; leitor (role 'reader' ou canEdit: false) não renomeia nem move (403), e mover pede
+//    edição também na pasta de destino (files.update addParents/removeParents, como no Google).
 // Arquivos "virtuais" têm qualquer tamanho e são gerados na hora a partir de uma semente (sem memória nem disco).
 import http from 'node:http'
 import crypto from 'node:crypto'
@@ -745,7 +748,16 @@ export function parseQuery(q) {
       return { op: 'in', field: field.value, value: t.value }
     }
     if (t.type !== 'word') throw queryError()
-    if (t.value === 'sharedWithMe') return { op: 'const', value: false }
+    if (t.value === 'sharedWithMe') {
+      // `sharedWithMe` sozinho ou `sharedWithMe = true|false` (como o Google aceita).
+      if (toks[i]?.type === 'op' && (toks[i].value === '=' || toks[i].value === '!=')) {
+        const o = toks[i++].value
+        const v = toks[i++]
+        if (!isWord(v, 'true') && !isWord(v, 'false')) throw queryError()
+        return { op: 'shared', value: isWord(v, 'true') === (o === '=') }
+      }
+      return { op: 'shared', value: true }
+    }
     const spec = QUERY_FIELDS[t.value]
     if (!spec) throw queryError()
     const o = toks[i++]
@@ -1124,7 +1136,7 @@ class MockDrive {
     return id === 'root' ? this.rootId : id
   }
 
-  _insert({ id, name, mimeType, parentId, driveId = null, content = null, createdTime, modifiedTime, resourceKey = null, canDownload = true, trashed = false, shortcutDetails = null, docSize = null, md5Override, description = null, thumbnail = null, videoMediaMetadata = null, imageMediaMetadata = null, appProperties = null, canShare = true, canTrash = true }) {
+  _insert({ id, name, mimeType, parentId, driveId = null, content = null, createdTime, modifiedTime, resourceKey = null, canDownload = true, trashed = false, shortcutDetails = null, docSize = null, md5Override, description = null, thumbnail = null, videoMediaMetadata = null, imageMediaMetadata = null, appProperties = null, canShare = true, canTrash = true, canEdit = true, shared = null }) {
     const parent = parentId ? this.items.get(parentId) : null
     const now = isoNow()
     const item = {
@@ -1153,6 +1165,10 @@ class MockDrive {
       canShare: canShare !== false,
       // false = a conta só lê (ou é colaboradora num drive compartilhado): files.update trashed → 403.
       canTrash: canTrash !== false,
+      // false = só lê: renomear e mover (o item ou para dentro dele) dão 403.
+      canEdit: canEdit !== false,
+      // "Compartilhados comigo": { time, by: { displayName, emailAddress }, role: 'reader'|'writer' } (addShared).
+      shared,
       version: 1,
       seq: this._seq++,
     }
@@ -1296,6 +1312,7 @@ class MockDrive {
       trashed: extra.trashed,
       canShare: extra.canShare,
       canTrash: extra.canTrash,
+      canEdit: extra.canEdit,
     })
     return this._view(item)
   }
@@ -1325,8 +1342,50 @@ class MockDrive {
       appProperties: opts.appProperties ?? null,
       canShare: opts.canShare,
       canTrash: opts.canTrash,
+      canEdit: opts.canEdit,
     })
     return this._view(item)
+  }
+
+  /**
+   * Item que OUTRA pessoa compartilhou com a conta ("Compartilhados comigo"): fica fora do Meu Drive (sem pai que a
+   * conta enxergue) e aparece em `sharedWithMe`. opts: folder (pasta), role ('writer' padrão | 'reader'), by (nome),
+   * email, sharedTime, trashed, e para arquivo os mesmos de addFile (size, seed, content, mimeType…). O que vai dentro de uma
+   * pasta compartilhada entra com addFile/addFolder de sempre e herda o papel.
+   */
+  addShared(name, opts = {}) {
+    const folder = Boolean(opts.folder)
+    const item = this._insert({
+      id: opts.id,
+      name,
+      mimeType: folder ? FOLDER_MIME : opts.mimeType || guessMime(String(name)),
+      parentId: null,
+      content: folder ? null : this._makeContent(opts),
+      createdTime: toIso(opts.createdTime) ?? undefined,
+      modifiedTime: toIso(opts.modifiedTime) ?? undefined,
+      trashed: opts.trashed,
+      canShare: false,
+      canTrash: false,
+      shared: {
+        time: toIso(opts.sharedTime) ?? isoNow(),
+        by: { displayName: opts.by || 'Bia Produtora', emailAddress: opts.email || 'bia@produtora.example' },
+        role: opts.role === 'reader' ? 'reader' : 'writer',
+      },
+    })
+    return this._view(item)
+  }
+
+  /** A pasta (ou o item) compartilhada comigo de onde este item vem, ou null (é meu ou de drive compartilhado). */
+  _sharedRoot(item) {
+    for (let p = item, i = 0; p && i < 200; p = this.items.get(p.parents[0]), i++) if (p.shared) return p
+    return null
+  }
+
+  /** A conta pode editar (renomear, mover, pôr coisas dentro)? Leitor de uma pasta compartilhada não pode. */
+  _writable(item) {
+    if (!item || item.canEdit === false) return false
+    const root = this._sharedRoot(item)
+    return !root || root.shared.role !== 'reader'
   }
 
   /** Documento nativo (document, spreadsheet, presentation, drawing, form…). `size` só serve para o limite de exportação. */
@@ -1569,13 +1628,21 @@ class MockDrive {
     }
     if (item.imageMediaMetadata) j.imageMediaMetadata = { ...item.imageMediaMetadata }
     if (item.appProperties) j.appProperties = { ...item.appProperties }
-    if (!item.driveId) j.owners = [{ kind: 'drive#user', displayName: this.user.displayName, emailAddress: this.user.emailAddress, permissionId: this.user.permissionId, me: true }]
+    const sharedRoot = this._sharedRoot(item)
+    if (sharedRoot) {
+      const by = sharedRoot.shared.by
+      j.owners = [{ kind: 'drive#user', displayName: by.displayName, emailAddress: by.emailAddress, me: false }]
+      if (item.shared) {
+        j.sharedWithMeTime = item.shared.time
+        j.sharingUser = { kind: 'drive#user', displayName: by.displayName, emailAddress: by.emailAddress, me: false }
+      }
+    } else if (!item.driveId) j.owners = [{ kind: 'drive#user', displayName: this.user.displayName, emailAddress: this.user.emailAddress, permissionId: this.user.permissionId, me: true }]
     j.viewedByMe = true
     j.createdTime = item.createdTime
     j.modifiedTime = item.modifiedTime
     j.modifiedByMe = true
     j.modifiedByMeTime = item.modifiedTime
-    j.ownedByMe = !item.driveId
+    j.ownedByMe = !item.driveId && !sharedRoot
     const perms = this._permissions(item)
     j.shared = perms.length > 1
     j.permissionIds = perms.map(p => p.id)
@@ -1609,19 +1676,20 @@ class MockDrive {
     if (kind && EXPORT_FORMATS[kind]) {
       j.exportLinks = Object.fromEntries(EXPORT_FORMATS[kind].map(m => [m, `https://docs.google.com/feeds/download/${kind}s/Export?id=${item.id}&exportFormat=${encodeURIComponent(m)}`]))
     }
+    const writable = this._writable(item)
     j.capabilities = {
       canDownload: item.canDownload,
       canCopy: Boolean(c) && item.canDownload,
-      canEdit: true,
-      canRename: true,
+      canEdit: writable,
+      canRename: writable,
       canDelete: true,
       canTrash: item.canTrash,
-      canAddChildren: isFolder,
+      canAddChildren: isFolder && writable,
       canListChildren: isFolder,
       canModifyContent: !isFolder,
       canReadRevisions: Boolean(c),
       canShare: item.canShare,
-      canMoveItemWithinDrive: true,
+      canMoveItemWithinDrive: writable && item.parents.length > 0,
     }
     return mask ? applyMask(j, mask) : j
   }
@@ -2035,10 +2103,11 @@ class MockDrive {
       case 'and': return this._evalQuery(node.a, item) && this._evalQuery(node.b, item)
       case 'not': return !this._evalQuery(node.a, item)
       case 'const': return node.value
+      case 'shared': return Boolean(item.shared) === node.value
       case 'in':
         if (node.field === 'parents') return item.parents.includes(this._resolve(node.value))
         if (node.value !== 'me' && node.value !== this.user.emailAddress) return false
-        return node.field === 'owners' ? !item.driveId : true
+        return node.field === 'owners' ? !item.driveId && !this._sharedRoot(item) : true
       case 'cmp': {
         const { field, operator, value } = node
         if (field === 'name') {
@@ -2108,7 +2177,7 @@ class MockDrive {
     const showShared = includeAll && supportsAll
     const matches = pool.filter(it =>
       it &&
-      it.parents.length > 0 &&
+      (it.parents.length > 0 || Boolean(it.shared)) &&
       (it.driveId ? showShared && (corpora !== 'drive' || it.driveId === driveId) : corpora !== 'drive') &&
       (!ast || this._evalQuery(ast, it)),
     )
@@ -2120,6 +2189,7 @@ class MockDrive {
         else if (key === 'name_natural') c = naturalCollator.compare(a.name, b.name)
         else if (key === 'modifiedTime' || key === 'recency' || key === 'modifiedByMeTime') c = a.modifiedTime.localeCompare(b.modifiedTime)
         else if (key === 'createdTime') c = a.createdTime.localeCompare(b.createdTime)
+        else if (key === 'sharedWithMeTime') c = (a.shared?.time || '').localeCompare(b.shared?.time || '')
         else if (key === 'quotaBytesUsed') c = (a.content?.size ?? 0) - (b.content?.size ?? 0)
         if (c) return desc ? -c : c
       }
@@ -2461,7 +2531,8 @@ class MockDrive {
     if (!item) return this._send(res, 404, notFoundFile(rawId))
     const { mask, error } = this._parseMask(url, FILE_FIELDS)
     if (error) return this._send(res, 400, error)
-    if (item.parents.length === 0) return this._send(res, 403, gError(403, 'insufficientFilePermissions', 'The user does not have sufficient permissions for this file.'))
+    if (item.parents.length === 0 && !item.shared) return this._send(res, 403, gError(403, 'insufficientFilePermissions', 'The user does not have sufficient permissions for this file.'))
+    const noPerm = () => this._send(res, 403, gError(403, 'insufficientFilePermissions', 'The user does not have sufficient permissions for this file.'))
     if (meta.parents != null) {
       return this._send(res, 403, gError(403, 'fieldNotWritable', 'The resource body includes fields which are not directly writable.'))
     }
@@ -2477,6 +2548,11 @@ class MockDrive {
     }
     const add = (url.searchParams.get('addParents') || '').split(',').filter(Boolean).map(id => this._resolve(id))
     const remove = (url.searchParams.get('removeParents') || '').split(',').filter(Boolean).map(id => this._resolve(id))
+    // Renomear ou mover pede edição no item; mover também na pasta de destino. O que veio compartilhado sem pai à
+    // vista (a raiz do que foi compartilhado) só quem é dono move.
+    if ((meta.name != null || add.length || remove.length) && !this._writable(item)) return noPerm()
+    if (add.length && item.parents.length === 0) return noPerm()
+    if (add.length && this.items.get(add[0]) && !this._writable(this.items.get(add[0]))) return noPerm()
     if (add.length) {
       const keepsOld = item.parents.some(p => !remove.includes(p))
       if (add.length > 1 || keepsOld) return this._send(res, 403, gError(403, 'cannotAddParent', 'Increasing the number of parents is not allowed.'))

@@ -30,7 +30,10 @@ export const MEDIA_FIELDS =
   'hasThumbnail,thumbnailLink,iconLink,webViewLink,owners(displayName,emailAddress),appProperties,' +
   'videoMediaMetadata(width,height,durationMillis),' +
   'imageMediaMetadata(width,height,rotation,time,cameraMake,cameraModel,exposureTime,aperture,isoSpeed,focalLength)'
-export const BROWSE_FIELDS = `${FILE_FIELDS},${MEDIA_FIELDS}`
+// Navegar também traz o que a conta pode fazer com cada item (menu de contexto: Renomear, Mover, Enviar para esta pasta).
+// Um `capabilities(...)` só (o de FILE_FIELDS ganha os campos): duas seleções do mesmo campo no `fields` não são garantidas.
+const BROWSE_CAPS = 'capabilities(canDownload,canEdit,canRename,canAddChildren,canMoveItemWithinDrive,canTrash)'
+export const BROWSE_FIELDS = `${FILE_FIELDS.replace('capabilities(canDownload)', BROWSE_CAPS)},${MEDIA_FIELDS}`
 
 const LIST_FIELDS = `nextPageToken,files(${FILE_FIELDS})`
 // Varredura que precisa das marcas do app (Comparar: deixar de fora a pasta Proxy que o SOBEDESCE gerou).
@@ -54,6 +57,7 @@ const ABOUT_FIELDS = 'user(displayName,emailAddress,permissionId,photoLink),stor
 const PAGE_SIZE = 1000
 const SEARCH_LIMIT = 200
 const FOLDER_SEARCH_LIMIT = 20
+const SHARED_LIMIT = 1000 // "Compartilhados comigo": até aqui (o resto aparece na busca)
 const MAX_RETRY_WAIT_MS = 120_000
 const FOLDER_CACHE_TTL_MS = 5 * 60_000
 const MAX_CACHED_FOLDERS = 20_000
@@ -102,12 +106,28 @@ export function toDriveItem(f) {
     shortcutTargetMimeType: f.shortcutDetails?.targetMimeType ?? null,
     shortcutTargetResourceKey: f.shortcutDetails?.targetResourceKey ?? null,
     ...mediaInfo(f),
+    ...capsInfo(f),
     // Marcas do app (o proxy: { sobedesce: 'previa', original }). Só as nossas: o Drive devolve só as deste app.
     ...(f?.appProperties && typeof f.appProperties === 'object' ? { appProperties: { ...f.appProperties } } : {}),
   }
 }
 
 const num = v => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null)
+
+/**
+ * O que a conta pode fazer com o item (só quando a resposta trouxe: BROWSE_FIELDS). `false` = o Google disse que não;
+ * a tela esconde a ação. Compartilhado comigo como leitor: tudo false.
+ */
+function capsInfo(f) {
+  const c = f?.capabilities
+  if (!c || c.canRename === undefined) return {}
+  return {
+    canRename: c.canRename !== false,
+    canMove: c.canMoveItemWithinDrive !== false && c.canEdit !== false,
+    canAddChildren: c.canAddChildren === true,
+    canTrash: c.canTrash !== false,
+  }
+}
 
 /** Campos de prévia (só quando a resposta trouxe: as varreduras não pedem e o DriveItem fica como era). */
 function mediaInfo(f) {
@@ -142,6 +162,32 @@ export function linkAccess(permissions) {
   const dom = list.find(p => p?.type === 'domain' && p.role)
   if (dom) return { access: 'dominio', domain: dom.domain || null }
   return { access: 'restrito', domain: null }
+}
+
+// Recusas do Google ao mover entre drives (drive compartilhado com regras, domínio): não há o que fazer daqui.
+const MOVE_POLICY_REASONS = new Set([
+  'teamDrivesFolderMoveInNotSupported',
+  'teamDrivesParentLimit',
+  'cannotMoveTrashedItemIntoTeamDrive',
+  'shareOutNotPermitted',
+  'shareInNotPermitted',
+  'crossDomainMoveRestriction',
+  'targetUserRoleLimitedByLicenseRestriction',
+])
+
+/** Erro do Renomear/Mover em português curto. `o` = 'renomear' | 'mover'. Abort, rede e reauth sobem como vieram. */
+function moveError(err, o) {
+  const info = classifyError(err)
+  if (info.kind !== 'fatal' && info.kind !== 'notfound') return err
+  if (info.reason === 'cannotMoveItemIntoItself') return new SobeDesceError('fatal', 'Não dá para mover uma pasta para dentro dela mesma.', { reason: info.reason, status: 400 })
+  if (MOVE_POLICY_REASONS.has(info.reason)) {
+    return new SobeDesceError('fatal', 'O Google não deixa mover este item para lá (regra do drive compartilhado ou da empresa). Mova pelo Google Drive.', { reason: info.reason, status: 403 })
+  }
+  if (info.kind === 'notfound') return new SobeDesceError('notfound', o === 'mover' ? 'Não achei o item ou a pasta de destino: foi apagado ou esta conta perdeu o acesso.' : 'Não achei este item: foi apagado ou esta conta perdeu o acesso.', { reason: info.reason, status: 404 })
+  if (info.status === 403) {
+    return new SobeDesceError('fatal', o === 'mover' ? 'Sua conta não pode mover este item para lá. Precisa poder editar o item e a pasta de destino.' : 'Sua conta não pode renomear este item. Peça a quem é dono.', { reason: info.reason || 'semPermissao', status: 403 })
+  }
+  return err
 }
 
 /** Itens antigos compartilhados por link exigem o resourceKey num cabeçalho, senão o Google responde 404. */
@@ -743,6 +789,65 @@ export class DriveClient {
         throw new SobeDesceError('fatal', 'Sua conta não pode mover este arquivo para a lixeira.', { reason: info.reason || 'semPermissao', status: 403 })
       }
       throw err
+    }
+  }
+
+  /**
+   * "Compartilhados comigo": pastas e arquivos que outras pessoas compartilharam com a conta (o que está nos drives
+   * compartilhados não entra: esses têm as pílulas próprias). Sem lixeira, pastas primeiro e por nome, até `limit`.
+   */
+  async listSharedWithMe({ signal, media = true, limit = SHARED_LIMIT } = {}) {
+    const items = await this.#list('sharedWithMe = true and trashed = false', { signal, media, limit, pageSize: Math.min(limit, PAGE_SIZE) })
+    return sortItems(items.filter(it => !it.driveId))
+  }
+
+  /** Renomeia (files.update name). Sem permissão vira SobeDesceError 403 com a mensagem para mostrar. */
+  async rename(fileId, name, { signal } = {}) {
+    const nome = toNFC(String(name ?? '')).trim()
+    if (!nome) throw new SobeDesceError('fatal', 'Dê um nome.', { status: 400 })
+    try {
+      const f = await this.api('PATCH', `files/${encodeURIComponent(fileId)}`, { query: { fields: BROWSE_FIELDS }, body: { name: nome }, signal, retries: 2 })
+      const item = toDriveItem(f)
+      this.folders.delete(item.id)
+      this.#remember(item)
+      return item
+    } catch (err) {
+      throw moveError(err, 'renomear')
+    }
+  }
+
+  /**
+   * Move para outra pasta (files.update addParents/removeParents, supportsAllDrives). Confere antes o que o Google
+   * recusaria com mensagem ruim: pasta para dentro dela mesma (ou de uma subpasta) e destino que não é pasta. Já está
+   * lá: não chama nada (`moved: false`). Devolve { item, moved }.
+   */
+  async move(fileId, destId, { signal } = {}) {
+    const [item, dest] = await Promise.all([this.getItem(fileId, { signal }), this.getItem(destId, { signal })])
+    if (!dest.isFolder) throw new SobeDesceError('fatal', 'O destino precisa ser uma pasta.', { reason: 'destinoNaoPasta', status: 400 })
+    if (item.id === dest.id) throw new SobeDesceError('fatal', 'Não dá para mover uma pasta para dentro dela mesma.', { reason: 'cannotMoveItemIntoItself', status: 400 })
+    if (item.parents.includes(dest.id)) return { item, moved: false }
+    if (item.isFolder) {
+      const chain = await this.getPath(dest.id, { signal })
+      if (chain.some(c => c.id === item.id)) throw new SobeDesceError('fatal', 'Não dá para mover uma pasta para dentro de uma pasta que está nela.', { reason: 'cannotMoveItemIntoItself', status: 400 })
+    }
+    if (!item.parents.length) {
+      throw new SobeDesceError('fatal', 'Este item foi compartilhado com você e só quem é dono pode mudar de lugar. Copie para o seu Drive, se precisar.', { reason: 'semPai', status: 403 })
+    }
+    try {
+      const f = await this.api('PATCH', `files/${encodeURIComponent(item.id)}`, {
+        query: { addParents: dest.id, removeParents: item.parents.join(','), fields: BROWSE_FIELDS },
+        body: {},
+        signal,
+        retries: 2,
+      })
+      const moved = toDriveItem(f)
+      // Caminhos guardados que passavam por aqui ficaram velhos (breadcrumb, pastas criadas pelos envios).
+      this.folders.delete(moved.id)
+      this.#remember(moved)
+      this.folderCache.clear()
+      return { item: moved, moved: true }
+    } catch (err) {
+      throw moveError(err, 'mover')
     }
   }
 
