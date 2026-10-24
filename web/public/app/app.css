@@ -8600,16 +8600,26 @@ button.k-item:active:not(:disabled) {
 .p2p-acoes.is-duas {
   align-items: start;
 }
+/* Coluna única que nunca passa da largura da folha: sem o minmax(0, …), a fileira de filtros (não quebra linha) alarga
+   a grade e a folha inteira desliza para o lado. Só os filtros deslizam. */
 .pc-sheet {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  overflow-x: hidden;
 }
 .pc-sheet .pc-block {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  min-width: 0;
 }
 .pc-filtros {
   overflow: hidden;
+}
+.pc-filtros .k-pilulas.is-rolar {
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
 }
 
 /* ───── Drive, conta e pastas no kit ───── */
