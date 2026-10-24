@@ -1,10 +1,17 @@
-import type { AjustesFrames, StatusPedidoProxy, TipoPedido } from "@/lib/db/schema";
+import type { AjustesFormato, AjustesFrames, AjustesPedido, StatusPedidoProxy, TipoPedido } from "@/lib/db/schema";
 import { lerJson } from "@/lib/http";
 import { exigirProxies, falha, ID_DRIVE, MSG, ok } from "@/lib/proxies/api";
 import { contaDaPessoa, type ItemNovo, listarPedidos, MAX_POR_PEDIDO, pedirProxies, STATUS, TIPOS } from "@/lib/proxies/pedidos";
+import { ehFormato } from "@/lib/referencias/formatos";
 
-/** Frames: no máximo isto de uma vez (cada um é um trabalho pesado no computador). */
+/** Frames e formatos: no máximo isto de uma vez (cada um é um trabalho pesado no computador). */
 const MAX_FRAMES = 20;
+
+/** Ajustes de "Baixar como…": só um formato que o computador sabe fazer (o original já está no Drive). */
+function lerAjustesFormato(v: unknown): AjustesFormato | null {
+  const f = (v as Record<string, unknown> | null)?.formato;
+  return ehFormato(f) ? { formato: f } : null;
+}
 
 /** Ajustes de Frames vindos do celular: só o que o computador sabe fazer, dentro dos limites dele. */
 function lerAjustes(v: unknown): AjustesFrames | null {
@@ -26,7 +33,7 @@ function lerAjustes(v: unknown): AjustesFrames | null {
 
 /**
  * Pedidos ao computador: `?status=pendente` (ou vários, separados por vírgula; `todos`), `?fileIds=a,b` e
- * `?tipo=proxy|frames|todos` (sem tipo: proxy, que é o que os apps antigos do computador sabem fazer).
+ * `?tipo=proxy|frames|formato|todos` (sem tipo: proxy, que é o que os apps antigos do computador sabem fazer).
  * Sem status: todos (o celular quer ver os prontos também).
  */
 export async function GET(req: Request) {
@@ -48,7 +55,8 @@ export async function GET(req: Request) {
 
 /**
  * `{ contaGoogleId, itens: [{ fileId, nome, tamanho? }], tipo?, ajustes? }`. O mesmo arquivo já esperando (do mesmo
- * tipo) não entra de novo. Frames precisa de `ajustes`.
+ * tipo; nos de formato, do mesmo formato) não entra de novo. Frames precisa de `ajustes`; formato, de
+ * `ajustes: { formato: "mp3-320" | "wav" | "m4a" | "mp4" | "mp4-1080" | "mp4-720" | "jpg" }`.
  */
 export async function POST(req: Request) {
   const atual = await exigirProxies(req, { mutacao: true });
@@ -59,10 +67,10 @@ export async function POST(req: Request) {
   }
   const tipo: TipoPedido = corpo.tipo == null ? "proxy" : (corpo.tipo as TipoPedido);
   if (!TIPOS.includes(tipo)) return falha(400, "entrada", MSG.entrada);
-  const max = tipo === "frames" ? MAX_FRAMES : MAX_POR_PEDIDO;
+  const max = tipo === "proxy" ? MAX_POR_PEDIDO : MAX_FRAMES;
   if (corpo.itens.length > max) return falha(400, "muitos", `Até ${max} vídeos por vez.`);
-  const ajustes = tipo === "frames" ? lerAjustes(corpo.ajustes) : null;
-  if (tipo === "frames" && !ajustes) return falha(400, "entrada", MSG.entrada);
+  const ajustes: AjustesPedido | null = tipo === "frames" ? lerAjustes(corpo.ajustes) : tipo === "formato" ? lerAjustesFormato(corpo.ajustes) : null;
+  if (tipo !== "proxy" && !ajustes) return falha(400, "entrada", MSG.entrada);
   const itens: ItemNovo[] = [];
   for (const i of corpo.itens as unknown[]) {
     const o = (i ?? {}) as Record<string, unknown>;

@@ -322,6 +322,230 @@
   grid-template-columns: repeat(auto-fill, minmax(clamp(160px, 10vw, 220px), 1fr));
 }
 
+/* ───── "Baixar como…" ───── */
+.ref-card-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rf-card-baixar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.15s, transform 0.15s var(--ease), background 0.15s;
+}
+.ref-card-wrap:hover .rf-card-baixar,
+.ref-card-wrap:focus-within .rf-card-baixar,
+.ref-card-wrap.is-menu .rf-card-baixar {
+  opacity: 1;
+  transform: none;
+}
+.rf-card-baixar:hover,
+.ref-card-wrap.is-menu .rf-card-baixar {
+  background: var(--down);
+}
+.ref-card-wrap.is-menu .ref-card-thumb {
+  box-shadow: 0 0 0 2px var(--down), var(--shadow-md);
+}
+.rf-card-fmt {
+  background: color-mix(in srgb, var(--up) 78%, #000);
+}
+.rf-card-fmt-txt {
+  color: var(--up-text);
+  font-weight: 600;
+}
+.rf-origem-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.menu.rf-fmt {
+  position: fixed;
+  bottom: auto;
+  z-index: 100;
+  padding: 8px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  border-radius: 18px;
+  background: var(--menu-bg, var(--surface));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transform-origin: top left;
+  visibility: hidden;
+}
+.menu.rf-fmt.is-pronto {
+  visibility: visible;
+}
+.rf-fmt-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px 10px;
+  min-width: 0;
+}
+.rf-fmt-head b {
+  font-size: 15px;
+  font-weight: 700;
+}
+.rf-fmt-head span {
+  font-size: 12px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-fmt-onde {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 8px;
+}
+.rf-fmt-rotulo {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.rf-fmt-onde .k-pilula {
+  height: 28px;
+  padding: 0 11px;
+  font-size: 12.5px;
+}
+.rf-fmt-pasta {
+  width: calc(100% - 8px);
+  margin: 0 4px 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: var(--fill-1, var(--surface-2));
+  text-align: left;
+}
+.rf-fmt-pasta > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-fmt-pasta b {
+  color: var(--text);
+  font-weight: 600;
+}
+.rf-fmt-pasta:hover:not(:disabled):not(.is-nota) {
+  background: var(--fill-2);
+}
+.rf-fmt-trocar {
+  color: var(--down-text, var(--down));
+  font-weight: 600;
+}
+.rf-fmt-sep {
+  height: 6px;
+}
+.rf-fmt .menu-label {
+  padding: 10px 10px 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rf-fmt-item {
+  --c: var(--down);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 46px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  text-align: left;
+  color: var(--text);
+  transition: background 0.12s;
+}
+.rf-fmt-item:hover:not(:disabled),
+.rf-fmt-item:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--c) 10%, transparent);
+}
+.rf-fmt-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.rf-fmt-ic {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.rf-fmt-item:hover:not(:disabled) .rf-fmt-ic,
+.rf-fmt-item:focus-visible .rf-fmt-ic {
+  color: #fff;
+  background: var(--c);
+}
+.rf-fmt-txt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rf-fmt-txt b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.rf-fmt-txt span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.rf-fmt-ok {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--c);
+}
+.rf-fmt-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 4px 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.rf-job-fmt {
+  color: var(--up-text);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.rf-tambem .k-pilula .icon {
+  margin-left: -3px;
+}
+
 @keyframes rf-pop {
   from {
     opacity: 0;
@@ -329,6 +553,10 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .rf-card-baixar,
+  .rf-fmt-item {
+    transition: none;
+  }
   .rf-colar.is-reconhecido .rf-colar-ic,
   .rf-colar-selo {
     animation: none;

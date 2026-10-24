@@ -1,7 +1,9 @@
 // Rotas das Referências na API local (tabela em docs/ARCHITECTURE.md, "Referências").
 // Tudo valida a entrada aqui; o serviço (src/referencias/service.js) fala com o site e com o Drive.
 import { HttpProblem } from './routes.js'
+import path from 'node:path'
 import { detectar, limparUrl } from '../referencias/plataformas.js'
+import { FORMATOS, codificadores, ehFormato } from '../referencias/formatos.js'
 
 const ID = /^[\w-]{1,128}$/
 const NOTA_MAX = 2000
@@ -17,6 +19,13 @@ function problema(err) {
     return p
   }
   return err
+}
+
+/** "Também salvar como": lista de ids conhecidos (sem o original, que sempre vai). */
+function formatos(v) {
+  if (v == null) return []
+  if (!Array.isArray(v) || v.length > 8 || !v.every(ehFormato)) throw new HttpProblem(400, 'Formato inválido.')
+  return [...new Set(v)].filter(f => f !== 'original')
 }
 
 const id = (v, msg = 'Pedido inválido.') => {
@@ -109,7 +118,7 @@ export function referenciasRoutes(route, ctx) {
     const url = limparUrl(body.url)
     if (!url) throw new HttpProblem(400, 'Esse link não parece um endereço da web.')
     const origem = body.origem === 'navegador' ? 'navegador' : 'colar'
-    return { trabalho: await svc().salvar({ url, colecaoId: id(body.colecaoId, 'Escolha uma coleção.'), nota: nota(body.nota), origem }) }
+    return { trabalho: await svc().salvar({ url, colecaoId: id(body.colecaoId, 'Escolha uma coleção.'), nota: nota(body.nota), origem, formatos: formatos(body.formatos) }) }
   })
 
   r('POST', '/api/referencias/salvar-imagem', async ({ body }) => {
@@ -118,7 +127,36 @@ export function referenciasRoutes(route, ctx) {
     if (!/^https?:\/\//i.test(img) && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(img)) throw new HttpProblem(400, 'Imagem inválida.')
     const paginaUrl = typeof body.paginaUrl === 'string' ? body.paginaUrl.slice(0, 4096) : ''
     const titulo = typeof body.titulo === 'string' ? body.titulo.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300) : ''
-    return { trabalho: await svc().salvarImagem({ imagemUrl: img, paginaUrl, titulo, colecaoId: id(body.colecaoId, 'Escolha uma coleção.'), nota: nota(body.nota) }) }
+    return { trabalho: await svc().salvarImagem({ imagemUrl: img, paginaUrl, titulo, colecaoId: id(body.colecaoId, 'Escolha uma coleção.'), nota: nota(body.nota), formatos: formatos(body.formatos) }) }
+  })
+
+  // "Baixar como…": converte uma referência que já está na coleção (ao lado dela no Drive e/ou numa pasta daqui).
+  r('POST', '/api/referencias/exportar', async ({ body }) => {
+    if (!ehFormato(body.formato) || body.formato === 'original') throw new HttpProblem(400, 'Escolha um formato.')
+    const destino = body.destino ?? 'computador'
+    if (!['drive', 'computador', 'ambos'].includes(destino)) throw new HttpProblem(400, 'Escolha onde salvar.')
+    let destDir = null
+    if (body.destDir != null && body.destDir !== '') {
+      if (typeof body.destDir !== 'string' || body.destDir.length > 4096 || !path.isAbsolute(body.destDir) || /[\u0000]/.test(body.destDir)) throw new HttpProblem(400, 'Pasta de destino inválida.')
+      destDir = body.destDir
+    }
+    const trabalho = await svc().exportar({ colecaoId: id(body.colecaoId, 'Escolha uma coleção.'), fileId: id(body.fileId, 'Arquivo inválido.'), formato: body.formato, destino, destDir })
+    return { trabalho }
+  })
+
+  // O que este computador consegue converter (a tela avisa antes de a pessoa escolher).
+  r('GET', '/api/referencias/conversor', async () => {
+    const conv = await svc().conversor()
+    const nomes = conv.ffmpeg ? await codificadores(conv.ffmpeg).catch(() => new Set()) : new Set()
+    return {
+      conversor: {
+        ok: Boolean(conv.ffmpeg),
+        mp3: nomes.has('libmp3lame'),
+        h264: nomes.has('libx264') || Boolean(conv.encoder),
+        aviso: conv.ffmpeg ? null : 'Para converter, falta o ffmpeg neste computador. Atualize o SOBEDESCE.',
+        formatos: Object.values(FORMATOS).map(f => ({ id: f.id, tipo: f.tipo, titulo: f.titulo, sub: f.sub, curto: f.curto })),
+      },
+    }
   })
 
   r('POST', '/api/referencias/trabalhos/:id/cancelar', async ({ params }) => {

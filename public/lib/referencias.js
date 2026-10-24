@@ -105,14 +105,73 @@ export async function apagarColecao(id, { apagarNoDrive = false } = {}) {
   esquecerItens(id)
 }
 
-export function salvarLink({ url, colecaoId, nota, origem = 'colar' }) {
+export function salvarLink({ url, colecaoId, nota, origem = 'colar', formatos = [] }) {
   storage.set('ref.colecao', colecaoId)
-  return api.post('/api/referencias/salvar', { url, colecaoId, nota: nota || '', origem })
+  return api.post('/api/referencias/salvar', { url, colecaoId, nota: nota || '', origem, ...(formatos.length ? { formatos } : {}) })
 }
 
-export function salvarImagem({ imagemUrl, paginaUrl, titulo, colecaoId, nota }) {
+export function salvarImagem({ imagemUrl, paginaUrl, titulo, colecaoId, nota, formatos = [] }) {
   storage.set('ref.colecao', colecaoId)
-  return api.post('/api/referencias/salvar-imagem', { imagemUrl, paginaUrl: paginaUrl || '', titulo: titulo || '', colecaoId, nota: nota || '' })
+  return api.post('/api/referencias/salvar-imagem', { imagemUrl, paginaUrl: paginaUrl || '', titulo: titulo || '', colecaoId, nota: nota || '', ...(formatos.length ? { formatos } : {}) })
+}
+
+// ───── formatos ("Baixar como…"; a tabela do motor fica em src/referencias/formatos.js) ─────
+
+export const FORMATOS = {
+  original: { id: 'original', tipo: 'ambos', titulo: 'Original', sub: 'Como foi salvo', curto: 'Original', icone: 'download' },
+  mp4: { id: 'mp4', tipo: 'video', grupo: 'Vídeo', titulo: 'MP4', sub: 'H.264 + AAC, melhor disponível', curto: 'MP4', icone: 'film' },
+  'mp4-1080': { id: 'mp4-1080', tipo: 'video', grupo: 'Vídeo', titulo: 'MP4 1080p', sub: 'H.264 + AAC', curto: 'MP4 1080p', icone: 'film' },
+  'mp4-720': { id: 'mp4-720', tipo: 'video', grupo: 'Vídeo', titulo: 'MP4 720p', sub: 'Mais leve', curto: 'MP4 720p', icone: 'film' },
+  'mp3-320': { id: 'mp3-320', tipo: 'video', grupo: 'Só áudio', titulo: 'MP3 320 kbps', sub: 'Abre em qualquer lugar', curto: 'MP3 320', icone: 'music' },
+  wav: { id: 'wav', tipo: 'video', grupo: 'Só áudio', titulo: 'WAV', sub: 'Sem perda, para edição', curto: 'WAV', icone: 'music' },
+  m4a: { id: 'm4a', tipo: 'video', grupo: 'Só áudio', titulo: 'M4A', sub: 'AAC, leve', curto: 'M4A', icone: 'music' },
+  jpg: { id: 'jpg', tipo: 'foto', grupo: 'Foto', titulo: 'JPG', sub: 'Abre em qualquer lugar', curto: 'JPG', icone: 'photo' },
+}
+
+/** 'video' | 'foto' | null, pelo tipo do arquivo no Drive. */
+export function tipoDoItem(it) {
+  const m = String(it?.mimeType || '')
+  if (m.startsWith('video/') || it?.video) return 'video'
+  if (m.startsWith('image/')) return 'foto'
+  return null
+}
+
+/** Formatos deste tipo de arquivo, na ordem do menu. */
+export const formatosPara = (tipo) => Object.values(FORMATOS).filter((f) => f.tipo === 'ambos' || f.tipo === tipo)
+
+/** Destinos do "Baixar como…": o mesmo "Para" da prévia (pasta do computador) e/ou a coleção no Drive. */
+export const DESTINOS = [
+  { value: 'computador', label: 'Computador' },
+  { value: 'drive', label: 'Coleção' },
+  { value: 'ambos', label: 'Os dois' },
+]
+
+// A última escolha fica lembrada (por tipo de arquivo, porque foto e vídeo têm formatos diferentes).
+export const ultimoFormato = (tipo) => storage.get(`ref.formato.${tipo}`, tipo === 'foto' ? 'jpg' : 'mp3-320')
+export const lembrarFormato = (tipo, id) => storage.set(`ref.formato.${tipo}`, id)
+export const ultimoDestino = () => storage.get('ref.formato.destino', 'computador')
+export const lembrarDestino = (d) => storage.set('ref.formato.destino', d)
+/** "Também salvar como" na hora de salvar (lista; vazia = só o original). */
+export const ultimosTambem = (tipo = 'video') => {
+  const v = storage.get(`ref.tambem.${tipo}`, [])
+  return Array.isArray(v) ? v.filter((id) => FORMATOS[id] && FORMATOS[id].tipo === tipo) : []
+}
+export const lembrarTambem = (tipo, lista) => storage.set(`ref.tambem.${tipo}`, lista)
+
+/** Converte uma referência da coleção (o motor baixa o original do Drive, converte e manda para o destino). */
+export const exportar = ({ colecaoId, fileId, formato, destino, destDir }) => api.post('/api/referencias/exportar', { colecaoId, fileId, formato, destino, ...(destDir ? { destDir } : {}) })
+
+let conversorCache = null
+/** O que este computador converte (ffmpeg, MP3): pergunta uma vez por abertura da tela. */
+export function conversor() {
+  conversorCache ??= api.get('/api/referencias/conversor').then(
+    (r) => r.conversor,
+    () => {
+      conversorCache = null
+      return null
+    },
+  )
+  return conversorCache
 }
 
 export const detectarLink = (url) => api.get(withQuery('/api/referencias/detectar', { url }))
@@ -133,6 +192,7 @@ export const ATIVAS = new Set(['na_fila', 'baixando', 'enviando', 'concluindo'])
 export function faseTexto(t) {
   const p = t.progresso
   const pct = p?.fracao != null ? ` ${Math.round(p.fracao * 100)}%` : ''
+  if (t.tipo === 'formato') return formatoTexto(t, p, pct)
   switch (t.fase) {
     case 'na_fila':
       return 'Na fila'
@@ -158,9 +218,54 @@ export function faseTexto(t) {
   }
 }
 
+/** Andamento de um "Baixar como…": original do Drive → convertendo → computador e/ou Drive. */
+function formatoTexto(t, p, pct) {
+  const nome = t.formatoNome || 'outro formato'
+  switch (t.fase) {
+    case 'na_fila':
+      return `Na fila para ${nome}`
+    case 'baixando':
+      if (p?.fase === 'original') return `Baixando o original do Drive${pct}`
+      if (p?.fase === 'convertendo') return `Convertendo para ${nome}${pct}`
+      return 'Preparando a conversão'
+    case 'enviando':
+      if (p?.fase === 'pausado') return 'Envio pausado'
+      if (p?.fase === 'aguardando') return 'Esperando para enviar'
+      return `Enviando para ${t.colecao?.nome || 'o Drive'}${pct}`
+    case 'concluindo':
+      return 'Finalizando'
+    case 'pronto':
+      if (t.destino === 'computador') return `Salvo em ${pastaCurta(t.pasta)}`
+      if (t.destino === 'ambos') return `Salvo em ${t.colecao?.nome || 'Drive'} e em ${pastaCurta(t.pasta)}`
+      return `Salvo em ${t.colecao?.nome || 'Drive'}, ao lado do original`
+    case 'cancelado':
+      return 'Cancelado'
+    case 'erro':
+      return t.erro?.mensagem || 'Não deu para converter.'
+    default:
+      return ''
+  }
+}
+
+const pastaCurta = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || 'sua pasta'
+
 /** Fração geral (baixar = 0–70%, enviar = 70–100%) para uma barra só. */
 export function fracaoGeral(t) {
   const f = t.progresso?.fracao
+  if (t.tipo === 'formato') {
+    // Original do Drive 0–30%, conversão 30–80% (ou até 100% se não sobe), envio 80–100%.
+    const sobe = t.destino !== 'computador'
+    const fim = sobe ? 0.8 : 1
+    if (t.fase === 'pronto') return 1
+    if (t.fase === 'baixando') {
+      if (t.progresso?.fase === 'original') return f == null ? null : f * 0.3
+      if (t.progresso?.fase === 'convertendo') return f == null ? null : 0.3 + f * (fim - 0.3)
+      return null
+    }
+    if (t.fase === 'enviando') return 0.8 + (f || 0) * 0.2
+    if (t.fase === 'concluindo') return 0.99
+    return null
+  }
   if (t.fase === 'pronto') return 1
   if (t.fase === 'baixando') return f == null ? null : f * 0.7
   if (t.fase === 'enviando') return 0.7 + (f || 0) * 0.3

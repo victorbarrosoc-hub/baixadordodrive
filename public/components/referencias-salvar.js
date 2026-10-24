@@ -2,7 +2,7 @@
 // "Colar link" da tela de Referências e ao painel do navegador de referências.
 import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { cx } from '../lib/ui.js'
-import { criarColecao, detectarLink, salvarImagem, salvarLink, ultimaColecao, urlCurta, useColecoes } from '../lib/referencias.js'
+import { FORMATOS, criarColecao, detectarLink, formatosPara, lembrarTambem, salvarImagem, salvarLink, ultimaColecao, ultimosTambem, urlCurta, useColecoes } from '../lib/referencias.js'
 import { Icon } from './icons.js'
 import { Button, Spinner } from './common.js'
 
@@ -76,6 +76,26 @@ export function SeletorColecao({ value, onChange, autoFocus }) {
 }
 
 /**
+ * "Também salvar como": pílulas que ligam e desligam (várias de uma vez). O original sempre vai; cada escolhida vira
+ * um arquivo a mais ao lado dele, convertido do mesmo download (não baixa de novo). A escolha fica lembrada.
+ */
+export function TambemComo({ tipo, valor, onMudar }) {
+  const opcoes = formatosPara(tipo).filter((f) => f.id !== 'original')
+  const alternar = (id) => {
+    const nova = valor.includes(id) ? valor.filter((x) => x !== id) : [...valor, id]
+    lembrarTambem(tipo, nova)
+    onMudar(nova)
+  }
+  return html`<div class="k-pilulas rf-tambem" role="group" aria-label="Também salvar como">
+    ${opcoes.map(
+      (f) => html`<button type="button" class=${cx('k-pilula', valor.includes(f.id) && 'is-on')} aria-pressed=${valor.includes(f.id) ? 'true' : 'false'} onClick=${() => alternar(f.id)} title=${f.sub}>
+        ${valor.includes(f.id) ? html`<${Icon} name="check" size=${13} strokeWidth=${2.4} />` : null}${f.curto}
+      </button>`,
+    )}
+  </div>`
+}
+
+/**
  * Painel de salvar. `alvo`: { tipo: 'video', url } ou { tipo: 'imagem', imagemUrl, paginaUrl, titulo }.
  * `editarLink`: mostra o campo do link (janela "Colar link"). `onSalvo(trabalho)` depois que o motor aceitou.
  */
@@ -87,6 +107,8 @@ export function SalvarReferencia({ alvo, colecaoInicial = null, editarLink = fal
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState(null)
   const imagem = alvo?.tipo === 'imagem'
+  const tipoArquivo = imagem ? 'foto' : 'video'
+  const [tambem, setTambem] = useState(() => ultimosTambem(tipoArquivo))
 
   useEffect(() => {
     setUrl(alvo?.url || '')
@@ -116,8 +138,8 @@ export function SalvarReferencia({ alvo, colecaoInicial = null, editarLink = fal
     setErro(null)
     try {
       const res = imagem
-        ? await salvarImagem({ imagemUrl: alvo.imagemUrl, paginaUrl: alvo.paginaUrl, titulo: alvo.titulo, colecaoId, nota })
-        : await salvarLink({ url: det.url, colecaoId, nota, origem })
+        ? await salvarImagem({ imagemUrl: alvo.imagemUrl, paginaUrl: alvo.paginaUrl, titulo: alvo.titulo, colecaoId, nota, formatos: tambem })
+        : await salvarLink({ url: det.url, colecaoId, nota, origem, formatos: tambem })
       setNota('')
       onSalvo?.(res.trabalho)
     } catch (err) {
@@ -155,6 +177,11 @@ export function SalvarReferencia({ alvo, colecaoInicial = null, editarLink = fal
     <div class="field">
       <label class="field-label" for="ref-nota">Nota <span class="sub">(opcional)</span></label>
       <textarea id="ref-nota" class="input ref-nota" rows="2" maxlength="2000" placeholder="Ex.: a luz da janela, o ritmo do corte" value=${nota} onInput=${(e) => setNota(e.currentTarget.value)}></textarea>
+    </div>
+    <div class="field">
+      <span class="field-label">Também salvar como <span class="sub">(opcional)</span></span>
+      <${TambemComo} tipo=${tipoArquivo} valor=${tambem} onMudar=${setTambem} />
+      <span class="field-hint">${tambem.length ? `O original e ${tambem.map((id) => FORMATOS[id]?.curto).join(', ')}, lado a lado na coleção.` : 'Só o original. Escolha um formato para ter, por exemplo, só o áudio em MP3 320.'}</span>
     </div>
     ${erro ? html`<p class="ref-field-error" role="alert"><${Icon} name="warning" size=${14} />${erro}</p>` : null}
     <div class="ref-save-foot">

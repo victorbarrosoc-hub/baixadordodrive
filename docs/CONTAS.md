@@ -281,6 +281,11 @@ das Referências (pegar de uma vez só, sinal de vida, preso volta para a fila).
   (`proxyFileId`; "Já tinha proxy" quando já existia) ou `erro` (frase curta). Sinal de vida a cada 5 min; 404/409 no
   sinal (cancelado no celular, outro pegou) para no meio. Fechar o app devolve o pedido para `pendente`. Sem conversor,
   não pega nada (outro computador da conta pode ter).
+- **Tipos** (`tipo`, migração `0008_pedidos_tipo`): `proxy` (padrão; o que os apps antigos pegam), `frames`
+  (docs/FRAMES.md, `ajustes` dos frames e takes) e `formato` ("Baixar como…" das Referências, `ajustes: { formato }`
+  com `mp4`, `mp4-1080`, `mp4-720`, `mp3-320`, `wav`, `m4a` ou `jpg`; até 20 por vez; o mesmo arquivo pode ter um
+  pedido esperando por formato; computador: `src/referencias/pedidos-formato.js`, docs/REFERENCIAS.md §7). `GET`
+  sem `tipo` lista só `proxy`; `?tipo=frames|formato|todos`.
 - **Celular** (`components/proxies.js`): na seleção da aba Drive, **Gerar proxy** (só vídeos, inclusive RAW de câmera;
   não as próprias cópias leves). A folha diz se há um computador ligado (pela notícia do "Acompanhar pelo celular"),
   pede e acompanha cada vídeo a cada 5 s enquanto está aberta: esperando, gerando, pronto ou o erro com **De novo**.

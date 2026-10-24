@@ -4264,6 +4264,49 @@ html.has-preview .toasts {
   margin-top: 6px;
 }
 
+/* "Baixar como…" (pedido ao computador) e "Também salvar como" */
+.rtile-plat.is-formato {
+  background: color-mix(in srgb, var(--up) 80%, #000);
+}
+.rfmt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--fill);
+}
+.rfmt .k-rotulo {
+  margin: 0;
+}
+.rfmt .k-opcao {
+  min-height: 64px;
+}
+.rfmt .k-botao {
+  margin-top: 2px;
+}
+.rfmt-nota {
+  margin: 0 2px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.rfmt-estado .k-item-txt > b,
+.rfmt-estado .k-item-txt > span {
+  white-space: normal;
+}
+.rfmt-estado .spinner {
+  width: 18px;
+  height: 18px;
+}
+.rtambem {
+  margin: 0 2px;
+}
+.rtambem .k-pilula .icon {
+  margin-left: -2px;
+}
+
 /* folhas */
 .rsheet {
   display: flex;

@@ -12,6 +12,41 @@ export const API = {
 
 const LAST_KEY = 'sobedesce.refs.ultima' // última coleção usada no "Salvar link"
 const NOTICE_KEY = 'sobedesce.refs.aviso' // aviso de primeiro uso já visto
+const FORMATO_KEY = 'sobedesce.refs.formato' // última escolha do "Baixar como…" (por tipo: video/foto)
+const TAMBEM_KEY = 'sobedesce.refs.tambem' // "Também salvar como" da última vez
+
+// ───── formatos (cópia dos rótulos de src/referencias/formatos.js; quem converte é o computador) ─────
+
+export const FORMATOS = [
+  { id: 'mp4', tipo: 'video', titulo: 'MP4', sub: 'H.264 + AAC, melhor disponível', curto: 'MP4', icone: 'film' },
+  { id: 'mp4-1080', tipo: 'video', titulo: 'MP4 1080p', sub: 'H.264 + AAC', curto: 'MP4 1080p', icone: 'film' },
+  { id: 'mp4-720', tipo: 'video', titulo: 'MP4 720p', sub: 'Mais leve', curto: 'MP4 720p', icone: 'film' },
+  { id: 'mp3-320', tipo: 'video', titulo: 'MP3 320', sub: 'Só o áudio', curto: 'MP3 320', icone: 'music' },
+  { id: 'wav', tipo: 'video', titulo: 'WAV', sub: 'Áudio para edição', curto: 'WAV', icone: 'music' },
+  { id: 'm4a', tipo: 'video', titulo: 'M4A', sub: 'Áudio AAC', curto: 'M4A', icone: 'music' },
+  { id: 'jpg', tipo: 'foto', titulo: 'JPG', sub: 'Abre em qualquer lugar', curto: 'JPG', icone: 'photo' },
+]
+export const formatoPorId = (id) => FORMATOS.find((f) => f.id === id) || null
+/** 'video' | 'foto' | null pelo tipo do arquivo do Drive. */
+export function tipoDoArquivo(file) {
+  const m = String(file?.mimeType || '')
+  if (m.startsWith('video/')) return 'video'
+  if (m.startsWith('image/')) return 'foto'
+  return null
+}
+export const formatosPara = (tipo) => FORMATOS.filter((f) => f.tipo === tipo)
+export const lastFormato = (tipo) => local.get(`${FORMATO_KEY}.${tipo}`, tipo === 'foto' ? 'jpg' : 'mp3-320')
+export const setLastFormato = (tipo, id) => local.set(`${FORMATO_KEY}.${tipo}`, id)
+export function lastTambem() {
+  const v = local.get(TAMBEM_KEY, [])
+  return Array.isArray(v) ? v.filter((id) => formatoPorId(id)?.tipo === 'video') : []
+}
+export const setLastTambem = (lista) => local.set(TAMBEM_KEY, lista)
+/** Arquivo que o computador converteu ("… (MP3 320).mp3"): o rótulo do formato, ou ''. */
+export function formatoDoArquivo(file) {
+  const ap = file?.appProperties || {}
+  return ap.sobedesce === 'formato' ? formatoPorId(ap.formato)?.curto || ap.formato || '' : ''
+}
 
 // ───── texto (cópia em JS de web/src/lib/referencias/texto.ts) ─────
 
@@ -172,8 +207,8 @@ export async function deleteColecao(id, noDrive) {
   forget(id)
 }
 
-export async function saveLink({ url, colecaoId, nota }) {
-  const r = await api(API.fila, { method: 'POST', body: { url, colecaoId, nota: nota || undefined } })
+export async function saveLink({ url, colecaoId, nota, formatos = [] }) {
+  const r = await api(API.fila, { method: 'POST', body: { url, colecaoId, nota: nota || undefined, formatos: formatos.length ? formatos : undefined } })
   local.set(LAST_KEY, colecaoId)
   setRefs((s) => ({ fila: [r.item, ...(s.fila || []).filter((i) => i.id !== r.item.id)] }))
   loadRefs()

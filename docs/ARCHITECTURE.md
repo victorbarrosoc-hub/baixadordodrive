@@ -777,13 +777,26 @@ fila do celular: a cada 30 s (e no foco da tela) GET fila?status=pendente → PO
 - `api.js` (`ReferenciasApi`): as rotas do site com o Bearer do computador (`CloudAuth.request`), erros com `codigo`
   (`sem_sessao`, `plano` — 403 com `motivo: 'plano'` —, `nao_encontrada`, `ocupado`, `entrada`, `rede`, `servidor`),
   repetição em rede/5xx/429 só no que é idempotente (GET, PATCH, DELETE, pegar). `link`: `true/false` viram `ligar/desligar`.
+- `formatos.js` ("Baixar como…", contrato em docs/REFERENCIAS.md §7): a tabela (`original`, `mp4`, `mp4-1080`,
+  `mp4-720`, `mp3-320`, `wav`, `m4a`, `jpg`), `nomeConvertido` ("<original> (MP3 320).mp3", até 120 caracteres),
+  `argsFormato` (linha do ffmpeg de cada formato: MP3 `libmp3lame -b:a 320k` CBR; WAV `pcm_s16le` 48 kHz; M4A copia o
+  AAC; MP4 copia H.264 + AAC que já cabe, senão `libx264 -crf 18` ou o codificador da máquina, lado menor ≤ 1080/720)
+  e `converterFormato` (sonda com `ffmpeg -i`, confere o codificador, converte com andamento, tenta o próximo
+  codificador de vídeo, frases curtas em `FormatoError`).
+- `pedidos-formato.js` (`PedidosFormato`): pedidos `tipo: formato` do celular (`/api/proxies/pedidos`), um por vez,
+  pelo `exportar` do serviço; sinal de vida a cada 5 min; sem ffmpeg não pega; fechar o app devolve o pedido.
 - `service.js` (`ReferenciasService`): estado em `<dados>/referencias.json` (trabalhos ativos + os 80 últimos).
   Fases `na_fila → baixando → enviando → concluindo → pronto | erro | cancelado`. Ao abrir: `tmp/` é apagada, download
   pela metade recomeça, envio continua (o registro está na fila de transferências). Cancelar para o yt-dlp ou o envio e
   apaga temporários; item da fila do celular cancelado vira erro "Cancelado no computador". `status()` vai pelo SSE
   `referencias`: `{ ativo, motivo: null|'sem_conta'|'plano', navegador, trabalhos, versoes, ytdlp }` (`versoes[colecao]`
   muda quando algo termina: a tela relê a coleção). 403 plano pausa a fila por 1 h. Cookies: `setCookieProvider(fn)`
-  (o app de desktop pede ao processo principal; sem ele, o yt-dlp roda sem login).
+  (o app de desktop pede ao processo principal; sem ele, o yt-dlp roda sem login). Trabalhos `tipo: 'formato'` na mesma
+  fila: `salvar({ formatos })` cria um por formato com o vídeo baixado como fonte (vínculo em
+  `<dados>/referencias/formatos/<id>/`); `exportar({ colecaoId|accountId, fileId, formato, destino, destDir })` baixa o
+  original do Drive (`previas.baixarOriginal`, guardado 10 min, no máximo 3) para `<dados>/referencias/originais/`,
+  converte em `tmp/<id>`, copia para a pasta do computador (`.sobedesce-part` → nome final) e/ou sobe pela fila de
+  envios ao lado do original (`appProperties.sobedesce = 'formato'`). `esperar(id)` resolve no fim (evento `fim`).
 
 Rotas locais (`src/server/referencias.js`, entrada validada; erros do site viram 401/403/404/409/502 com a frase dele):
 
@@ -794,15 +807,18 @@ Rotas locais (`src/server/referencias.js`, entrada validada; erros do site viram
 | GET / POST | `/api/referencias/colecoes` | `forcar=1` / `{ nome, contaId? }` | `{ raiz, colecoes }` / `{ colecao }` |
 | PATCH / DELETE | `/api/referencias/colecoes/:id` | `{ nome?, link?: true\|false\|'ligar'\|'desligar'\|'trocar' }` / `{ apagarNoDrive? }` | `{ colecao }` / `{}` |
 | GET | `/api/referencias/colecoes/:id/itens` | `forcar=1`, `fila=0` | `{ colecao, accountId, itens: DriveItem + { createdTime, referencia }, pendentes }` |
-| POST | `/api/referencias/salvar` | `{ url, colecaoId, nota?, origem? }` | `{ trabalho }` |
-| POST | `/api/referencias/salvar-imagem` | `{ imagemUrl (https ou data:image), paginaUrl?, titulo?, colecaoId, nota? }` | `{ trabalho }` |
+| POST | `/api/referencias/salvar` | `{ url, colecaoId, nota?, origem?, formatos? }` | `{ trabalho }` |
+| POST | `/api/referencias/salvar-imagem` | `{ imagemUrl (https ou data:image), paginaUrl?, titulo?, colecaoId, nota?, formatos? }` | `{ trabalho }` |
+| POST | `/api/referencias/exportar` | `{ colecaoId, fileId, formato, destino: 'computador'\|'drive'\|'ambos', destDir? (absoluta) }` | `{ trabalho }` |
+| GET | `/api/referencias/conversor` | | `{ conversor: { ok, mp3, h264, aviso, formatos } }` |
 | POST / DELETE | `/api/referencias/trabalhos/:id/cancelar`, `…/tentar` / `/api/referencias/trabalhos/:id` | | `{}` / `{ trabalho }` |
 | POST | `/api/referencias/fila/consultar` · `/api/referencias/fila/:id/tentar` · DELETE `/api/referencias/fila/:id` | | `{}` |
 | POST | `/api/referencias/ytdlp/verificar` | | `{ ytdlp }` |
 
 Interface: tela **Referências** (`public/components/referencias.js`, rota `#/referencias[/<colecao>]`), janela/painel
-"Salvar referência" (`referencias-salvar.js`, o mesmo nos dois lugares) e o aviso de primeiro uso (ajuste
-`referenciasAvisoVisto`). A prévia é a `DrivePreview` da tela Drive com o bloco `extra` (origem).
+"Salvar referência" (`referencias-salvar.js`, o mesmo nos dois lugares, com "Também salvar como"), o menu
+"Baixar como…" (`referencias-formato.js`: botão no cartão, botão direito e na prévia; Pílulas de destino e os formatos)
+e o aviso de primeiro uso (ajuste `referenciasAvisoVisto`). A prévia é a `DrivePreview` da tela Drive com o bloco `extra` (origem).
 
 **Navegador de referências** (`desktop/navegador.js`, só no app): `BaseWindow` com duas `WebContentsView`:
 - **barra** = `${motor}/navegador.html` (sessão padrão, preload `preload-navegador.cjs` com `navegador.{ir, acao, painel,

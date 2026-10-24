@@ -26,7 +26,7 @@ página pública /r/<token> (HTML, .json, .md) ◀── lê a pasta pelo servid
 | Tabela | Colunas |
 |---|---|
 | `colecoes` | `id`, `usuarioId` (fk, cascade), `contaGoogleId` (fk `contas_google`, cascade), `driveFolderId`, `nome`, `nomeChave` (nome sem maiúsculas/acentos; único por usuário), `publicaToken` (único, 32 bytes base64url; null = link desligado), `criadoEm`, `atualizadoEm` |
-| `referencias_fila` | `id`, `usuarioId` (fk, cascade), `colecaoId` (fk, cascade), `url`, `nota`, `status` (`pendente`·`baixando`·`pronto`·`erro`), `erro`, `driveFileId`, `dispositivoId` (sessão do computador que pegou), `criadoEm`, `atualizadoEm` |
+| `referencias_fila` | `id`, `usuarioId` (fk, cascade), `colecaoId` (fk, cascade), `url`, `nota`, `status` (`pendente`·`baixando`·`pronto`·`erro`), `erro`, `driveFileId`, `dispositivoId` (sessão do computador que pegou), `formatos` (jsonb, "Também salvar como"; migração `0012_referencias_formatos`), `criadoEm`, `atualizadoEm` |
 | `atalhos` | `id`, `usuarioId` (fk, cascade), `tokenHash` (sha256, único), `criadoEm`, `ultimoUsoEm`, `revogadoEm` |
 | `usuarios.plano` | `text not null default 'gratis'` |
 | `contas_google.referenciasPastaId` | id da pasta “SOBEDESCE Referências” daquele Drive (achada ou criada na primeira coleção) |
@@ -42,7 +42,9 @@ reconectar aquele Drive), `502 google`.
 Colecao = { id, nome, contaGoogleId, driveFolderId, link: string | null /* https://sobedesce.com/r/<token> */,
             naFila: number /* pendente + baixando + erro */, criadoEm, atualizadoEm }   // datas em ISO
 ItemFila = { id, url, plataforma /* "Instagram" | "YouTube" | … | domínio */, nota, status, erro, driveFileId,
-             dispositivoId, colecao: { id, nome, driveFolderId, contaGoogleId }, criadoEm, atualizadoEm }
+             dispositivoId, formatos: Formato[] /* "Também salvar como"; [] = só o original */,
+             colecao: { id, nome, driveFolderId, contaGoogleId }, criadoEm, atualizadoEm }
+Formato = "mp4" | "mp4-1080" | "mp4-720" | "mp3-320" | "wav" | "m4a" | "jpg"   // o original sempre vai
 ```
 
 | Método e caminho | Entrada | Saída |
@@ -51,7 +53,7 @@ ItemFila = { id, url, plataforma /* "Instagram" | "YouTube" | … | domínio */,
 | `POST /api/referencias/colecoes` | `{ nome, contaGoogleId? }` | `201 { ok, colecao }` · `400 nome` · `404 nao_encontrada` (Drive que não é da pessoa) · `409 duplicada` · `409 sem_drive` |
 | `PATCH /api/referencias/colecoes/:id` | `{ nome?, link?: "ligar" \| "desligar" \| "trocar" }` | `{ ok, colecao }` · `404` · `409 duplicada` |
 | `DELETE /api/referencias/colecoes/:id[?apagarNoDrive=1]` | | `{ ok, apagadaNoDrive }` (sem o parâmetro a pasta fica no Drive; com ele vai para a lixeira) |
-| `POST /api/referencias/fila` | `{ url, colecaoId, nota? }` | `201 { ok, item, novo: true }` · mesmo link já `pendente`/`baixando` na mesma coleção: `200 { ok, item, novo: false }` · `400 url` · `404` |
+| `POST /api/referencias/fila` | `{ url, colecaoId, nota?, formatos? }` | `201 { ok, item, novo: true }` · mesmo link já `pendente`/`baixando` na mesma coleção: `200 { ok, item, novo: false }` (formatos novos somados enquanto `pendente`) · `400 url` · `400 entrada` (formato desconhecido) · `404` |
 | `GET /api/referencias/fila` | `?status=pendente` (vírgulas; `todos`), `?colecao=<id>` | `{ ok, itens: ItemFila[] }` (mais novos primeiro; sem `status`: pendente, baixando e erro) |
 | `POST /api/referencias/fila/:id/pegar` | (só Bearer) | `{ ok, item }` (agora `baixando`, `dispositivoId` = este computador) · `409 ocupado` · `404` · cookie: `403 so_computador` |
 | `PATCH /api/referencias/fila/:id` | `{ status, driveFileId?, erro? }` | `{ ok, item }` · regras abaixo |
@@ -97,6 +99,11 @@ Pasta: `SOBEDESCE Referências/<Coleção>/` (a raiz tem `appProperties { sobede
 | `titulo` | título curto |
 | `fila` | (opcional) id do item da fila |
 | `celular` | `ok` quando o computador já conferiu que o vídeo toca no iPhone (ou já converteu); ver abaixo |
+
+**Convertidos ("Baixar como…", §7).** Ficam na mesma pasta, ao lado do original, com o nome dele mais o formato
+(`<nome do original> (MP3 320).mp3`, `(WAV).wav`, `(M4A).m4a`, `(MP4 720p).mp4`, `(JPG).jpg`), a mesma `description`
+e `appProperties` `{ sobedesce: "formato", formato, de: <id do original>, plataforma, autor, titulo, fonte }`. Como
+não são `sobedesce=referencia`, não entram no link pra IA nem na passada do celular.
 
 `description` (texto livre do Drive, lido com cuidado: qualquer linha pode faltar):
 
@@ -199,3 +206,33 @@ e é assim que o Instagram manda boa parte dos reels nos formatos separados (ví
   principal (`origemPublica` em `lib/site.ts`), mesmo quando o pedido vem do endereço antigo (`sobedesce.vercel.app`,
   app instalado na Tela de Início antes do domínio). Os links antigos continuam abrindo: o token é o mesmo.
 - Aviso de primeiro uso: “Salve só para referência dos seus projetos. Respeite os direitos de quem criou.”
+
+## 7. Formatos: "Baixar como…" e "Também salvar como"
+
+Pedido do dono do produto: depois de salvar, baixar a referência em outros tipos (ex.: MP3 320 kbps).
+
+- **Formatos** (`src/referencias/formatos.js`): vídeo original (como hoje); **MP4** H.264 + AAC (melhor disponível,
+  1080p ou 720p, pelo lado menor: vertical 1080 × 1920 já é 1080p); só áudio **MP3 320** (libmp3lame, 320 kbps CBR),
+  **WAV** (PCM 16 bits, 48 kHz) e **M4A** (o AAC do vídeo copiado sem perda; outro codec vira AAC 256k); foto/carrossel:
+  original ou **JPG** (JPEG vai como está; WebP/PNG/AVIF viram JPEG).
+- **De onde vem o arquivo:** nunca da plataforma de novo. Na hora de salvar, do vídeo que o yt-dlp acabou de baixar
+  (um vínculo dele em `<dados>/referencias/formatos/<id>/`). Depois, do original da coleção no Drive (baixado uma vez:
+  outro formato do mesmo arquivo em 10 min usa o mesmo). Quem converte é o ffmpeg do app (o da prévia leve). H.264 +
+  AAC que já cabe no pedido só troca o contêiner (sem perda, na hora); o resto converte (libx264 CRF 18, ou o
+  codificador de vídeo da máquina).
+- **Destino:** a coleção (ao lado do original, envio normal pela fila de Transferências) e/ou uma pasta do
+  computador (a mesma "Para" da prévia, Downloads por padrão; nome repetido ganha "(2)").
+- **Computador:** cada item da coleção tem **Baixar como…** (botão no cartão, botão direito e na prévia): onde
+  (Computador, Coleção ou Os dois) e o formato. "Salvar referência" ganha **Também salvar como** (pílulas, várias).
+  O andamento aparece em "Salvando agora" (Barra) e no Destaque do lado; erros com frase curta ("Este vídeo não tem
+  áudio.", "Para converter, falta o ffmpeg neste computador.", "O ffmpeg deste computador não gera MP3."). A última
+  escolha fica lembrada (formato por tipo de arquivo, destino e os "também").
+- **Rotas locais:** `POST /api/referencias/exportar { colecaoId, fileId, formato, destino: "computador"|"drive"|"ambos",
+  destDir? }` → `{ trabalho }` (tipo `formato`); `GET /api/referencias/conversor` → `{ conversor: { ok, mp3, h264,
+  aviso, formatos } }`; `POST /api/referencias/salvar` e `…/salvar-imagem` aceitam `formatos`.
+- **Celular** (o celular não converte vídeo): em "Salvar link", **Também salvar como** vai no item da fila
+  (`formatos`) e o computador salva os convertidos junto do original. Na prévia de uma referência, **Baixar como…**
+  abre ali mesmo o formato e **Pedir ao computador**: vira um pedido `tipo: "formato"`, `ajustes: { formato }` em
+  `/api/proxies/pedidos` (docs/CONTAS.md §11); o app do computador (mesma conta, aberto, com ffmpeg) converte e salva
+  ao lado do original na coleção, e o celular salva no aparelho por lá. O estado do pedido (esperando, convertendo,
+  pronto, erro com Tentar de novo) aparece no mesmo bloco. Sem o computador ligado, o pedido espera.

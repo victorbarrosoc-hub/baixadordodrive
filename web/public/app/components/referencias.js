@@ -7,7 +7,8 @@ import { closeSheet, getState, openSheet, setState, toast, useApp } from '../lib
 import { kindOf } from '../lib/browse.js'
 import { duration, plural } from '../lib/format.js'
 import { isIOS } from '../lib/platform.js'
-import { BotaoGrande, Item, Passo, Rotulo, Stats, Vazio } from './kit.js'
+import { BotaoGrande, Item, Opcoes, Passo, Rotulo, Stats, Vazio } from './kit.js'
+import { formatoPedidos, pedirFormato, tentarDeNovo } from '../lib/proxies.js'
 import { Icon } from './icons.js'
 import { Button, SheetHead, copyText, cx } from './ui.js'
 import { KindGlyph, Thumb } from './thumb.js'
@@ -358,12 +359,13 @@ function ItemTile({ f, onOpen }) {
   const kind = kindOf(f)
   const dur = f.videoMediaMetadata?.durationMillis
   const meta = refs.refMeta(f)
+  const formato = refs.formatoDoArquivo(f)
   return html`<li>
-    <button type="button" class="rtile" onClick=${() => onOpen(f)} aria-label=${meta.titulo || f.name}>
+    <button type="button" class="rtile" onClick=${() => onOpen(f)} aria-label=${`${meta.titulo || f.name}${formato ? ` (${formato})` : ''}`}>
       <span class="rtile-media">
         <${Thumb} file=${f} px=${130} kind=${kind} />
         ${dur ? html`<span class="tile-badge">${duration(dur)}</span>` : null}
-        ${meta.plataforma ? html`<span class="rtile-plat">${meta.plataforma}</span>` : null}
+        ${formato ? html`<span class="rtile-plat is-formato">${formato}</span>` : meta.plataforma ? html`<span class="rtile-plat">${meta.plataforma}</span>` : null}
       </span>
     </button>
   </li>`
@@ -372,7 +374,10 @@ function ItemTile({ f, onOpen }) {
 /** Bloco da prévia: de onde veio, quem fez e a legenda. */
 function RefInfo({ file }) {
   const m = refs.refMeta(file)
-  if (!m.url && !m.autor && !m.legenda) return null
+  // "Baixar como…": o celular não converte; pede ao computador, que salva o arquivo novo ao lado deste na coleção.
+  const tipo = refs.tipoDoArquivo(file)
+  const baixarComo = tipo && !refs.formatoDoArquivo(file) ? html`<${BaixarComo} key=${file.id} file=${file} />` : null
+  if (!m.url && !m.autor && !m.legenda) return baixarComo ? html`<div class="rinfo">${baixarComo}</div>` : null
   return html`<div class="rinfo">
     ${m.titulo ? html`<p class="rinfo-title">${m.titulo}</p>` : null}
     ${m.plataforma || m.autor ? html`<p class="rinfo-meta">${[m.plataforma, m.autor].filter(Boolean).join(' · ')}</p>` : null}
@@ -382,6 +387,7 @@ function RefInfo({ file }) {
           <${Icon} name="external" size=${17} /><span>Abrir ${m.plataforma && m.plataforma.includes('.') ? 'o original' : `no ${m.plataforma || 'site'}`}</span>
         </a>`
       : null}
+    ${baixarComo}
   </div>`
 }
 
@@ -487,6 +493,22 @@ function Field({ label, children, help, error }) {
   </label>`
 }
 
+/** "Também salvar como": pílulas que ligam e desligam (várias). A escolha fica lembrada para o próximo link. */
+function TambemComo({ valor, onMudar }) {
+  const alternar = (id) => {
+    const nova = valor.includes(id) ? valor.filter((x) => x !== id) : [...valor, id]
+    refs.setLastTambem(nova)
+    onMudar(nova)
+  }
+  return html`<div class="k-pilulas rtambem" role="group" aria-label="Também salvar como">
+    ${refs.formatosPara('video').map(
+      (f) => html`<button type="button" class=${cx('k-pilula', valor.includes(f.id) && 'is-on')} aria-pressed=${valor.includes(f.id) ? 'true' : 'false'} onClick=${() => alternar(f.id)}>
+        ${valor.includes(f.id) ? html`<${Icon} name="check" size=${14} strokeWidth=${2.4} />` : null}${f.curto}
+      </button>`,
+    )}
+  </div>`
+}
+
 /** "Salvar link": cola o endereço (área de transferência num toque), escolhe a coleção, nota opcional. */
 export function RefSaveSheet({ texto = '', colecaoId }) {
   const { colecoes, status } = useApp((s) => ({ colecoes: s.refs.colecoes || [], status: s.refs.status }))
@@ -494,6 +516,7 @@ export function RefSaveSheet({ texto = '', colecaoId }) {
   const [pick, setPick] = useState(() => colecaoId || (colecoes.some((c) => c.id === refs.lastColecao()) ? refs.lastColecao() : colecoes[0]?.id || null))
   const [newName, setNewName] = useState('')
   const [nota, setNota] = useState('')
+  const [tambem, setTambem] = useState(() => refs.lastTambem())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   // Criar ou renomear coleção aqui mesmo, sem perder o link colado: edit = 'nova' | id da coleção | null.
@@ -591,7 +614,7 @@ export function RefSaveSheet({ texto = '', colecaoId }) {
         }
         target = (await refs.createColecao(nome)).id
       }
-      const r = await refs.saveLink({ url: found, colecaoId: target, nota: nota.trim() })
+      const r = await refs.saveLink({ url: found, colecaoId: target, nota: nota.trim(), formatos: tambem })
       const nome = (getState().refs.colecoes || []).find((c) => c.id === target)?.nome || 'a coleção'
       toast(r.novo ? `Salvo em ${nome}. O computador baixa.` : `Esse link já está na fila de ${nome}.`, { tone: 'success', ms: 3200 })
       closeSheet()
@@ -658,6 +681,11 @@ export function RefSaveSheet({ texto = '', colecaoId }) {
       <${Field} label="Nota (opcional)">
         <textarea class="input rnote" rows="2" maxlength="2000" placeholder="Por que guardou: a luz, o corte, a trilha…" value=${nota} onInput=${(e) => setNota(e.currentTarget.value)}></textarea>
       </${Field}>
+      <div class="rfield">
+        <span class="rfield-label">Também salvar como (opcional)</span>
+        <${TambemComo} valor=${tambem} onMudar=${setTambem} />
+        <span class="field-help">${tambem.length ? `O computador salva o original e ${tambem.map((id) => refs.formatoPorId(id)?.curto).join(', ')}, lado a lado.` : 'Só o original. Ex.: MP3 320 para ter só o áudio.'}</span>
+      </div>
       ${error ? html`<p class="form-error" role="alert"><${Icon} name="warning" size=${16} /> <span>${error}</span></p>` : null}
       <${Button} variant="primary" class="btn-block btn-lg rsheet-go" loading=${busy} disabled=${busy || !found} onClick=${save}>Salvar</${Button}>
       <p class="group-foot">Fica na fila até o app do computador baixar. Salve só para referência e respeite quem criou.</p>
@@ -877,6 +905,71 @@ export function RefDeleteSheet({ id }) {
 RefDeleteSheet.label = 'Apagar coleção'
 
 /** Link na fila: o que está acontecendo, tentar de novo, tirar da fila. */
+const ESTADO_PEDIDO = { pendente: 'Esperando o computador', gerando: 'Convertendo no computador', pronto: 'Pronto', erro: 'Não deu' }
+
+/**
+ * "Baixar como…" no celular, dentro da prévia (abre ali mesmo, sem folha por cima): escolhe o formato e pede ao app
+ * do computador (mesma conta, aberto). Ele converte o original e salva o arquivo novo ao lado dele na coleção; daí é
+ * abrir aqui e salvar no aparelho.
+ */
+function BaixarComo({ file }) {
+  const [aberto, setAberto] = useState(false)
+  const tipo = refs.tipoDoArquivo(file) || 'video'
+  const opcoes = refs.formatosPara(tipo)
+  const [formato, setFormato] = useState(() => (opcoes.some((f) => f.id === refs.lastFormato(tipo)) ? refs.lastFormato(tipo) : opcoes[0]?.id))
+  const [pedidos, setPedidos] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let vivo = true
+    const ac = new AbortController()
+    const ler = () => formatoPedidos(file.id, ac.signal).then((p) => vivo && setPedidos(p), () => vivo && setPedidos((x) => x || []))
+    if (!aberto) return () => ac.abort()
+    ler()
+    const t = setInterval(() => document.visibilityState === 'visible' && ler(), 8000)
+    return () => {
+      vivo = false
+      ac.abort()
+      clearInterval(t)
+    }
+  }, [file.id, aberto])
+  const deste = (pedidos || []).filter((p) => p.ajustes?.formato === formato)
+  const ultimo = deste[0] || null
+  const f = refs.formatoPorId(formato)
+  const pedir = async () => {
+    setBusy(true)
+    refs.setLastFormato(tipo, formato)
+    try {
+      const r = await pedirFormato(file, formato)
+      if (r.pedido) setPedidos((p) => [r.pedido, ...(p || []).filter((x) => x.id !== r.pedido.id)])
+      toast(r.novo ? `Pedido enviado. O computador converte para ${f.curto} e salva na coleção.` : `Esse ${f.curto} já está esperando o computador.`, { tone: 'success', ms: 4200 })
+    } catch (err) {
+      toast(err?.message || 'Não consegui pedir.', { tone: 'error', ms: 4000 })
+    }
+    setBusy(false)
+  }
+  const andando = ultimo && (ultimo.status === 'pendente' || ultimo.status === 'gerando')
+  if (!aberto)
+    return html`<button type="button" class="btn btn-secondary rinfo-open rinfo-fmt" onClick=${() => setAberto(true)} aria-expanded="false">
+      <${Icon} name="download" size=${17} /><span>Baixar como…</span>
+    </button>`
+  return html`<div class="rfmt" role="group" aria-label="Baixar como">
+      <${Rotulo} acao=${html`<button type="button" class="link-btn" onClick=${() => setAberto(false)}>Fechar</button>`}>Baixar como…</${Rotulo}>
+      <${Opcoes} label="Formato" colunas=${2} valor=${formato} onEscolher=${setFormato} itens=${opcoes.map((o) => ({ value: o.id, titulo: o.titulo, sub: o.sub, icone: o.icone, up: o.icone === 'music' }))} />
+      ${ultimo
+        ? html`<${Item}
+            class=${cx('rfmt-estado', `is-${ultimo.status}`)}
+            icone=${ultimo.status === 'pronto' ? 'circle-check' : ultimo.status === 'erro' ? 'warning' : 'laptop'}
+            tom=${ultimo.status === 'pronto' ? 'ok' : ultimo.status === 'erro' ? 'erro' : 'down'}
+            titulo=${ESTADO_PEDIDO[ultimo.status] || ultimo.status}
+            sub=${ultimo.status === 'pronto' ? `${f.curto} na coleção, ao lado do original. Abra e salve no celular.` : ultimo.status === 'erro' ? ultimo.erro || 'O computador não conseguiu converter.' : `${f.curto} sai assim que o computador pegar o pedido.`}
+            fim=${ultimo.status === 'erro' ? html`<button type="button" class="link-btn" onClick=${() => tentarDeNovo(ultimo.id).then((p) => p && setPedidos((x) => [p, ...(x || []).filter((y) => y.id !== p.id)]), (e) => toast(e.message, { tone: 'error' }))}>Tentar de novo</button>` : andando ? html`<span class="spinner" aria-hidden="true"></span>` : null}
+          />`
+        : null}
+      <${BotaoGrande} icone="laptop" disabled=${busy || andando} onClick=${pedir}>${andando ? 'Esperando o computador' : `Pedir ${f?.curto || ''} ao computador`}</${BotaoGrande}>
+      <p class="rfmt-nota">O celular não converte vídeo. O app do computador (mesma conta, aberto) converte e salva o arquivo novo ao lado do original nesta coleção.</p>
+    </div>`
+}
+
 export function RefItemSheet({ id }) {
   const it = useApp((s) => (s.refs.fila || []).find((i) => i.id === id))
   const [busy, setBusy] = useState(null)
