@@ -79,6 +79,24 @@ formatar. Sem internet: nada vai para o Drive.
 - **Sem licença do macOS para ler o cartão** (EPERM/EACCES): a mensagem diz onde liberar (Privacidade e Segurança →
   Arquivos e Pastas → SOBEDESCE → Volumes Removíveis).
 
+## Resumo de cada cartão (para o Synquei)
+
+No fim de cada cartão (menos cancelado), cada destino ganha uma linha em `<destino>/<Projeto>/.sobedesce/descargas.jsonl`:
+
+```json
+{"v":1,"app":"sobedesce","id":"dsc…","quando":"2026-10-24T14:02:11.000Z","data":"2026-10-24","projeto":"Show",
+ "diaria":{"n":1,"nome":"Diária 01"},"dono":{"id":"don…","nome":"Aladim","camera":"FX30","pasta":"Aladim - FX30"},
+ "cartao":{"n":1,"nome":"SD FX30","volId":"uuid:…","pasta":"Diária 01/Cenas/Aladim - FX30/Cartão 01"},
+ "resultado":"ok","copiados":5,"bytes":12345,"arquivos":[{"rel":"PRIVATE/M4ROOT/CLIP/C0001.MP4","size":3001}]}
+```
+
+- Uma linha por descarga (a segunda leva do mesmo cartão é outra linha, com a mesma pasta). O arquivo só cresce: quem
+  lê guarda até onde já leu.
+- `cartao.pasta` é relativo à pasta do projeto, com `/`. `arquivos[].rel` é relativo à pasta do cartão (até 50 mil).
+- O Synquei vigia esse arquivo e, a cada cartão, organiza a mídia no projeto do DaVinci (bins por diária, câmera e
+  cartão, cor por câmera, metadados e a sequência sincronizada da diária). Falhar ao gravar o resumo nunca atrapalha a
+  descarga.
+
 ## Rotas locais (`src/server/backup.js`)
 
 | Rota | O quê |

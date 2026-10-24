@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { eDoSistemaMac, lerGetVolume, lerPlistDiskutil, listarVolumes, serialDoVol } from '../src/backup/volumes.js'
 import { lerCamera, lerXmlSony, nomeCurto } from '../src/backup/camera.js'
-import { ANTERIORES, BackupService, MSG_PERMISSAO } from '../src/backup/servico.js'
+import { ANTERIORES, BackupService, MSG_PERMISSAO, RESUMO_ARQUIVO, RESUMO_PASTA } from '../src/backup/servico.js'
 
 const tmp = (p = 'sobedesce-bkp-') => fs.mkdtempSync(path.join(os.tmpdir(), p))
 const sem = { setActive() {} }
@@ -175,6 +175,15 @@ test('primeiro cartão: pede o dono (um toque); depois copia para Diária 01/Cen
     const base = path.join(hd, 'SERHS Evento', 'Diária 01', 'Cenas', 'Aladim - FX30', 'Cartão 01')
     assert.deepEqual(fs.readFileSync(path.join(base, 'PRIVATE/M4ROOT/CLIP/C0002.MP4')), fs.readFileSync(path.join(card, 'PRIVATE/M4ROOT/CLIP/C0002.MP4')))
     assert.ok(fs.readdirSync(base).some((n) => /^SOBEDESCE_copia_.*\.xxh64$/.test(n)), 'relatório de checksum no destino')
+    // resumo para o Synquei: uma linha por cartão, com a pasta a partir do projeto e os arquivos
+    const linhas = fs.readFileSync(path.join(hd, 'SERHS Evento', RESUMO_PASTA, RESUMO_ARQUIVO), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    assert.equal(linhas.length, 1)
+    assert.equal(linhas[0].v, 1)
+    assert.equal(linhas[0].cartao.pasta, 'Diária 01/Cenas/Aladim - FX30/Cartão 01')
+    assert.deepEqual(linhas[0].diaria, { n: 1, nome: 'Diária 01' })
+    assert.equal(linhas[0].dono.camera, 'FX30')
+    assert.equal(linhas[0].resultado, 'ok')
+    assert.ok(linhas[0].arquivos.some((a) => a.rel === 'PRIVATE/M4ROOT/CLIP/C0002.MP4' && a.size === 3002))
   }
   assert.equal(v.projeto.historico[0].copiados, 5)
   assert.equal(v.projeto.donos[0].rotulo, 'Aladim - FX30')
@@ -214,6 +223,11 @@ test('segunda leva do mesmo cartão: reconhece sozinho e copia só o novo; o ín
   assert.equal(guardados.length, 1)
   assert.equal(fs.readFileSync(path.join(base, ANTERIORES, guardados[0], 'PRIVATE/M4ROOT/MEDIAPRO.XML'), 'utf8'), '<clips n="2"/>')
   assert.equal(v.projeto.historico.length, 2)
+  // o resumo ganha uma segunda linha (a mesma pasta, agora com o clipe novo)
+  const resumo = fs.readFileSync(path.join(hd, 'Show', RESUMO_PASTA, RESUMO_ARQUIVO), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  assert.equal(resumo.length, 2)
+  assert.equal(resumo[1].cartao.pasta, resumo[0].cartao.pasta)
+  assert.ok(resumo[1].arquivos.some((a) => a.rel === 'PRIVATE/M4ROOT/CLIP/C0003.MP4'))
   // Quanto já passou: o projeto e a diária somam as duas levas; o destino diz o espaço livre e o tamanho do disco.
   const soma = v.projeto.historico.reduce((t, h) => t + h.bytes, 0)
   assert.ok(soma > 0)

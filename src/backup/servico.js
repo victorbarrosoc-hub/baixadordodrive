@@ -20,6 +20,11 @@ const HISTORICO_MAX = 500
 const PEQUENO = 32 * 1024 * 1024 // índice/XML da câmera que o cartão reescreve entre uma leva e outra
 const LISTA_MAX = 30
 export const ANTERIORES = '.sobedesce-anteriores'
+// Resumo de cada cartão para outros apps (o Synquei organiza a mídia no projeto de edição): uma linha JSON por descarga
+// em <destino>/<Projeto>/.sobedesce/descargas.jsonl. Só cresce; quem lê guarda até onde já leu.
+export const RESUMO_PASTA = '.sobedesce'
+export const RESUMO_ARQUIVO = 'descargas.jsonl'
+const RESUMO_MAX_ARQUIVOS = 50_000
 
 // O macOS pede licença para um app ler "volumes removíveis". Negada (ou nunca respondida), a leitura falha com EPERM.
 export const MSG_PERMISSAO =
@@ -801,6 +806,7 @@ export class BackupService {
     }
     p.historico.unshift(entrada)
     if (p.historico.length > HISTORICO_MAX) p.historico.length = HISTORICO_MAX
+    if (resultado !== 'cancelado') await this.#resumir({ p, diaria, dono, n, pasta, itens, entrada })
     p.total = { bytes: p.total.bytes + bytes, arquivos: p.total.arquivos + copiados, descargas: p.total.descargas + 1 }
     await this.#salvar()
     this.ultimo = { ...entrada, listaFaltam: faltam.slice(0, LISTA_MAX), listaAlertas: alertas.slice(0, LISTA_MAX), destinos: p.destinos.map((d) => path.basename(d) || d) }
@@ -815,6 +821,40 @@ export class BackupService {
     if (resultado === 'ok' && p.ejetar && ainda) {
       const ok = await this.ejetarFn(reg.caminho).catch(() => false)
       if (ok) ainda.estado = 'ejetado'
+    }
+  }
+
+  /**
+   * Uma linha em <destino>/<Projeto>/.sobedesce/descargas.jsonl (em cada destino): diária, dono, câmera, cartão, a
+   * pasta do cartão a partir da pasta do projeto e os arquivos (caminho dentro do cartão e tamanho). Falhar aqui nunca
+   * atrapalha a descarga: o cartão já está copiado e conferido.
+   */
+  async #resumir({ p, diaria, dono, n, pasta, itens, entrada }) {
+    const projeto = nomeDePasta(p.nome) || 'Projeto'
+    const linha =
+      JSON.stringify({
+        v: 1,
+        app: 'sobedesce',
+        id: entrada.id,
+        quando: entrada.quando,
+        data: entrada.data,
+        projeto: p.nome,
+        diaria: { n: diaria.n, nome: diaria.nome },
+        dono: { id: dono.id, nome: dono.nome || '', camera: dono.camera || '', pasta: pastaDono(dono) },
+        cartao: { n, nome: entrada.cartao, volId: entrada.volId, pasta: [diaria.nome, 'Cenas', pastaDono(dono), pasta].join('/') },
+        resultado: entrada.resultado,
+        copiados: entrada.copiados,
+        bytes: entrada.bytes,
+        arquivos: itens.slice(0, RESUMO_MAX_ARQUIVOS).map((it) => ({ rel: it.relPath, size: it.size })),
+      }) + '\n'
+    for (const d of p.destinos) {
+      const dir = path.join(d, projeto, RESUMO_PASTA)
+      try {
+        await fsp.mkdir(dir, { recursive: true })
+        await fsp.appendFile(path.join(dir, RESUMO_ARQUIVO), linha)
+      } catch (err) {
+        console.error('[backup] não consegui gravar o resumo do cartão em', dir, err?.message || err)
+      }
     }
   }
 
