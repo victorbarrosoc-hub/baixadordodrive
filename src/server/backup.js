@@ -32,7 +32,7 @@ export function registerBackup({ route, ctx, HttpProblem, servico }) {
 
   route('GET', '/api/backup', tratar(async () => svc.view()))
 
-  route('POST', '/api/backup/projetos', tratar(async ({ body }) => svc.criarProjeto({ nome: texto(body.nome, 200), destinos: lista(body.destinos), ejetar: body.ejetar === true })))
+  route('POST', '/api/backup/projetos', tratar(async ({ body }) => svc.criarProjeto({ nome: texto(body.nome, 200), destinos: lista(body.destinos), ejetar: body.ejetar === true, ligar: body.ligar !== false })))
 
   route('POST', '/api/backup/projeto', tratar(async ({ body }) => {
     const id = texto(body.id, 100)
@@ -62,6 +62,8 @@ export function registerBackup({ route, ctx, HttpProblem, servico }) {
     })))
 
   route('POST', '/api/backup/repetir', tratar(async ({ body }) => svc.repetir(texto(body.caminho))))
+
+  route('POST', '/api/backup/usar', tratar(async ({ body }) => svc.usarComoCartao(texto(body.caminho))))
 
   route('POST', '/api/backup/ejetar', tratar(async ({ body }) => svc.ejetar(texto(body.caminho))))
 

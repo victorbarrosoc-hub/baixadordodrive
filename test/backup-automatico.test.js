@@ -6,9 +6,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { lerGetVolume, lerPlistDiskutil, listarVolumes, serialDoVol } from '../src/backup/volumes.js'
+import { eDoSistemaMac, lerGetVolume, lerPlistDiskutil, listarVolumes, serialDoVol } from '../src/backup/volumes.js'
 import { lerCamera, lerXmlSony, nomeCurto } from '../src/backup/camera.js'
-import { ANTERIORES, BackupService } from '../src/backup/servico.js'
+import { ANTERIORES, BackupService, MSG_PERMISSAO } from '../src/backup/servico.js'
 
 const tmp = (p = 'sobedesce-bkp-') => fs.mkdtempSync(path.join(os.tmpdir(), p))
 const sem = { setActive() {} }
@@ -72,6 +72,25 @@ test('macOS: /Volumes sem a raiz (atalho), ocultos, disco interno e imagem; id p
     { caminho: '/Volumes/SD FX30', nome: 'SD FX30', id: 'uuid:AAAA-1111', capacidade: 128000000000 },
     { caminho: '/Volumes/SEM UUID', nome: 'SEM UUID', id: 'rotulo:SEM UUID:64000000000', capacidade: 64000000000 },
   ])
+})
+
+test('macOS: o cartão no leitor SD embutido (diz "Internal", mas é removível) entra; o SSD interno e a .dmg não', async () => {
+  const entradas = ['Untitled', 'BOOTCAMP', 'SOBEDESCE', 'EOS_DIGITAL'].map((name) => ({ name }))
+  const plists = {
+    // MacBook Pro / Mac Studio: leitor embutido.
+    '/Volumes/Untitled': '<dict><key>BusProtocol</key><string>Secure Digital</string><key>Ejectable</key><true/><key>Internal</key><true/><key>RemovableMedia</key><true/><key>TotalSize</key><integer>128000000000</integer><key>VolumeName</key><string>Untitled</string><key>VolumeUUID</key><string>SD-EMBUTIDO</string></dict>',
+    '/Volumes/BOOTCAMP': '<dict><key>BusProtocol</key><string>Apple Fabric</string><key>Ejectable</key><false/><key>Internal</key><true/><key>RemovableMedia</key><false/><key>VolumeUUID</key><string>BC</string></dict>',
+    '/Volumes/SOBEDESCE': '<dict><key>BusProtocol</key><string>Disk Image</string><key>Ejectable</key><true/><key>Internal</key><false/><key>VolumeUUID</key><string>DMG</string></dict>',
+    // Leitor de cartão USB que diz "interno" mas só o protocolo entrega (sem as chaves de removível).
+    '/Volumes/EOS_DIGITAL': '<dict><key>BusProtocol</key><string>Secure Digital</string><key>Internal</key><true/><key>VolumeUUID</key><string>EOS</string></dict>',
+  }
+  const fsFalso = { readdir: async () => entradas, lstat: async () => ({ isSymbolicLink: () => false }) }
+  const exec = async (cmd, args) => plists[args.at(-1)] ?? null
+  const v = await listarVolumes({ platform: 'darwin', fs: fsFalso, exec })
+  assert.deepEqual(v.map((x) => x.nome), ['Untitled', 'EOS_DIGITAL'])
+  assert.equal(v[0].id, 'uuid:SD-EMBUTIDO')
+  assert.equal(eDoSistemaMac(lerPlistDiskutil(plists['/Volumes/BOOTCAMP'])), true)
+  assert.equal(eDoSistemaMac(lerPlistDiskutil(plists['/Volumes/Untitled'])), false)
 })
 
 test('Windows: letras D: a Z:, sem CD/DVD; id pelo número de série do vol (em português também)', async () => {
@@ -271,7 +290,7 @@ test('o HD de destino não vira pedido; "Ignorar este disco" fica guardado; tira
   await svc.varrer()
   let v = svc.view()
   assert.deepEqual(v.pedidos.map((x) => x.nome), ['Pendrive', 'SD'])
-  assert.ok(!v.volumes.some((x) => x.nome === 'HD'))
+  assert.equal(v.volumes.find((x) => x.nome === 'HD').estado, 'destino') // aparece na tela, mas nunca vira cartão
   await svc.responder({ caminho: outro, ignorar: true })
   discos.splice(2, 1) // tira o cartão
   await svc.varrer()
@@ -362,4 +381,76 @@ test('cache dos discos: o que já estava montado não roda o comando de novo; o 
   assert.deepEqual(await ler(), [])
   entradas = [{ name: 'SD' }]
   assert.equal((await ler())[0].id, 'uuid:U2', 'outro cartão no mesmo caminho é lido de novo')
+})
+
+test('criar o projeto já liga; desligado, o disco aparece como plugado e espera "Usar como cartão"', async () => {
+  const { svc, discos, ocioso } = montar()
+  await svc.init()
+  const hd = tmp('sobedesce-hd-')
+  let v = await svc.criarProjeto({ nome: 'P', destinos: [hd] })
+  assert.equal(v.ligado, true)
+  await svc.ligar(false)
+  const card = cartaoSony({ clipes: 1 })
+  discos.push({ caminho: card, nome: 'SD', id: 'uuid:OFF', capacidade: 1 })
+  await svc.varrer()
+  v = svc.view()
+  assert.equal(v.pedidos.length, 0)
+  assert.equal(v.volumes.find((x) => x.nome === 'SD').estado, 'disco')
+  // "Usar como cartão": pergunta de quem é, mesmo desligado; respondeu, copia.
+  v = await svc.usarComoCartao(card)
+  assert.equal(v.pedidos.length, 1)
+  await svc.responder({ caminho: card, nome: 'Ana', camera: 'FX30' })
+  await ocioso()
+  assert.equal(svc.view().ultimo.resultado, 'ok')
+  assert.ok(fs.existsSync(path.join(hd, 'P', 'Diária 01', 'Cenas', 'Ana - FX30', 'Cartão 01', 'PRIVATE', 'M4ROOT', 'CLIP', 'C0001.MP4')))
+  // Tirou e espetou de novo, ainda desligado: conhecido, fica "pronto" até ligar.
+  discos.length = 0
+  await svc.varrer()
+  discos.push({ caminho: card, nome: 'SD', id: 'uuid:OFF', capacidade: 1 })
+  await svc.varrer()
+  assert.equal(svc.view().volumes.find((x) => x.nome === 'SD').estado, 'pronto')
+  escrever(card, 'PRIVATE/M4ROOT/CLIP/C0009.MP4', Buffer.alloc(5000, 9))
+  await svc.ligar(true)
+  await ocioso()
+  const u = svc.view().ultimo
+  assert.equal(u.resultado, 'ok')
+  assert.equal(u.copiados, 1)
+  await svc.close()
+})
+
+test('"Usar como cartão" num disco ignorado volta a perguntar; o destino nunca vira cartão', async () => {
+  const { svc, discos } = montar()
+  await svc.init()
+  const hd = tmp('sobedesce-hd-')
+  await svc.criarProjeto({ nome: 'P', destinos: [path.join(hd, 'B')] })
+  fs.mkdirSync(path.join(hd, 'B'))
+  const ssd = tmp()
+  discos.push({ caminho: ssd, nome: 'SSD', id: 'uuid:SSD', capacidade: 1 }, { caminho: hd, nome: 'HD', id: 'uuid:HD', capacidade: 1 })
+  await svc.varrer()
+  await svc.responder({ caminho: ssd, ignorar: true })
+  assert.equal(svc.view().volumes.find((x) => x.nome === 'SSD').estado, 'ignorado')
+  const v = await svc.usarComoCartao(ssd)
+  assert.equal(v.pedidos[0].nome, 'SSD')
+  assert.equal(v.projeto.ignorados, 0)
+  await assert.rejects(svc.usarComoCartao(hd), (e) => e.status === 409)
+  await svc.close()
+})
+
+test('sem licença para ler o cartão (macOS): a mensagem diz onde liberar', async () => {
+  const { svc, discos, ocioso } = montar()
+  await svc.init()
+  await svc.criarProjeto({ nome: 'P', destinos: [tmp('sobedesce-hd-')] })
+  const card = cartaoSony({ clipes: 1 })
+  discos.push({ caminho: card, nome: 'SD', id: 'uuid:PERM', capacidade: 1 })
+  await svc.varrer()
+  svc.motor.planejar = async () => {
+    throw Object.assign(new Error("EPERM: operation not permitted, scandir '/Volumes/SD'"), { code: 'EPERM' })
+  }
+  await svc.responder({ caminho: card, nome: 'Ana', camera: '' })
+  await ocioso()
+  const v = svc.view()
+  assert.equal(v.ultimo.resultado, 'erro')
+  assert.equal(v.ultimo.erro, MSG_PERMISSAO)
+  assert.equal(v.volumes.find((x) => x.nome === 'SD').erro, MSG_PERMISSAO)
+  await svc.close()
 })
