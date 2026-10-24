@@ -10,6 +10,7 @@ import { Thumb } from './drive-thumb.js'
 import { Scrub } from './scrub.js'
 import { isOpenable } from './drive-table.js'
 import { sizeShort } from './drive-tamanho.js'
+import { comecarArrasto, fimArrasto, idsSoltos, podeSoltar, pontoDoItem, teclaDeMenu } from './drive-menu.js'
 
 const PAGE = 120
 
@@ -17,6 +18,8 @@ const Card = memo(function Card({ item, index, selected, focused, accountId, pro
   const folderLike = isOpenable(item)
   const dur = item.video?.durationMs ? clipTime(item.video.durationMs / 1000) : ''
   const sub = folderLike ? ['Pasta', sizeShort(fsize)].filter(Boolean).join(' · ') : [item.size != null ? bytes(item.size) : null, item.modifiedTime ? relTime(item.modifiedTime) : null].filter(Boolean).join(' · ')
+  // Menu de contexto e arrastar para uma pasta (h.menu = a tela pediu).
+  const alvo = h.menu && folderLike && !item.isShortcut && item.canAddChildren !== false
   return html`<div
     class=${cx('gcard', selected && 'is-selected', folderLike && 'is-folder')}
     role="option"
@@ -26,6 +29,13 @@ const Card = memo(function Card({ item, index, selected, focused, accountId, pro
     onClick=${(e) => h.onClick(e, index)}
     onDblClick=${() => h.onDouble(index)}
     onKeyDown=${(e) => h.onKey(e, index)}
+    onContextMenu=${h.menu ? (e) => h.onCtx(e, index) : undefined}
+    draggable=${h.menu ? 'true' : undefined}
+    onDragStart=${h.menu ? (e) => h.onDragStart(e, index) : undefined}
+    onDragEnd=${h.menu ? fimArrasto : undefined}
+    onDragOver=${alvo ? (e) => h.onDragOver(e, index) : undefined}
+    onDragLeave=${alvo ? (e) => e.currentTarget.classList.remove('is-alvo') : undefined}
+    onDrop=${alvo ? (e) => h.onDrop(e, index) : undefined}
     title=${`${item.name}${item.modifiedTime ? `\nModificado ${fullDate(item.modifiedTime)}` : ''}`}
   >
     <div class="gthumb">
@@ -53,7 +63,7 @@ const Card = memo(function Card({ item, index, selected, focused, accountId, pro
  * @param {{ items: any[]|null, sorted: any[], selected: Set<string>, onSelect, onOpen, onPreview, accountId: string,
  *           loading?: boolean, error?: string|null, onRetry?: ()=>void, empty?: any, resetKey?: string, proxies?: Map }} props
  */
-export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview, accountId, loading, error, onRetry, empty, resetKey, proxies, sizeOf, comProxy }) {
+export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview, accountId, loading, error, onRetry, empty, resetKey, proxies, sizeOf, comProxy, onMenu, onSoltar }) {
   const [limit, setLimit] = useState(PAGE)
   const [focus, setFocus] = useState(0)
   const anchor = useRef(null)
@@ -140,14 +150,51 @@ export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
       e.preventDefault()
       onSelect(new Set(sorted.map((x) => x.id))) // tudo o que está visível
+    } else if (onMenu && teclaDeMenu(e)) {
+      e.preventDefault()
+      abrirMenu(i, pontoDoItem(e.currentTarget))
     } else if (e.key === 'Escape' && selected.size) {
       e.stopPropagation()
       onSelect(new Set())
     }
   }
 
+  // Botão direito: o cartão clicado entra na seleção (se ainda não estava, fica só ele), como na lista.
+  const abrirMenu = (i, ponto) => {
+    const it = shown[i]
+    if (!it) return
+    setFocus(i)
+    if (!selected.has(it.id)) {
+      anchor.current = i
+      onSelect(new Set([it.id]))
+    }
+    onMenu?.(it, ponto)
+  }
+  const onCtx = (e, i) => {
+    e.preventDefault()
+    abrirMenu(i, { x: e.clientX, y: e.clientY })
+  }
+  const onDragStart = (e, i) => {
+    const it = shown[i]
+    const ids = selected.has(it.id) ? sorted.filter((x) => selected.has(x.id)).map((x) => x.id) : [it.id]
+    comecarArrasto(e, ids, it.name)
+  }
+  const onDragOver = (e, i) => {
+    if (!podeSoltar(e, shown[i].id)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    e.currentTarget.classList.add('is-alvo')
+  }
+  const onDrop = (e, i) => {
+    if (!podeSoltar(e, shown[i].id)) return
+    e.preventDefault()
+    const ids = idsSoltos(e)
+    fimArrasto()
+    if (ids.length) onSoltar?.(ids, shown[i])
+  }
+
   const live = useRef({})
-  live.current = { onClick, onCheck, onDouble, onKey, onPeek }
+  live.current = { onClick, onCheck, onDouble, onKey, onPeek, onCtx, onDragStart, onDragOver, onDrop }
   const h = useRef(null)
   if (!h.current)
     h.current = {
@@ -156,7 +203,12 @@ export function DriveGrid({ items, sorted, selected, onSelect, onOpen, onPreview
       onDouble: (i) => live.current.onDouble(i),
       onKey: (e, i) => live.current.onKey(e, i),
       onPeek: (i) => live.current.onPeek(i),
+      onCtx: (e, i) => live.current.onCtx(e, i),
+      onDragStart: (e, i) => live.current.onDragStart(e, i),
+      onDragOver: (e, i) => live.current.onDragOver(e, i),
+      onDrop: (e, i) => live.current.onDrop(e, i),
     }
+  h.current.menu = !!onMenu
 
   if (loading && !items)
     return html`<div class="dgrid is-skeleton" aria-hidden="true">

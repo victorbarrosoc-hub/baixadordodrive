@@ -70,6 +70,7 @@ const SHELL = [
   './components/folders.js',
   './components/icons.js',
   './components/inicio.js',
+  './components/item-menu.js',
   './components/kit.js',
   './components/install-hint.js',
   './components/main.js',

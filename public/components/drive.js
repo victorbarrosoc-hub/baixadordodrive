@@ -1,6 +1,8 @@
-// Tela Drive: navegar Meu Drive e drives compartilhados, buscar, criar pasta, enviar para a pasta atual
-// e baixar a seleção (barra flutuante embaixo, translúcida como no macOS). No padrão do kit (docs/UI-KIT.md):
-// cabeçalho com a ação principal, a faixa colorida com onde você está e o espaço no Drive, filtros em pílulas.
+// Tela Drive: navegar Meu Drive, Compartilhados comigo e drives compartilhados, buscar, criar pasta, enviar para a
+// pasta atual e baixar a seleção (barra flutuante embaixo, translúcida como no macOS). No padrão do kit
+// (docs/UI-KIT.md): cabeçalho com a ação principal, a faixa colorida com onde você está e o espaço no Drive, filtros em
+// pílulas. Botão direito (ou a tecla de menu) numa linha abre o menu do item (drive-menu.js): abrir, baixar, copiar o
+// link, renomear, mover para outra pasta… Arrastar linhas para cima de uma pasta também move.
 import { html, useEffect, useMemo, useRef, useState } from '/vendor/preact-htm.js'
 import { useStore } from '../lib/store.js'
 import { navigate } from '../lib/router.js'
@@ -8,8 +10,8 @@ import { api, attempt } from '../lib/api.js'
 import { bytes, plural, shortPath } from '../lib/format.js'
 import { cx, storage, useDebounced, usePersistentState } from '../lib/ui.js'
 import { announceBatch, driveFolderUrl, uploadPaths } from '../lib/actions.js'
-import { promptDialog } from '../lib/modals.js'
-import { pickFolderPath, pickUploadPaths } from '../lib/desktop.js'
+import { pickDriveFolder, promptDialog } from '../lib/modals.js'
+import { openExternal, pickFolderPath, pickUploadPaths } from '../lib/desktop.js'
 import { FileDrop } from './drop.js'
 import { toast } from '../lib/toasts.js'
 import { Icon } from './icons.js'
@@ -18,11 +20,12 @@ import { DriveTable, isOpenable } from './drive-table.js'
 import { DriveGrid } from './drive-grid.js'
 import { DrivePreview } from './drive-preview.js'
 import { onProxies, knownProxy, siblingProxies } from '../lib/media.js'
-import { createDriveFolder, useAbout, useDriveFolder, useDriveSearch, useSharedDrives } from './drive-data.js'
+import { SHARED_ID, SHARED_NAME, SHARED_URL, createDriveFolder, crumbsFor, invalidateFolder, isSharedTree, moveDriveItems, renameDriveItem, useAbout, useDriveFolder, useDriveSearch, useSharedDrives } from './drive-data.js'
+import { abrirMenuContexto } from './drive-menu.js'
 import { hasRawFiles, onRawThumbsDone, openRawThumbs, useRawThumbsRunning } from './raw-thumbs.js'
 import { hasVideoFiles, isVideoName, onPreviasDone, openPrevias, openProxyArquivo, usePreviasRunning, useComProxy } from './previa.js'
 import { FolderSummary, calcSize, focusSize, getSize, sizeId, useSizes } from './drive-tamanho.js'
-import { copyDriveLink } from './link-share.js'
+import { copyDriveLink, driveLinkFor } from './link-share.js'
 import { DEFAULT_SORT, FILTERS, driveView, filterChips, keepVisible, normalizeSort, visibleSummary } from '../lib/ordenar.js'
 import { MacLine, SortMenu, openMacTrash } from './drive-ordenar.js'
 import { openCopyLink, useCopiaRunning } from './copiar-link.js'
@@ -39,22 +42,28 @@ export function linkTarget(it) {
 
 /** "Meu Drive / SERHS / Diária 02": o caminho da pasta aberta, para lembrar nos destinos recentes. */
 function folderPathText(data, drives) {
-  const list = (data?.path || []).slice()
-  if (data?.folder && (!list.length || list[list.length - 1].id !== data.folder.id)) list.push({ id: data.folder.id, name: data.folder.name })
-  return list
-    .map((c, i) => {
-      if (i) return c.name
-      const shared = drives?.find((d) => d.id === c.id)
-      return shared ? shared.name : c.id === 'root' || !data?.folder?.driveId ? 'Meu Drive' : c.name
-    })
+  return crumbsFor(data, drives)
+    .map((c) => c.name)
     .join(' / ')
 }
 
-/** Fontes: Meu Drive + drives compartilhados, em pílulas. */
+/** De onde é a pasta aberta: 'root' (Meu Drive), SHARED_ID (Compartilhados comigo) ou o id do drive compartilhado. */
+export function sourceOf(data, drives) {
+  const folder = data?.folder
+  if (folder?.driveId) return folder.driveId
+  const first = data?.path?.[0]?.id
+  if (first && drives.some((d) => d.id === first)) return first
+  return isSharedTree(data, drives) ? SHARED_ID : 'root'
+}
+
+/** Fontes: Meu Drive, Compartilhados comigo e drives compartilhados, em pílulas. */
 export function SourceChips({ drives, current, onPick, vertical }) {
   return html`<div class=${cx('sources', vertical && 'is-vertical')} role="tablist" aria-label="Onde procurar">
     <button type="button" role="tab" aria-selected=${current === 'root' ? 'true' : 'false'} class=${cx('source', current === 'root' && 'is-on')} onClick=${() => onPick('root')}>
       <${Icon} name="cloud" size=${15} /> Meu Drive
+    </button>
+    <button type="button" role="tab" aria-selected=${current === SHARED_ID ? 'true' : 'false'} class=${cx('source', current === SHARED_ID && 'is-on')} onClick=${() => onPick(SHARED_ID)} title="Compartilhados comigo: pastas que outras pessoas compartilharam com você">
+      <${Icon} name="user" size=${15} /> <span>Compartilhados</span>
     </button>
     ${drives.map(
       (d) => html`<button type="button" role="tab" aria-selected=${current === d.id ? 'true' : 'false'} class=${cx('source', current === d.id && 'is-on')} onClick=${() => onPick(d.id)} title=${d.name}>
@@ -66,14 +75,7 @@ export function SourceChips({ drives, current, onPick, vertical }) {
 
 /** Trilha de pastas. Encurta o meio quando fica longa. */
 export function Breadcrumb({ path, folder, drives, onOpen }) {
-  let crumbs = (path || []).slice()
-  if (folder && (!crumbs.length || crumbs[crumbs.length - 1].id !== folder.id)) crumbs.push({ id: folder.id, name: folder.name })
-  if (!crumbs.length) crumbs = [{ id: 'root', name: 'Meu Drive' }]
-  crumbs = crumbs.map((c, i) => {
-    if (i !== 0) return c
-    const shared = drives?.find((d) => d.id === c.id)
-    return { ...c, name: shared ? shared.name : c.id === 'root' || !folder?.driveId ? 'Meu Drive' : c.name }
-  })
+  const crumbs = crumbsFor({ path, folder }, drives)
   let view = crumbs
   if (crumbs.length > 4) view = [crumbs[0], { ellipsis: true, id: '…', hidden: crumbs.slice(1, -2) }, ...crumbs.slice(-2)]
   return html`<nav class="crumbs" aria-label="Caminho">
@@ -105,12 +107,14 @@ function Espaco({ accountId }) {
   </div>`
 }
 
-/** Meu Drive e drives compartilhados, em pílulas (só quando há drive compartilhado). */
+/** Meu Drive, Compartilhados comigo e os drives compartilhados, em pílulas. */
 function Fontes({ drives, current, onPick }) {
-  if (!drives.length) return null
   return html`<div class="k-pilulas dv-fontes" role="tablist" aria-label="Onde procurar">
     <button type="button" role="tab" aria-selected=${current === 'root' ? 'true' : 'false'} class=${cx('k-pilula', current === 'root' && 'is-on')} onClick=${() => onPick('root')}>
       <${Icon} name="cloud" size=${14} /> Meu Drive
+    </button>
+    <button type="button" role="tab" aria-selected=${current === SHARED_ID ? 'true' : 'false'} class=${cx('k-pilula', current === SHARED_ID && 'is-on')} onClick=${() => onPick(SHARED_ID)} title="Pastas e arquivos que outras pessoas compartilharam com você">
+      <${Icon} name="user" size=${14} /> ${SHARED_NAME}
     </button>
     ${drives.map(
       (d) => html`<button type="button" role="tab" aria-selected=${current === d.id ? 'true' : 'false'} class=${cx('k-pilula', current === d.id && 'is-on')} onClick=${() => onPick(d.id)} title=${d.name}>
@@ -224,7 +228,11 @@ export function DriveScreen({ route }) {
   const comProxy = useComProxy(accountId, searching ? null : data?.items)
   const items = searching ? search.items : data?.items || null
   const folder = data?.folder
-  const sourceId = folder?.driveId || (data?.path?.[0]?.id && drives.some((d) => d.id === data.path[0].id) ? data.path[0].id : 'root')
+  const sourceId = sourceOf(data, drives)
+  // "Compartilhados comigo" (a raiz) não é pasta: não dá para enviar, criar pasta nem somar o tamanho ali. Pasta de
+  // outra pessoa em que a conta só lê: também não recebe nada.
+  const virtual = !!folder?.virtual
+  const podeEnviar = !!folder && !virtual && folder.canAddChildren !== false
 
   useEffect(() => {
     setSelected(new Set())
@@ -276,6 +284,7 @@ export function DriveScreen({ route }) {
   const openId = (id) => navigate(id === 'root' ? 'drive' : `drive/${encodeURIComponent(id)}`)
 
   const newFolder = async () => {
+    if (!podeEnviar) return
     const name = await promptDialog({ title: 'Nova pasta', label: 'Nome da pasta', placeholder: 'Sem título', confirmLabel: 'Criar pasta', hint: folder ? `Dentro de “${folderLabel(folder, drives)}”` : '' })
     if (!name) return
     const item = await attempt(createDriveFolder(accountId, folderId, name))
@@ -287,6 +296,7 @@ export function DriveScreen({ route }) {
   }
 
   const uploadHere = async (e) => {
+    if (!podeEnviar) return
     const paths = await pickUploadPaths({ title: `Enviar para “${folderLabel(folder, drives)}”`, anchor: e?.currentTarget })
     if (!paths?.length) return
     await uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives), destPath: folderPathText(data, drives) })
@@ -295,7 +305,7 @@ export function DriveScreen({ route }) {
   // Copiar de um link: a pasta aberta vira o destino (dá para trocar na janela).
   const copiando = useCopiaRunning()
   const copiarDeLink = () =>
-    openCopyLink({ accountId, dest: folder && !searching ? { id: folderId, name: folderLabel(folder, drives), path: folderPathText(data, drives), driveId: folder.driveId || null } : null })
+    openCopyLink({ accountId, dest: podeEnviar && !searching ? { id: folderId, name: folderLabel(folder, drives), path: folderPathText(data, drives), driveId: folder.driveId || null } : null })
   // Cópia terminou nesta pasta (ou dentro dela): recarrega para aparecer o que chegou.
   const copiaFim = useStore((s) => (s.copia && s.copia.status !== 'running' ? s.copia : null))
   useEffect(() => {
@@ -347,6 +357,99 @@ export function DriveScreen({ route }) {
       },
     })
 
+  // ─────────── menu de contexto e mover ───────────
+
+  // Move `alvo` (itens da lista) para `dest` ({ id, name }). Usado pelo "Mover para…" e pelo arrastar e soltar.
+  const mover = async (alvo, dest) => {
+    if (!alvo.length || !dest) return
+    const res = await attempt(moveDriveItems(accountId, alvo.map((x) => x.id), dest.id, folder?.virtual ? null : folderId))
+    if (!res) return
+    const n = res.movidos.length
+    const para = `“${dest.name}”`
+    if (n) toast('success', n === 1 ? `“${alvo.find((x) => x.id === res.movidos[0])?.name || 'Item'}” foi para ${para}.` : `${plural(n, 'item foi', 'itens foram')} para ${para}.`)
+    else if (res.ja.length) toast('info', res.ja.length === 1 ? `Já estava em ${para}.` : `Já estavam em ${para}.`)
+    if (res.recusados.length) toast('warning', `${plural(res.recusados.length, 'item ficou', 'itens ficaram')} onde ${res.recusados.length === 1 ? 'estava' : 'estavam'}: ${res.recusados[0].error}`)
+    if (n) {
+      setSelected(new Set())
+      reloadRef.current()
+    }
+  }
+
+  const moverPara = async (alvo) => {
+    const nome = alvo.length === 1 ? `“${alvo[0].name}”` : plural(alvo.length, 'item', 'itens')
+    const dest = await pickDriveFolder({
+      accountId,
+      title: `Mover ${nome} para…`,
+      subtitle: 'Abra a pasta de destino e clique em Mover para cá (ou marque uma subpasta).',
+      confirmLabel: 'Mover para cá',
+      initialFolderId: folder && !virtual ? folderId : 'root',
+    })
+    if (dest) await mover(alvo, dest)
+  }
+
+  // Soltar linhas em cima de uma pasta da lista.
+  const soltar = (ids, pasta) => {
+    const alvo = ids.map((id) => byId.get(id)).filter(Boolean)
+    const destId = pasta.isShortcut && pasta.shortcutTargetId ? pasta.shortcutTargetId : pasta.id
+    if (alvo.length) mover(alvo, { id: destId, name: pasta.name })
+  }
+
+  const renomear = async (it) => {
+    const nome = await promptDialog({ title: it.isFolder ? 'Renomear pasta' : 'Renomear arquivo', label: 'Nome', initial: it.name, confirmLabel: 'Renomear' })
+    if (!nome || nome === it.name) return
+    const item = await attempt(renameDriveItem(accountId, it, nome, folder?.virtual ? null : folderId))
+    if (item) {
+      toast('success', `Agora se chama “${item.name}”.`)
+      await reload()
+      setSelected(new Set([item.id]))
+    }
+  }
+
+  const enviarPara = async (pasta) => {
+    const destId = pasta.isShortcut && pasta.shortcutTargetId ? pasta.shortcutTargetId : pasta.id
+    const paths = await pickUploadPaths({ title: `Enviar para “${pasta.name}”` })
+    if (!paths?.length) return
+    const caminho = folderPathText(data, drives)
+    await uploadPaths({ accountId, paths, destFolderId: destId, driveId: pasta.driveId || folder?.driveId || null, destName: pasta.name, destPath: caminho ? `${caminho} / ${pasta.name}` : pasta.name })
+  }
+
+  const abrirNoDrive = (it) => {
+    const t = linkTarget(it)
+    openExternal(t.url || driveLinkFor(t.id, t.isFolder, t.resourceKey))
+  }
+
+  // O menu do item. Com várias linhas marcadas e o clique numa delas, Baixar e Mover valem para todas.
+  const abrirMenu = async (it, ponto) => {
+    const varios = selected.has(it.id) && selected.size > 1 ? [...selected].map((id) => byId.get(id)).filter(Boolean) : null
+    const alvo = varios || [it]
+    const pasta = isOpenable(it)
+    const n = alvo.length
+    const video = !pasta && isVideoName(it.name)
+    const itens = [
+      { id: 'abrir', icon: pasta ? 'folder' : 'eye', label: pasta ? 'Abrir' : 'Prévia', hint: pasta ? '' : 'espaço' },
+      { id: 'baixar', icon: 'download', label: n > 1 ? `Baixar ${plural(n, 'item', 'itens')}` : 'Baixar', disabled: !n || alvo.every((x) => x.canDownload === false), title: `Baixar em ${shortPath(dest, home) || 'Downloads'}` },
+      pasta && !it.isShortcut && it.canAddChildren !== false ? { id: 'enviar', icon: 'upload', label: 'Enviar para esta pasta…' } : null,
+      { id: 'link', icon: 'link', label: 'Copiar link', sep: true, disabled: n > 1 },
+      { id: 'drive', icon: 'external', label: 'Abrir no Google Drive', disabled: n > 1 },
+      { id: 'renomear', icon: 'pencil', label: 'Renomear…', sep: true, disabled: n > 1 || it.canRename === false },
+      { id: 'mover', icon: 'arrow-right', label: n > 1 ? `Mover ${plural(n, 'item', 'itens')} para…` : 'Mover para…', disabled: alvo.some((x) => x.canMove === false), title: alvo.some((x) => x.canMove === false) ? 'Sua conta não pode mudar este item de lugar' : undefined },
+      pasta && !it.isShortcut ? { id: 'tamanho', icon: 'disk', label: 'Calcular tamanho', sep: true } : null,
+      video && n === 1 ? { id: 'proxy', icon: 'film', label: 'Gerar proxy', sep: !pasta } : null,
+    ]
+    const escolha = await abrirMenuContexto({ titulo: n > 1 ? plural(n, 'item selecionado', 'itens selecionados') : it.name, itens, x: ponto.x, y: ponto.y })
+    if (escolha === 'abrir') pasta ? open(it) : preview(it)
+    else if (escolha === 'baixar') {
+      const res = await attempt(api.post('/api/transfers/download', { accountId, items: alvo, destDir: dest }))
+      if (res) announceBatch(res, 'na fila')
+    } else if (escolha === 'enviar') enviarPara(it)
+    else if (escolha === 'link') copyItemLink(it)
+    else if (escolha === 'drive') abrirNoDrive(it)
+    else if (escolha === 'renomear') renomear(it)
+    else if (escolha === 'mover') moverPara(alvo)
+    else if (escolha === 'tamanho') calcFolder(it)
+    else if (escolha === 'proxy') openProxyArquivo({ accountId, item: it })
+  }
+
   const emptyView =
     shown.filter !== 'all' && items?.length
       ? html`<${Vazio} icone="filter" titulo=${`Nenhum ${filterDef.one} ${searching ? 'nos resultados' : 'nesta pasta'}`} acoes=${html`<${Button} onClick=${() => setFilter('all')}>Mostrar tudo</${Button}>`} />`
@@ -354,7 +457,11 @@ export function DriveScreen({ route }) {
         ? html`<${Vazio} icone="eye" titulo="Só arquivos de controle do Mac aqui" acoes=${html`<${Button} onClick=${() => setShowMac(true)}>Mostrar</${Button}>`}>${shown.mac.length === 1 ? 'Ele está oculto.' : 'Eles estão ocultos.'}</${Vazio}>`
         : searching
           ? html`<${Vazio} icone="search" titulo=${`Nada com “${q.trim()}” no nome`} acoes=${html`<${Button} icon="x" onClick=${() => setQuery('')}>Limpar a busca</${Button}>`}>Confira a escrita ou procure por outra parte do nome.</${Vazio}>`
-          : html`<${Vazio} icone="folder" titulo="Pasta vazia" acoes=${html`<${Button} icon="upload" onClick=${uploadHere}>Enviar para esta pasta</${Button}>`}>Mande arquivos do computador para cá, ou arraste e solte em qualquer lugar da tela.</${Vazio}>`
+          : virtual
+            ? html`<${Vazio} icone="user" titulo="Nada compartilhado com você">Quando alguém compartilhar uma pasta ou arquivo com esta conta, aparece aqui.</${Vazio}>`
+            : !podeEnviar
+              ? html`<${Vazio} icone="folder" titulo="Pasta vazia">Você só pode ver esta pasta: quem é dono não liberou enviar para ela.</${Vazio}>`
+              : html`<${Vazio} icone="folder" titulo="Pasta vazia" acoes=${html`<${Button} icon="upload" onClick=${uploadHere}>Enviar para esta pasta</${Button}>`}>Mande arquivos do computador para cá, ou arraste e solte em qualquer lugar da tela.</${Vazio}>`
 
   const macLine = shown.mac.length
     ? html`<${MacLine} mac=${shown.mac} shown=${showMac} onToggle=${() => setShowMac(!showMac)} onTrash=${!searching && folder ? () => trashMac() : null} />`
@@ -365,9 +472,11 @@ export function DriveScreen({ route }) {
     if (e.key === 'Escape' && selected.size) setSelected(new Set())
   }
 
-  const ondeIcone = searching ? 'search' : folderId === 'root' ? 'cloud' : drives.some((d) => d.id === folderId) ? 'users' : 'folder'
+  const ondeIcone = searching ? 'search' : folderId === 'root' ? 'cloud' : virtual ? 'user' : drives.some((d) => d.id === folderId) ? 'users' : 'folder'
   const resumoPasta =
-    !searching && accountId
+    !searching && accountId && virtual
+      ? html`<div class="drive-sum"><span class="dsum-main" aria-live="polite"><span class="dsum-count">${data?.items ? plural(data.items.length, 'item compartilhado com você', 'itens compartilhados com você') : 'Carregando…'}</span></span></div>`
+      : !searching && accountId
       ? html`<${FolderSummary}
           accountId=${accountId}
           folderId=${folderId}
@@ -396,7 +505,7 @@ export function DriveScreen({ route }) {
   return html`<div class=${cx('page page-drive k-pagina', selected.size && 'has-selbar')} onKeyDown=${onKeyDownPage}>
     <${FileDrop}
       label=${folderLabel(folder, drives)}
-      enabled=${!!folder && !!accountId}
+      enabled=${podeEnviar && !!accountId}
       onPaths=${(paths) => uploadPaths({ accountId, paths, destFolderId: folderId, driveId: folder?.driveId || null, destName: folderLabel(folder, drives), destPath: folderPathText(data, drives) })}
     />
     <header class="k-cabeca k-entra" style="--i:0">
@@ -408,7 +517,7 @@ export function DriveScreen({ route }) {
         <${Button} icon="link" class=${cx(copiando && 'is-copying')} onClick=${copiarDeLink} title="Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para o seu Drive">
           ${copiando ? `Copiando ${copiando.progress?.done || 0}/${copiando.progress?.total || 0}` : 'Copiar de um link'}
         </${Button}>
-        <button type="button" class="k-botao dv-enviar" onClick=${uploadHere} disabled=${searching} title=${searching ? 'Saia da busca para escolher a pasta de destino' : `Enviar arquivos do computador para “${folderLabel(folder, drives)}”`}>
+        <button type="button" class="k-botao dv-enviar" onClick=${uploadHere} disabled=${searching || (folder && !podeEnviar)} title=${searching ? 'Saia da busca para escolher a pasta de destino' : virtual ? 'Abra uma das pastas compartilhadas para enviar para ela' : folder && !podeEnviar ? 'Você só pode ver esta pasta' : `Enviar arquivos do computador para “${folderLabel(folder, drives)}”`}>
           <${Icon} name="upload" size=${17} strokeWidth=${1.9} />Enviar para esta pasta
         </button>
       </div>
@@ -453,8 +562,8 @@ export function DriveScreen({ route }) {
           ]}
         />
         ${!searching ? html`<${IconButton} icon="refresh" label="Atualizar" onClick=${reload} class=${loading && data ? 'is-spinning' : ''} />` : null}
-        ${!searching && folder && folderId !== 'root' ? html`<${IconButton} icon="link" label="Copiar link da pasta" onClick=${copyFolderLink} />` : null}
-        ${!searching && folder ? html`<a class="icon-btn" href=${folderId === 'root' ? 'https://drive.google.com/drive/my-drive' : driveFolderUrl(folderId)} target="_blank" rel="noopener" title="Abrir no navegador" aria-label="Abrir no navegador"><${Icon} name="external" /></a>` : null}
+        ${!searching && folder && folderId !== 'root' && !virtual ? html`<${IconButton} icon="link" label="Copiar link da pasta" onClick=${copyFolderLink} />` : null}
+        ${!searching && folder ? html`<a class="icon-btn" href=${folderId === 'root' ? 'https://drive.google.com/drive/my-drive' : virtual ? SHARED_URL : driveFolderUrl(folderId)} target="_blank" rel="noopener" title="Abrir no navegador" aria-label="Abrir no navegador"><${Icon} name="external" /></a>` : null}
         <${MenuButton}
           class="more-menu"
           label="Mais"
@@ -468,8 +577,8 @@ export function DriveScreen({ route }) {
             !searching && folder && (hasVideoFiles(items, folder) || previasRunning)
               ? { icon: 'film', label: 'Gerar proxies da pasta', busy: previasRunning, title: 'Proxy (cópia leve 720p, pasta Proxy) dos vídeos desta pasta, para a prévia tocar fluida', onSelect: () => openPrevias({ accountId, folder: { id: folderId, name: folderLabel(folder, drives) } }) }
               : null,
-            { icon: 'folder-plus', label: 'Nova pasta', disabled: searching, onSelect: newFolder },
-            { icon: 'link', label: 'Copiar de um link para cá…', title: 'Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para esta pasta', disabled: searching || !folder, onSelect: copiarDeLink },
+            { icon: 'folder-plus', label: 'Nova pasta', disabled: searching || !podeEnviar, onSelect: newFolder },
+            { icon: 'link', label: 'Copiar de um link para cá…', title: 'Copiar uma pasta ou arquivo do Drive de outra pessoa (pelo link) para esta pasta', disabled: searching || !podeEnviar, onSelect: copiarDeLink },
           ]}
         />
         <button type="button" class=${cx('cn-botao dv-cenas', cenasAberto && 'is-on')} aria-pressed=${cenasAberto ? 'true' : 'false'} onClick=${() => setCenasAberto(!cenasAberto)} title="Achar momentos nos vídeos escrevendo o que você quer (noiva, DJ, criança entrando…)">
@@ -500,6 +609,8 @@ export function DriveScreen({ route }) {
             proxies=${proxies}
             sizeOf=${sizeOf}
             comProxy=${comProxy}
+            onMenu=${abrirMenu}
+            onSoltar=${soltar}
             loading=${searching ? search.loading : loading}
             error=${searching ? search.error : error}
             onRetry=${reload}
@@ -519,6 +630,8 @@ export function DriveScreen({ route }) {
             onCalcSize=${calcFolder}
             onCopyLink=${copyItemLink}
             comProxy=${comProxy}
+            onMenu=${abrirMenu}
+            onSoltar=${soltar}
             sort=${sort}
             onSort=${setSort}
             loading=${searching ? search.loading : loading}
@@ -580,6 +693,7 @@ export function DriveScreen({ route }) {
 function folderLabel(folder, drives) {
   if (!folder) return 'esta pasta'
   if (folder.id === 'root') return 'Meu Drive'
+  if (folder.id === SHARED_ID) return SHARED_NAME
   const shared = drives?.find((d) => d.id === folder.id)
   return shared ? shared.name : folder.name
 }

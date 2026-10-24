@@ -1,7 +1,8 @@
 // Backup Automático (docs/BACKUP-AUTOMATICO.md): os discos montados agora (cartões, SSDs, HDs externos), um id que
 // reconhece o mesmo cartão na próxima vez que ele for espetado, e ejetar.
-//   - macOS: /Volumes (sem a raiz, que é um atalho, sem ocultos); id = VolumeUUID do `diskutil info -plist`; pula disco
-//     interno e imagem de disco (.dmg).
+//   - macOS: /Volumes (sem a raiz, que é um atalho, sem ocultos); id = VolumeUUID do `diskutil info -plist`; pula o
+//     disco interno do Mac e imagem de disco (.dmg). O cartão no leitor SD embutido também se diz "interno": entra,
+//     porque é removível.
 //   - Windows: letras D: a Z:; id = número de série do volume (`vol`, "XXXX-XXXX", em qualquer idioma); rótulo e tipo
 //     pelo PowerShell (pula CD/DVD e unidade de rede).
 //   - Linux: /media/$USER e /run/media/$USER; id = UUID do `findmnt`.
@@ -35,8 +36,17 @@ export function lerPlistDiskutil(xml) {
     nome: texto('VolumeName'),
     protocolo: texto('BusProtocol'),
     interno: sim('Internal'),
+    // O leitor de SD embutido (MacBook Pro, Mac Studio) diz "Internal" mas o cartão é removível e ejetável.
+    removivel: sim('RemovableMedia') || sim('Removable') || sim('Ejectable') || sim('RemovableMediaOrExternalDevice'),
     capacidade: inteiro('TotalSize') ?? inteiro('Size'),
   }
+}
+
+/** Disco do próprio Mac (o SSD interno, uma partição do Boot Camp): não é cartão. O cartão no leitor embutido é. */
+export function eDoSistemaMac(info) {
+  if (/disk image/i.test(info?.protocolo || '')) return true
+  if (!info?.interno) return false
+  return !info.removivel && !/secure digital|sd card/i.test(info.protocolo || '')
 }
 
 /** Número de série do `vol X:` ("Volume Serial Number is 1A2B-3C4D" / "Número de Série do Volume é 1A2B-3C4D"). */
@@ -111,7 +121,7 @@ async function listarMac({ fs, exec, c }) {
     }
     const v = await doCache(c, caminho, async () => {
       const info = lerPlistDiskutil(await exec('/usr/sbin/diskutil', ['info', '-plist', caminho]))
-      if (info.interno || /disk image/i.test(info.protocolo || '')) return null
+      if (eDoSistemaMac(info)) return null
       const capacidade = info.capacidade ?? (await capacidadeDe(caminho))
       return { caminho, nome: info.nome || nome, id: info.uuid ? `uuid:${info.uuid}` : idReserva(nome, capacidade), capacidade }
     })

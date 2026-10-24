@@ -800,9 +800,12 @@ button.k-item:hover:not(:disabled) {
   stroke-linejoin: round;
 }
 
-/* ───── movimento: entrada em cascata (--i) ───── */
+/* ───── movimento: entrada em cascata (--i) ─────
+   `backwards`, não `both`: segura o "de" durante o atraso e solta no fim. Com `both` a animação ficava valendo para
+   sempre e cada bloco virava um contexto de empilhamento (transform/opacity): o menu "Mais" da barra do Drive (z-index
+   dentro do bloco) ficava por trás da lista, que vem depois. Terminada a entrada, o bloco volta a ser comum. */
 .k-entra {
-  animation: k-entra 0.42s var(--ease) both;
+  animation: k-entra 0.42s var(--ease) backwards;
   animation-delay: calc(var(--i, 0) * 60ms);
 }
 @keyframes k-entra {

@@ -8,7 +8,8 @@ formatar. Sem internet: nada vai para o Drive.
 
 1. **Cartões → Backup Automático → Novo projeto:** o nome (vira a pasta principal), os destinos (o HD principal e até
    3 backups; o cartão é lido uma vez e gravado em todos) e, se quiser, "Ejetar o cartão ao terminar".
-2. **Ligar o backup automático.**
+2. **Começar sozinho ao espetar** já vem ligado ao criar o projeto (a chave fica no painel). Desligado, cada disco
+   plugado aparece em "Discos plugados" e espera "Usar como cartão" / "Copiar agora".
 3. **Espete o cartão.** Na primeira vez, um toque diz de quem ele é: um dono que já existe ou um novo, com nome e
    câmera ("Aladim" + "FX30"). A câmera vem preenchida quando o app consegue ler (Sony). "Ignorar este disco" serve
    para pendrive, HD de outra coisa etc.
@@ -25,6 +26,9 @@ formatar. Sem internet: nada vai para o Drive.
 <destino>/<Projeto>/Diária 01/Cenas/Aladim - FX30/Cartão 01/<pastas do cartão, como estão>
 ```
 
+- **Nome da pasta do dono** (opcional): no primeiro toque ou no lápis do dono, ex.: `01_CAMERA_A_RAPHA_FX30`. Vazio =
+  "Nome - Câmera". Editar muda só os próximos cartões (os que já passaram ficam onde estão). Dois donos não podem
+  ter a mesma pasta: os "Cartão NN" de um se misturariam com os do outro.
 - **"Cartão NN"** é por cartão físico, dentro do dono e da diária. Protege contra nomes iguais: um cartão formatado
   que recomeça em C0001, ou os arquivos de índice da câmera (MEDIAPRO.XML), não vão por cima de nada.
 - **Segunda leva do mesmo cartão (sem formatar):** mesma pasta; copia só o que é novo.
@@ -34,9 +38,12 @@ formatar. Sem internet: nada vai para o Drive.
 
 ## Como funciona
 
-- **Vigia dos discos** (`src/backup/volumes.js`), a cada 3 s, só com o backup ligado:
-  - macOS: `/Volumes`, sem a raiz (atalho), ocultos, disco interno e imagem de disco. Id = VolumeUUID do
-    `diskutil info -plist`.
+- **Vigia dos discos** (`src/backup/volumes.js`), a cada 3 s, sempre que há um projeto aberto (ligado ou não: a tela
+  mostra todo disco plugado, como no RushDock):
+  - macOS: `/Volumes`, sem a raiz (atalho), ocultos, o disco interno do Mac e imagem de disco. Id = VolumeUUID do
+    `diskutil info -plist`. **O cartão no leitor SD embutido** (MacBook Pro, Mac Studio) se diz `Internal`, mas é
+    `RemovableMedia`/`Ejectable` (ou `BusProtocol` = Secure Digital): entra. Antes ele era descartado como disco
+    interno, e por isso o cartão "não aparecia".
   - Windows: letras D: a Z:, sem CD/DVD e unidade de rede (PowerShell `Get-Volume`). Id = número de série do `vol`
     ("XXXX-XXXX"; o texto em português também funciona).
   - Linux: `/media/$USER` e `/run/media/$USER`. Id = UUID do `findmnt`.
@@ -67,18 +74,25 @@ formatar. Sem internet: nada vai para o Drive.
   destinos, diárias, donos, mapa cartão → dono, serial → dono, ignorados, numeração dos cartões e o histórico (até 500
   descargas: data, diária, dono, cartão, pasta, arquivos, bytes, duração, resultado).
 
+- **"Usar como cartão"** (`POST /api/backup/usar`): qualquer disco plugado que não é destino entra na hora, mesmo
+  ignorado ou com o automático desligado. Conhecido → fila; novo → a pergunta "de quem é?".
+- **Sem licença do macOS para ler o cartão** (EPERM/EACCES): a mensagem diz onde liberar (Privacidade e Segurança →
+  Arquivos e Pastas → SOBEDESCE → Volumes Removíveis).
+
 ## Rotas locais (`src/server/backup.js`)
 
 | Rota | O quê |
 | --- | --- |
 | `GET /api/backup` | o estado (também em `/api/state` → `backup` e no SSE `backup`) |
-| `POST /api/backup/projetos` `{ nome, destinos[], ejetar }` | cria e abre o projeto |
+| `POST /api/backup/projetos` `{ nome, destinos[], ejetar, ligar? }` | cria e abre o projeto (`ligar` padrão: sim) |
 | `POST /api/backup/projeto` `{ id, nome?, destinos?, ejetar? }` | edita |
 | `POST /api/backup/abrir` / `apagar` `{ id }` | troca de projeto / tira da lista (os arquivos ficam) |
 | `POST /api/backup/ligar` `{ ligado }` | liga/desliga o vigia |
 | `POST /api/backup/diaria` `{}` ou `{ n }` | nova diária / volta para uma diária |
-| `POST /api/backup/responder` `{ caminho, donoId \| nome+camera \| ignorar }` | o toque "de quem é" |
+| `POST /api/backup/responder` `{ caminho, donoId \| nome+camera(+pasta) \| ignorar }` | o toque "de quem é" |
 | `POST /api/backup/repetir` / `ejetar` `{ caminho }` | copiar de novo / ejetar |
+| `POST /api/backup/usar` `{ caminho }` | "Usar como cartão" / "Copiar agora" |
+| `POST /api/backup/dono` `{ id, nome?, camera?, pasta? }` | edita o dono (a pasta vale para os próximos cartões) |
 | `POST /api/backup/cancelar` | para a descarga de agora |
 | `POST /api/backup/ignorados/limpar` | volta a perguntar pelos discos ignorados |
 

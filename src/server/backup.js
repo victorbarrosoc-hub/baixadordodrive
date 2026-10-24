@@ -32,7 +32,7 @@ export function registerBackup({ route, ctx, HttpProblem, servico }) {
 
   route('GET', '/api/backup', tratar(async () => svc.view()))
 
-  route('POST', '/api/backup/projetos', tratar(async ({ body }) => svc.criarProjeto({ nome: texto(body.nome, 200), destinos: lista(body.destinos), ejetar: body.ejetar === true })))
+  route('POST', '/api/backup/projetos', tratar(async ({ body }) => svc.criarProjeto({ nome: texto(body.nome, 200), destinos: lista(body.destinos), ejetar: body.ejetar === true, ligar: body.ligar !== false })))
 
   route('POST', '/api/backup/projeto', tratar(async ({ body }) => {
     const id = texto(body.id, 100)
@@ -58,10 +58,23 @@ export function registerBackup({ route, ctx, HttpProblem, servico }) {
       donoId: texto(body.donoId, 100),
       nome: texto(body.nome, 200),
       camera: texto(body.camera, 200),
+      pasta: texto(body.pasta, 200),
       ignorar: body.ignorar === true,
     })))
 
+  route('POST', '/api/backup/dono', tratar(async ({ body }) => {
+    const id = texto(body.id, 100)
+    if (!id) throw new HttpProblem(400, 'Dono inválido.')
+    return svc.editarDono(id, {
+      nome: body.nome === undefined ? undefined : texto(body.nome, 200),
+      camera: body.camera === undefined ? undefined : texto(body.camera, 200),
+      pasta: body.pasta === undefined ? undefined : texto(body.pasta, 200),
+    })
+  }))
+
   route('POST', '/api/backup/repetir', tratar(async ({ body }) => svc.repetir(texto(body.caminho))))
+
+  route('POST', '/api/backup/usar', tratar(async ({ body }) => svc.usarComoCartao(texto(body.caminho))))
 
   route('POST', '/api/backup/ejetar', tratar(async ({ body }) => svc.ejetar(texto(body.caminho))))
 

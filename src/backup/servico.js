@@ -5,6 +5,8 @@
 // de série da câmera no XML da Sony (cartão formatado), já dizem o dono.
 // A cópia é o motor do "Entre discos" (src/discos/), numa instância só daqui: compara por caminho e tamanho, copia o que
 // é novo, confere o copiado lendo de volta (xxHash64) e compara tudo de novo no fim. Um cartão por vez (fila).
+// O vigia roda sempre que há um projeto: a tela mostra todo disco plugado (como o cartão, o SSD, o destino). "Ligado"
+// quer dizer que o cartão começa sozinho; desligado, cada disco espera o "Usar como cartão" / "Copiar agora".
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -19,6 +21,11 @@ const PEQUENO = 32 * 1024 * 1024 // índice/XML da câmera que o cartão reescre
 const LISTA_MAX = 30
 export const ANTERIORES = '.sobedesce-anteriores'
 
+// O macOS pede licença para um app ler "volumes removíveis". Negada (ou nunca respondida), a leitura falha com EPERM.
+export const MSG_PERMISSAO =
+  'O sistema não deixou o SOBEDESCE ler o cartão. No Mac: Ajustes do Sistema → Privacidade e Segurança → Arquivos e Pastas → SOBEDESCE → ligue "Volumes Removíveis". Depois toque em "Copiar agora".'
+const semPermissao = (err) => ['EPERM', 'EACCES'].includes(err?.code) || /\b(EPERM|EACCES)\b|operation not permitted|permission denied/i.test(String(err?.message || ''))
+
 export class BackupError extends Error {
   constructor(status, message) {
     super(message)
@@ -27,6 +34,7 @@ export class BackupError extends Error {
   }
 }
 
+const limparPasta = (v) => nomeDePasta(String(v || '').trim().slice(0, 80)) || ''
 const novoId = (p) => `${p}${crypto.randomBytes(6).toString('base64url')}`
 const dois = (n) => String(n).padStart(2, '0')
 const hojeLocal = (d = new Date()) => `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`
@@ -39,6 +47,8 @@ const carimbo = (d = new Date()) => `${hojeLocal(d)}_${dois(d.getHours())}${dois
 
 /** "Aladim - FX30" (ou só o nome, sem câmera). */
 export const rotuloDono = (d) => [String(d?.nome || '').trim(), String(d?.camera || '').trim()].filter(Boolean).join(' - ') || 'Sem nome'
+/** A pasta do dono dentro de Cenas: a que a pessoa escolheu (ex.: "01_CAMERA_A_RAPHA_FX30") ou "Nome - Câmera". */
+export const pastaDono = (d) => nomeDePasta(String(d?.pasta || '').trim()) || nomeDePasta(rotuloDono(d)) || 'Sem nome'
 const mesmoModelo = (a, b) => !!a && !!b && String(a).replace(/\s+/g, '').toLowerCase() === String(b).replace(/\s+/g, '').toLowerCase()
 
 async function eDiretorio(p) {
@@ -161,8 +171,8 @@ export class BackupService {
     } catch {
       this.dados = vazio()
     }
-    if (this.dados.ligado && this.#projeto()) this.#vigiar()
-    else this.dados.ligado = false
+    if (!this.#projeto()) this.dados.ligado = false
+    if (this.#projeto()) this.#vigiar()
     return this.view()
   }
 
@@ -192,6 +202,8 @@ export class BackupService {
           nome: o.nome,
           camera: o.camera,
           rotulo: rotuloDono(o),
+          pasta: pastaDono(o),
+          pastaPropria: !!String(o.pasta || '').trim(),
           cartoes: Object.keys(rolos).length,
           descargas: hs.length,
           bytes: hs.reduce((s, h) => s + (h.bytes || 0), 0),
@@ -231,9 +243,7 @@ export class BackupService {
       atual: this.dados.atual,
       projetos: this.dados.projetos.map((x) => ({ id: x.id, nome: x.nome, diaria: this.#diaria(x).nome, descargas: x.historico.length })),
       projeto,
-      volumes: [...this.vistos.values()]
-        .filter((v) => v.estado !== 'destino')
-        .map((v) => ({ caminho: v.caminho, nome: v.nome, estado: v.estado, dono: v.dono || null, erro: v.erro || null })),
+      volumes: [...this.vistos.values()].map((v) => ({ caminho: v.caminho, nome: v.nome, estado: v.estado, dono: v.dono || null, erro: v.erro || null, capacidade: v.capacidade ?? null })),
       pedidos: this.pedidos.map((x) => ({ ...x })),
       fila: this.fila.map((c) => this.vistos.get(c)).filter(Boolean).map((v) => ({ caminho: v.caminho, nome: v.nome, dono: v.dono || null })),
       job: job
@@ -275,14 +285,17 @@ export class BackupService {
 
   // ───── projetos ─────
 
-  async criarProjeto({ nome, destinos, ejetar = false } = {}) {
+  async criarProjeto({ nome, destinos, ejetar = false, ligar = true } = {}) {
     if (this.job) throw new BackupError(409, 'Espere a descarga de agora terminar.')
     const n = nomeDePasta(nome)
     if (!n) throw new BackupError(400, 'Dê um nome ao projeto.')
     const p = normalizarProjeto({ id: novoId('prj'), nome: n, destinos: validarDestinos(destinos), ejetar: ejetar === true })
     this.dados.projetos.unshift(p)
     this.dados.atual = p.id
+    // Quem cria o projeto quer espetar o cartão em seguida: já liga (a tela mostra a chave para desligar).
+    if (ligar !== false) this.dados.ligado = true
     this.#reiniciarVistos()
+    this.#vigiar()
     await this.#salvar()
     this.#mudou(true)
     return this.view()
@@ -326,7 +339,11 @@ export class BackupService {
     if (this.dados.atual === id) {
       this.dados.atual = this.dados.projetos[0]?.id || null
       this.#reiniciarVistos()
-      if (!this.dados.atual) this.#parar()
+      if (!this.dados.atual) {
+        this.#parar()
+        clearInterval(this.timer)
+        this.timer = null
+      }
     }
     await this.#salvar()
     this.#mudou(true)
@@ -334,10 +351,15 @@ export class BackupService {
   }
 
   async ligar(on) {
-    if (on && !this.#projeto()) throw new BackupError(409, 'Crie um projeto antes.')
+    const p = this.#projeto()
+    if (on && !p) throw new BackupError(409, 'Crie um projeto antes.')
     this.dados.ligado = !!on
-    if (on) this.#vigiar()
-    else this.#parar()
+    if (on) {
+      this.#vigiar()
+      // O que já estava plugado esperando: agora entra (o cartão conhecido na fila; o novo pergunta o dono).
+      for (const reg of [...this.vistos.values()]) if (reg.estado === 'disco' || reg.estado === 'pronto') await this.#avaliar(reg, p)
+      this.#processar()
+    } else this.#parar()
     await this.#salvar()
     this.#mudou(true)
     return this.view()
@@ -377,6 +399,57 @@ export class BackupService {
     return this.view()
   }
 
+  /**
+   * Edita o dono: nome, câmera e a pasta dentro de Cenas (vazia = "Nome - Câmera"). Os cartões que já passaram ficam
+   * onde estão; os próximos vão para a pasta nova.
+   */
+  async editarDono(id, { nome, camera, pasta } = {}) {
+    const p = this.#projeto()
+    if (!p) throw new BackupError(409, 'Crie um projeto antes.')
+    const dono = p.donos.find((d) => d.id === id)
+    if (!dono) throw new BackupError(404, 'Dono não encontrado.')
+    if (this.job?.donoId === id) throw new BackupError(409, 'Espere o cartão deste dono terminar.')
+    // Monta o dono novo e confere antes de mexer: uma recusa não pode deixar a pasta trocada pela metade.
+    const novo = { ...dono }
+    if (nome !== undefined) {
+      novo.nome = String(nome || '').trim().slice(0, 60)
+      if (!novo.nome) throw new BackupError(400, 'Diga o nome do dono.')
+    }
+    if (camera !== undefined) novo.camera = String(camera || '').trim().slice(0, 40)
+    if (pasta !== undefined) novo.pasta = limparPasta(pasta)
+    const outro = p.donos.find((d) => d.id !== id && pastaDono(d).toLowerCase() === pastaDono(novo).toLowerCase())
+    if (outro) throw new BackupError(409, `A pasta "${pastaDono(novo)}" já é de ${rotuloDono(outro)}.`)
+    Object.assign(dono, { nome: novo.nome, camera: novo.camera, pasta: novo.pasta })
+    for (const reg of this.vistos.values()) if (reg.donoId === id) reg.dono = rotuloDono(dono)
+    await this.#salvar()
+    this.#mudou(true)
+    return this.view()
+  }
+
+  /**
+   * "Usar como cartão": um disco que está plugado (o SSD que o vigia não perguntou, um ignorado, ou com o backup
+   * desligado) entra agora: o conhecido vai para a fila; o novo pergunta de quem é.
+   */
+  async usarComoCartao(caminho) {
+    const p = this.#projeto()
+    if (!p) throw new BackupError(409, 'Crie um projeto antes.')
+    const reg = this.vistos.get(caminho)
+    if (!reg) throw new BackupError(404, 'Esse disco não está plugado.')
+    if (reg.estado === 'destino') throw new BackupError(409, 'Esse disco é um destino deste projeto.')
+    if (this.job?.caminho === caminho || this.fila.includes(caminho) || reg.estado === 'pedido') return this.view()
+    p.ignorados = p.ignorados.filter((x) => x !== reg.id)
+    if (reg.donoId && p.donos.some((d) => d.id === reg.donoId)) this.#enfileirar(reg)
+    else {
+      await this.#avaliar(reg, p, { perguntar: true })
+      // Desligado, o cartão conhecido fica "pronto": aqui a pessoa pediu, então entra na fila.
+      if (reg.estado === 'pronto') this.#enfileirar(reg)
+    }
+    await this.#salvar()
+    this.#processar()
+    this.#mudou(true)
+    return this.view()
+  }
+
   // ───── o vigia dos discos ─────
 
   #vigiar() {
@@ -388,13 +461,16 @@ export class BackupService {
     }
   }
 
+  /** Desliga o começo automático: a fila e as perguntas param; os discos continuam na tela, esperando. */
   #parar() {
-    clearInterval(this.timer)
-    this.timer = null
     this.dados.ligado = false
     this.fila = []
     this.pedidos = []
-    for (const c of [...this.vistos.keys()]) if (!this.job || this.job.caminho !== c) this.vistos.delete(c)
+    for (const reg of this.vistos.values()) {
+      if (this.job?.caminho === reg.caminho) continue
+      if (reg.estado === 'fila') reg.estado = 'pronto'
+      else if (reg.estado === 'pedido') reg.estado = 'disco'
+    }
   }
 
   #reiniciarVistos() {
@@ -407,7 +483,7 @@ export class BackupService {
   async varrer() {
     if (this.varrendo || this.fechado) return
     const p = this.#projeto()
-    if (!p || !this.dados.ligado) return
+    if (!p) return
     this.varrendo = true
     try {
       this.destinosAgora = await Promise.all(p.destinos.map(async (c) => {
@@ -437,20 +513,31 @@ export class BackupService {
       reg.estado = 'ignorado'
       return
     }
+    await this.#avaliar(reg, p)
+  }
+
+  /** De quem é o disco: conhecido → fila (ou "pronto", desligado); novo → a pergunta (ou só "plugado", desligado). */
+  async #avaliar(reg, p, { perguntar = this.dados.ligado } = {}) {
     let donoId = p.cartoes[reg.id]?.donoId
     if (donoId && !p.donos.some((d) => d.id === donoId)) donoId = null
     let camera = null
     if (!donoId) {
-      camera = await this.camera(v.caminho).catch(() => null)
+      camera = await this.camera(reg.caminho).catch(() => null)
       const peloSerial = camera?.serial ? p.cameras[camera.serial] : null
       if (peloSerial && p.donos.some((d) => d.id === peloSerial)) donoId = peloSerial
     }
     if (donoId) {
       this.#mapear(p, reg, donoId, camera)
-      this.#enfileirar(reg)
+      if (this.dados.ligado) this.#enfileirar(reg)
+      else reg.estado = 'pronto'
       await this.#salvar()
       return
     }
+    if (!perguntar) {
+      reg.estado = 'disco'
+      return
+    }
+    if (this.pedidos.some((x) => x.caminho === reg.caminho)) return
     reg.estado = 'pedido'
     const mesmos = camera?.curto ? p.donos.filter((d) => mesmoModelo(d.camera, camera.curto)) : []
     const pedido = {
@@ -489,7 +576,7 @@ export class BackupService {
   }
 
   /** "De quem é este cartão?": um dono que já existe, um novo ("Aladim" + "FX30") ou ignorar o disco. */
-  async responder({ caminho, donoId, nome, camera, ignorar = false } = {}) {
+  async responder({ caminho, donoId, nome, camera, pasta, ignorar = false } = {}) {
     const p = this.#projeto()
     if (!p) throw new BackupError(409, 'Crie um projeto antes.')
     const pedido = this.pedidos.find((x) => x.caminho === caminho)
@@ -510,7 +597,13 @@ export class BackupService {
         }
         dono = p.donos.find((d) => d.nome.toLowerCase() === n.toLowerCase() && String(d.camera || '').toLowerCase() === c.toLowerCase())
         if (!dono) {
-          dono = { id: novoId('don'), nome: n, camera: c, criadoEm: this.agora().toISOString() }
+          dono = { id: novoId('don'), nome: n, camera: c, pasta: limparPasta(pasta), criadoEm: this.agora().toISOString() }
+          // Dois donos na mesma pasta misturariam os "Cartão NN" de um com os do outro.
+          const outro = p.donos.find((d) => pastaDono(d).toLowerCase() === pastaDono(dono).toLowerCase())
+          if (outro) {
+            this.pedidos.unshift(pedido)
+            throw new BackupError(409, `A pasta "${pastaDono(dono)}" já é de ${rotuloDono(outro)}. Escolha o dono ou outra pasta.`)
+          }
           p.donos.push(dono)
         }
       }
@@ -622,9 +715,11 @@ export class BackupService {
       job.faltando = faltam
       this.#mudou()
       await dormir(Math.max(200, this.vigiaMs || 500))
-      if (job.saiu || job.cancelado || this.fechado || !this.dados.ligado || this.#projeto() !== p) {
-        reg.estado = job.cancelado ? 'cancelado' : 'fila'
-        if (!job.saiu && !job.cancelado && this.dados.ligado) this.fila.unshift(reg.caminho)
+      // Desligar o automático não para quem já está esperando: a pessoa pode ter pedido "Copiar agora".
+      if (job.saiu || job.cancelado || this.fechado || this.#projeto() !== p) {
+        const volta = !job.saiu && !job.cancelado && this.dados.ligado
+        reg.estado = job.cancelado ? 'cancelado' : volta ? 'fila' : 'pronto'
+        if (volta) this.fila.unshift(reg.caminho)
         return
       }
     }
@@ -632,8 +727,8 @@ export class BackupService {
 
     const n = this.#rolo(p, diaria.n, dono.id, reg.id)
     const pasta = `Cartão ${dois(n)}`
-    const pais = p.destinos.map((d) => path.join(d, nomeDePasta(p.nome) || 'Projeto', diaria.nome, 'Cenas', nomeDePasta(rotuloDono(dono)) || 'Sem nome'))
-    job.pasta = [diaria.nome, 'Cenas', rotuloDono(dono), pasta].join(' / ')
+    const pais = p.destinos.map((d) => path.join(d, nomeDePasta(p.nome) || 'Projeto', diaria.nome, 'Cenas', pastaDono(dono)))
+    job.pasta = [diaria.nome, 'Cenas', pastaDono(dono), pasta].join(' / ')
     await this.#salvar()
 
     let copiados = 0
@@ -674,7 +769,7 @@ export class BackupService {
       }
     } catch (err) {
       const sumiu = job.saiu || !(await eDiretorio(reg.caminho))
-      if (!job.cancelado) erro = sumiu ? 'O cartão saiu antes de terminar. Espete de novo: continua de onde parou.' : err?.message || 'A descarga parou.'
+      if (!job.cancelado) erro = sumiu ? 'O cartão saiu antes de terminar. Espete de novo: continua de onde parou.' : semPermissao(err) ? MSG_PERMISSAO : err?.message || 'A descarga parou.'
     }
     if (job.saiu && !erro) erro = 'O cartão saiu antes de terminar. Espete de novo: continua de onde parou.'
 

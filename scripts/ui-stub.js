@@ -221,12 +221,39 @@ function buildDrive() {
   addDriveItem('sd_xyz', 'Arquivo morto.zip', { size: 128 * GB })
   addDriveItem('sd_final', 'Mix_5.1_v2.wav', { size: 3.4 * GB })
   addDriveItem('sd_final', 'Timeline_Final.xml', { size: 2.1 * MB })
+
+  // "Compartilhados comigo": de outras pessoas, fora do Meu Drive (sem pai à vista). `leitor` = só pode ver.
+  const comigo = (name, opts = {}) => {
+    const it = addDriveItem(null, name, opts)
+    it.compartilhado = { por: opts.por || 'Bia Produtora', leitor: !!opts.leitor }
+    return it
+  }
+  const casamento = comigo('Casamento Ana e Leo', { folder: true, id: 'sh_casamento', por: 'Bia Produtora', ageMs: 3600e3 * 20 })
+  const cam = folder(casamento.id, 'Câmera A')
+  for (let i = 1; i <= 6; i++) addDriveItem(cam.id, `A00${i}_C0${10 + i}_0920.mov`, { size: between(6, 30) * GB })
+  folder(casamento.id, 'Áudio')
+  addDriveItem(casamento.id, 'Roteiro da cerimônia', { mime: GDOC.doc })
+  const agencia = comigo('Agência Norte · Campanha', { folder: true, id: 'sh_agencia', por: 'Agência Norte', leitor: true, ageMs: 86400e3 * 4 })
+  addDriveItem(agencia.id, 'Referências_v2.pdf', { size: 18 * MB })
+  addDriveItem(agencia.id, 'Logo_pack.zip', { size: 240 * MB })
+  comigo('Trilha_aprovada.wav', { por: 'Lucas Som', leitor: true, size: 412 * MB, ageMs: 86400e3 * 2 })
+  comigo('Contrato assinado.pdf', { por: 'Edu Cardoso', size: 1.2 * MB, ageMs: 86400e3 * 9 })
+}
+
+/** Leitor de algo que veio compartilhado (ou de dentro): não renomeia, não move, não recebe. */
+function soLeitura(item) {
+  for (let p = item; p; p = p.parents[0] ? driveItems.get(p.parents[0]) : null) if (p.compartilhado) return p.compartilhado.leitor
+  return false
 }
 
 function publicItem(item) {
   if (!item) return null
-  const { children, ...rest } = item
-  return rest
+  const { children, compartilhado, ...rest } = item
+  // Permissões como o motor devolve na navegação (src/google/drive.js capsInfo).
+  const leitor = soLeitura(item)
+  const out = { ...rest, canRename: !leitor && item.id !== 'root', canMove: !leitor && item.parents.length > 0, canAddChildren: item.isFolder && !leitor, canTrash: !leitor }
+  if (compartilhado) out.owner = { name: compartilhado.por, email: null }
+  return out
 }
 
 function sortItems(list) {
@@ -1231,6 +1258,63 @@ async function route(req, res, url) {
       return { about: { user: { email: account.email, name: account.name, photoUrl: null, permissionId: account.id }, quota: { limit: 2e12, usage: 1.384e12, usageInDrive: 1.21e12 } } }
     }
     if (method === 'GET' && what === 'drives') return { drives: sharedDrives }
+    // Tamanho das pastas (src/server/tamanho.js): a conta já sai pronta, somando a árvore inventada.
+    if (what === 'tamanho') {
+      const conta = (id) => {
+        const f = driveItems.get(id)
+        if (!f || !f.isFolder) return null
+        const tudo = walkDrive(id)
+        const pastas = (fid) => driveItems.get(fid).children.reduce((n, c) => n + (driveItems.get(c).isFolder ? 1 + pastas(c) : 0), 0)
+        const docs = tudo.filter((x) => x.item.isGoogleDoc).length
+        return { folderId: id, status: 'done', bytes: tudo.reduce((t, x) => t + (x.item.size || 0), 0), files: tudo.length, folders: pastas(id), docs, shortcuts: 0, pending: 0, startedAt: now(), finishedAt: now(), error: null }
+      }
+      if (method === 'GET') return { tamanhos: Object.fromEntries((q.get('ids') || '').split(',').filter(Boolean).map((id) => [id, conta(id)])) }
+      const body = await readBody(req)
+      return { tamanho: method === 'DELETE' ? null : conta(body.folderId === 'root' ? 'root' : body.folderId) }
+    }
+    if (method === 'GET' && what === 'compartilhados') {
+      return { items: sortItems([...driveItems.values()].filter((it) => it.compartilhado).map(publicItem)) }
+    }
+    if (method === 'POST' && what === 'renomear') {
+      const body = await readBody(req)
+      const it = driveItems.get(body.id)
+      if (!it) throw httpError(404, 'Não achei este item: foi apagado ou esta conta perdeu o acesso.')
+      if (soLeitura(it)) throw httpError(403, 'Sua conta não pode renomear este item. Peça a quem é dono.')
+      const name = String(body.name || '').trim()
+      if (!name) throw httpError(400, 'Dê um nome.')
+      it.name = name
+      return { item: publicItem(it) }
+    }
+    if (method === 'POST' && what === 'mover') {
+      const body = await readBody(req)
+      const dest = driveItems.get(body.destId)
+      if (!dest || !dest.isFolder) throw httpError(400, 'Escolha a pasta de destino.')
+      const movidos = []
+      const ja = []
+      const recusados = []
+      for (const id of body.ids || []) {
+        const it = driveItems.get(id)
+        let erro = null
+        if (!it) erro = [404, 'Não achei o item ou a pasta de destino: foi apagado ou esta conta perdeu o acesso.']
+        else if (it.parents[0] === dest.id) {
+          ja.push(id)
+          continue
+        } else if (drivePath(dest.id).some((c) => c.id === it.id)) erro = [400, 'Não dá para mover uma pasta para dentro dela mesma.']
+        else if (!it.parents.length) erro = [403, 'Este item foi compartilhado com você e só quem é dono pode mudar de lugar. Copie para o seu Drive, se precisar.']
+        else if (soLeitura(it) || soLeitura(dest)) erro = [403, 'Sua conta não pode mover este item para lá. Precisa poder editar o item e a pasta de destino.']
+        if (erro) {
+          recusados.push({ id, status: erro[0], error: erro[1] })
+          continue
+        }
+        const old = driveItems.get(it.parents[0])
+        if (old) old.children = old.children.filter((c) => c !== it.id)
+        it.parents = [dest.id]
+        dest.children.push(it.id)
+        movidos.push(id)
+      }
+      if (!movidos.length && !ja.length && recusados.length) throw httpError(recusados[0].status, recusados[0].error)
+      return { movidos, ja, recusados }
+    }
     if (method === 'GET' && what === 'list') {
       const folderId = q.get('folderId') || 'root'
       const f = driveItems.get(folderId)
