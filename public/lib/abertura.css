@@ -1,0 +1,15 @@
+/* Abertura (lib/abertura.js). O mesmo arquivo no app do computador (public/lib/) e no do celular
+   (web/public/app/lib/): mantenha os dois iguais. Ligado no index.html, porque o site do celular não aceita <style>
+   criado pelo código (Content-Security-Policy). */
+.ab-camada{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;background:var(--bg,#0b0b0c);color:var(--text,#f5f5f7);cursor:default;-webkit-user-select:none;user-select:none}
+.ab-lockup{display:grid;justify-items:center;gap:calc(var(--ab-s) * 0.28)}
+.ab-mk{position:relative;width:var(--ab-s);height:var(--ab-s)}
+.ab-q{position:absolute;inset:calc(var(--ab-s) * 0.5 / 24);border-radius:calc(var(--ab-s) * 7 / 24);background:#111113}
+.ab-bar{position:absolute;width:calc(var(--ab-s) * 3.6 / 24);height:calc(var(--ab-s) * 11.6 / 24);border-radius:99px}
+.ab-up{left:calc(var(--ab-s) * 7.2 / 24);top:calc(var(--ab-s) * 4.7 / 24);background:#9b85ff}
+.ab-down{left:calc(var(--ab-s) * 13.2 / 24);top:calc(var(--ab-s) * 7.7 / 24);background:#3d9cff}
+.ab-faisca{position:absolute;width:calc(var(--ab-s) * 0.09);height:calc(var(--ab-s) * 0.09);border-radius:50%;opacity:0}
+.ab-wm{display:flex;font-family:var(--font-display,-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter","Segoe UI",Roboto,sans-serif);font-size:calc(var(--ab-s) * 0.34);letter-spacing:.14em;line-height:1;white-space:nowrap}
+.ab-wm span{display:inline-block}
+.ab-f{font-weight:750}
+.ab-r{font-weight:300}

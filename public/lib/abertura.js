@@ -13,6 +13,8 @@
 //     sobe e desce suave; a tela de "carregando" do app não chega a aparecer. No máximo ~8 s.
 //   - Um toque, clique ou tecla pula na hora.
 //   - Sem Web Animations: não mostra nada.
+//   - O visual fica em lib/abertura.css, ligado no index.html de cada app: o site do celular não aceita <style> criado
+//     pelo código (Content-Security-Policy style-src 'self'); com ele, a camada ficava sem estilo e invisível.
 // O símbolo é o do favicon (viewBox 24: quadrado rx 7; barras de 3,6 em x 9 e x 15).
 
 const CHAVE = 'sobedesce.abertura'
@@ -21,21 +23,6 @@ const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)'
 const SAI = 'cubic-bezier(0.55, 0, 0.75, 0.2)'
 const ESPERA_MS = 4500 // quanto a abertura segura esperando o app ficar pronto
 const MAX_MS = 8000
-
-const CSS = `
-.ab-camada{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;background:var(--bg,#0b0b0c);color:var(--text,#f5f5f7);cursor:default;-webkit-user-select:none;user-select:none}
-.ab-lockup{display:grid;justify-items:center;gap:calc(var(--ab-s) * 0.28)}
-.ab-mk{position:relative;width:var(--ab-s);height:var(--ab-s)}
-.ab-q{position:absolute;inset:calc(var(--ab-s) * 0.5 / 24);border-radius:calc(var(--ab-s) * 7 / 24);background:#111113}
-.ab-bar{position:absolute;width:calc(var(--ab-s) * 3.6 / 24);height:calc(var(--ab-s) * 11.6 / 24);border-radius:99px}
-.ab-up{left:calc(var(--ab-s) * 7.2 / 24);top:calc(var(--ab-s) * 4.7 / 24);background:#9b85ff}
-.ab-down{left:calc(var(--ab-s) * 13.2 / 24);top:calc(var(--ab-s) * 7.7 / 24);background:#3d9cff}
-.ab-faisca{position:absolute;width:calc(var(--ab-s) * 0.09);height:calc(var(--ab-s) * 0.09);border-radius:50%;opacity:0}
-.ab-wm{display:flex;font-family:var(--font-display,-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter","Segoe UI",Roboto,sans-serif);font-size:calc(var(--ab-s) * 0.34);letter-spacing:.14em;line-height:1;white-space:nowrap}
-.ab-wm span{display:inline-block}
-.ab-f{font-weight:750}
-.ab-r{font-weight:300}
-`
 
 function el(tag, cls, pai) {
   const e = document.createElement(tag)
@@ -72,8 +59,6 @@ export function abertura({ tamanho = 84, sempre = false, pronto = Promise.resolv
   ativa = true
   marcar()
 
-  const estilo = el('style', null, document.head)
-  estilo.textContent = CSS
   const camada = el('div', 'ab-camada', document.body)
   camada.setAttribute('aria-hidden', 'true')
   camada.style.setProperty('--ab-s', `${tamanho}px`)
@@ -106,7 +91,6 @@ export function abertura({ tamanho = 84, sempre = false, pronto = Promise.resolv
     clearTimeout(seguranca)
     for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.removeEventListener(ev, pular, true)
     camada.remove()
-    estilo.remove()
   }
   // Pular: a animação para onde está e a camada sai num esmaecer curto.
   const pular = () => {
