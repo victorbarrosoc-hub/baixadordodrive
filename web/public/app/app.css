@@ -8600,16 +8600,26 @@ button.k-item:active:not(:disabled) {
 .p2p-acoes.is-duas {
   align-items: start;
 }
+/* Coluna única que nunca passa da largura da folha: sem o minmax(0, …), a fileira de filtros (não quebra linha) alarga
+   a grade e a folha inteira desliza para o lado. Só os filtros deslizam. */
 .pc-sheet {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  overflow-x: hidden;
 }
 .pc-sheet .pc-block {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  min-width: 0;
 }
 .pc-filtros {
   overflow: hidden;
+}
+.pc-filtros .k-pilulas.is-rolar {
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
 }
 
 /* ───── Drive, conta e pastas no kit ───── */
@@ -8727,4 +8737,27 @@ a.k-botao {
 .imenu .item-titles .sub {
   margin: 2px 0 0;
   color: var(--text-2);
+}
+
+/* ───── nada passa da largura do celular ─────
+   No iPhone (Safari), um <select> mede a opção mais comprida ("Canon EOS R6 Mark II · 4K 23.98/29.97p IPB (Standard) ·
+   120 Mb/s") e uma grade sem colunas definidas cresce junto: a página inteira desliza para o lado. O select encolhe
+   (texto com reticências), as grades das telas do Criar têm uma coluna que nunca passa da largura, e a tela corta o
+   que sobrar (clip não cria rolagem: o topo grudado continua). O que precisa deslizar (filtros) rola dentro dele. */
+select.input {
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+.cr-campo,
+.calc-cel,
+.calc-cam,
+.calc-res,
+.calc-cams,
+.calc-l,
+.calc-l span {
+  grid-template-columns: minmax(0, 1fr);
+}
+.screen {
+  overflow-x: clip;
 }
