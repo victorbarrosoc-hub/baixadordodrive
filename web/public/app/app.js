@@ -142,9 +142,9 @@ function App() {
   return html`${view}<${SheetHost} registry=${SHEETS} /><${Toasts} />`
 }
 
-// A abertura com o símbolo (uma vez por abertura do app; lib/abertura.js). Aberto pela Tela de Início do iPhone, a
-// imagem de abertura do sistema já mostrou o símbolo com 98 pt no mesmo lugar: o quadrado começa pronto.
-if (!LAN) abertura({ tamanho: 98, quadradoPronto: window.navigator.standalone === true })
+// A abertura com o símbolo (uma vez por abertura do app; lib/abertura.js). Ela parte do quadro que já está na tela: a
+// imagem de abertura do iPhone e o carregamento do index.html (.boot), iguais (símbolo de 105 px).
+if (!LAN) abertura({ tamanho: 105, continuar: true })
 render(html`<${App} />`, document.getElementById('app'))
 document.documentElement.classList.add('is-ready')
 

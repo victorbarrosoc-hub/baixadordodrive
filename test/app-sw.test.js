@@ -143,10 +143,10 @@ describe('sw.js /app/stream/', () => {
     assert.deepEqual(missing, [])
   })
 
-  test('cache e versão do app subiram (2.8.38 / sobedesce-app-v53)', () => {
-    assert.match(SRC, /const CACHE = 'sobedesce-app-v53'/)
+  test('cache e versão do app subiram (2.8.39 / sobedesce-app-v54)', () => {
+    assert.match(SRC, /const CACHE = 'sobedesce-app-v54'/)
     const cfg = fs.readFileSync(new URL('../web/public/app/lib/config.js', import.meta.url), 'utf8')
-    assert.match(cfg, /export const VERSION = '2\.8\.38'/)
+    assert.match(cfg, /export const VERSION = '2\.8\.39'/)
     const lib = fs.readFileSync(new URL('../web/public/app/lib/stream.js', import.meta.url), 'utf8')
     assert.match(lib, /p\.set\('k', KEY\)/, 'a página põe a chave em todo endereço')
     assert.match(lib, /d\.k !== KEY/, 'a página só entrega o token com a chave dela')
